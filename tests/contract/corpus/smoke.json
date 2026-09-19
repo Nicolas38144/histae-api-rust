@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "health_live",
+      "safety": "read_only",
+      "request": {
+        "method": "GET",
+        "path": "/health/live",
+        "headers": {},
+        "body": null
+      },
+      "expected": {
+        "status": 200,
+        "headers": {
+          "cache-control": { "kind": "exact", "value": "no-store" },
+          "content-type": { "kind": "contains", "value": "application/json" },
+          "x-content-type-options": { "kind": "exact", "value": "nosniff" },
+          "x-request-id": { "kind": "uuid_v4" }
+        },
+        "body": { "kind": "exact_json", "value": { "status": "ok" } }
+      }
+    },
+    {
+      "id": "unknown_route",
+      "safety": "read_only",
+      "request": {
+        "method": "GET",
+        "path": "/__contract/missing",
+        "headers": {},
+        "body": null
+      },
+      "expected": {
+        "status": 404,
+        "headers": {
+          "cache-control": { "kind": "exact", "value": "no-store" },
+          "content-type": { "kind": "contains", "value": "application/json" },
+          "x-content-type-options": { "kind": "exact", "value": "nosniff" },
+          "x-request-id": { "kind": "uuid_v4" }
+        },
+        "body": {
+          "kind": "exact_json",
+          "value": {
+            "error": {
+              "code": "route_not_found",
+              "message": "This route is not available."
+            }
+          }
+        }
+      }
+    }
+  ]
+}
