@@ -2,6 +2,8 @@
 name = "histae-api-rust"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
+autobins = false
 
 [features]
 default = []
@@ -9,23 +11,43 @@ webauthn-probe = [
     "dep:base64",
     "dep:openssl",
     "dep:serde_cbor_2",
-    "dep:url",
     "dep:webauthn-rs-core",
 ]
 
 [dependencies]
 base64 = { version = "0.22.1", optional = true }
 imagesize = "0.14.0"
+dotenvy = "0.15.7"
 openssl = { version = "0.10.75", features = ["vendored"], optional = true }
+regex = "1.11.2"
 reqwest = { version = "0.13.5", default-features = false, features = ["cookies", "rustls"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_cbor_2 = { version = "0.13.0", optional = true }
 serde_json = "1.0.145"
 sha2 = "0.10.9"
-tokio = { version = "1.47.1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
-url = { version = "2.5.7", optional = true }
+tokio = { version = "1.47.1", features = ["io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { version = "0.7.16", features = ["rt"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", default-features = false, features = ["env-filter", "fmt"] }
+url = "2.5.7"
 webauthn-rs-core = { version = "=0.5.5", optional = true }
 
 [[bin]]
 name = "contract-compare"
 path = "src/bin/contract_compare.rs"
+
+[[bin]]
+name = "api"
+path = "src/bin/api.rs"
+
+[[bin]]
+name = "outbox"
+path = "src/bin/outbox.rs"
+
+[[bin]]
+name = "maintenance"
+path = "src/bin/maintenance.rs"
+
+[[bin]]
+name = "admin-bootstrap"
+path = "src/bin/admin_bootstrap.rs"

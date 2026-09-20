@@ -23,6 +23,18 @@ Les scénarios sont exécutés dans l’ordre du corpus. Une mutation peut donc 
 
 Le corpus initial fixe deux comportements communs observés dans NestJS : `GET /health/live` et l’enveloppe JSON d’une route inconnue. Il grandira avec chaque module migré. Les flux multipart, SSE et fournisseurs signés auront des adaptateurs spécialisés dans leurs lots ; ils ne sont pas normalisés silencieusement par ce harnais JSON.
 
+## S04 — socle d’exécution
+
+Le crate expose désormais quatre binaires Tokio distincts : `api`, `outbox`, `maintenance` et `admin-bootstrap`. Ils partagent une configuration typée et stricte, un superviseur de tâches avec annulation explicite et drain borné, ainsi qu’un formateur de logs à champs autorisés. Les secrets utilisent un type dont `Debug` est expurgé et les erreurs de configuration ne recopient jamais leur valeur.
+
+Durant cette étape, aucun serveur HTTP, worker ou accès PostgreSQL n’est encore disponible. Pour éviter un faux état prêt, les binaires refusent donc leur lancement normal avec un code sûr `component_not_implemented`. Le mode suivant valide seulement la configuration et sort immédiatement :
+
+```powershell
+cargo run --bin api -- --check-config
+```
+
+Les variables et contraintes conservées depuis NestJS sont décrites dans [docs/s04-runtime.md](docs/s04-runtime.md). Les routes HTTP commencent avec S07, après le socle PostgreSQL S05 et les verrous S06.
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.
