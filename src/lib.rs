@@ -1,6 +1,7 @@
 pub mod bootstrap;
 pub mod config;
 pub mod contract;
+pub mod infra;
 pub mod operations;
 pub mod photo_codec_probe;
 #[cfg(feature = "webauthn-probe")]

@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use regex::Regex;
@@ -12,7 +13,7 @@ use url::Url;
 pub struct SecretString(String);
 
 impl SecretString {
-    fn new(value: String) -> Self {
+    pub fn new(value: String) -> Self {
         Self(value)
     }
     pub fn expose_secret(&self) -> &str {
@@ -99,6 +100,7 @@ pub struct PostgresConfig {
     pub statement_timeout: Duration,
     pub idle_transaction_timeout: Duration,
     pub application_name: &'static str,
+    pub root_certificate: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -534,6 +536,10 @@ impl AppConfig {
                 "POSTGRES_IDLE_TRANSACTION_TIMEOUT",
             )?,
             application_name: "histae-api",
+            root_certificate: source
+                .value("NODE_EXTRA_CA_CERTS")?
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from),
         };
         if environment == Environment::Production && !postgres.tls {
             return Err(ConfigError::invalid("POSTGRES_SSLMODE"));

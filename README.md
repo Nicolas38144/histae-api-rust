@@ -35,6 +35,24 @@ cargo run --bin api -- --check-config
 
 Les variables et contraintes conservées depuis NestJS sont décrites dans [docs/s04-runtime.md](docs/s04-runtime.md). Les routes HTTP commencent avec S07, après le socle PostgreSQL S05 et les verrous S06.
 
+## S05 — PostgreSQL et historique des migrations
+
+Le socle PostgreSQL utilise SQLx avec un pool borné, les timeouts existants, TLS avec vérification complète et les codecs explicites nécessaires au schéma Histae. À la connexion, Rust exige l’historique exact `001_baseline_20260905` puis `017_postgres_discovery`, leurs checksums actuels et les objets terminaux indispensables.
+
+Le migrateur TypeScript reste l’unique outil qui crée ou fait évoluer le schéma :
+
+```powershell
+pnpm run db:migrate
+```
+
+Rust n’applique aucune baseline, ne fabrique aucun historique et ne répare aucun checksum. Le test réel est isolé derrière la feature explicite `postgres-integration` et refuse toute cible autre que `histae-dev` sur loopback :
+
+```powershell
+cargo test --locked --features postgres-integration --test postgres_compatibility
+```
+
+Les garanties et limites de ce lot sont détaillées dans [docs/s05-postgres.md](docs/s05-postgres.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.
