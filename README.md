@@ -65,6 +65,12 @@ Le socle HTTP expose maintenant le routeur de santé, l’enveloppe d’erreur s
 
 Redis fournit les fenêtres fixes Lua et le Pub/Sub avec connexions et commandes bornées. Les identités de quota sont HMACées avant stockage et toute panne du store configuré échoue fermement. Les décisions de parité et les commandes de test figurent dans [docs/s07-http-redis.md](docs/s07-http-redis.md).
 
+## S08 — identité mobile et familles de refresh
+
+Les primitives mobiles couvrent maintenant AES-256-GCM/HMAC pour les téléphones, JWT HS256 avec rotation locale par `kid`, refresh opaques, familles PostgreSQL, détection de rejeu, révocation des appareils et pagination des sessions. Les routes `me`, `refresh`, `logout`, `sessions`, révocation ciblée et `logout-all` sont disponibles sous forme de routeur axum composable.
+
+Les mutations conservent l’ordre de verrouillage du backend NestJS. Un faux secret ne révoque rien ; le rejeu d’un ancêtre authentique révoque sa famille et committe avant que le service ne retourne l’erreur publique. Les choix, le mapping NestJS → Rust et les validations figurent dans [docs/s08-mobile-identity.md](docs/s08-mobile-identity.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.

@@ -113,6 +113,9 @@ fn forwarded_addresses(headers: &HeaderMap) -> Option<Vec<IpAddr>> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RequestId(pub String);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ClientIp(pub IpAddr);
+
 #[derive(Clone, Debug)]
 pub struct HttpObservation {
     pub method: String,
@@ -177,6 +180,7 @@ pub async fn middleware(
     request
         .extensions_mut()
         .insert(RequestId(request_id.clone()));
+    request.extensions_mut().insert(ClientIp(client_ip));
 
     let mut response = if path == STRIPE_WEBHOOK || path == SWEEGO_WEBHOOK {
         next.run(request).await

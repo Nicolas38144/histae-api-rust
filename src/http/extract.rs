@@ -9,6 +9,10 @@ use super::error::ApiError;
 pub trait ApiDto {
     const ERROR_CODE: &'static str = "invalid_request_body";
     const ERROR_MESSAGE: &'static str = "The request body is invalid.";
+
+    fn is_valid(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug)]
@@ -30,8 +34,14 @@ where
     async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
         Json::<T>::from_request(request, state)
             .await
-            .map(|Json(value)| Self(value))
             .map_err(json_error::<T>)
+            .and_then(|Json(value)| {
+                if value.is_valid() {
+                    Ok(Self(value))
+                } else {
+                    Err(dto_error::<T>())
+                }
+            })
     }
 }
 
@@ -45,8 +55,14 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         Query::<T>::from_request_parts(parts, state)
             .await
-            .map(|Query(value)| Self(value))
             .map_err(|_| dto_error::<T>())
+            .and_then(|Query(value)| {
+                if value.is_valid() {
+                    Ok(Self(value))
+                } else {
+                    Err(dto_error::<T>())
+                }
+            })
     }
 }
 
@@ -60,8 +76,14 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         Path::<T>::from_request_parts(parts, state)
             .await
-            .map(|Path(value)| Self(value))
             .map_err(|_| dto_error::<T>())
+            .and_then(|Path(value)| {
+                if value.is_valid() {
+                    Ok(Self(value))
+                } else {
+                    Err(dto_error::<T>())
+                }
+            })
     }
 }
 

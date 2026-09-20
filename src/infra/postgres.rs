@@ -205,6 +205,10 @@ impl Database {
         }
     }
 
+    pub(crate) fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     pub async fn close(&self) {
         self.pool.close().await;
     }

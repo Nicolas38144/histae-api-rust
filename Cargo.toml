@@ -10,7 +10,6 @@ default = []
 postgres-integration = []
 redis-integration = []
 webauthn-probe = [
-    "dep:base64",
     "dep:openssl",
     "dep:serde_cbor_2",
     "dep:webauthn-rs-core",
@@ -18,13 +17,16 @@ webauthn-probe = [
 
 [dependencies]
 axum = "0.8.6"
-base64 = { version = "0.22.1", optional = true }
+aes-gcm = "0.10.3"
+base64 = "0.22.1"
 chrono = { version = "0.4.42", features = ["serde"] }
 imagesize = "0.14.0"
 dotenvy = "0.15.7"
 futures-util = "0.3.31"
+getrandom = "0.3.4"
 hmac = "0.12.1"
 ipnet = "2.11.0"
+jsonwebtoken = { version = "10.2.0", default-features = false, features = ["rust_crypto"] }
 log = "0.4.28"
 openssl = { version = "0.10.75", features = ["vendored"], optional = true }
 regex = "1.11.2"
@@ -36,6 +38,7 @@ serde_cbor_2 = { version = "0.13.0", optional = true }
 serde_json = "1.0.145"
 sha2 = "0.10.9"
 sqlx = { version = "0.8.6", default-features = false, features = ["chrono", "json", "postgres", "runtime-tokio-rustls", "rust_decimal", "uuid"] }
+subtle = "2.6.1"
 tokio = { version = "1.47.1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { version = "0.7.16", features = ["rt"] }
 tower = { version = "0.5.2", features = ["util"] }
