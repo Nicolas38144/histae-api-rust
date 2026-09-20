@@ -4,10 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+base64 = "0.22.1"
+openssl = { version = "0.10.75", features = ["vendored"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["cookies", "rustls"] }
 serde = { version = "1.0.228", features = ["derive"] }
+serde_cbor_2 = "0.13.0"
 serde_json = "1.0.145"
+sha2 = "0.10.9"
 tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread"] }
+url = "2.5.7"
+webauthn-rs-core = "=0.5.5"
 
 [[bin]]
 name = "contract-compare"
