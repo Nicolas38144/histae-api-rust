@@ -9,11 +9,10 @@ use url::Url;
 use webauthn_rs_core::{
     WebauthnCore,
     proto::{
-        AttestationFormat, AuthenticationState, AuthenticatorTransport, COSEAlgorithm,
-        COSEKey, COSEKeyType, Credential, ParsedAttestation, ParsedAttestationData,
-        AttestationMetadata, PublicKeyCredential, RegisterPublicKeyCredential,
-        RegisteredExtensions, RegistrationState, RequestRegistrationExtensions,
-        UserVerificationPolicy,
+        AttestationFormat, AttestationMetadata, AuthenticationState, AuthenticatorTransport,
+        COSEAlgorithm, COSEKey, COSEKeyType, Credential, ParsedAttestation, ParsedAttestationData,
+        PublicKeyCredential, RegisterPublicKeyCredential, RegisteredExtensions, RegistrationState,
+        RequestRegistrationExtensions, UserVerificationPolicy,
     },
 };
 
@@ -220,8 +219,8 @@ impl WebauthnProbe {
             .core
             .generate_challenge_register(builder)
             .map_err(|_| ProbeError::InvalidConfiguration)?;
-        let mut options = serde_json::to_value(generated.public_key)
-            .map_err(|_| ProbeError::InvalidState)?;
+        let mut options =
+            serde_json::to_value(generated.public_key).map_err(|_| ProbeError::InvalidState)?;
         attach_excluded_transports(&mut options, existing)?;
         issue(options, CeremonyPayload::Registration(state))
     }
@@ -235,8 +234,8 @@ impl WebauthnProbe {
             .core
             .generate_challenge_authenticate(builder)
             .map_err(|_| ProbeError::InvalidConfiguration)?;
-        let mut options = serde_json::to_value(generated.public_key)
-            .map_err(|_| ProbeError::InvalidState)?;
+        let mut options =
+            serde_json::to_value(generated.public_key).map_err(|_| ProbeError::InvalidState)?;
         let object = options.as_object_mut().ok_or(ProbeError::InvalidState)?;
         object.remove("allowCredentials");
         issue(options, CeremonyPayload::Authentication(state))
@@ -395,8 +394,8 @@ fn import_credential(
     if stored.public_key.is_empty() || stored.public_key.len() > MAX_PUBLIC_KEY_BYTES {
         return Err(ProbeError::UnsupportedCredential);
     }
-    let value: CborValue =
-        serde_cbor_2::from_slice(&stored.public_key).map_err(|_| ProbeError::UnsupportedCredential)?;
+    let value: CborValue = serde_cbor_2::from_slice(&stored.public_key)
+        .map_err(|_| ProbeError::UnsupportedCredential)?;
     let key = COSEKey::try_from(&value).map_err(|_| ProbeError::UnsupportedCredential)?;
     let credential_id = decode_credential_id(&stored.credential_id)?;
     Ok(Credential {
@@ -424,18 +423,36 @@ fn encode_cose_key(key: &COSEKey) -> Result<Vec<u8>, ProbeError> {
     match &key.key {
         COSEKeyType::EC_OKP(value) => {
             fields.insert(CborValue::Integer(1), CborValue::Integer(1));
-            fields.insert(CborValue::Integer(-1), CborValue::Integer(value.curve.clone() as i128));
-            fields.insert(CborValue::Integer(-2), CborValue::Bytes(value.x.as_slice().to_vec()));
+            fields.insert(
+                CborValue::Integer(-1),
+                CborValue::Integer(value.curve.clone() as i128),
+            );
+            fields.insert(
+                CborValue::Integer(-2),
+                CborValue::Bytes(value.x.as_slice().to_vec()),
+            );
         }
         COSEKeyType::EC_EC2(value) => {
             fields.insert(CborValue::Integer(1), CborValue::Integer(2));
-            fields.insert(CborValue::Integer(-1), CborValue::Integer(value.curve.clone() as i128));
-            fields.insert(CborValue::Integer(-2), CborValue::Bytes(value.x.as_slice().to_vec()));
-            fields.insert(CborValue::Integer(-3), CborValue::Bytes(value.y.as_slice().to_vec()));
+            fields.insert(
+                CborValue::Integer(-1),
+                CborValue::Integer(value.curve.clone() as i128),
+            );
+            fields.insert(
+                CborValue::Integer(-2),
+                CborValue::Bytes(value.x.as_slice().to_vec()),
+            );
+            fields.insert(
+                CborValue::Integer(-3),
+                CborValue::Bytes(value.y.as_slice().to_vec()),
+            );
         }
         COSEKeyType::RSA(value) => {
             fields.insert(CborValue::Integer(1), CborValue::Integer(3));
-            fields.insert(CborValue::Integer(-1), CborValue::Bytes(value.n.as_slice().to_vec()));
+            fields.insert(
+                CborValue::Integer(-1),
+                CborValue::Bytes(value.n.as_slice().to_vec()),
+            );
             fields.insert(CborValue::Integer(-2), CborValue::Bytes(value.e.to_vec()));
         }
     }
@@ -531,7 +548,14 @@ fn validate_registration_payload(value: &Value) -> Result<(), ProbeError> {
     let object = credential_object(value)?;
     exact_keys(
         object,
-        &["id", "rawId", "type", "response", "authenticatorAttachment", "clientExtensionResults"],
+        &[
+            "id",
+            "rawId",
+            "type",
+            "response",
+            "authenticatorAttachment",
+            "clientExtensionResults",
+        ],
     )?;
     validate_common_credential(object)?;
     let response = object
@@ -540,7 +564,14 @@ fn validate_registration_payload(value: &Value) -> Result<(), ProbeError> {
         .ok_or(ProbeError::InvalidPayload)?;
     exact_keys(
         response,
-        &["clientDataJSON", "attestationObject", "authenticatorData", "transports", "publicKeyAlgorithm", "publicKey"],
+        &[
+            "clientDataJSON",
+            "attestationObject",
+            "authenticatorData",
+            "transports",
+            "publicKeyAlgorithm",
+            "publicKey",
+        ],
     )?;
     validate_encoded_field(response, "clientDataJSON", 16_384, true)?;
     validate_encoded_field(response, "attestationObject", 131_072, true)?;
@@ -558,7 +589,12 @@ fn validate_registration_payload(value: &Value) -> Result<(), ProbeError> {
         }
         let values = values
             .iter()
-            .map(|value| value.as_str().map(str::to_owned).ok_or(ProbeError::InvalidPayload))
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or(ProbeError::InvalidPayload)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         validate_transports(&values)?;
     }
@@ -569,14 +605,29 @@ fn validate_authentication_payload(value: &Value) -> Result<(), ProbeError> {
     let object = credential_object(value)?;
     exact_keys(
         object,
-        &["id", "rawId", "type", "response", "authenticatorAttachment", "clientExtensionResults"],
+        &[
+            "id",
+            "rawId",
+            "type",
+            "response",
+            "authenticatorAttachment",
+            "clientExtensionResults",
+        ],
     )?;
     validate_common_credential(object)?;
     let response = object
         .get("response")
         .and_then(Value::as_object)
         .ok_or(ProbeError::InvalidPayload)?;
-    exact_keys(response, &["clientDataJSON", "authenticatorData", "signature", "userHandle"])?;
+    exact_keys(
+        response,
+        &[
+            "clientDataJSON",
+            "authenticatorData",
+            "signature",
+            "userHandle",
+        ],
+    )?;
     validate_encoded_field(response, "clientDataJSON", 16_384, true)?;
     validate_encoded_field(response, "authenticatorData", 16_384, true)?;
     validate_encoded_field(response, "signature", 16_384, true)?;
@@ -591,8 +642,14 @@ fn credential_object(value: &Value) -> Result<&Map<String, Value>, ProbeError> {
 }
 
 fn validate_common_credential(object: &Map<String, Value>) -> Result<(), ProbeError> {
-    let id = object.get("id").and_then(Value::as_str).ok_or(ProbeError::InvalidPayload)?;
-    let raw_id = object.get("rawId").and_then(Value::as_str).ok_or(ProbeError::InvalidPayload)?;
+    let id = object
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or(ProbeError::InvalidPayload)?;
+    let raw_id = object
+        .get("rawId")
+        .and_then(Value::as_str)
+        .ok_or(ProbeError::InvalidPayload)?;
     validate_encoded(id, 2_048)?;
     validate_encoded(raw_id, 2_048)?;
     if id != raw_id || object.get("type").and_then(Value::as_str) != Some("public-key") {
@@ -607,7 +664,11 @@ fn validate_common_credential(object: &Map<String, Value>) -> Result<(), ProbeEr
         .get("clientExtensionResults")
         .and_then(Value::as_object)
         .ok_or(ProbeError::InvalidPayload)?;
-    if serde_json::to_vec(extensions).map_err(|_| ProbeError::InvalidPayload)?.len() > 8_192 {
+    if serde_json::to_vec(extensions)
+        .map_err(|_| ProbeError::InvalidPayload)?
+        .len()
+        > 8_192
+    {
         return Err(ProbeError::InvalidPayload);
     }
     Ok(())

@@ -53,6 +53,12 @@ cargo test --locked --features postgres-integration --test postgres_compatibilit
 
 Les garanties et limites de ce lot sont détaillées dans [docs/s05-postgres.md](docs/s05-postgres.md).
 
+## S06 — verrous PostgreSQL de session
+
+Le pool d’activité séparé conserve les clés advisory existantes, l’ordre canonique des UUID et les règles d’éligibilité des comptes. Une lease vérifiable empêche un effet externe après la perte de la session qui portait le verrou. Une annulation détruit toute connexion dont le déverrouillage n’est pas prouvé.
+
+Le leader de maintenance des matchs conserve de la même façon sa connexion et le verrou `37142581` entre les commits de lots. Cette infrastructure exige un pooling PostgreSQL de session. Les choix, garanties et tests de concurrence sont détaillés dans [docs/s06-postgres-locks.md](docs/s06-postgres-locks.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.

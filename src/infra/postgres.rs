@@ -135,41 +135,7 @@ pub type TransactionFuture<'connection, T, E> =
 
 impl Database {
     pub async fn connect(config: &PostgresConfig) -> Result<Self, DatabaseError> {
-        let mut options = PgConnectOptions::new()
-            .host(&config.host)
-            .port(config.port)
-            .username(&config.user)
-            .password(config.password.expose_secret())
-            .database(&config.database)
-            .application_name(config.application_name)
-            .ssl_mode(if config.tls {
-                PgSslMode::VerifyFull
-            } else {
-                PgSslMode::Disable
-            })
-            .options([
-                (
-                    "statement_timeout",
-                    config.statement_timeout.as_millis().to_string(),
-                ),
-                (
-                    "idle_in_transaction_session_timeout",
-                    config.idle_transaction_timeout.as_millis().to_string(),
-                ),
-            ]);
-        if let Some(root_certificate) = &config.root_certificate {
-            options = options.ssl_root_cert(root_certificate);
-        }
-        options = options.log_statements(LevelFilter::Off);
-
-        let pool = PgPoolOptions::new()
-            .max_connections(config.max_connections)
-            .acquire_timeout(config.connect_timeout)
-            .idle_timeout(Some(config.idle_timeout))
-            .test_before_acquire(true)
-            .connect_with(options)
-            .await
-            .map_err(map_sqlx_error)?;
+        let pool = connect_pool(config, config.max_connections, config.application_name).await?;
         let database = Self {
             pool,
             waiting: Arc::new(AtomicU32::new(0)),
@@ -242,6 +208,48 @@ impl Database {
     pub async fn close(&self) {
         self.pool.close().await;
     }
+}
+
+pub(super) async fn connect_pool(
+    config: &PostgresConfig,
+    max_connections: u32,
+    application_name: &'static str,
+) -> Result<PgPool, DatabaseError> {
+    let mut options = PgConnectOptions::new()
+        .host(&config.host)
+        .port(config.port)
+        .username(&config.user)
+        .password(config.password.expose_secret())
+        .database(&config.database)
+        .application_name(application_name)
+        .ssl_mode(if config.tls {
+            PgSslMode::VerifyFull
+        } else {
+            PgSslMode::Disable
+        })
+        .options([
+            (
+                "statement_timeout",
+                config.statement_timeout.as_millis().to_string(),
+            ),
+            (
+                "idle_in_transaction_session_timeout",
+                config.idle_transaction_timeout.as_millis().to_string(),
+            ),
+        ]);
+    if let Some(root_certificate) = &config.root_certificate {
+        options = options.ssl_root_cert(root_certificate);
+    }
+    options = options.log_statements(LevelFilter::Off);
+
+    PgPoolOptions::new()
+        .max_connections(max_connections)
+        .acquire_timeout(config.connect_timeout)
+        .idle_timeout(Some(config.idle_timeout))
+        .test_before_acquire(true)
+        .connect_with(options)
+        .await
+        .map_err(map_sqlx_error)
 }
 
 pub async fn verify_schema_compatibility_on(
