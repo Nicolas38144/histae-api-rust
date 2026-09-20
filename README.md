@@ -59,6 +59,12 @@ Le pool d’activité séparé conserve les clés advisory existantes, l’ordre
 
 Le leader de maintenance des matchs conserve de la même façon sa connexion et le verrou `37142581` entre les commits de lots. Cette infrastructure exige un pooling PostgreSQL de session. Les choix, garanties et tests de concurrence sont détaillés dans [docs/s06-postgres-locks.md](docs/s06-postgres-locks.md).
 
+## S07 — Redis et cycle HTTP axum
+
+Le socle HTTP expose maintenant le routeur de santé, l’enveloppe d’erreur stable, les extracteurs JSON/query/path, les en-têtes défensifs, CORS, la résolution d’IP derrière proxies et le quota global. Les méthodes non déclarées conservent le `404` Fastify historique et les prévols CORS restent extérieurs au lifecycle.
+
+Redis fournit les fenêtres fixes Lua et le Pub/Sub avec connexions et commandes bornées. Les identités de quota sont HMACées avant stockage et toute panne du store configuré échoue fermement. Les décisions de parité et les commandes de test figurent dans [docs/s07-http-redis.md](docs/s07-http-redis.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.

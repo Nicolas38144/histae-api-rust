@@ -138,6 +138,7 @@ pub struct RedisConfig {
     pub tls: bool,
     pub connect_timeout: Duration,
     pub command_timeout: Duration,
+    pub root_certificate: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -910,6 +911,10 @@ impl AppConfig {
                 &source.or("REDIS_COMMAND_TIMEOUT", "1s")?,
                 "REDIS_COMMAND_TIMEOUT",
             )?,
+            root_certificate: source
+                .value("NODE_EXTRA_CA_CERTS")?
+                .filter(|value| !value.trim().is_empty())
+                .map(PathBuf::from),
         };
 
         let push_provider = match source
