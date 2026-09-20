@@ -22,3 +22,9 @@ Le code de sortie vaut `0` pour une parité complète, `1` pour des différences
 Les scénarios sont exécutés dans l’ordre du corpus. Une mutation peut donc être suivie de lectures qui vérifient ses effets HTTP observables sur chaque état isolé. Chaque cible possède son propre client et son propre jar de cookies afin de couvrir les parcours authentifiés sans fuite de session. Dans un corps `exact_json`, `dynamic_fields` catalogue par pointeur JSON les seules valeurs non déterministes tolérées (`any`, `uuid_v4`, `non_empty_string` ou `integer`) ; toutes les autres valeurs, l’ordre des tableaux, `null` et l’absence restent comparés exactement.
 
 Le corpus initial fixe deux comportements communs observés dans NestJS : `GET /health/live` et l’enveloppe JSON d’une route inconnue. Il grandira avec chaque module migré. Les flux multipart, SSE et fournisseurs signés auront des adaptateurs spécialisés dans leurs lots ; ils ne sont pas normalisés silencieusement par ce harnais JSON.
+
+## S03 — prototype du codec photo
+
+Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.
+
+Cette décision préserve exactement le pipeline Sharp/libvips pour JPEG, PNG, WebP, HEIC et HEIF, notamment l’orientation EXIF, le refus des animations, les limites de pixels et les six tentatives d’encodage WebP. Elle est détaillée dans [docs/s03-photo-codec.md](docs/s03-photo-codec.md).
