@@ -18,6 +18,7 @@ Le migrateur TypeScript reste la source de vérité. Rust vérifie seulement :
 | --- | --- |
 | `001_baseline_20260905` | `7d33ff78d8094576acc30af275e1426f2feb6333911283ef1f1aadf2f9b8e111` |
 | `017_postgres_discovery` | `f2e656a133d64a08873c86cb9a4dddbc84c4c1704e590851ed63a3a2ac6d1006` |
+| `018_postgres_admin_webauthn_state` | `7127cee30dbb61fc967e0864ffbe636a34a18fa44be9ea449ec0b035d9d8c95a` |
 
 Un historique absent, incomplet, inconnu, sans checksum ou divergent fait échouer le démarrage. Rust exige aussi `user_account` et `swipe_decision`, ce qui empêche un historique fabriqué sans les objets finaux. Une nouvelle migration PostgreSQL devra être appliquée par le migrateur TypeScript puis ajoutée à cette liste dans le même changement Rust.
 

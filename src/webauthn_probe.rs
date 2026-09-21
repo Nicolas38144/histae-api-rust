@@ -544,7 +544,7 @@ fn authentication_backup_eligible(response: &Value) -> Result<bool, ProbeError> 
     Ok(auth_data[32] & 0x08 != 0)
 }
 
-fn validate_registration_payload(value: &Value) -> Result<(), ProbeError> {
+pub fn validate_registration_payload(value: &Value) -> Result<(), ProbeError> {
     let object = credential_object(value)?;
     exact_keys(
         object,
@@ -577,10 +577,11 @@ fn validate_registration_payload(value: &Value) -> Result<(), ProbeError> {
     validate_encoded_field(response, "attestationObject", 131_072, true)?;
     validate_encoded_field(response, "authenticatorData", 16_384, false)?;
     validate_encoded_field(response, "publicKey", 16_384, false)?;
-    if let Some(value) = response.get("publicKeyAlgorithm") {
-        if !value.is_i64() && !value.is_u64() {
-            return Err(ProbeError::InvalidPayload);
-        }
+    if let Some(value) = response.get("publicKeyAlgorithm")
+        && !value.is_i64()
+        && !value.is_u64()
+    {
+        return Err(ProbeError::InvalidPayload);
     }
     if let Some(transports) = response.get("transports") {
         let values = transports.as_array().ok_or(ProbeError::InvalidPayload)?;
@@ -601,7 +602,7 @@ fn validate_registration_payload(value: &Value) -> Result<(), ProbeError> {
     Ok(())
 }
 
-fn validate_authentication_payload(value: &Value) -> Result<(), ProbeError> {
+pub fn validate_authentication_payload(value: &Value) -> Result<(), ProbeError> {
     let object = credential_object(value)?;
     exact_keys(
         object,
@@ -655,10 +656,10 @@ fn validate_common_credential(object: &Map<String, Value>) -> Result<(), ProbeEr
     if id != raw_id || object.get("type").and_then(Value::as_str) != Some("public-key") {
         return Err(ProbeError::InvalidPayload);
     }
-    if let Some(attachment) = object.get("authenticatorAttachment") {
-        if !matches!(attachment.as_str(), Some("cross-platform" | "platform")) {
-            return Err(ProbeError::InvalidPayload);
-        }
+    if let Some(attachment) = object.get("authenticatorAttachment")
+        && !matches!(attachment.as_str(), Some("cross-platform" | "platform"))
+    {
+        return Err(ProbeError::InvalidPayload);
     }
     let extensions = object
         .get("clientExtensionResults")

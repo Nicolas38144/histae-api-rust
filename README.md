@@ -37,7 +37,7 @@ Les variables et contraintes conservées depuis NestJS sont décrites dans [docs
 
 ## S05 — PostgreSQL et historique des migrations
 
-Le socle PostgreSQL utilise SQLx avec un pool borné, les timeouts existants, TLS avec vérification complète et les codecs explicites nécessaires au schéma Histae. À la connexion, Rust exige l’historique exact `001_baseline_20260905` puis `017_postgres_discovery`, leurs checksums actuels et les objets terminaux indispensables.
+Le socle PostgreSQL utilise SQLx avec un pool borné, les timeouts existants, TLS avec vérification complète et les codecs explicites nécessaires au schéma Histae. À la connexion, Rust exige l’historique exact `001_baseline_20260905`, `017_postgres_discovery` puis `018_postgres_admin_webauthn_state`, leurs checksums actuels et les objets terminaux indispensables.
 
 Le migrateur TypeScript reste l’unique outil qui crée ou fait évoluer le schéma :
 
@@ -76,6 +76,12 @@ Les mutations conservent l’ordre de verrouillage du backend NestJS. Un faux se
 Les routes publiques d’envoi et de vérification OTP, ainsi que le webhook Sweego signé, sont disponibles sous forme de routeurs axum composables. PostgreSQL sérialise chaque téléphone pseudonymisé, conserve l’idempotence des demandes et empêche un callback tardif de réactiver un ancien code. La vérification peut créer le compte puis délègue l’émission de la famille mobile au socle S08.
 
 Le client Sweego effectue un seul POST borné, sans retry automatique. Les issues réseau incertaines restent récupérables par callback signé sur les octets bruts. Les contrats, états et commandes de validation figurent dans [docs/s09-otp-sweego.md](docs/s09-otp-sweego.md).
+
+## S10 — authentification administrateur WebAuthn
+
+Les quatorze routes d’authentification administrateur sont disponibles sous forme de routeur Axum composable. Elles utilisent exclusivement une session opaque en cookie, contrôlent l’Origin sur les mutations et distinguent l’identité admin récente de l’identité mobile JWT. Passkeys, sessions, compteurs, challenges à usage unique et audits restent transactionnels dans PostgreSQL.
+
+La migration additive `018_postgres_admin_webauthn_state` conserve l’état de cérémonie requis par `webauthn-rs-core` tout en restant compatible avec NestJS. Le moteur et le binaire `admin-bootstrap` sont compilés avec la feature `webauthn-probe`; les invariants, commandes et prérequis OpenSSL sont détaillés dans [docs/s10-admin-auth.md](docs/s10-admin-auth.md).
 
 ## S03 — prototype du codec photo
 

@@ -20,6 +20,10 @@ pub const EXPECTED_MIGRATIONS: &[MigrationFingerprint] = &[
         version: "017_postgres_discovery",
         checksum: "f2e656a133d64a08873c86cb9a4dddbc84c4c1704e590851ed63a3a2ac6d1006",
     },
+    MigrationFingerprint {
+        version: "018_postgres_admin_webauthn_state",
+        checksum: "7127cee30dbb61fc967e0864ffbe636a34a18fa44be9ea449ec0b035d9d8c95a",
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -438,7 +442,9 @@ mod tests {
         missing.pop();
         assert_eq!(
             validate_migration_history(&missing),
-            Err(DatabaseError::MissingMigration("017_postgres_discovery"))
+            Err(DatabaseError::MissingMigration(
+                "018_postgres_admin_webauthn_state"
+            ))
         );
     }
 
