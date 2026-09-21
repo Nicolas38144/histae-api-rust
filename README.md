@@ -79,9 +79,19 @@ Le client Sweego effectue un seul POST borné, sans retry automatique. Les issue
 
 ## S10 — authentification administrateur WebAuthn
 
-Les quatorze routes d’authentification administrateur sont disponibles sous forme de routeur Axum composable. Elles utilisent exclusivement une session opaque en cookie, contrôlent l’Origin sur les mutations et distinguent l’identité admin récente de l’identité mobile JWT. Passkeys, sessions, compteurs, challenges à usage unique et audits restent transactionnels dans PostgreSQL.
+Les quinze routes d’authentification administrateur sont disponibles sous forme de routeur Axum composable. Elles utilisent exclusivement une session opaque en cookie, contrôlent l’Origin sur les mutations et distinguent l’identité admin récente de l’identité mobile JWT. Passkeys, sessions, compteurs, challenges à usage unique et audits restent transactionnels dans PostgreSQL.
 
 La migration additive `018_postgres_admin_webauthn_state` conserve l’état de cérémonie requis par `webauthn-rs-core` tout en restant compatible avec NestJS. Le moteur et le binaire `admin-bootstrap` sont compilés avec la feature `webauthn-probe`; les invariants, commandes et prérequis OpenSSL sont détaillés dans [docs/s10-admin-auth.md](docs/s10-admin-auth.md).
+
+## S11 — moteur d’outbox et suivi de maintenance
+
+Le repository SQLx conserve l’insertion transactionnelle, les claims `SKIP LOCKED`, l’ownership, les reprises de
+lease, le retry exponentiel, les dead letters et la purge bornée. Le worker Tokio traite des lots de 50 avec au plus
+cinq handlers simultanés, renouvelle chaque claim avant l’effet et s’arrête via un `CancellationToken`.
+
+Le suivi de maintenance persiste une progression bornée sans faire échouer le travail métier si l’écriture de statut
+est indisponible. Le binaire `outbox` reste désactivé tant que les cinq handlers métier ne sont pas tous migrés. Les
+invariants, tests et limites d’activation figurent dans [docs/s11-outbox.md](docs/s11-outbox.md).
 
 ## S03 — prototype du codec photo
 

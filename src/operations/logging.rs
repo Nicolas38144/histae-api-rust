@@ -130,6 +130,21 @@ pub fn info(event: &str, fields: &[(&str, SafeLogValue<'_>)]) -> Result<(), Safe
     Ok(())
 }
 
+pub fn warn(event: &str, fields: &[(&str, SafeLogValue<'_>)]) -> Result<(), SafeLogError> {
+    let line = format_log_event(event, fields)?;
+    tracing::event!(target: "histae", Level::WARN, message = %line);
+    Ok(())
+}
+
+pub fn error_with_fields(
+    event: &str,
+    fields: &[(&str, SafeLogValue<'_>)],
+) -> Result<(), SafeLogError> {
+    let line = format_log_event(event, fields)?;
+    tracing::event!(target: "histae", Level::ERROR, message = %line);
+    Ok(())
+}
+
 pub fn error(event: &str, code: Option<&str>) -> Result<(), SafeLogError> {
     let line = format_error_event(event, code, &[])?;
     tracing::event!(target: "histae", Level::ERROR, message = %line);

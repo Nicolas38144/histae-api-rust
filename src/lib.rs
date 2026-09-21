@@ -5,6 +5,7 @@ pub mod http;
 pub mod identity;
 pub mod infra;
 pub mod operations;
+pub mod outbox;
 pub mod photo_codec_probe;
 #[cfg(feature = "webauthn-probe")]
 pub mod webauthn_probe;
