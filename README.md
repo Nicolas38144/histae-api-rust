@@ -1,6 +1,6 @@
 # Histae API Rust
 
-Migration incrémentale de l’API NestJS Histae. Le backend Nest reste la référence exécutable jusqu’à la campagne de parité et la bascule de développement.
+Migration incrémentale de l’API NestJS Histae. Le backend Nest reste la référence exécutable jusqu’à la campagne de parité et la bascule de développement. Cette dépendance est strictement transitoire : avant la suppression du dépôt NestJS, `histae-api-rust` devra contenir ses propres migrations, scripts d’exploitation, configuration d’exemple, image et services Docker nécessaires au fonctionnement autonome.
 
 ## S01 — comparaison de contrat HTTP
 
@@ -39,13 +39,13 @@ Les variables et contraintes conservées depuis NestJS sont décrites dans [docs
 
 Le socle PostgreSQL utilise SQLx avec un pool borné, les timeouts existants, TLS avec vérification complète et les codecs explicites nécessaires au schéma Histae. À la connexion, Rust exige l’historique exact `001_baseline_20260905`, `017_postgres_discovery` puis `018_postgres_admin_webauthn_state`, leurs checksums actuels et les objets terminaux indispensables.
 
-Le migrateur TypeScript reste l’unique outil qui crée ou fait évoluer le schéma :
+Le migrateur TypeScript reste provisoirement l’unique outil qui crée ou fait évoluer le schéma pendant les lots de parité :
 
 ```powershell
 pnpm run db:migrate
 ```
 
-Rust n’applique aucune baseline, ne fabrique aucun historique et ne répare aucun checksum. Le test réel est isolé derrière la feature explicite `postgres-integration` et refuse toute cible autre que `histae-dev` sur loopback :
+Rust n’applique encore aucune baseline, ne fabrique aucun historique et ne répare aucun checksum. Un migrateur autonome et les assets PostgreSQL nécessaires devront être présents dans ce dépôt avant S29 ; la suppression de NestJS ne pourra pas précéder cette livraison. Le test réel est isolé derrière la feature explicite `postgres-integration` et refuse toute cible autre que `histae-dev` sur loopback :
 
 ```powershell
 cargo test --locked --features postgres-integration --test postgres_compatibility
@@ -92,6 +92,19 @@ cinq handlers simultanés, renouvelle chaque claim avant l’effet et s’arrêt
 Le suivi de maintenance persiste une progression bornée sans faire échouer le travail métier si l’écriture de statut
 est indisponible. Le binaire `outbox` reste désactivé tant que les cinq handlers métier ne sont pas tous migrés. Les
 invariants, tests et limites d’activation figurent dans [docs/s11-outbox.md](docs/s11-outbox.md).
+
+## S12 — consentements, profil, préférences et présence
+
+Les sept routes du compte concernées sont disponibles sous forme de routeur Axum composable. Les consentements
+d’onboarding restent accessibles avant acceptation des textes courants ; les autres routes utilisent l’extracteur
+mobile exigeant un onboarding complet. Les DTO refusent les champs inconnus et conservent la distinction entre
+erreur de payload et règle métier.
+
+Chaque écriture verrouille d’abord le compte puis relit les versions de consentement dans la même transaction SQLx.
+Retirer le consentement sensible efface immédiatement le sexe et les préférences ; retirer la localisation efface la
+présence. La bio réutilise exactement les règles locales `text_rules_v1`. L’interface d’URL photo est prête, mais son
+implémentation S3 reste dans S15. Les contrats, requêtes et preuves de concurrence figurent dans
+[docs/s12-profiles.md](docs/s12-profiles.md).
 
 ## S03 — prototype du codec photo
 

@@ -4,8 +4,11 @@ pub mod contract;
 pub mod http;
 pub mod identity;
 pub mod infra;
+pub mod moderation;
 pub mod operations;
 pub mod outbox;
 pub mod photo_codec_probe;
+pub mod profiles;
+pub mod shared;
 #[cfg(feature = "webauthn-probe")]
 pub mod webauthn_probe;
