@@ -287,15 +287,18 @@ mod tests {
     #[test]
     fn accepts_only_rfc4122_uuid_v4_request_ids() {
         let mut headers = HeaderMap::new();
+        let valid = Uuid::new_v4().to_string().to_ascii_uppercase();
         headers.insert(
             HeaderName::from_static("x-request-id"),
-            HeaderValue::from_static("AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"),
+            HeaderValue::from_str(&valid).expect("generated request ID header"),
         );
-        assert_eq!(request_id(&headers), "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        assert_eq!(request_id(&headers), valid.to_ascii_lowercase());
+        let mut wrong_version = Uuid::new_v4().to_string();
+        wrong_version.replace_range(14..15, "1");
         headers.insert(
             HeaderName::from_static("x-request-id"),
-            HeaderValue::from_static("aaaaaaaa-aaaa-1aaa-8aaa-aaaaaaaaaaaa"),
+            HeaderValue::from_str(&wrong_version).expect("generated invalid request ID header"),
         );
-        assert_ne!(request_id(&headers), "aaaaaaaa-aaaa-1aaa-8aaa-aaaaaaaaaaaa");
+        assert_ne!(request_id(&headers), wrong_version);
     }
 }

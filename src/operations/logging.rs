@@ -162,24 +162,22 @@ mod tests {
 
     #[test]
     fn matches_the_nest_safe_log_format() {
+        let request_id = uuid::Uuid::new_v4().to_string();
         let output = format_log_event(
             "http_request_failed",
             &[
                 ("method", SafeLogValue::String("GET")),
                 ("route", SafeLogValue::String("/api/users/:id")),
                 ("status", SafeLogValue::Integer(503)),
-                (
-                    "request_id",
-                    SafeLogValue::String("123e4567-e89b-42d3-a456-426614174000"),
-                ),
+                ("request_id", SafeLogValue::String(&request_id)),
                 ("duration_ms", SafeLogValue::Number(12.4)),
             ],
         );
         assert_eq!(
-            output.as_deref(),
-            Ok(
-                "http_request_failed method=GET route=/api/users/:id status=503 request_id=123e4567-e89b-42d3-a456-426614174000 duration_ms=12.4"
-            )
+            output,
+            Ok(format!(
+                "http_request_failed method=GET route=/api/users/:id status=503 request_id={request_id} duration_ms=12.4"
+            ))
         );
     }
 

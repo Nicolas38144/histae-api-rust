@@ -71,6 +71,12 @@ Les primitives mobiles couvrent maintenant AES-256-GCM/HMAC pour les téléphone
 
 Les mutations conservent l’ordre de verrouillage du backend NestJS. Un faux secret ne révoque rien ; le rejeu d’un ancêtre authentique révoque sa famille et committe avant que le service ne retourne l’erreur publique. Les choix, le mapping NestJS → Rust et les validations figurent dans [docs/s08-mobile-identity.md](docs/s08-mobile-identity.md).
 
+## S09 — OTP et livraison Sweego
+
+Les routes publiques d’envoi et de vérification OTP, ainsi que le webhook Sweego signé, sont disponibles sous forme de routeurs axum composables. PostgreSQL sérialise chaque téléphone pseudonymisé, conserve l’idempotence des demandes et empêche un callback tardif de réactiver un ancien code. La vérification peut créer le compte puis délègue l’émission de la famille mobile au socle S08.
+
+Le client Sweego effectue un seul POST borné, sans retry automatique. Les issues réseau incertaines restent récupérables par callback signé sur les octets bruts. Les contrats, états et commandes de validation figurent dans [docs/s09-otp-sweego.md](docs/s09-otp-sweego.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.

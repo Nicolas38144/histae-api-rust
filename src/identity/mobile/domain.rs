@@ -150,7 +150,7 @@ mod tests {
     fn cursor_matches_the_nest_base64url_shape_and_timestamp_rules() {
         let cursor = SessionCursor {
             at: "2026-09-20T12:34:56.123456Z".to_owned(),
-            id: Uuid::parse_str("11111111-1111-4111-8111-111111111111").expect("valid fixture"),
+            id: Uuid::new_v4(),
         };
         let encoded = encode_cursor(&cursor).expect("encode cursor");
         assert_eq!(decode_cursor(Some(&encoded)), Ok(Some(cursor)));

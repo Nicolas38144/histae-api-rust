@@ -13,8 +13,7 @@ use std::{
 use histae_api_rust::contract::{
     ContractCorpus, DEFAULT_MAX_RESPONSE_BYTES, RunConfig, Target, run_corpus,
 };
-
-const REQUEST_ID: &str = "123e4567-e89b-42d3-a456-426614174000";
+use uuid::Uuid;
 
 #[tokio::test]
 async fn compares_the_same_contract_against_two_isolated_targets() {
@@ -128,10 +127,8 @@ async fn compares_an_isolated_mutation_and_its_observable_effect() {
 
 #[tokio::test]
 async fn accepts_only_catalogued_dynamic_json_fields() {
-    let reference = serve(1, |_, _| dynamic_response(REQUEST_ID));
-    let candidate = serve(1, |_, _| {
-        dynamic_response("550e8400-e29b-41d4-a716-446655440000")
-    });
+    let reference = serve(1, |_, _| dynamic_response(&Uuid::new_v4().to_string()));
+    let candidate = serve(1, |_, _| dynamic_response(&Uuid::new_v4().to_string()));
     let corpus: ContractCorpus = serde_json::from_str(&dynamic_corpus())
         .unwrap_or_else(|error| panic!("dynamic corpus should parse: {error}"));
 
@@ -233,7 +230,12 @@ fn stateful_server(state: Arc<AtomicBool>) -> String {
     serve(2, move |method, path| match (method, path) {
         ("POST", "/resource") => {
             state.store(true, Ordering::SeqCst);
-            http_response(201, "application/json", REQUEST_ID, r#"{"created":true}"#)
+            http_response(
+                201,
+                "application/json",
+                &Uuid::new_v4().to_string(),
+                r#"{"created":true}"#,
+            )
         }
         ("GET", "/resource") => {
             let body = if state.load(Ordering::SeqCst) {
@@ -241,9 +243,9 @@ fn stateful_server(state: Arc<AtomicBool>) -> String {
             } else {
                 r#"{"count":0}"#
             };
-            http_response(200, "application/json", REQUEST_ID, body)
+            http_response(200, "application/json", &Uuid::new_v4().to_string(), body)
         }
-        _ => http_response(404, "application/json", REQUEST_ID, "{}"),
+        _ => http_response(404, "application/json", &Uuid::new_v4().to_string(), "{}"),
     })
 }
 
@@ -278,7 +280,7 @@ fn cookie_server(session: &'static str) -> String {
                 } else {
                     r#"{"authorized":false}"#
                 };
-                http_response(200, "application/json", REQUEST_ID, body)
+                http_response(200, "application/json", &Uuid::new_v4().to_string(), body)
             };
             stream
                 .write_all(response.as_bytes())
@@ -350,14 +352,14 @@ fn response_for(path: &str, _status: u16) -> String {
         http_response(
             200,
             "application/json; charset=utf-8",
-            REQUEST_ID,
+            &Uuid::new_v4().to_string(),
             r#"{"status":"ok"}"#,
         )
     } else {
         http_response(
             404,
             "application/json; charset=utf-8",
-            REQUEST_ID,
+            &Uuid::new_v4().to_string(),
             r#"{"error":{"code":"route_not_found","message":"This route is not available."}}"#,
         )
     }
@@ -429,20 +431,20 @@ fn dynamic_corpus() -> String {
           "headers":{},
           "body":{
             "kind":"exact_json",
-            "value":{"id":"00000000-0000-4000-8000-000000000000","stable":"value"},
+            "value":{"id":"generated-id","stable":"value"},
             "dynamic_fields":{"/id":{"kind":"uuid_v4"}}
           }
         }
       }]
     }"#
-    .to_owned()
+    .replace("generated-id", &Uuid::new_v4().to_string())
 }
 
 fn dynamic_response(id: &str) -> String {
     http_response(
         200,
         "application/json",
-        REQUEST_ID,
+        &Uuid::new_v4().to_string(),
         &format!(r#"{{"id":"{id}","stable":"value"}}"#),
     )
 }

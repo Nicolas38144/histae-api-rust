@@ -1,14 +1,18 @@
+use axum::body::Bytes;
 use axum::extract::{Extension, FromRequestParts};
 use axum::http::request::Parts;
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, HeaderName, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::{Uuid, Variant, Version};
 
+use super::account::{MobileLoginError, MobileLoginService};
+use super::otp::{OtpError, OtpService};
 use super::service::{AuthenticatedMobile as AuthenticatedIdentity, MobileAuthError};
 use super::service::{MobileAuthService, MobileSessionPage, TokenPair};
+use super::sweego::{SweegoWebhookError, SweegoWebhookHeaders, SweegoWebhookService};
 use crate::config::LimitPolicy;
 use crate::http::error::ApiError;
 use crate::http::extract::{ApiDto, ValidatedJson, ValidatedPath, ValidatedQuery};
@@ -46,6 +50,290 @@ pub fn routes(state: MobileAuthState) -> Router<HttpState> {
         .route("/api/auth/sessions/{id}", delete(revoke_session))
         .route("/api/auth/logout-all", post(logout_all))
         .layer(Extension(state))
+}
+
+#[derive(Clone)]
+pub struct OtpHttpState {
+    otp: OtpService,
+    login: MobileLoginService,
+    limiter: RateLimiter,
+    policy: LimitPolicy,
+}
+
+impl OtpHttpState {
+    pub fn new(
+        otp: OtpService,
+        login: MobileLoginService,
+        limiter: RateLimiter,
+        policy: LimitPolicy,
+    ) -> Self {
+        Self {
+            otp,
+            login,
+            limiter,
+            policy,
+        }
+    }
+}
+
+pub fn otp_routes(state: OtpHttpState) -> Router<HttpState> {
+    Router::new()
+        .route("/api/auth/otp/send", post(send_otp))
+        .route("/api/auth/otp/verify", post(verify_otp))
+        .layer(Extension(state))
+}
+
+#[derive(Clone)]
+pub struct SweegoHttpState {
+    webhooks: SweegoWebhookService,
+    limiter: RateLimiter,
+    policy: LimitPolicy,
+}
+
+impl SweegoHttpState {
+    pub fn new(webhooks: SweegoWebhookService, limiter: RateLimiter, policy: LimitPolicy) -> Self {
+        Self {
+            webhooks,
+            limiter,
+            policy,
+        }
+    }
+}
+
+pub fn sweego_routes(state: SweegoHttpState) -> Router<HttpState> {
+    Router::new()
+        .route("/api/auth/sweego/webhook", post(sweego_webhook))
+        .layer(Extension(state))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SendOtpBody {
+    phone_number: String,
+}
+
+impl ApiDto for SendOtpBody {}
+
+#[derive(Serialize)]
+struct SendOtpResponse {
+    message: &'static str,
+}
+
+async fn send_otp(
+    Extension(state): Extension<OtpHttpState>,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
+    headers: HeaderMap,
+    ValidatedJson(body): ValidatedJson<SendOtpBody>,
+) -> Result<(StatusCode, Json<SendOtpResponse>), ApiError> {
+    let phone_key = state
+        .otp
+        .rate_limit_key(&body.phone_number, OtpError::InvalidPhone)
+        .map_err(otp_error)?;
+    state
+        .limiter
+        .enforce(
+            "otp-send-ip",
+            &client_ip.to_string(),
+            &state.policy,
+            "otp_rate_limit_exceeded",
+        )
+        .await?;
+    state
+        .limiter
+        .enforce(
+            "otp-send-phone",
+            &phone_key,
+            &state.policy,
+            "otp_rate_limit_exceeded",
+        )
+        .await?;
+    let idempotency_key =
+        single_header(&headers, header::HeaderName::from_static("idempotency-key"));
+    state
+        .otp
+        .send(&body.phone_number, idempotency_key.as_deref())
+        .await
+        .map_err(otp_error)?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(SendOtpResponse {
+            message: "Verification code request accepted.",
+        }),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VerifyOtpBody {
+    phone_number: String,
+    otp: String,
+}
+
+impl ApiDto for VerifyOtpBody {}
+
+async fn verify_otp(
+    Extension(state): Extension<OtpHttpState>,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
+    ValidatedJson(body): ValidatedJson<VerifyOtpBody>,
+) -> Result<Json<TokenPair>, ApiError> {
+    let phone_key = state
+        .otp
+        .rate_limit_key(&body.phone_number, OtpError::InvalidOtpRequest)
+        .map_err(otp_error)?;
+    state
+        .limiter
+        .enforce(
+            "otp-verify-ip",
+            &client_ip.to_string(),
+            &state.policy,
+            "otp_rate_limit_exceeded",
+        )
+        .await?;
+    state
+        .limiter
+        .enforce(
+            "otp-verify-phone",
+            &phone_key,
+            &state.policy,
+            "otp_rate_limit_exceeded",
+        )
+        .await?;
+    state
+        .login
+        .verify(&body.phone_number, &body.otp)
+        .await
+        .map(Json)
+        .map_err(login_error)
+}
+
+#[derive(Serialize)]
+struct WebhookResponse {
+    received: bool,
+}
+
+async fn sweego_webhook(
+    Extension(state): Extension<SweegoHttpState>,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<WebhookResponse>, ApiError> {
+    state
+        .limiter
+        .enforce(
+            "sms-webhook",
+            &client_ip.to_string(),
+            &state.policy,
+            "sms_webhook_rate_limit_exceeded",
+        )
+        .await?;
+    let webhook_headers = SweegoWebhookHeaders {
+        id: single_header(&headers, HeaderName::from_static("webhook-id")),
+        timestamp: single_header(&headers, HeaderName::from_static("webhook-timestamp")),
+        signature: single_header(&headers, HeaderName::from_static("webhook-signature")),
+    };
+    state
+        .webhooks
+        .handle(&body, &webhook_headers)
+        .await
+        .map_err(sweego_error)?;
+    Ok(Json(WebhookResponse { received: true }))
+}
+
+fn single_header(headers: &HeaderMap, name: HeaderName) -> Option<String> {
+    let mut values = headers.get_all(name).iter();
+    let value = values.next()?;
+    if values.next().is_some() {
+        return None;
+    }
+    value.to_str().ok().map(str::to_owned)
+}
+
+fn otp_error(error: OtpError) -> ApiError {
+    match error {
+        OtpError::InvalidPhone => ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_phone_number",
+            "The phone number must be a French number in E.164 format (+33).",
+        ),
+        OtpError::InvalidOtpRequest => ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_otp_request",
+            "The phone number or verification code is invalid.",
+        ),
+        OtpError::InvalidOtp => ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "invalid_or_expired_otp",
+            "The verification code is invalid or expired.",
+        ),
+        OtpError::InvalidIdempotencyKey => ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_idempotency_key",
+            "The Idempotency-Key header must contain a UUID v4.",
+        ),
+        OtpError::IdempotencyConflict => ApiError::new(
+            StatusCode::CONFLICT,
+            "idempotency_key_conflict",
+            "The idempotency key was already used for another request.",
+        ),
+        OtpError::DeliveryUnavailable => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "otp_delivery_unavailable",
+            "The verification code could not be delivered.",
+        ),
+        OtpError::DeliveryUnknown => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "otp_delivery_unknown",
+            "The verification code delivery is not yet confirmed.",
+        ),
+        OtpError::Internal => ApiError::internal(),
+    }
+}
+
+fn login_error(error: MobileLoginError) -> ApiError {
+    match error {
+        MobileLoginError::Otp(error) => otp_error(error),
+        MobileLoginError::AccountUnavailable => ApiError::new(
+            StatusCode::FORBIDDEN,
+            "account_unavailable",
+            "This account is unavailable.",
+        ),
+        MobileLoginError::AccountCreationConflict => ApiError::new(
+            StatusCode::CONFLICT,
+            "account_creation_conflict",
+            "Account creation conflicts with an ongoing operation. Please try again.",
+        ),
+        MobileLoginError::Internal => ApiError::internal(),
+    }
+}
+
+fn sweego_error(error: SweegoWebhookError) -> ApiError {
+    match error {
+        SweegoWebhookError::InvalidSignature => ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "invalid_sweego_signature",
+            "The SMS webhook signature is invalid.",
+        ),
+        SweegoWebhookError::InvalidEvent => ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_sweego_event",
+            "The SMS event is invalid.",
+        ),
+        SweegoWebhookError::Conflict => ApiError::new(
+            StatusCode::CONFLICT,
+            "sweego_delivery_conflict",
+            "The SMS event does not match the delivery.",
+        ),
+        SweegoWebhookError::Disabled => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "sweego_webhook_unavailable",
+            "SMS delivery tracking is not configured.",
+        ),
+        SweegoWebhookError::Unavailable => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "sweego_webhook_unavailable",
+            "SMS delivery tracking is temporarily unavailable.",
+        ),
+    }
 }
 
 #[derive(Clone, Debug)]

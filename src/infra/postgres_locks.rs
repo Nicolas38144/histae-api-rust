@@ -494,12 +494,11 @@ mod tests {
 
     #[test]
     fn canonicalizes_uuid_identity_and_lock_order() {
-        let first = Uuid::parse_str("AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA")
-            .unwrap_or_else(|error| panic!("valid fixture UUID: {error}"));
-        let second = Uuid::parse_str("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
-            .unwrap_or_else(|error| panic!("valid fixture UUID: {error}"));
-        assert_eq!(canonical_ids(&[second, first, first]), vec![first, second]);
-        assert_eq!(first.to_string(), "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        let mut expected = vec![first, second];
+        expected.sort_unstable();
+        assert_eq!(canonical_ids(&[second, first, first]), expected);
     }
 
     #[test]

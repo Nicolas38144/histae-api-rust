@@ -202,13 +202,13 @@ async fn live_health_preserves_body_head_routing_and_defensive_headers() {
         100,
         observer.clone(),
     );
-    let request_id = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA";
+    let request_id = Uuid::new_v4().to_string().to_ascii_uppercase();
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .uri("/health/live")
-                .header("x-request-id", request_id)
+                .header("x-request-id", &request_id)
                 .body(Body::empty())
                 .expect("request"),
         )

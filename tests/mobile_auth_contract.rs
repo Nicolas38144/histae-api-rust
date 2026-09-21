@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use axum::Router;
@@ -23,8 +23,15 @@ use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-const USER_ID: &str = "15fc0373-8ed3-4cd6-8b61-3639b84ad966";
-const SESSION_ID: &str = "11111111-1111-4111-8111-111111111111";
+fn user_id() -> Uuid {
+    static ID: OnceLock<Uuid> = OnceLock::new();
+    *ID.get_or_init(Uuid::new_v4)
+}
+
+fn session_id() -> Uuid {
+    static ID: OnceLock<Uuid> = OnceLock::new();
+    *ID.get_or_init(Uuid::new_v4)
+}
 
 #[derive(Clone)]
 struct Probe;
@@ -69,7 +76,7 @@ impl MobileSessionStore for FakeStore {
         user_id: Uuid,
         _token: NewRefreshToken,
     ) -> SessionStoreFuture<'_, Option<MobileSessionIdentity>> {
-        let session_id = uuid(SESSION_ID);
+        let session_id = session_id();
         Box::pin(async move {
             Ok(Some(MobileSessionIdentity {
                 user_id,
@@ -152,10 +159,6 @@ impl MobileSessionStore for FakeStore {
     }
 }
 
-fn uuid(value: &str) -> Uuid {
-    Uuid::parse_str(value).expect("valid fixture UUID")
-}
-
 fn jwt_config() -> JwtConfig {
     let secret = SecretString::new("jwt-signing-secret-0123456789abcdef".to_owned());
     JwtConfig {
@@ -169,7 +172,7 @@ fn jwt_config() -> JwtConfig {
 
 fn account() -> ActiveAccount {
     ActiveAccount {
-        user_id: uuid(USER_ID),
+        user_id: user_id(),
         role: AccountRole::User,
         is_banned: false,
         onboarding_complete: false,
@@ -257,7 +260,7 @@ async fn me_rechecks_the_session_and_preserves_authentication_errors() {
     );
 
     let access = tokens
-        .access_token(uuid(USER_ID), uuid(SESSION_ID))
+        .access_token(user_id(), session_id())
         .expect("access token");
     let response = app
         .clone()
@@ -267,7 +270,7 @@ async fn me_rechecks_the_session_and_preserves_authentication_errors() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         json_body(response).await,
-        json!({ "user_id": USER_ID, "onboarding_complete": false })
+        json!({ "user_id": user_id(), "onboarding_complete": false })
     );
 
     store.state.lock().expect("state").account = None;
@@ -310,7 +313,7 @@ async fn auth_precedes_body_validation_and_refresh_is_strict() {
     );
 
     let access = tokens
-        .access_token(uuid(USER_ID), uuid(SESSION_ID))
+        .access_token(user_id(), session_id())
         .expect("access token");
     let bad_logout = app
         .clone()
@@ -349,9 +352,9 @@ async fn auth_precedes_body_validation_and_refresh_is_strict() {
 #[tokio::test]
 async fn session_pagination_dates_and_errors_match_the_nest_contract() {
     let store = FakeStore::new(account());
-    let first = uuid(SESSION_ID);
-    let second = uuid("22222222-2222-4222-8222-222222222222");
-    let third = uuid("33333333-3333-4333-8333-333333333333");
+    let first = session_id();
+    let second = Uuid::new_v4();
+    let third = Uuid::new_v4();
     let at = Utc
         .with_ymd_and_hms(2026, 9, 20, 12, 34, 56)
         .single()
@@ -381,9 +384,7 @@ async fn session_pagination_dates_and_errors_match_the_nest_contract() {
         },
     ];
     let (app, tokens) = app(store.clone());
-    let access = tokens
-        .access_token(uuid(USER_ID), first)
-        .expect("access token");
+    let access = tokens.access_token(user_id(), first).expect("access token");
     let response = app
         .clone()
         .oneshot(request(
@@ -433,11 +434,13 @@ async fn session_pagination_dates_and_errors_match_the_nest_contract() {
         "invalid_cursor"
     );
 
+    let mut bad_id = Uuid::new_v4().to_string();
+    bad_id.replace_range(14..15, "1");
     let bad_id = app
         .clone()
         .oneshot(request(
             "DELETE",
-            "/api/auth/sessions/11111111-1111-1111-8111-111111111111",
+            &format!("/api/auth/sessions/{bad_id}"),
             Some(&access),
             "",
         ))
@@ -452,7 +455,7 @@ async fn session_pagination_dates_and_errors_match_the_nest_contract() {
     let absent = app
         .oneshot(request(
             "DELETE",
-            "/api/auth/sessions/22222222-2222-4222-8222-222222222222",
+            &format!("/api/auth/sessions/{second}"),
             Some(&access),
             "",
         ))
@@ -471,7 +474,7 @@ async fn logout_all_requires_literal_true_and_returns_the_revoked_count() {
     store.state.lock().expect("state").revoke = Some(3);
     let (app, tokens) = app(store);
     let access = tokens
-        .access_token(uuid(USER_ID), uuid(SESSION_ID))
+        .access_token(user_id(), session_id())
         .expect("access token");
     let rejected = app
         .clone()

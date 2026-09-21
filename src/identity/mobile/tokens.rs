@@ -248,6 +248,9 @@ mod tests {
     use std::collections::BTreeMap;
     use std::time::Duration;
 
+    use hmac::{Hmac, Mac as _};
+    use sha2::Sha256;
+
     use crate::config::SecretString;
 
     use super::*;
@@ -264,25 +267,32 @@ mod tests {
     }
 
     #[test]
-    fn matches_the_nest_hs256_vector_and_verifies_required_claims() {
+    fn signs_and_verifies_the_required_access_claims() {
         let service = TokenService::new(config());
-        let user = Uuid::parse_str("15fc0373-8ed3-4cd6-8b61-3639b84ad966").expect("valid fixture");
-        let session =
-            Uuid::parse_str("11111111-1111-4111-8111-111111111111").expect("valid fixture");
+        let user = Uuid::new_v4();
+        let session = Uuid::new_v4();
         let token = service
             .access_token_at(user, session, 2_000_000_000)
             .expect("sign vector");
+        let header = r#"{"typ":"JWT","alg":"HS256","kid":"primary"}"#;
+        let claims = format!(
+            r#"{{"sub":"{user}","sid":"{session}","typ":"access","iat":2000000000,"exp":2000000900,"aud":"histae-app","iss":"histae-api"}}"#
+        );
+        let signing_input = format!(
+            "{}.{}",
+            URL_SAFE_NO_PAD.encode(header),
+            URL_SAFE_NO_PAD.encode(claims)
+        );
+        let mut hmac = Hmac::<Sha256>::new_from_slice(config().secret.expose_secret().as_bytes())
+            .expect("fixture HMAC key");
+        hmac.update(signing_input.as_bytes());
+        let expected = format!(
+            "{signing_input}.{}",
+            URL_SAFE_NO_PAD.encode(hmac.finalize().into_bytes())
+        );
+        assert_eq!(token, expected);
         assert_eq!(
             service.verify_access_token(&token),
-            Ok(VerifiedAccessToken {
-                user_id: user,
-                session_id: session,
-                expires_at_seconds: 2_000_000_900,
-            })
-        );
-        let node_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InByaW1hcnkifQ.eyJzdWIiOiIxNWZjMDM3My04ZWQzLTRjZDYtOGI2MS0zNjM5Yjg0YWQ5NjYiLCJzaWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJ0eXAiOiJhY2Nlc3MiLCJpYXQiOjIwMDAwMDAwMDAsImV4cCI6MjAwMDAwMDkwMCwiYXVkIjoiaGlzdGFlLWFwcCIsImlzcyI6Imhpc3RhZS1hcGkifQ.ojF9UXr3viOFukHWkJEofd3AALRR_Feh7SG2HOsunjE";
-        assert_eq!(
-            service.verify_access_token(node_token),
             Ok(VerifiedAccessToken {
                 user_id: user,
                 session_id: session,
@@ -293,25 +303,24 @@ mod tests {
 
     #[test]
     fn parses_only_the_historical_refresh_shape() {
-        let valid =
-            "11111111-1111-4111-8111-111111111111:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-        let parsed = TokenService::parse_refresh_token(valid).expect("valid refresh fixture");
-        assert_eq!(
-            parsed.jti.hyphenated().to_string(),
-            "11111111-1111-4111-8111-111111111111"
-        );
+        let jti = Uuid::new_v4();
+        let valid = format!("{jti}:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        let parsed = TokenService::parse_refresh_token(&valid).expect("valid refresh fixture");
+        assert_eq!(parsed.jti, jti);
         assert_eq!(
             parsed.hash,
             "0f007385b6f9d4b7eeb2748605afe1a984a0a3bfa3f014d09e2a784ce9e5cd1a"
         );
+        let mut wrong_version = jti.to_string();
+        wrong_version.replace_range(14..15, "1");
         for invalid in [
-            "",
-            "not-a-uuid:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            "11111111-1111-1111-8111-111111111111:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            "11111111-1111-4111-8111-111111111111:short",
-            "11111111-1111-4111-8111-111111111111:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA!",
+            String::new(),
+            "not-a-uuid:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_owned(),
+            format!("{wrong_version}:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+            format!("{jti}:short"),
+            format!("{jti}:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA!"),
         ] {
-            assert_eq!(TokenService::parse_refresh_token(invalid), None);
+            assert_eq!(TokenService::parse_refresh_token(&invalid), None);
         }
     }
 

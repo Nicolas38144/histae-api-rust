@@ -195,7 +195,7 @@ async fn reads_the_existing_schema_types_and_transaction_protocol()
     history_probe.rollback().await?;
     history_result?;
 
-    let identifier = Uuid::parse_str("123e4567-e89b-42d3-a456-426614174000")?;
+    let identifier = Uuid::new_v4();
     let calendar_date = NaiveDate::parse_from_str("2000-02-29", "%Y-%m-%d")?;
     let instant = DateTime::parse_from_rfc3339("2026-09-20T12:34:56.123456Z")?.with_timezone(&Utc);
     let numeric = Decimal::from_str("48.856613")?;
