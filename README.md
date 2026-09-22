@@ -1,6 +1,12 @@
 # Histae API Rust
 
-Migration incrémentale de l’API NestJS Histae. Le backend Nest reste la référence exécutable jusqu’à la campagne de parité et la bascule de développement. Cette dépendance est strictement transitoire : avant la suppression du dépôt NestJS, `histae-api-rust` devra contenir ses propres migrations, scripts d’exploitation, configuration d’exemple, image et services Docker nécessaires au fonctionnement autonome.
+Migration incrémentale de l’API NestJS Histae. Le backend Nest reste la référence exécutable jusqu’à la campagne de parité et la bascule de développement. Cette dépendance est strictement transitoire : `histae-api-rust` possède désormais sa configuration locale et devra encore recevoir ses propres migrations, scripts d’exploitation, image et services Docker avant la suppression du dépôt NestJS.
+
+## Configuration locale
+
+Le fichier `.env` local est chargé automatiquement par l’application et par les tests d’infrastructure, reste ignoré par Git et ne doit contenir que des secrets de développement. Les variables définies explicitement dans le terminal gardent la priorité.
+
+Depuis Windows, les adresses et ports de `.env` ciblent les ports hôte des services locaux. Aucune commande Rust ne doit charger le fichier `.env` du dépôt NestJS. Lorsqu’un prochain lot ajoute une variable, `.env`, la configuration typée et la documentation du lot doivent être mises à jour ensemble.
 
 ## S01 — comparaison de contrat HTTP
 
@@ -105,6 +111,18 @@ Retirer le consentement sensible efface immédiatement le sexe et les préféren
 présence. La bio réutilise exactement les règles locales `text_rules_v1`. L’interface d’URL photo est prête, mais son
 implémentation S3 reste dans S15. Les contrats, requêtes et preuves de concurrence figurent dans
 [docs/s12-profiles.md](docs/s12-profiles.md).
+
+## S13 — catalogues, traits et réponses de profil
+
+Les quinze routes des plans, traits, questions et réponses de profil sont disponibles sous forme de routeur Axum
+composable. Le catalogue de plans reste public ; les lectures et attributions mobiles exigent l’onboarding complet ;
+les mutations de catalogue utilisent la session WebAuthn admin et son contrôle d’Origin lorsque la feature
+`webauthn-probe` est active.
+
+Les réponses sont normalisées en NFKC, limitées à trois questions distinctes et remplacées dans une transaction
+unique avec leur décision de modération. Les ordres SQL, la casse du champ mobile `traitId`, le comptage
+`answer_count`, les statuts HTTP et les cascades de suppression restent compatibles avec NestJS. Les contrats,
+requêtes, limites Unicode et validations figurent dans [docs/s13-catalog.md](docs/s13-catalog.md).
 
 ## S03 — prototype du codec photo
 

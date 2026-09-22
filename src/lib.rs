@@ -1,4 +1,5 @@
 pub mod bootstrap;
+pub mod catalog;
 pub mod config;
 pub mod contract;
 pub mod http;

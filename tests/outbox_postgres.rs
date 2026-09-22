@@ -25,6 +25,7 @@ impl fmt::Display for FixtureError {
 impl std::error::Error for FixtureError {}
 
 fn variable(name: &'static str) -> Result<String, FixtureError> {
+    let _ = dotenvy::dotenv();
     env::var(name)
         .ok()
         .filter(|value| !value.is_empty())

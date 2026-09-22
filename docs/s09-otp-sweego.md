@@ -82,4 +82,4 @@ Le test PostgreSQL refuse tout environnement autre que `development`, toute base
 
 ## Limites du lot
 
-Le binaire `api` reste volontairement non activé avant le lot de composition/démarrage prévu par le plan. Les routeurs S09 sont compilables et testés isolément, mais ne sont pas encore servis par le processus final. Les variables Sweego sont déjà typées par S04 ; le fichier `.env.example` Rust et la pile Docker Rust restent des livrables des lots d’exploitation ultérieurs. Aucun appel réel à Sweego n’est effectué par les tests.
+Le binaire `api` reste volontairement non activé avant le lot de composition/démarrage prévu par le plan. Les routeurs S09 sont compilables et testés isolément, mais ne sont pas encore servis par le processus final. Les variables Sweego sont déjà typées par S04 et présentes dans le `.env` local Rust. La pile Docker Rust reste un livrable des lots d’exploitation ultérieurs. Aucun appel réel à Sweego n’est effectué par les tests.
