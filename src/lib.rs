@@ -6,6 +6,7 @@ pub mod http;
 pub mod identity;
 pub mod infra;
 pub mod moderation;
+pub mod notifications;
 pub mod operations;
 pub mod outbox;
 pub mod photo_codec_probe;

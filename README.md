@@ -45,13 +45,13 @@ Les variables et contraintes conservées depuis NestJS sont décrites dans [docs
 
 Le socle PostgreSQL utilise SQLx avec un pool borné, les timeouts existants, TLS avec vérification complète et les codecs explicites nécessaires au schéma Histae. À la connexion, Rust exige l’historique exact `001_baseline_20260905`, `017_postgres_discovery` puis `018_postgres_admin_webauthn_state`, leurs checksums actuels et les objets terminaux indispensables.
 
-Le migrateur TypeScript reste provisoirement l’unique outil qui crée ou fait évoluer le schéma pendant les lots de parité :
+Le migrateur TypeScript reste provisoirement l’outil qui fait évoluer une base existante pendant les lots de parité :
 
 ```powershell
 pnpm run db:migrate
 ```
 
-Rust n’applique encore aucune baseline, ne fabrique aucun historique et ne répare aucun checksum. Un migrateur autonome et les assets PostgreSQL nécessaires devront être présents dans ce dépôt avant S29 ; la suppression de NestJS ne pourra pas précéder cette livraison. Le test réel est isolé derrière la feature explicite `postgres-integration` et refuse toute cible autre que `histae-dev` sur loopback :
+Depuis S14, le dépôt Rust contient aussi les assets PostgreSQL figés et `compose.dev.yaml` initialise une base locale neuve avec l’historique exact. Il ne modifie pas une base existante et ne répare aucun checksum. Un migrateur incrémental autonome reste nécessaire avant S29. Le test réel est isolé derrière la feature explicite `postgres-integration` et refuse toute cible autre que `histae-dev` sur loopback :
 
 ```powershell
 cargo test --locked --features postgres-integration --test postgres_compatibility
@@ -123,6 +123,18 @@ Les réponses sont normalisées en NFKC, limitées à trois questions distinctes
 unique avec leur décision de modération. Les ordres SQL, la casse du champ mobile `traitId`, le comptage
 `answer_count`, les statuts HTTP et les cascades de suppression restent compatibles avec NestJS. Les contrats,
 requêtes, limites Unicode et validations figurent dans [docs/s13-catalog.md](docs/s13-catalog.md).
+
+## S14 — appareils mobiles et notifications transactionnelles
+
+Les trois routes d’appareils mobiles sont disponibles sous forme de routeur Axum composable et
+restent accessibles avec une session active avant la fin de l’onboarding. Les DTO reproduisent le
+comptage Unicode de validator.js avant le trim ECMAScript ; le token fournisseur reste privé.
+
+La création d’une notification, de ses références par appareil et de ses jobs `notification.push`
+utilise la transaction métier de l’appelant. La clé de déduplication, les payloads autorisés, le
+filtrage des familles et les prédicats de facturation sont compatibles avec NestJS. Une pile
+PostgreSQL locale autonome accompagne désormais les tests réels. Les routes, requêtes et preuves
+de concurrence figurent dans [docs/s14-notifications.md](docs/s14-notifications.md).
 
 ## S03 — prototype du codec photo
 

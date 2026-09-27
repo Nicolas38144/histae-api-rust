@@ -1,0 +1,42 @@
+name: histae-rust-dev
+
+x-infrastructure-logging: &infrastructure-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:18.6-bookworm
+    logging: *infrastructure-logging
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-histae-dev}
+      POSTGRES_USER: ${POSTGRES_USER:-histae}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env}
+      POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
+      PGDATA: /var/lib/postgresql/18/docker
+    ports:
+      - 127.0.0.1:${POSTGRES_PORT:-5433}:5432
+    volumes:
+      - histae-rust-postgres-data:/var/lib/postgresql
+      - ./db/001_schema_postgres.sql:/docker-entrypoint-initdb.d/001_schema_postgres.sql:ro
+      - ./db/002_insert_postgres.sql:/docker-entrypoint-initdb.d/002_insert_postgres.sql:ro
+      - ./db/003_postgres_discovery.sql:/docker-entrypoint-initdb.d/003_postgres_discovery.sql:ro
+      - ./db/004_postgres_admin_webauthn_state.sql:/docker-entrypoint-initdb.d/004_postgres_admin_webauthn_state.sql:ro
+      - ./db/005_migration_history.sql:/docker-entrypoint-initdb.d/005_migration_history.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 1m
+    shm_size: 256m
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 2.0
+
+volumes:
+  histae-rust-postgres-data:
