@@ -34,8 +34,9 @@ longueur big-endian : nom exact, MIME trimé en minuscules et octets source.
 Après conversion, les métadonnées vérifiées sont enregistrées avant le `PUT` S3. La preuve de verrou d’activité
 est relue immédiatement avant cet effet externe. Une panne de stockage laisse la ligne `processing` et sa clé objet
 pour réconciliation. L’activation verrouille de nouveau le profil, passe l’ancienne photo à `deleting`, programme
-`photo.delete`, active la nouvelle photo, crée sa modération `pending/analysis_unavailable` et termine la demande
-dans une transaction unique. Un replay identique signe seulement l’objet existant.
+`photo.delete`, active la nouvelle photo, crée la décision produite par l’analyse S16 et termine la demande dans une
+transaction unique. Lorsque l’analyseur est désactivé ou indisponible, cette décision reste
+`pending/analysis_unavailable`. Un replay identique signe seulement l’objet existant.
 
 Le handler de suppression relit uniquement une photo `deleting`, supprime l’objet puis consomme les demandes et
 retire la ligne PostgreSQL. DELETE S3 et l’absence de ligne sont idempotents. Une panne entre S3 et PostgreSQL est
@@ -60,6 +61,6 @@ d’aucun type propre à SeaweedFS.
 
 ## Limites reportées
 
-L’analyse automatique et les routes de modération appartiennent à S16. La récupération des traitements anciens et
-la purge bornée appartiennent à S26 ; les états et clés nécessaires sont déjà conservés. L’image multi-stage et
-l’installation de production du codec autonome appartiennent à S27.
+La récupération automatique des traitements anciens et la purge bornée appartiennent à S26 ; les états et clés
+nécessaires sont déjà conservés. L’image multi-stage et l’installation de production du codec autonome appartiennent
+à S27.

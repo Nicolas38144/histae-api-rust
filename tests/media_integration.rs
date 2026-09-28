@@ -12,8 +12,10 @@ use histae_api_rust::media::domain::{CreationResult, ProcessingPhoto};
 use histae_api_rust::media::pg::{PgPhotoRepository, PhotoStore};
 use histae_api_rust::media::s3::S3ObjectStorage;
 use histae_api_rust::media::storage::PhotoObjectStorage;
+use histae_api_rust::moderation::domain::AutomatedPhotoModeration;
 use histae_api_rust::outbox::pg::PgOutboxRepository;
 use histae_api_rust::photo_codec_probe::ProcessedPhoto;
+use histae_api_rust::profiles::domain::ModerationStatus;
 use url::Url;
 use uuid::Uuid;
 
@@ -127,9 +129,7 @@ async fn postgres_protocol_preserves_replay_replacement_and_consumption()
             .create_processing(ProcessingPhoto {
                 id: missing_photo,
                 user_id: missing_user,
-                object_key: format!(
-                    "profile-photos/{missing_user}/{missing_photo}.webp"
-                ),
+                object_key: format!("profile-photos/{missing_user}/{missing_photo}.webp"),
                 idempotency_key: Uuid::new_v4(),
                 request_sha256: [1; 32],
                 created_at: missing_now,
@@ -153,7 +153,28 @@ async fn postgres_protocol_preserves_replay_replacement_and_consumption()
         assert_eq!(repository.create_processing(processing.clone()).await?, CreationResult::Created);
         let processed = ProcessedPhoto { body: b"RIFF....WEBP".to_vec(), mime_type: "image/webp", size_bytes: 12, width: 2, height: 2, sha256: [9; 32] };
         assert!(repository.record_processed(photo_id, user_id, &processed).await?);
-        assert!(repository.activate(photo_id, user_id).await?);
+        assert!(repository.activate(photo_id, user_id, AutomatedPhotoModeration {
+            status: ModerationStatus::Approved,
+            reasons: Vec::new(),
+            policy_version: "local_vision_v1",
+            face_count: Some(1),
+            sharpness_score: Some(123.5),
+            nsfw_score: Some(0.02),
+        }).await?);
+        let stored_moderation: (String, Vec<String>, String, Option<i16>, Option<f64>, Option<f64>) =
+            sqlx::query_as(
+                "SELECT status, reason_codes, policy_version, face_count, sharpness_score, nsfw_score
+                 FROM content_moderation_case WHERE photo_id = $1",
+            )
+            .bind(photo_id)
+            .fetch_one(database.acquire().await?.as_mut())
+            .await?;
+        assert_eq!(stored_moderation.0, "approved");
+        assert!(stored_moderation.1.is_empty());
+        assert_eq!(stored_moderation.2, "local_vision_v1");
+        assert_eq!(stored_moderation.3, Some(1));
+        assert_eq!(stored_moderation.4, Some(123.5));
+        assert_eq!(stored_moderation.5, Some(0.02));
         assert!(matches!(repository.create_processing(ProcessingPhoto { id: Uuid::new_v4(), ..processing.clone() }).await?, CreationResult::Replay(_)));
         assert_eq!(repository.create_processing(ProcessingPhoto { id: Uuid::new_v4(), request_sha256: [8; 32], ..processing.clone() }).await?, CreationResult::IdempotencyConflict);
         assert!(repository.begin_delete(user_id).await?);

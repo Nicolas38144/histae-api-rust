@@ -68,6 +68,31 @@ services:
         aliases:
           - storage.histae.localhost
 
+  photo-moderation:
+    build:
+      context: ./services/photo-moderation
+    logging: *infrastructure-logging
+    environment:
+      MODERATION_TOKEN: ${PHOTO_MODERATION_TOKEN:?Define PHOTO_MODERATION_TOKEN in .env}
+    ports:
+      - 127.0.0.1:8090:8080
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 2.0
+    networks:
+      - backend
+
 volumes:
   histae-rust-postgres-data:
   histae-rust-object-storage-data:

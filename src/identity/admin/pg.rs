@@ -260,7 +260,7 @@ impl AdminAuthRepository {
                     let Some((user_id, role)) = bootstrap else {
                         return Ok(None);
                     };
-                    let role = AdminRole::parse(&role).map_err(|_| DatabaseError::QueryFailed)?;
+                    let role = AdminRole::parse(&role).ok_or(DatabaseError::QueryFailed)?;
                     let credential_id = insert_credential(connection, user_id, credential).await?;
                     let created =
                         insert_session(connection, user_id, role, credential_id, session).await?;
@@ -345,7 +345,7 @@ impl AdminAuthRepository {
                     if counter != i64::from(expected_counter) {
                         return Ok(None);
                     }
-                    let role = AdminRole::parse(&role).map_err(|_| DatabaseError::QueryFailed)?;
+                    let role = AdminRole::parse(&role).ok_or(DatabaseError::QueryFailed)?;
                     sqlx::query(
                         "UPDATE admin_webauthn_credential
                          SET counter = $2, device_type = $3, backed_up = $4,
@@ -690,7 +690,7 @@ fn credential_row(row: CredentialTuple) -> Result<CredentialRow, DatabaseError> 
     Ok(CredentialRow {
         id: row.0,
         user_id: row.1,
-        role: AdminRole::parse(&row.2).map_err(|_| DatabaseError::QueryFailed)?,
+        role: AdminRole::parse(&row.2).ok_or(DatabaseError::QueryFailed)?,
         credential_id: row.3,
         public_key: row.4,
         counter: u32::try_from(row.5).map_err(|_| DatabaseError::QueryFailed)?,
@@ -711,7 +711,7 @@ fn active_session_row(
         id: row.0,
         user_id: row.1,
         credential_id: row.2,
-        role: AdminRole::parse(&row.3).map_err(|_| DatabaseError::QueryFailed)?,
+        role: AdminRole::parse(&row.3).ok_or(DatabaseError::QueryFailed)?,
         authenticated_at: row.4,
         expires_at: row.5,
     })

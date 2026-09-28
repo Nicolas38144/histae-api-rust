@@ -5,29 +5,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::{Uuid, Variant};
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AdminRole {
-    Admin,
-    Superadmin,
-}
-
-impl AdminRole {
-    pub fn parse(value: &str) -> Result<Self, AdminDomainError> {
-        match value {
-            "admin" => Ok(Self::Admin),
-            "superadmin" => Ok(Self::Superadmin),
-            _ => Err(AdminDomainError::InvalidStoredValue),
-        }
-    }
-
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Admin => "admin",
-            Self::Superadmin => "superadmin",
-        }
-    }
-}
+pub use crate::identity::admin_role::AdminRole;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ChallengePurpose {

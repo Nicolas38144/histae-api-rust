@@ -148,6 +148,19 @@ secondes. Le codec Node isolé appartient désormais au dépôt Rust avec Sharp 
 de développement fournit SeaweedFS mini et un volume distinct. Les contrats, transactions, tests réels et limites
 d’exploitation figurent dans [docs/s15-media.md](docs/s15-media.md).
 
+## S16 — modération et administration photo
+
+Les routes de file de modération et de réconciliation photo sont disponibles sous forme de routeurs Axum
+composables. Les listes restent minimales et ne contiennent ni texte privé, ni clé objet, ni URL. Le détail motivé
+écrit son audit avant toute signature S3 ; les décisions utilisent la version optimiste et une revue photo exige les
+trois contrôles explicites.
+
+L’upload S15 appelle maintenant l’analyseur local borné avant l’activation transactionnelle. Une réponse sûre peut
+approuver automatiquement ; tout signal, timeout ou résultat invalide reste `pending`, sans rejet automatique. Le
+service Python/ONNX autonome et son image non-root sont dans `services/photo-moderation`, et
+`compose.dev.yaml` le publie uniquement sur `127.0.0.1:8090`. Les routes, transactions, écarts connus et validations
+figurent dans [docs/s16-moderation.md](docs/s16-moderation.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.

@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use super::domain::{CreationResult, PhotoObject, ProcessingPhoto};
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
+use crate::moderation::domain::AutomatedPhotoModeration;
 use crate::outbox::pg::PgOutboxRepository;
 use crate::outbox::types::{NewOutboxEvent, OutboxEventType};
 use crate::photo_codec_probe::ProcessedPhoto;
@@ -33,7 +34,12 @@ pub trait PhotoStore: Send + Sync {
         user_id: Uuid,
         photo: &'a ProcessedPhoto,
     ) -> PhotoStoreFuture<'a, bool>;
-    fn activate(&self, photo_id: Uuid, user_id: Uuid) -> PhotoStoreFuture<'_, bool>;
+    fn activate(
+        &self,
+        photo_id: Uuid,
+        user_id: Uuid,
+        moderation: AutomatedPhotoModeration,
+    ) -> PhotoStoreFuture<'_, bool>;
     fn begin_delete(&self, user_id: Uuid) -> PhotoStoreFuture<'_, bool>;
     fn find_deleting(&self, photo_id: Uuid) -> PhotoStoreFuture<'_, Option<PhotoObject>>;
     fn complete_deletion(&self, photo_id: Uuid) -> PhotoStoreFuture<'_, ()>;
@@ -139,7 +145,12 @@ impl PhotoStore for PgPhotoRepository {
         })
     }
 
-    fn activate(&self, photo_id: Uuid, user_id: Uuid) -> PhotoStoreFuture<'_, bool> {
+    fn activate(
+        &self,
+        photo_id: Uuid,
+        user_id: Uuid,
+        moderation: AutomatedPhotoModeration,
+    ) -> PhotoStoreFuture<'_, bool> {
         let outbox = self.outbox.clone();
         Box::pin(async move {
             self.database.transaction(|connection| Box::pin(async move {
@@ -163,13 +174,26 @@ impl PhotoStore for PgPhotoRepository {
                      WHERE id = $1 AND user_id = $2 AND status = 'processing'",
                 ).bind(photo_id).bind(user_id).execute(&mut *connection).await.map_err(map_sqlx_error)?;
                 if activated.rows_affected() != 1 { return Err(DatabaseError::QueryFailed); }
+                let reasons = moderation.reasons.iter().map(|reason| reason.as_str()).collect::<Vec<_>>();
+                let face_count = moderation.face_count
+                    .map(i16::try_from)
+                    .transpose()
+                    .map_err(|_| DatabaseError::QueryFailed)?;
                 sqlx::query(
                     "INSERT INTO content_moderation_case
                      (user_id, content_type, photo_id, status, reason_codes, policy_version,
                       face_count, sharpness_score, nsfw_score)
-                     VALUES ($1, 'photo', $2, 'pending', ARRAY['analysis_unavailable']::text[],
-                             'local_vision_v1', NULL, NULL, NULL)",
-                ).bind(user_id).bind(photo_id).execute(&mut *connection).await.map_err(map_sqlx_error)?;
+                     VALUES ($1, 'photo', $2, $3, $4, $5, $6, $7, $8)",
+                )
+                .bind(user_id)
+                .bind(photo_id)
+                .bind(moderation.status.as_str())
+                .bind(reasons)
+                .bind(moderation.policy_version)
+                .bind(face_count)
+                .bind(moderation.sharpness_score)
+                .bind(moderation.nsfw_score)
+                .execute(&mut *connection).await.map_err(map_sqlx_error)?;
                 let request = sqlx::query(
                     "UPDATE photo_upload_request SET status = 'completed', updated_at = clock_timestamp()
                      WHERE user_id = $1 AND photo_id = $2 AND status = 'processing'",
