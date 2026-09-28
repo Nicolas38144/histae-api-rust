@@ -37,6 +37,40 @@ services:
     pids_limit: 256
     mem_limit: 1g
     cpus: 2.0
+    networks:
+      - backend
+
+  object-storage:
+    image: chrislusf/seaweedfs:4.45
+    logging: *infrastructure-logging
+    command: [mini, -dir=/data]
+    environment:
+      AWS_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY:-histae-dev}
+      AWS_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_KEY:-histae-dev-secret-change-me}
+      S3_BUCKET: ${OBJECT_STORAGE_BUCKET:-histae-photos}
+    ports:
+      - 127.0.0.1:8333:8333
+    volumes:
+      - histae-rust-object-storage-data:/data
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:8333/healthz]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      backend:
+        aliases:
+          - storage.histae.localhost
 
 volumes:
   histae-rust-postgres-data:
+  histae-rust-object-storage-data:
+
+networks:
+  backend:

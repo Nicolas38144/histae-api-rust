@@ -272,6 +272,10 @@ fn profile_error(error: ProfileError) -> ApiError {
             "The account could not be found or has been deleted.",
         ),
         ProfileError::Database(error) => error.into(),
-        ProfileError::PhotoUrlUnavailable => ApiError::internal(),
+        ProfileError::PhotoUrlUnavailable => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "photo_storage_unavailable",
+            "Photo storage is temporarily unavailable",
+        ),
     }
 }

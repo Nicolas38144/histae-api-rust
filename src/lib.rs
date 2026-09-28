@@ -5,6 +5,7 @@ pub mod contract;
 pub mod http;
 pub mod identity;
 pub mod infra;
+pub mod media;
 pub mod moderation;
 pub mod notifications;
 pub mod operations;

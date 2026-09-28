@@ -81,19 +81,18 @@ pub struct ProcessedPhoto {
 pub struct PhotoCodecProbe {
     node_executable: PathBuf,
     runner_script: PathBuf,
-    nest_root: PathBuf,
+    working_directory: PathBuf,
     timeout: Duration,
     slots: Arc<Semaphore>,
 }
 
 impl PhotoCodecProbe {
-    pub fn for_nest_root(nest_root: impl Into<PathBuf>) -> Self {
+    pub fn for_runtime() -> Self {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         Self {
             node_executable: PathBuf::from("node"),
-            runner_script: Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tools")
-                .join("photo-codec-runner.cjs"),
-            nest_root: nest_root.into(),
+            runner_script: root.join("tools").join("photo-codec-runner.cjs"),
+            working_directory: root.join("tools").join("photo-codec"),
             timeout: DEFAULT_CODEC_TIMEOUT,
             slots: Arc::new(Semaphore::new(1)),
         }
@@ -102,13 +101,13 @@ impl PhotoCodecProbe {
     pub fn with_process(
         node_executable: impl Into<PathBuf>,
         runner_script: impl Into<PathBuf>,
-        nest_root: impl Into<PathBuf>,
+        working_directory: impl Into<PathBuf>,
         timeout: Duration,
     ) -> Self {
         Self {
             node_executable: node_executable.into(),
             runner_script: runner_script.into(),
-            nest_root: nest_root.into(),
+            working_directory: working_directory.into(),
             timeout,
             slots: Arc::new(Semaphore::new(1)),
         }
@@ -129,8 +128,7 @@ impl PhotoCodecProbe {
             .arg(&self.runner_script)
             .arg(upload.filename)
             .arg(upload.mime_type)
-            .current_dir(&self.nest_root)
-            .env("HISTAE_NEST_ROOT", &self.nest_root)
+            .current_dir(&self.working_directory)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

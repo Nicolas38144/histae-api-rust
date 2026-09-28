@@ -1,6 +1,6 @@
 # Histae API Rust
 
-Migration incrémentale de l’API NestJS Histae. Le backend Nest reste la référence exécutable jusqu’à la campagne de parité et la bascule de développement. Cette dépendance est strictement transitoire : `histae-api-rust` possède désormais sa configuration locale et devra encore recevoir ses propres migrations, scripts d’exploitation, image et services Docker avant la suppression du dépôt NestJS.
+Migration incrémentale de l’API NestJS Histae. Le backend Nest reste la référence exécutable jusqu’à la campagne de parité et la bascule de développement. Cette dépendance est strictement transitoire : `histae-api-rust` possède désormais sa configuration, son schéma PostgreSQL, son codec photo et ses services PostgreSQL/stockage objet locaux. Les scripts d’exploitation et l’image finale restent à migrer avant la suppression du dépôt NestJS.
 
 ## Configuration locale
 
@@ -135,6 +135,18 @@ utilise la transaction métier de l’appelant. La clé de déduplication, les p
 filtrage des familles et les prédicats de facturation sont compatibles avec NestJS. Une pile
 PostgreSQL locale autonome accompagne désormais les tests réels. Les routes, requêtes et preuves
 de concurrence figurent dans [docs/s14-notifications.md](docs/s14-notifications.md).
+
+## S15 — photos privées et stockage objet
+
+Les routes `PUT` et `DELETE /api/users/me/photo` sont disponibles sous forme de routeur Axum composable. Le
+multipart impose un seul fichier `photo`, 500 000 octets, une clé d’idempotence UUID v4 et la limite dédiée de dix
+tentatives par heure. Le protocole PostgreSQL conserve les états `processing`, `ready` et `deleting`; un échec S3
+reste donc réconciliable et les suppressions passent par l’outbox `photo.delete`.
+
+Le client S3 compatible utilise les six variables `OBJECT_STORAGE_*`, des signatures AWS v4 et des URL de 300
+secondes. Le codec Node isolé appartient désormais au dépôt Rust avec Sharp et `heic-decode` épinglés. Le Compose
+de développement fournit SeaweedFS mini et un volume distinct. Les contrats, transactions, tests réels et limites
+d’exploitation figurent dans [docs/s15-media.md](docs/s15-media.md).
 
 ## S03 — prototype du codec photo
 

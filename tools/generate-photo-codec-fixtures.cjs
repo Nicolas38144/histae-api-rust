@@ -5,11 +5,11 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 async function main() {
-  const nestRoot = process.argv[2];
+  const codecRoot = process.argv[2];
   const output = process.argv[3];
-  if (!nestRoot || !output) process.exit(2);
-  const requireFromNest = createRequire(path.join(nestRoot, 'package.json'));
-  const sharp = requireFromNest('sharp');
+  if (!codecRoot || !output) process.exit(2);
+  const requireFromCodec = createRequire(path.join(codecRoot, 'package.json'));
+  const sharp = requireFromCodec('sharp');
   await fs.mkdir(output, { recursive: true });
 
   const orientedPixels = Buffer.from([

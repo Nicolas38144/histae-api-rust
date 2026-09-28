@@ -13,7 +13,7 @@ La sortie est un WebP sans agrandissement. Six couples bord/qualité sont essay�
 | NestJS | Prototype Rust |
 | --- | --- |
 | Validation extension, MIME, signature et 500 kB | `validate_upload` avant tout processus |
-| `PhotoProcessorService.toWebp` | processus Node `photo-codec-runner.cjs` appelant le service existant |
+| `PhotoProcessorService.toWebp` | processus Node `photo-codec-runner.cjs` et processeur autonome |
 | Worker HEIF et timeout 30 s | timeout interne conservé, plus arrêt du processus complet à 35 s |
 | tampon `Buffer` | pipes stdin/stdout bornés, sans fichier temporaire |
 | `ProcessedPhoto` | type Rust explicite et SHA-256 recalculé par le parent |
@@ -25,7 +25,7 @@ Le codec TypeScript est maintenu comme pont de migration. Les options Rust pures
 
 Le processus isolé préserve la version réellement éprouvée ici : Sharp 0.35.4, libvips 8.18.6, libheif 1.23.2 et libwebp 1.6.0. Un crash, une fuite native ou une annulation libère le processus entier. Le parent ne conserve au plus que 500 000 octets d’entrée et 500 000 octets de sortie par conversion. Le décodage HEIF peut toutefois allouer environ 160 Mo rien que pour le RGBA au plafond de pixels, avant les buffers de conversion ; le sémaphore est donc une contrainte d’exploitation, pas une optimisation.
 
-Le helper de S03 charge directement le service du dépôt Nest via `ts-node` afin que le prototype compare le code de référence sans duplication. Lors de S15, il faudra produire un artefact Node minimal et compilé, épingler ses versions natives dans l’image finale, conserver le protocole par pipes et définir le plafond de processus au niveau de la configuration de production.
+S15 a remplacé le chargement du dépôt Nest par `tools/photo-codec/processor.cjs`. Le package et son lockfile épinglent Sharp 0.35.4 et `heic-decode` 2.1.0 ; les pipes et les deux plafonds de 500 000 octets restent contrôlés par Rust. L’image finale devra installer ce package en mode production et conserver Node 22, point traité avec les artefacts de déploiement.
 
 ## Parité vérifiée
 
@@ -39,9 +39,9 @@ Les tests Rust exécutent les fixtures Nest JPEG, JPEG alternatif, PNG, WebP, HE
 - sortie WebP, dimensions maximales, taille maximale et SHA-256 ;
 - arrêt d’un processus bloqué et d’un processus produisant plus de 500 000 octets.
 
-## Limites à reprendre en S15
+## Limites restantes
 
-- Le timeout externe produit actuellement `PhotoCodecError::CodecTimedOut`. La couche applicative devra le traduire en `invalid_photo` comme l’échec de décodage Nest, tout en conservant un code d’événement d’exploitation sans détail sensible.
-- Le helper de prototype dépend du dépôt Nest et de ses `node_modules`; il ne constitue pas l’artefact de production.
+- Le timeout externe et l’indisponibilité du processus sont traduits par S15 en `400 invalid_photo` avec le message de décodage stable ; seul le code d’événement sûr `photo_codec_unavailable` est journalisé.
+- Le `Dockerfile` final doit installer uniquement les dépendances de production du codec autonome ; il appartient à S27.
 - Le nombre global de conversions doit être borné entre instances, ou dimensionné avec le rate limit photo et la mémoire du serveur. Le sémaphore local protège une seule instance.
 - Tout remplacement futur par un codec natif devra repasser ce corpus. Une différence d’octets est acceptable seulement après vérification des dimensions, orientation, suppression des métadonnées, modération et limite de 500 kB, puis approbation explicite.

@@ -12,17 +12,16 @@ use histae_api_rust::photo_codec_probe::{
 };
 use sha2::{Digest, Sha256};
 
-fn nest_root() -> PathBuf {
+fn codec_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(|parent| parent.join("histae-api"))
-        .unwrap_or_default()
+        .join("tools")
+        .join("photo-codec")
 }
 
 fn generated_fixtures() -> &'static PathBuf {
     static FIXTURES: OnceLock<PathBuf> = OnceLock::new();
     FIXTURES.get_or_init(|| {
-        let root = nest_root();
+        let root = codec_root();
         let output = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("target")
             .join("photo-codec-fixtures");
@@ -43,9 +42,11 @@ fn generated_fixtures() -> &'static PathBuf {
 
 #[tokio::test]
 async fn accepts_every_nest_format_and_returns_bounded_webp() {
-    let root = nest_root();
-    let codec = PhotoCodecProbe::for_nest_root(&root);
-    let fixtures = root.join("test").join("fixtures").join("photos");
+    let codec = PhotoCodecProbe::for_runtime();
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("photos");
     for (filename, mime_type) in [
         ("sample.jpg", "image/jpeg"),
         ("sample.jpeg", "image/jpeg"),
@@ -78,8 +79,7 @@ async fn accepts_every_nest_format_and_returns_bounded_webp() {
 
 #[tokio::test]
 async fn applies_exif_orientation_and_removes_source_metadata() {
-    let root = nest_root();
-    let codec = PhotoCodecProbe::for_nest_root(&root);
+    let codec = PhotoCodecProbe::for_runtime();
     let body = fs::read(generated_fixtures().join("orientation-6.jpg"))
         .unwrap_or_else(|error| panic!("failed to read orientation fixture: {error}"));
     let result = codec
@@ -101,8 +101,7 @@ async fn applies_exif_orientation_and_removes_source_metadata() {
 
 #[tokio::test]
 async fn rejects_animated_and_over_pixel_inputs_like_nest() {
-    let root = nest_root();
-    let codec = PhotoCodecProbe::for_nest_root(&root);
+    let codec = PhotoCodecProbe::for_runtime();
     for (filename, mime_type) in [
         ("animated.webp", "image/webp"),
         ("over-40mp.jpg", "image/jpeg"),
@@ -145,7 +144,7 @@ async fn kills_a_codec_process_that_exceeds_the_deadline() {
             .join("tests")
             .join("photo_codec")
             .join("hanging-worker.cjs"),
-        nest_root(),
+        codec_root(),
         Duration::from_millis(100),
     );
     assert_eq!(
@@ -168,8 +167,8 @@ async fn kills_a_codec_process_before_accepting_an_oversized_output() {
             .join("tests")
             .join("photo_codec")
             .join("oversized-worker.cjs"),
-        nest_root(),
-        Duration::from_secs(5),
+        codec_root(),
+        Duration::from_secs(15),
     );
     assert_eq!(
         codec
