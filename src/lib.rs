@@ -15,7 +15,9 @@ pub mod notifications;
 pub mod operations;
 pub mod outbox;
 pub mod photo_codec_probe;
+pub mod privacy;
 pub mod profiles;
+pub mod reports;
 pub mod shared;
 #[cfg(feature = "webauthn-probe")]
 pub mod webauthn_probe;

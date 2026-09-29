@@ -233,6 +233,18 @@ autres erreurs sont normalisées pour les reprises de l’outbox. Le service Red
 maintenant inclus dans `compose.dev.yaml`. Les contrats et preuves sont détaillés dans
 [docs/s22-sse-push.md](docs/s22-sse-push.md).
 
+## S23 — Blocages, signalements et vues administratives
+
+Les blocages utilisateur sont atomiques avec la clôture des matchs et déclenchent ensuite une invalidation SSE
+best-effort. Les signalements conservent la validation, le rate limiting, l’unicité `pending`, les projections
+optionnelles et les transitions auditées de NestJS.
+
+Les vues administratives des comptes, matchs et conversations exigent une session WebAuthn et un motif pour chaque
+lecture sensible. Les listes ne signent aucune photo ; le détail d’un compte n’en signe une qu’après l’audit. Les
+règles de hiérarchie et la révocation transactionnelle des sessions mobiles lors d’un bannissement sont conservées.
+Le détail des contrats, du SQL et des tests figure dans
+[docs/s23-blocks-reports-administration.md](docs/s23-blocks-reports-administration.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.
