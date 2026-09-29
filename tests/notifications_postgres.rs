@@ -8,6 +8,9 @@ use std::time::Duration;
 use chrono::{TimeDelta, Utc};
 use histae_api_rust::config::{PostgresConfig, SecretString};
 use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
+use histae_api_rust::notifications::delivery::{
+    NotificationDeliveryStore, PgNotificationDeliveryStore,
+};
 use histae_api_rust::notifications::devices::DeviceStore;
 use histae_api_rust::notifications::domain::{
     DevicePlatform, DeviceRegistration, NotificationIntent,
@@ -143,6 +146,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
         .await
         .map_err(|error| FixtureError(error.safe_code()))?;
     let repository = PgNotificationRepository::new(database.clone());
+    let delivery_repository = PgNotificationDeliveryStore::new(database.clone());
     let user_id = Uuid::new_v4();
     let sessions = [Uuid::new_v4(), Uuid::new_v4()];
     cleanup(&database, user_id, &[]).await?;
@@ -370,6 +374,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
         drop(billing_connection);
 
         let invoice_source = Uuid::new_v4().hyphenated().to_string();
+        let invoice_reference = invoice_id.clone();
         let invoice_intent = NotificationIntent::BillingPaymentFailed { invoice_id };
         database
             .transaction(|connection| {
@@ -408,6 +413,38 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
         .fetch_one(&mut *query_connection)
         .await?;
         assert_eq!(billing_counts, (4, 8, 8));
+
+        let invoice_job: Uuid = sqlx::query_scalar(
+            "SELECT delivery.id FROM notification_push_delivery delivery
+             JOIN notification n ON n.id = delivery.notification_id
+             WHERE n.user_id = $1 AND n.type = 'billing_payment_failed'
+             ORDER BY delivery.id LIMIT 1",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *query_connection)
+        .await?;
+        assert!(delivery_repository.find_deliverable(invoice_job).await?.is_some());
+        sqlx::query("UPDATE billing_invoice SET status = 'paid', amount_remaining = 0 WHERE stripe_invoice_id = $1")
+            .bind(&invoice_reference)
+            .execute(&mut *query_connection)
+            .await?;
+        assert!(delivery_repository.find_deliverable(invoice_job).await?.is_none());
+
+        let trial_job: Uuid = sqlx::query_scalar(
+            "SELECT delivery.id FROM notification_push_delivery delivery
+             JOIN notification n ON n.id = delivery.notification_id
+             WHERE n.user_id = $1 AND n.type = 'subscription_trial_ending'
+             ORDER BY delivery.id LIMIT 1",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *query_connection)
+        .await?;
+        assert!(delivery_repository.find_deliverable(trial_job).await?.is_some());
+        sqlx::query("UPDATE user_subscription SET status = 'active' WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *query_connection)
+            .await?;
+        assert!(delivery_repository.find_deliverable(trial_job).await?.is_none());
 
         created_outbox_ids = sqlx::query_scalar(
             "SELECT outbox.id FROM outbox_event outbox

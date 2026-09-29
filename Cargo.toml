@@ -26,11 +26,11 @@ futures-util = "0.3.31"
 getrandom = "0.3.4"
 hmac = "0.12.1"
 ipnet = "2.11.0"
-jsonwebtoken = { version = "10.2.0", default-features = false, features = ["rust_crypto"] }
+jsonwebtoken = { version = "10.2.0", default-features = false, features = ["rust_crypto", "use_pem"] }
 log = "0.4.28"
 openssl = { version = "0.10.75", features = ["vendored"], optional = true }
 regex = "1.11.2"
-reqwest = { version = "0.13.5", default-features = false, features = ["cookies", "json", "rustls", "stream"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["cookies", "form", "json", "rustls", "stream"] }
 redis = { version = "0.32.7", default-features = false, features = ["connection-manager", "tokio-rustls-comp"] }
 rust_decimal = { version = "1.39.0", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }

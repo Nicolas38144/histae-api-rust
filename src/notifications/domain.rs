@@ -135,3 +135,50 @@ impl NotificationIntent {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NotificationType {
+    NewMatch,
+    NewMessage,
+    BillingPaymentFailed,
+    SubscriptionTrialEnding,
+}
+
+impl NotificationType {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "new_match" => Some(Self::NewMatch),
+            "new_message" => Some(Self::NewMessage),
+            "billing_payment_failed" => Some(Self::BillingPaymentFailed),
+            "subscription_trial_ending" => Some(Self::SubscriptionTrialEnding),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NewMatch => "new_match",
+            Self::NewMessage => "new_message",
+            Self::BillingPaymentFailed => "billing_payment_failed",
+            Self::SubscriptionTrialEnding => "subscription_trial_ending",
+        }
+    }
+
+    pub const fn copy(self) -> (&'static str, &'static str) {
+        match self {
+            Self::NewMatch => ("Nouveau match", "Vous avez un nouveau match sur Histae."),
+            Self::NewMessage => (
+                "Nouveau message",
+                "Vous avez reçu un nouveau message sur Histae.",
+            ),
+            Self::BillingPaymentFailed => (
+                "Paiement à vérifier",
+                "Votre paiement Premium a échoué. Vérifiez votre moyen de paiement.",
+            ),
+            Self::SubscriptionTrialEnding => (
+                "Essai Premium",
+                "Votre période d’essai Premium se termine bientôt.",
+            ),
+        }
+    }
+}

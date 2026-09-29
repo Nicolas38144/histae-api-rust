@@ -24,7 +24,7 @@ Le script Lua de fenêtre fixe est identique à NestJS : `INCR`, `PEXPIRE` seule
 
 `GET /health/live` retourne `{"status":"ok"}` mais passe volontairement par le quota global. `GET /health/ready` vérifie séquentiellement PostgreSQL, Redis, puis le stockage objet et retourne `503 request_failed` au premier échec. Le port `DependencyProbe` permettra à S15 de raccorder le `HeadBucket` S3 sans placer une dépendance fournisseur dans le transport.
 
-L’observateur HTTP ne reçoit que la méthode, le modèle de route, le statut, le request ID et une durée arrondie. Une route inconnue devient `<unmatched>` ; aucun chemin concret ni query string n’entre dans les logs. Le point d’observation est actuellement la production de la réponse. S22 et S24 devront l’étendre jusqu’à la fermeture du body pour les flux SSE et export, dont la durée ne peut pas être mesurée correctement à ce stade.
+L’observateur HTTP ne reçoit que la méthode, le modèle de route, le statut, le request ID et une durée arrondie. Une route inconnue devient `<unmatched>` ; aucun chemin concret ni query string n’entre dans les logs. S22 diffère désormais l’observation des réponses `text/event-stream` jusqu’à la fin, l’erreur ou l’abandon du body. S24 devra appliquer la même exigence au flux d’export, dont la durée ne peut pas encore être mesurée correctement.
 
 ## Tests
 

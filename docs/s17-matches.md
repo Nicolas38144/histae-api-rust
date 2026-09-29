@@ -86,6 +86,6 @@ sont supprimées après le scénario.
 ## Limites du lot
 
 Le routeur reste composable et sera assemblé dans le binaire API lors du lot d’intégration prévu. Le transport SSE
-best-effort est représenté par `MatchEventPublisher` mais son relais Redis appartient à S22. Les routes de messages,
+best-effort et son relais Redis implémentent désormais `MatchEventPublisher` dans S22. Les routes de messages,
 la décision réciproque de découverte, les écrans administratifs et la maintenance d’expiration appartiennent
 respectivement à S18, S19, S23 et S26.

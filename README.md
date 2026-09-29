@@ -220,6 +220,19 @@ dead letter en cas d’ambiguïté et ne relance jamais le POST après 23 heures
 métadonnées opérationnelles des dead letters. Le détail du mapping, des requêtes et des tests figure dans
 [docs/s21-stripe-webhooks.md](docs/s21-stripe-webhooks.md).
 
+## S22 — SSE et push FCM
+
+La route authentifiée `GET /api/users/me/events` fournit le flux SSE compatible : événement `connected`, heartbeat
+de 25 secondes, événements ciblés, fermeture à la révocation de famille ou à l’expiration du JWT. Le relais Redis
+permet la diffusion entre instances ; les buffers locaux sont bornés et un consommateur lent est déconnecté afin de
+préserver la mémoire. Le flux reste best-effort et sans replay.
+
+Le handler `notification.push` relit toute l’éligibilité PostgreSQL avant le réseau, construit une allowlist sans
+texte privé et envoie via FCM avec OAuth Google RS256 mis en cache. Seul `UNREGISTERED` supprime le token ; les
+autres erreurs sont normalisées pour les reprises de l’outbox. Le service Redis éphémère de développement est
+maintenant inclus dans `compose.dev.yaml`. Les contrats et preuves sont détaillés dans
+[docs/s22-sse-push.md](docs/s22-sse-push.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.

@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use histae_api_rust::config::{RedisConfig, SecretString};
 use histae_api_rust::infra::redis::RedisService;
+use histae_api_rust::notifications::sse::{MobileEventType, RealtimeService};
+use serde_json::{Map, json};
 use tokio::sync::mpsc;
 use tokio::time;
 use uuid::Uuid;
@@ -71,4 +73,37 @@ async fn fixed_window_health_and_pubsub_work_against_real_redis() {
         .expect("subscription remained open");
     assert_eq!(message, "contract-message");
     subscription.close().await;
+}
+
+#[tokio::test]
+async fn realtime_events_cross_instances_without_replay() {
+    let config = test_config();
+    assert_loopback_target(&config.address);
+    let redis = RedisService::connect(&config, true)
+        .await
+        .expect("connect to the dedicated local Redis test database");
+    let publisher = RealtimeService::connect(redis.clone())
+        .await
+        .expect("start publisher relay");
+    let subscriber = RealtimeService::connect(redis)
+        .await
+        .expect("start subscriber relay");
+    let user_id = Uuid::new_v4();
+    let match_id = Uuid::new_v4();
+    let mut events = subscriber.subscribe();
+    publisher
+        .emit(
+            &[user_id],
+            MobileEventType::MatchCreated,
+            Map::from_iter([("match_id".to_owned(), json!(match_id))]),
+        )
+        .await
+        .expect("publish realtime event");
+    let event = time::timeout(Duration::from_secs(2), events.recv())
+        .await
+        .expect("multi-instance event timeout")
+        .expect("subscriber stayed connected");
+    assert_eq!(event.user_id, user_id.to_string());
+    assert_eq!(event.kind, MobileEventType::MatchCreated);
+    assert_eq!(event.data.get("match_id"), Some(&json!(match_id)));
 }

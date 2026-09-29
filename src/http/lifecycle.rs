@@ -1,11 +1,15 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Instant;
 
+use axum::body::{Body, BodyDataStream, Bytes};
 use axum::extract::{ConnectInfo, MatchedPath, Request, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use futures_util::Stream;
 use ipnet::IpNet;
 use uuid::{Uuid, Variant, Version};
 
@@ -205,14 +209,89 @@ pub async fn middleware(
             .headers_mut()
             .insert(HeaderName::from_static("x-request-id"), value);
     }
-    state.observer.record(HttpObservation {
+    let pending = PendingObservation {
+        observer: Arc::clone(&state.observer),
+        started_at,
         method,
         route,
         status: response.status(),
         request_id,
-        duration_ms: started_at.elapsed().as_secs_f64() * 1_000.0,
-    });
+    };
+    if is_event_stream(&response) {
+        let body = std::mem::replace(response.body_mut(), Body::empty());
+        *response.body_mut() = Body::from_stream(ObservedBodyStream {
+            inner: Box::pin(body.into_data_stream()),
+            pending: Some(pending),
+        });
+    } else {
+        pending.record();
+    }
     response
+}
+
+fn is_event_stream(response: &Response) -> bool {
+    response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .split(';')
+                .next()
+                .is_some_and(|kind| kind.trim().eq_ignore_ascii_case("text/event-stream"))
+        })
+}
+
+struct PendingObservation {
+    observer: Arc<dyn HttpObserver>,
+    started_at: Instant,
+    method: String,
+    route: String,
+    status: StatusCode,
+    request_id: String,
+}
+
+impl PendingObservation {
+    fn record(self) {
+        self.observer.record(HttpObservation {
+            method: self.method,
+            route: self.route,
+            status: self.status,
+            request_id: self.request_id,
+            duration_ms: self.started_at.elapsed().as_secs_f64() * 1_000.0,
+        });
+    }
+}
+
+struct ObservedBodyStream {
+    inner: Pin<Box<BodyDataStream>>,
+    pending: Option<PendingObservation>,
+}
+
+impl ObservedBodyStream {
+    fn record(&mut self) {
+        if let Some(pending) = self.pending.take() {
+            pending.record();
+        }
+    }
+}
+
+impl Stream for ObservedBodyStream {
+    type Item = Result<Bytes, axum::Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let polled = self.inner.as_mut().poll_next(context);
+        if matches!(polled, Poll::Ready(None) | Poll::Ready(Some(Err(_)))) {
+            self.record();
+        }
+        polled
+    }
+}
+
+impl Drop for ObservedBodyStream {
+    fn drop(&mut self) {
+        self.record();
+    }
 }
 
 pub fn apply_security_headers(headers: &mut HeaderMap, environment: Environment) {
@@ -261,6 +340,16 @@ fn request_id(headers: &HeaderMap) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Default)]
+    struct CountingObserver(AtomicUsize);
+
+    impl HttpObserver for CountingObserver {
+        fn record(&self, _observation: HttpObservation) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 
     #[test]
     fn resolves_proxy_chains_from_the_socket_towards_the_client() {
@@ -300,5 +389,24 @@ mod tests {
             HeaderValue::from_str(&wrong_version).expect("generated invalid request ID header"),
         );
         assert_ne!(request_id(&headers), wrong_version);
+    }
+
+    #[test]
+    fn records_a_stream_observation_when_the_client_drops_the_body() {
+        let observer = Arc::new(CountingObserver::default());
+        let stream = ObservedBodyStream {
+            inner: Box::pin(Body::from("event: connected\n\n").into_data_stream()),
+            pending: Some(PendingObservation {
+                observer: observer.clone(),
+                started_at: Instant::now(),
+                method: "GET".to_owned(),
+                route: "/api/users/me/events".to_owned(),
+                status: StatusCode::OK,
+                request_id: Uuid::new_v4().to_string(),
+            }),
+        };
+        assert_eq!(observer.0.load(Ordering::Relaxed), 0);
+        drop(stream);
+        assert_eq!(observer.0.load(Ordering::Relaxed), 1);
     }
 }

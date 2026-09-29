@@ -40,6 +40,35 @@ services:
     networks:
       - backend
 
+  # Compteurs de rate limiting et relais Pub/Sub SSE ; aucune donnée métier durable.
+  redis:
+    image: redis:7.4.2-alpine
+    logging: *infrastructure-logging
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - noeviction
+    ports:
+      - 127.0.0.1:6379:6379
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+    pids_limit: 128
+    mem_limit: 192m
+    cpus: 0.5
+    networks:
+      - backend
+
   object-storage:
     image: chrislusf/seaweedfs:4.45
     logging: *infrastructure-logging

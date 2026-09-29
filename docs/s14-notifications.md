@@ -3,8 +3,8 @@
 ## Périmètre NestJS analysé
 
 S14 migre `MobileController`, `MobileService`, `MobileRepository`, les DTO d’appareil,
-`notification-outbox.ts` et le prédicat partagé de `notification-billing.ts`. La lecture des
-notifications, le SSE, OAuth Google et l’envoi FCM restent dans S22.
+`notification-outbox.ts` et le prédicat partagé de `notification-billing.ts`. Le SSE, OAuth Google,
+l’éligibilité finale et l’envoi FCM sont désormais livrés par S22.
 
 | NestJS | Rust | Responsabilité |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ notifications, le SSE, OAuth Google et l’envoi FCM restent dans S22.
 | `MobileService` | `notifications::devices::DeviceService` | Trim ECMAScript, projection publique et erreurs métier |
 | `MobileRepository` | `notifications::pg::PgNotificationRepository` | Compte/session verrouillés, upsert, liste et suppression propriétaire |
 | `enqueueNotification` | `notifications::enqueue::enqueue_notification` | Notification, deliveries et jobs dans la transaction de l’appelant |
-| `isBillingNotificationEligibleSql` | `notifications::eligibility` | Même prédicat à réutiliser lors de la livraison S22 |
+| `isBillingNotificationEligibleSql` | `notifications::eligibility` | Même prédicat réutilisé lors de la livraison S22 |
 
 ## Contrat HTTP
 
@@ -73,8 +73,8 @@ wsl.exe --cd C:\Users\nicol\Nicolas_Germani\Programmation\Histae\histae-api-rust
 ```
 
 Cette initialisation s’applique à un volume neuf. Le binaire de migration incrémentale pour une
-base déjà existante reste à livrer avant la bascule finale. Les autres services Docker seront
-ajoutés avec les lots qui les utilisent.
+base déjà existante reste à livrer avant la bascule finale. Redis est ajouté par S22 ; les autres
+services Docker sont ajoutés avec les lots qui les utilisent.
 
 ## Validation
 

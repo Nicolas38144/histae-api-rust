@@ -23,7 +23,7 @@ tentative sans Customer connu attend 23 heures avant toute recherche et ne décl
 | `BillingReconciliationService` | `BillingReconciliationService` et handler outbox | Lecture fournisseur, sélection déterministe et erreurs permanentes/transitoires |
 | `BillingReconciliationRepository` | `PgBillingReconciliationStore` | Ordonnancement, contrôle de version, récupération Customer et liste admin |
 | timer NestJS | `BillingReconciliationScheduler` | Programmation bornée suivie par `MaintenanceTracker` |
-| `MobileDeliveryService` | `BillingRealtimePublisher` | Effet temps réel best-effort après commit ; adaptateur Redis/SSE prévu en S22 |
+| `MobileDeliveryService` | `BillingRealtimePublisher` | Effet temps réel best-effort après commit ; adaptateur Redis/SSE livré par S22 |
 
 ## Contrat HTTP
 
@@ -69,6 +69,6 @@ dépôt Rust.
 
 ## Risques restant ouverts
 
-L’adaptateur concret Redis/SSE de `BillingRealtimePublisher` appartient à S22 ; l’échec du publisher reste déjà
+L’adaptateur concret Redis/SSE de `BillingRealtimePublisher` est livré par S22 ; l’échec du publisher reste
 best-effort après le commit. L’assemblage des binaires `api`, `outbox` et `maintenance` sera activé lorsque tous
 leurs handlers requis seront présents, conformément à la séquence de migration existante.
