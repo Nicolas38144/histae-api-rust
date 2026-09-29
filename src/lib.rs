@@ -3,6 +3,7 @@ pub mod bootstrap;
 pub mod catalog;
 pub mod config;
 pub mod contract;
+pub mod discovery;
 pub mod http;
 pub mod identity;
 pub mod infra;

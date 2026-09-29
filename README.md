@@ -183,6 +183,17 @@ Les replays concurrents renvoient le même message sans dupliquer la notificatio
 les messages reçus jusqu’à la borne incluse. Les contrats, erreurs et preuves PostgreSQL figurent dans
 [docs/s18-messaging.md](docs/s18-messaging.md).
 
+## S19 — découverte, feed et swipes
+
+Les trois routes mobiles de statut, feed et swipe sont disponibles sous forme de routeur Axum composable. Le feed
+reprend les filtres réciproques de sexe, âge et distance, les consentements courants, la fraîcheur de présence, les
+blocages et la modération des contenus libres. Son curseur conserve la distance exacte malgré l’arrondi public.
+
+Les décisions PostgreSQL restent immuables pendant 365 jours et sont écrites sous verrou d’activité partagé des deux
+comptes. Les likes simultanés ne créent qu’un match grâce à la contrainte de paire de S17 ; un replay identique peut
+reprendre la fenêtre entre le commit du swipe et la création du match. Les contrats, requêtes et validations réelles
+figurent dans [docs/s19-discovery.md](docs/s19-discovery.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.
