@@ -4,7 +4,7 @@
 
 Le lot couvre les trois routes mobiles de consultation d’abonnement, de création d’une session Checkout et
 d’ouverture du portail Stripe. Les webhooks, la projection des événements fournisseur et la réconciliation
-périodique restent dans S21.
+périodique sont livrés par S21.
 
 Le comportement NestJS ne se limite pas à appeler Stripe. Avant tout `POST /customers`, PostgreSQL conserve
 l’intention de création et programme `billing.customer.reconcile` dans la même transaction. La même tentative et
@@ -97,8 +97,7 @@ Le second test exige le PostgreSQL local `histae-dev` initialisé par `compose.d
 
 ## Risques et suite
 
-S20 ne met pas encore à jour la projection d’abonnement : son alimentation par webhook signé, la protection contre
-les événements anciens et les lectures de réconciliation appartiennent à S21. Les métriques détaillées de
-dépendance seront reliées au socle d’observabilité dans son lot prévu ; les appels sont déjà bornés et utilisent des
-codes de log à cardinalité fixe.
+La projection d’abonnement, les événements signés et la réconciliation fournisseur sont désormais fournis par S21.
+Les métriques détaillées de dépendance seront reliées au socle d’observabilité dans son lot prévu ; les appels sont
+déjà bornés et utilisent des codes de log à cardinalité fixe.
 

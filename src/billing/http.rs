@@ -2,6 +2,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use axum::body::Bytes;
 use axum::extract::Extension;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
@@ -10,9 +11,11 @@ use serde::{Deserialize, Serialize};
 
 use super::domain::{BillingPeriod, CheckoutSessionView, SubscriptionView};
 use super::service::{BillingError, BillingService};
+use super::webhook::{StripeWebhookError, StripeWebhookService};
 use crate::config::LimitPolicy;
 use crate::http::error::ApiError;
 use crate::http::extract::{ApiDto, ValidatedJson};
+use crate::http::lifecycle::ClientIp;
 use crate::http::rate_limit::RateLimiter;
 use crate::http::router::HttpState;
 use crate::identity::mobile::http::{MobileAuthState, OnboardedMobile};
@@ -89,6 +92,58 @@ pub fn routes(state: BillingHttpState, auth: MobileAuthState) -> Router<HttpStat
         .route("/api/users/me/subscription/portal", post(create_portal))
         .layer(Extension(state))
         .layer(Extension(auth))
+}
+
+#[derive(Clone)]
+pub struct StripeWebhookHttpState {
+    service: StripeWebhookService,
+    limiter: RateLimiter,
+    policy: LimitPolicy,
+}
+
+impl StripeWebhookHttpState {
+    pub fn new(service: StripeWebhookService, limiter: RateLimiter, policy: LimitPolicy) -> Self {
+        Self {
+            service,
+            limiter,
+            policy,
+        }
+    }
+}
+
+pub fn stripe_webhook_routes(state: StripeWebhookHttpState) -> Router<HttpState> {
+    Router::new()
+        .route("/api/billing/stripe/webhook", post(stripe_webhook))
+        .layer(Extension(state))
+}
+
+#[derive(Serialize)]
+struct WebhookResponse {
+    received: bool,
+}
+
+async fn stripe_webhook(
+    Extension(state): Extension<StripeWebhookHttpState>,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<WebhookResponse>, ApiError> {
+    state
+        .limiter
+        .enforce(
+            "billing-webhook",
+            &client_ip.to_string(),
+            &state.policy,
+            "billing_webhook_rate_limit_exceeded",
+        )
+        .await?;
+    let signature = single_header(&headers, "stripe-signature");
+    state
+        .service
+        .handle(&body, signature)
+        .await
+        .map_err(stripe_webhook_error)?;
+    Ok(Json(WebhookResponse { received: true }))
 }
 
 async fn subscription(
@@ -255,6 +310,37 @@ fn billing_error(error: BillingError) -> ApiError {
         ),
         BillingError::Database(error) => error.into(),
         BillingError::AccountActivity(error) => error.into(),
+    }
+}
+
+fn stripe_webhook_error(error: StripeWebhookError) -> ApiError {
+    match error {
+        StripeWebhookError::BillingUnavailable => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "billing_unavailable",
+            "Stripe billing is temporarily unavailable.",
+        ),
+        StripeWebhookError::InvalidSignature => ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_stripe_signature",
+            "The Stripe webhook signature is invalid.",
+        ),
+        StripeWebhookError::ModeMismatch => ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "stripe_mode_mismatch",
+            "The Stripe webhook event does not match the configured billing mode.",
+        ),
+        StripeWebhookError::InvalidEvent => ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_stripe_event",
+            "The Stripe webhook event is invalid.",
+        ),
+        StripeWebhookError::StripeRequestFailed => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "stripe_request_failed",
+            "Stripe could not process the billing request at this time.",
+        ),
+        StripeWebhookError::Database(error) => error.into(),
     }
 }
 

@@ -204,7 +204,21 @@ La création Customer persiste son intention et son watchdog de réconciliation 
 peut reprendre l’intention pendant moins de 23 heures ; passé cette fenêtre, aucun nouveau POST n’est autorisé.
 Checkout conserve le verrou d’activité du compte jusqu’aux effets externes et compense les objets qui ne peuvent pas
 être persistés sûrement. Le mapping, les formulaires Stripe et les preuves PostgreSQL figurent dans
-[docs/s20-billing.md](docs/s20-billing.md). Les webhooks et la réconciliation fournisseur restent dans S21.
+[docs/s20-billing.md](docs/s20-billing.md).
+
+## S21 — webhooks et réconciliation Stripe
+
+Le webhook public Stripe vérifie la signature HMAC sur les octets bruts, la fenêtre temporelle et la concordance
+test/live avant toute écriture. Les événements pris en charge sont dédupliqués en PostgreSQL ; projection
+d’abonnement, facture, état Checkout et notification mobile partagent ensuite une même transaction. Les timestamps
+fournisseur et `provider_snapshot_at` empêchent un événement ou un snapshot ancien d’écraser un état récent.
+
+Les deux effets `billing.subscription.reconcile` et `billing.customer.reconcile` sont maintenant des handlers du
+moteur d’outbox S11. Les lectures Stripe ont lieu hors transaction sous verrou d’activité de compte, puis
+l’application compare la version de projection avant d’écrire. La recherche d’un Customer incertain devient une
+dead letter en cas d’ambiguïté et ne relance jamais le POST après 23 heures. La route admin liste uniquement les
+métadonnées opérationnelles des dead letters. Le détail du mapping, des requêtes et des tests figure dans
+[docs/s21-stripe-webhooks.md](docs/s21-stripe-webhooks.md).
 
 ## S03 — prototype du codec photo
 

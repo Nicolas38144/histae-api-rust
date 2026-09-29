@@ -130,7 +130,7 @@ impl StripeClient {
         })
     }
 
-    async fn request(
+    pub(crate) async fn request(
         &self,
         method: Method,
         path: &str,
@@ -140,11 +140,14 @@ impl StripeClient {
         if self.config.provider != BillingProvider::Stripe {
             return Err(StripeError::NotConfigured);
         }
-        let url = self
+        let mut url = self
             .endpoint
             .join(path)
             .map_err(|_| StripeError::InvalidConfiguration)?;
         let body = encode_form(&form);
+        if method == Method::GET && !body.is_empty() {
+            url.set_query(Some(&body));
+        }
         let authorization = format!("Bearer {}", self.config.stripe_secret_key.expose_secret());
         let attempts = usize::from(self.config.max_network_retries) + 1;
 
