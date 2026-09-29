@@ -194,6 +194,18 @@ comptes. Les likes simultanés ne créent qu’un match grâce à la contrainte 
 reprendre la fenêtre entre le commit du swipe et la création du match. Les contrats, requêtes et validations réelles
 figurent dans [docs/s19-discovery.md](docs/s19-discovery.md).
 
+## S20 — parcours client Stripe
+
+Les trois routes mobiles d’abonnement, Checkout et portail sont disponibles sous forme de routeur Axum composable.
+Les prix, essais, URLs et identifiants Stripe restent exclusivement côté serveur ; le DTO Checkout refuse tout champ
+supplémentaire et exige une clé d’idempotence UUID v4.
+
+La création Customer persiste son intention et son watchdog de réconciliation avant le POST Stripe. La même clé
+peut reprendre l’intention pendant moins de 23 heures ; passé cette fenêtre, aucun nouveau POST n’est autorisé.
+Checkout conserve le verrou d’activité du compte jusqu’aux effets externes et compense les objets qui ne peuvent pas
+être persistés sûrement. Le mapping, les formulaires Stripe et les preuves PostgreSQL figurent dans
+[docs/s20-billing.md](docs/s20-billing.md). Les webhooks et la réconciliation fournisseur restent dans S21.
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.

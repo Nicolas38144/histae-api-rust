@@ -1,4 +1,5 @@
 pub mod administration;
+pub mod billing;
 pub mod bootstrap;
 pub mod catalog;
 pub mod config;
