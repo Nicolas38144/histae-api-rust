@@ -19,11 +19,14 @@ use histae_api_rust::identity::mobile::service::MobileAuthService;
 use histae_api_rust::identity::mobile::tokens::{NewRefreshToken, TokenService};
 use histae_api_rust::infra::postgres::DatabaseError;
 use histae_api_rust::matches::domain::{
-    ContinuationResult, EffectivePlan, LastMessageRow, MatchCommandResult, MatchRecord,
-    MatchStatus, PageCursor, UserMatchRow,
+    ContinuationResult, CursorMessageRow, EffectivePlan, LastMessageRow, MatchCommandResult,
+    MatchRecord, MatchStatus, MessageCreation, MessageCreationResult, MessageRead, MessageRecord,
+    PageCursor, UserMatchRow,
 };
 use histae_api_rust::matches::http::{MatchHttpState, routes};
-use histae_api_rust::matches::pg::{MatchStore, MatchStoreError, MatchStoreFuture};
+use histae_api_rust::matches::pg::{
+    MatchMessageStore, MatchStore, MatchStoreError, MatchStoreFuture,
+};
 use histae_api_rust::matches::service::{MatchService, NoopMatchEventPublisher};
 use histae_api_rust::profiles::domain::Sex;
 use histae_api_rust::profiles::service::{ProfilePhotoUrlFuture, ProfilePhotoUrlProvider};
@@ -132,11 +135,26 @@ struct MatchState {
     continuation: ContinuationResult,
     plan: EffectivePlan,
     usage: i32,
+    message_rows: Vec<CursorMessageRow>,
+    message_creation: MessageCreationResult,
+    single_read: MatchCommandResult<Option<MessageRead>>,
+    through_read: MatchCommandResult<Option<MessageRead>>,
+    created_content: Option<String>,
+    created_key: Option<Uuid>,
     calls: usize,
 }
 
 impl FakeMatchStore {
     fn new(row: UserMatchRow) -> Self {
+        let message = MessageRecord {
+            id: Uuid::new_v4(),
+            match_id: row.record.id,
+            sender_id: row.other_user_id,
+            content: "Bonjour".to_owned(),
+            created_at: row.record.created_at,
+            read_at: None,
+        };
+        let participants = [row.record.user1_id, row.record.user2_id];
         Self {
             state: Arc::new(Mutex::new(MatchState {
                 rows: vec![row],
@@ -147,6 +165,27 @@ impl FakeMatchStore {
                     weekly_limit: Some(2),
                 },
                 usage: 1,
+                message_rows: vec![CursorMessageRow {
+                    message: message.clone(),
+                    cursor_at: "2030-01-01T12:00:00.000000Z".to_owned(),
+                }],
+                message_creation: MessageCreationResult::Available(MessageCreation {
+                    message: message.clone(),
+                    participant_ids: participants,
+                    created: true,
+                }),
+                single_read: MatchCommandResult::Available(Some(MessageRead {
+                    updated_count: 1,
+                    participant_ids: participants,
+                    read_through_message_id: message.id,
+                })),
+                through_read: MatchCommandResult::Available(Some(MessageRead {
+                    updated_count: 3,
+                    participant_ids: participants,
+                    read_through_message_id: message.id,
+                })),
+                created_content: None,
+                created_key: None,
                 calls: 0,
             })),
         }
@@ -255,6 +294,78 @@ impl MatchStore for FakeMatchStore {
     }
 }
 
+impl MatchMessageStore for FakeMatchStore {
+    fn messages_for_user(
+        &self,
+        _match_id: Uuid,
+        _user_id: Uuid,
+        _limit: u32,
+        _offset: u32,
+        _cursor: Option<PageCursor>,
+    ) -> MatchStoreFuture<'_, MatchCommandResult<Vec<CursorMessageRow>>> {
+        Box::pin(async move {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| MatchStoreError::Database(DatabaseError::QueryFailed))?;
+            state.calls += 1;
+            Ok(MatchCommandResult::Available(state.message_rows.clone()))
+        })
+    }
+
+    fn create_message(
+        &self,
+        _message_id: Uuid,
+        _match_id: Uuid,
+        _sender_id: Uuid,
+        content: String,
+        idempotency_key: Uuid,
+    ) -> MatchStoreFuture<'_, MessageCreationResult> {
+        Box::pin(async move {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| MatchStoreError::Database(DatabaseError::QueryFailed))?;
+            state.calls += 1;
+            state.created_content = Some(content);
+            state.created_key = Some(idempotency_key);
+            Ok(state.message_creation.clone())
+        })
+    }
+
+    fn mark_message_read(
+        &self,
+        _match_id: Uuid,
+        _message_id: Uuid,
+        _user_id: Uuid,
+    ) -> MatchStoreFuture<'_, MatchCommandResult<Option<MessageRead>>> {
+        Box::pin(async move {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| MatchStoreError::Database(DatabaseError::QueryFailed))?;
+            state.calls += 1;
+            Ok(state.single_read.clone())
+        })
+    }
+
+    fn mark_messages_read_through(
+        &self,
+        _match_id: Uuid,
+        _message_id: Uuid,
+        _user_id: Uuid,
+    ) -> MatchStoreFuture<'_, MatchCommandResult<Option<MessageRead>>> {
+        Box::pin(async move {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| MatchStoreError::Database(DatabaseError::QueryFailed))?;
+            state.calls += 1;
+            Ok(state.through_read.clone())
+        })
+    }
+}
+
 #[derive(Clone)]
 struct PhotoUrls;
 
@@ -339,6 +450,14 @@ fn jwt_config() -> JwtConfig {
 }
 
 fn app(store: FakeMatchStore, onboarded: bool) -> (axum::Router, String) {
+    app_with_message_limit(store, onboarded, 60)
+}
+
+fn app_with_message_limit(
+    store: FakeMatchStore,
+    onboarded: bool,
+    message_limit: u64,
+) -> (axum::Router, String) {
     let account = ActiveAccount {
         user_id: user_id(),
         role: AccountRole::User,
@@ -369,7 +488,7 @@ fn app(store: FakeMatchStore, onboarded: bool) -> (axum::Router, String) {
         Environment::Test,
         &TrustProxy::Disabled,
         &[],
-        limiter,
+        limiter.clone(),
         LimitPolicy {
             max: 100,
             window: Duration::from_secs(60),
@@ -384,13 +503,27 @@ fn app(store: FakeMatchStore, onboarded: bool) -> (axum::Router, String) {
         .single()
         .expect("date");
     let service = MatchService::new(
+        Arc::new(store.clone()),
         Arc::new(store),
         Arc::new(PhotoUrls),
         Arc::new(NoopMatchEventPublisher),
         Arc::new(FixedClock(clock)),
     );
     (
-        build_router(routes(MatchHttpState::new(service), auth_state), http_state),
+        build_router(
+            routes(
+                MatchHttpState::new(
+                    service,
+                    limiter,
+                    LimitPolicy {
+                        max: message_limit,
+                        window: Duration::from_secs(60),
+                    },
+                ),
+                auth_state,
+            ),
+            http_state,
+        ),
         access_token,
     )
 }
@@ -401,6 +534,26 @@ fn request(method: &str, uri: &str, token: Option<&str>) -> Request<Body> {
         builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
     }
     builder.body(Body::empty()).expect("request")
+}
+
+fn json_request(
+    method: &str,
+    uri: &str,
+    token: Option<&str>,
+    idempotency_key: Option<&str>,
+    body: &str,
+) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(token) = token {
+        builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    if let Some(key) = idempotency_key {
+        builder = builder.header("idempotency-key", key);
+    }
+    builder.body(Body::from(body.to_owned())).expect("request")
 }
 
 async fn json_body(response: axum::response::Response) -> Value {
@@ -603,6 +756,295 @@ async fn maps_expiration_and_quota_failures_to_the_nest_contract() {
         json!({"error": {
             "code": "continuation_quota_reached",
             "message": "The weekly continuation quota has been reached. Upgrade to Premium for unlimited continuations."
+        }})
+    );
+}
+
+#[tokio::test]
+async fn lists_and_sends_messages_with_the_exact_public_contract() {
+    let store = FakeMatchStore::new(row());
+    let state = store.state.lock().expect("state").clone();
+    let match_id = state.rows[0].record.id;
+    let expected_message = state.message_rows[0].message.clone();
+    let key = Uuid::new_v4();
+    let (app, token) = app(store.clone(), true);
+
+    let listed = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/matches/{match_id}/messages?limit=20"),
+            Some(&token),
+        ))
+        .await
+        .expect("response");
+    assert_eq!(listed.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(listed).await,
+        json!({
+            "messages": [{
+                "id": expected_message.id,
+                "match_id": match_id,
+                "sender_id": expected_message.sender_id,
+                "content": "Bonjour",
+                "created_at": "2030-01-01T12:00:00.000Z"
+            }],
+            "next_cursor": null
+        })
+    );
+
+    let sent = app
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/matches/{match_id}/messages"),
+            Some(&token),
+            Some(&format!(
+                "  {}  ",
+                key.hyphenated().to_string().to_uppercase()
+            )),
+            r#"{"content":"  Bonjour  "}"#,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(sent.status(), StatusCode::CREATED);
+    assert_eq!(
+        json_body(sent).await,
+        json!({
+            "id": expected_message.id,
+            "match_id": match_id,
+            "sender_id": expected_message.sender_id,
+            "content": "Bonjour",
+            "created_at": "2030-01-01T12:00:00.000Z"
+        })
+    );
+    let state = store.state.lock().expect("state");
+    assert_eq!(state.created_content.as_deref(), Some("Bonjour"));
+    assert_eq!(state.created_key, Some(key));
+}
+
+#[tokio::test]
+async fn rejects_invalid_message_bodies_keys_and_cursor_combinations() {
+    let store = FakeMatchStore::new(row());
+    let match_id = store.state.lock().expect("state").rows[0].record.id;
+    let valid_key = Uuid::new_v4();
+    let (app, token) = app(store.clone(), true);
+
+    let invalid_body = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/matches/{match_id}/messages"),
+            Some(&token),
+            Some(&valid_key.hyphenated().to_string()),
+            r#"{"content":42}"#,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(invalid_body.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        json_body(invalid_body).await,
+        json!({"error": {"code": "invalid_message_payload", "message": "The message request body is invalid."}})
+    );
+
+    let invalid_key = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/matches/{match_id}/messages"),
+            Some(&token),
+            Some("not-a-key"),
+            r#"{"content":"Bonjour"}"#,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(invalid_key.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        json_body(invalid_key).await,
+        json!({"error": {
+            "code": "invalid_idempotency_key",
+            "message": "The Idempotency-Key header must contain a UUID v4."
+        }})
+    );
+
+    let too_long = "x".repeat(2_001);
+    let invalid_content = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/matches/{match_id}/messages"),
+            Some(&token),
+            Some(&valid_key.hyphenated().to_string()),
+            &json!({"content": too_long}).to_string(),
+        ))
+        .await
+        .expect("response");
+    assert_eq!(invalid_content.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        json_body(invalid_content).await,
+        json!({"error": {"code": "invalid_message_request", "message": "The message request is invalid."}})
+    );
+
+    let cursor_with_offset = app
+        .oneshot(request(
+            "GET",
+            &format!("/api/matches/{match_id}/messages?cursor=abc&offset=1"),
+            Some(&token),
+        ))
+        .await
+        .expect("response");
+    assert_eq!(cursor_with_offset.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(store.calls(), 0);
+}
+
+#[tokio::test]
+async fn enforces_the_dedicated_message_rate_limit_before_a_second_write() {
+    let store = FakeMatchStore::new(row());
+    let match_id = store.state.lock().expect("state").rows[0].record.id;
+    let (app, token) = app_with_message_limit(store.clone(), true, 1);
+
+    let first = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/matches/{match_id}/messages"),
+            Some(&token),
+            Some(&Uuid::new_v4().hyphenated().to_string()),
+            r#"{"content":"first"}"#,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(first.status(), StatusCode::CREATED);
+
+    let limited = app
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/matches/{match_id}/messages"),
+            Some(&token),
+            Some(&Uuid::new_v4().hyphenated().to_string()),
+            r#"{"content":"second"}"#,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        limited
+            .headers()
+            .get(header::RETRY_AFTER)
+            .expect("retry-after"),
+        "60"
+    );
+    assert_eq!(
+        json_body(limited).await,
+        json!({"error": {
+            "code": "message_rate_limit_exceeded",
+            "message": "Too many requests were sent. Please try again later."
+        }})
+    );
+    assert_eq!(store.calls(), 1);
+}
+
+#[tokio::test]
+async fn marks_received_messages_read_through_and_keeps_the_legacy_route() {
+    let store = FakeMatchStore::new(row());
+    let state = store.state.lock().expect("state").clone();
+    let match_id = state.rows[0].record.id;
+    let message_id = state.message_rows[0].message.id;
+    let (app, token) = app(store, true);
+
+    let grouped = app
+        .clone()
+        .oneshot(json_request(
+            "PATCH",
+            &format!("/api/matches/{match_id}/messages/read"),
+            Some(&token),
+            None,
+            &json!({"read_through_message_id": message_id}).to_string(),
+        ))
+        .await
+        .expect("response");
+    assert_eq!(grouped.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(grouped).await,
+        json!({"updated_count": 3, "read_through_message_id": message_id})
+    );
+
+    let legacy = app
+        .oneshot(request(
+            "PATCH",
+            &format!("/api/matches/{match_id}/messages/{message_id}/read"),
+            Some(&token),
+        ))
+        .await
+        .expect("response");
+    assert_eq!(legacy.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(legacy).await,
+        json!({"message": "message marked as read"})
+    );
+}
+
+#[tokio::test]
+async fn maps_message_conflicts_missing_messages_and_unavailable_matches() {
+    let store = FakeMatchStore::new(row());
+    let state = store.state.lock().expect("state").clone();
+    let match_id = state.rows[0].record.id;
+    let message_id = state.message_rows[0].message.id;
+    let key = Uuid::new_v4();
+    store.state.lock().expect("state").message_creation =
+        MessageCreationResult::IdempotencyConflict;
+    store.state.lock().expect("state").single_read = MatchCommandResult::Available(None);
+    store.state.lock().expect("state").through_read = MatchCommandResult::Unavailable(
+        histae_api_rust::matches::domain::MatchAvailabilityFailure::InvalidState,
+    );
+    let (app, token) = app(store, true);
+
+    let conflict = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/matches/{match_id}/messages"),
+            Some(&token),
+            Some(&key.hyphenated().to_string()),
+            r#"{"content":"different"}"#,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(conflict.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        json_body(conflict).await,
+        json!({"error": {
+            "code": "idempotency_key_conflict",
+            "message": "The idempotency key was already used for another request."
+        }})
+    );
+
+    let missing = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            &format!("/api/matches/{match_id}/messages/{message_id}/read"),
+            Some(&token),
+        ))
+        .await
+        .expect("response");
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+
+    let unavailable = app
+        .oneshot(json_request(
+            "PATCH",
+            &format!("/api/matches/{match_id}/messages/read"),
+            Some(&token),
+            None,
+            &json!({"read_through_message_id": message_id}).to_string(),
+        ))
+        .await
+        .expect("response");
+    assert_eq!(unavailable.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        json_body(unavailable).await,
+        json!({"error": {
+            "code": "messaging_not_available",
+            "message": "Messaging is not available for this match."
         }})
     );
 }

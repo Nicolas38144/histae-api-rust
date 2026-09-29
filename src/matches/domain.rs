@@ -89,6 +89,67 @@ pub struct LastMessageRow {
     pub read_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MessageRecord {
+    pub id: Uuid,
+    pub match_id: Uuid,
+    pub sender_id: Uuid,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+    pub read_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CursorMessageRow {
+    pub message: MessageRecord,
+    pub cursor_at: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MessageCreation {
+    pub message: MessageRecord,
+    pub participant_ids: [Uuid; 2],
+    pub created: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MessageCreationResult {
+    Available(MessageCreation),
+    Unavailable(MatchAvailabilityFailure),
+    IdempotencyConflict,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MessageRead {
+    pub updated_count: i32,
+    pub participant_ids: [Uuid; 2],
+    pub read_through_message_id: Uuid,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PublicMessage {
+    pub id: Uuid,
+    pub match_id: Uuid,
+    pub sender_id: Uuid,
+    pub content: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_at: Option<String>,
+}
+
+impl From<MessageRecord> for PublicMessage {
+    fn from(value: MessageRecord) -> Self {
+        Self {
+            id: value.id,
+            match_id: value.match_id,
+            sender_id: value.sender_id,
+            content: value.content,
+            created_at: wire_timestamp(value.created_at),
+            read_at: value.read_at.map(wire_timestamp),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PublicMatch {
     pub id: Uuid,

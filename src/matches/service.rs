@@ -5,17 +5,18 @@ use std::sync::Arc;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::{Uuid, Variant};
+use uuid::{Uuid, Variant, Version};
 
 use super::domain::{
     ContinuationQuota, ContinuationResult, MATCH_WINDOW_HOURS, MatchAvailabilityFailure,
-    MatchCommandResult, MatchRecord, MatchStatus, PageCursor, PublicMatch, PublicUserMatch,
-    start_of_utc_week,
+    MatchCommandResult, MatchRecord, MatchStatus, MessageCreationResult, MessageRead, PageCursor,
+    PublicMatch, PublicMessage, PublicUserMatch, start_of_utc_week,
 };
-use super::pg::{MatchStore, MatchStoreError};
+use super::pg::{MatchMessageStore, MatchStore, MatchStoreError};
 use crate::infra::postgres::DatabaseError;
 use crate::profiles::service::ProfilePhotoUrlProvider;
 use crate::shared::clock::Clock;
+use crate::shared::text::javascript_trim;
 
 pub type MatchEventFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
@@ -33,6 +34,20 @@ pub trait MatchEventPublisher: Send + Sync {
         match_id: Uuid,
         participants: [Uuid; 2],
         update: MatchUpdate,
+    ) -> MatchEventFuture<'a>;
+
+    fn message_created<'a>(
+        &'a self,
+        message: &'a PublicMessage,
+        participants: [Uuid; 2],
+    ) -> MatchEventFuture<'a>;
+
+    fn messages_read<'a>(
+        &'a self,
+        match_id: Uuid,
+        participants: [Uuid; 2],
+        reader_id: Uuid,
+        read_through_message_id: Uuid,
     ) -> MatchEventFuture<'a>;
 }
 
@@ -52,11 +67,31 @@ impl MatchEventPublisher for NoopMatchEventPublisher {
     ) -> MatchEventFuture<'a> {
         Box::pin(async {})
     }
+
+    fn message_created<'a>(
+        &'a self,
+        _message: &'a PublicMessage,
+        _participants: [Uuid; 2],
+    ) -> MatchEventFuture<'a> {
+        Box::pin(async {})
+    }
+
+    fn messages_read<'a>(
+        &'a self,
+        _match_id: Uuid,
+        _participants: [Uuid; 2],
+        _reader_id: Uuid,
+        _read_through_message_id: Uuid,
+    ) -> MatchEventFuture<'a> {
+        Box::pin(async {})
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MatchError {
     InvalidRequest,
+    InvalidMessageRequest,
+    InvalidIdempotencyKey,
     InvalidCursor,
     NotFound,
     Blocked,
@@ -65,6 +100,9 @@ pub enum MatchError {
     ContinuationNotAvailableYet,
     Expired,
     QuotaReached,
+    MessagingUnavailable,
+    MessageNotFound,
+    IdempotencyConflict,
     PhotoStorageUnavailable,
     Database(DatabaseError),
 }
@@ -85,9 +123,16 @@ pub struct MatchPage {
     pub next_cursor: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct MessagePage {
+    pub items: Vec<PublicMessage>,
+    pub next_cursor: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct MatchService {
     store: Arc<dyn MatchStore>,
+    messages: Arc<dyn MatchMessageStore>,
     photo_urls: Arc<dyn ProfilePhotoUrlProvider>,
     events: Arc<dyn MatchEventPublisher>,
     clock: Arc<dyn Clock>,
@@ -96,12 +141,14 @@ pub struct MatchService {
 impl MatchService {
     pub fn new(
         store: Arc<dyn MatchStore>,
+        messages: Arc<dyn MatchMessageStore>,
         photo_urls: Arc<dyn ProfilePhotoUrlProvider>,
         events: Arc<dyn MatchEventPublisher>,
         clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
             store,
+            messages,
             photo_urls,
             events,
             clock,
@@ -250,12 +297,175 @@ impl MatchService {
             remaining: Some((limit - used).max(0)),
         })
     }
+
+    pub async fn messages(
+        &self,
+        match_id: Uuid,
+        user_id: Uuid,
+        limit: u32,
+        offset: u32,
+        raw_cursor: Option<&str>,
+    ) -> Result<MessagePage, MatchError> {
+        if !(1..=100).contains(&limit)
+            || (raw_cursor.is_some_and(|value| !value.is_empty()) && offset != 0)
+        {
+            return Err(MatchError::InvalidMessageRequest);
+        }
+        let cursor = decode_cursor(raw_cursor)?;
+        let rows = match self
+            .messages
+            .messages_for_user(match_id, user_id, limit + 1, offset, cursor)
+            .await?
+        {
+            MatchCommandResult::Available(rows) => rows,
+            MatchCommandResult::Unavailable(reason) => {
+                return Err(message_command_error(reason));
+            }
+        };
+        let has_more = rows.len() > limit as usize;
+        let next_cursor = if has_more {
+            rows.get(limit as usize - 1)
+                .map(|row| encode_cursor(&row.cursor_at, row.message.id))
+                .transpose()?
+        } else {
+            None
+        };
+        let items = rows
+            .into_iter()
+            .take(limit as usize)
+            .map(|row| PublicMessage::from(row.message))
+            .collect();
+        Ok(MessagePage { items, next_cursor })
+    }
+
+    pub async fn send_message(
+        &self,
+        match_id: Uuid,
+        sender_id: Uuid,
+        raw_content: &str,
+        idempotency_input: Option<&str>,
+    ) -> Result<PublicMessage, MatchError> {
+        let content = javascript_trim(raw_content);
+        if content.is_empty() || content.chars().count() > 2_000 {
+            return Err(MatchError::InvalidMessageRequest);
+        }
+        let idempotency_key = normalize_idempotency_key(idempotency_input)?;
+        let creation = match self
+            .messages
+            .create_message(
+                Uuid::new_v4(),
+                match_id,
+                sender_id,
+                content.to_owned(),
+                idempotency_key,
+            )
+            .await?
+        {
+            MessageCreationResult::Available(creation) => creation,
+            MessageCreationResult::Unavailable(reason) => {
+                return Err(message_command_error(reason));
+            }
+            MessageCreationResult::IdempotencyConflict => {
+                return Err(MatchError::IdempotencyConflict);
+            }
+        };
+        let created = creation.created;
+        let participants = creation.participant_ids;
+        let message = PublicMessage::from(creation.message);
+        if created {
+            self.events.message_created(&message, participants).await;
+        }
+        Ok(message)
+    }
+
+    pub async fn mark_message_read(
+        &self,
+        match_id: Uuid,
+        message_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(), MatchError> {
+        let read = match self
+            .messages
+            .mark_message_read(match_id, message_id, user_id)
+            .await?
+        {
+            MatchCommandResult::Available(Some(read)) => read,
+            MatchCommandResult::Available(None) => return Err(MatchError::MessageNotFound),
+            MatchCommandResult::Unavailable(reason) => {
+                return Err(message_command_error(reason));
+            }
+        };
+        self.publish_read(match_id, user_id, read).await;
+        Ok(())
+    }
+
+    pub async fn mark_messages_read_through(
+        &self,
+        match_id: Uuid,
+        message_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<i32, MatchError> {
+        let read = match self
+            .messages
+            .mark_messages_read_through(match_id, message_id, user_id)
+            .await?
+        {
+            MatchCommandResult::Available(Some(read)) => read,
+            MatchCommandResult::Available(None) => return Err(MatchError::MessageNotFound),
+            MatchCommandResult::Unavailable(reason) => {
+                return Err(message_command_error(reason));
+            }
+        };
+        let updated_count = read.updated_count;
+        if updated_count > 0 {
+            self.publish_read(match_id, user_id, read).await;
+        }
+        Ok(updated_count)
+    }
+
+    async fn publish_read(&self, match_id: Uuid, reader_id: Uuid, read: MessageRead) {
+        self.events
+            .messages_read(
+                match_id,
+                read.participant_ids,
+                reader_id,
+                read.read_through_message_id,
+            )
+            .await;
+    }
+}
+
+fn normalize_idempotency_key(input: Option<&str>) -> Result<Uuid, MatchError> {
+    let normalized = input
+        .map(javascript_trim)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let parsed = Uuid::parse_str(&normalized).map_err(|_| MatchError::InvalidIdempotencyKey)?;
+    if normalized.len() != 36
+        || [8, 13, 18, 23]
+            .iter()
+            .any(|index| normalized.as_bytes()[*index] != b'-')
+        || parsed.hyphenated().to_string() != normalized
+        || parsed.get_version() != Some(Version::Random)
+        || parsed.get_variant() != Variant::RFC4122
+    {
+        return Err(MatchError::InvalidIdempotencyKey);
+    }
+    Ok(parsed)
 }
 
 fn command_error(reason: MatchAvailabilityFailure) -> MatchError {
     match reason {
         MatchAvailabilityFailure::NotFound => MatchError::NotFound,
         MatchAvailabilityFailure::InvalidState => MatchError::InvalidState,
+        MatchAvailabilityFailure::Expired => MatchError::Expired,
+    }
+}
+
+fn message_command_error(reason: MatchAvailabilityFailure) -> MatchError {
+    match reason {
+        MatchAvailabilityFailure::NotFound => MatchError::NotFound,
+        MatchAvailabilityFailure::InvalidState => MatchError::MessagingUnavailable,
         MatchAvailabilityFailure::Expired => MatchError::Expired,
     }
 }

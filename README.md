@@ -172,6 +172,17 @@ continuation verrouillent le match avant de lire l’horloge ; le quota hebdomad
 second consentement et une limite de zéro ne crée aucune consommation. Le mapping, les erreurs publiques, les
 requêtes et les preuves de concurrence figurent dans [docs/s17-matches.md](docs/s17-matches.md).
 
+## S18 — messagerie, lecture et pagination
+
+Les routes mobiles de lecture, d’envoi idempotent et d’accusé de lecture sont disponibles dans le routeur Axum des
+matchs. Le contenu est normalisé comme dans NestJS, limité à 2 000 caractères et protégé par le quota distribué de
+60 envois par minute. Les curseurs conservent la précision PostgreSQL à la microseconde.
+
+L’insertion du message, `last_message_at` et la notification `new_message` sans texte privé partagent une transaction.
+Les replays concurrents renvoient le même message sans dupliquer la notification. La lecture groupée ne marque que
+les messages reçus jusqu’à la borne incluse. Les contrats, erreurs et preuves PostgreSQL figurent dans
+[docs/s18-messaging.md](docs/s18-messaging.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.

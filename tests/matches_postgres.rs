@@ -9,9 +9,12 @@ use chrono::{TimeDelta, Utc};
 use histae_api_rust::config::{PostgresConfig, SecretString};
 use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use histae_api_rust::matches::domain::{
-    ContinuationResult, MatchCommandResult, MatchRecord, MatchStatus,
+    ContinuationResult, MatchCommandResult, MatchRecord, MatchStatus, MessageCreationResult,
+    PageCursor,
 };
-use histae_api_rust::matches::pg::{MatchStore, PgMatchRepository};
+use histae_api_rust::matches::pg::{
+    MatchMessageStore, MatchStore, PgMatchMessageRepository, PgMatchRepository,
+};
 use sqlx::{Acquire as _, Row as _};
 use uuid::Uuid;
 
@@ -413,6 +416,277 @@ async fn expiration_clock_is_read_after_waiting_for_the_match_lock()
         .await?;
         assert_eq!(row.try_get::<String, _>("status")?, "awaiting_continuation");
         assert!(row.try_get::<bool, _>("future")?);
+        Ok(())
+    }
+    .await;
+
+    let cleanup_result = cleanup(&database, &[first, second], &[]).await;
+    test_result?;
+    cleanup_result?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn message_creation_is_concurrently_idempotent_and_notifies_without_private_text()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&postgres_config()?).await?;
+    let matches = PgMatchRepository::new(database.clone());
+    let messages = PgMatchMessageRepository::new(database.clone());
+    let first = Uuid::new_v4();
+    let second = Uuid::new_v4();
+    cleanup(&database, &[first, second], &[]).await?;
+    account(&database, first, "MessageFirst").await?;
+    account(&database, second, "MessageSecond").await?;
+
+    let test_result: Result<(), Box<dyn std::error::Error>> = async {
+        let match_record = record(first, second, Utc::now() + TimeDelta::hours(24));
+        matches
+            .create(match_record.clone())
+            .await
+            .map_err(|_| FixtureError("create_message_match"))?;
+        let key = Uuid::new_v4();
+        let first_messages = messages.clone();
+        let second_messages = messages.clone();
+        let (left, right) = tokio::join!(
+            first_messages.create_message(
+                Uuid::new_v4(),
+                match_record.id,
+                first,
+                "private hello".to_owned(),
+                key,
+            ),
+            second_messages.create_message(
+                Uuid::new_v4(),
+                match_record.id,
+                first,
+                "private hello".to_owned(),
+                key,
+            )
+        );
+        let results = [
+            left.map_err(|_| FixtureError("concurrent_message_left"))?,
+            right.map_err(|_| FixtureError("concurrent_message_right"))?,
+        ];
+        let created = results
+            .iter()
+            .filter(|result| {
+                matches!(
+                    result,
+                    MessageCreationResult::Available(creation) if creation.created
+                )
+            })
+            .count();
+        let replayed = results
+            .iter()
+            .filter(|result| {
+                matches!(
+                    result,
+                    MessageCreationResult::Available(creation) if !creation.created
+                )
+            })
+            .count();
+        assert_eq!((created, replayed), (1, 1));
+        let persisted_id = match &results[0] {
+            MessageCreationResult::Available(creation) => creation.message.id,
+            _ => return Err(FixtureError("unexpected_message_result").into()),
+        };
+        assert!(results.iter().all(|result| {
+            matches!(result, MessageCreationResult::Available(creation) if creation.message.id == persisted_id)
+        }));
+
+        assert_eq!(
+            messages
+                .create_message(
+                    Uuid::new_v4(),
+                    match_record.id,
+                    first,
+                    "different".to_owned(),
+                    key,
+                )
+                .await
+                .map_err(|_| FixtureError("message_conflict"))?,
+            MessageCreationResult::IdempotencyConflict
+        );
+        let row = sqlx::query(
+            "SELECT
+               (SELECT count(*)::integer FROM chat_message WHERE match_id = $1) AS messages,
+               (SELECT count(*)::integer FROM notification
+                WHERE type = 'new_message' AND payload ->> 'message_id' = $2) AS notifications,
+               (SELECT bool_and(NOT payload ? 'content') FROM notification
+                WHERE type = 'new_message' AND payload ->> 'message_id' = $2) AS content_absent,
+               (SELECT last_message_at IS NOT NULL FROM match_init WHERE id = $1) AS active",
+        )
+        .bind(match_record.id)
+        .bind(persisted_id.hyphenated().to_string())
+        .fetch_one(database.acquire().await?.as_mut())
+        .await?;
+        assert_eq!(row.try_get::<i32, _>("messages")?, 1);
+        assert_eq!(row.try_get::<i32, _>("notifications")?, 1);
+        assert!(row.try_get::<bool, _>("content_absent")?);
+        assert!(row.try_get::<bool, _>("active")?);
+        Ok(())
+    }
+    .await;
+
+    let cleanup_result = cleanup(&database, &[first, second], &[]).await;
+    test_result?;
+    cleanup_result?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn message_pagination_keeps_microseconds_and_read_through_skips_own_messages()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&postgres_config()?).await?;
+    let matches = PgMatchRepository::new(database.clone());
+    let messages = PgMatchMessageRepository::new(database.clone());
+    let first = Uuid::new_v4();
+    let second = Uuid::new_v4();
+    cleanup(&database, &[first, second], &[]).await?;
+    account(&database, first, "PageFirst").await?;
+    account(&database, second, "PageSecond").await?;
+
+    let test_result: Result<(), Box<dyn std::error::Error>> = async {
+        let match_record = record(first, second, Utc::now() + TimeDelta::hours(24));
+        matches
+            .create(match_record.clone())
+            .await
+            .map_err(|_| FixtureError("create_page_match"))?;
+        let ids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        sqlx::query(
+            "INSERT INTO chat_message (id, match_id, sender_id, content, created_at) VALUES
+               ($1, $4, $5, 'newest', '2030-08-16T12:00:00.123900Z'),
+               ($2, $4, $6, 'middle', '2030-08-16T12:00:00.123800Z'),
+               ($3, $4, $5, 'oldest', '2030-08-16T12:00:00.123700Z')",
+        )
+        .bind(ids[0])
+        .bind(ids[1])
+        .bind(ids[2])
+        .bind(match_record.id)
+        .bind(second)
+        .bind(first)
+        .execute(database.acquire().await?.as_mut())
+        .await?;
+
+        let first_page = match messages
+            .messages_for_user(match_record.id, first, 2, 0, None)
+            .await
+            .map_err(|_| FixtureError("first_message_page"))?
+        {
+            MatchCommandResult::Available(rows) => rows,
+            _ => return Err(FixtureError("first_page_unavailable").into()),
+        };
+        assert_eq!(
+            first_page
+                .iter()
+                .map(|row| row.message.content.as_str())
+                .collect::<Vec<_>>(),
+            ["newest", "middle"]
+        );
+        assert_eq!(first_page[0].cursor_at, "2030-08-16T12:00:00.123900Z");
+        let cursor = PageCursor {
+            at: chrono::DateTime::parse_from_rfc3339(&first_page[0].cursor_at)?.with_timezone(&Utc),
+            id: first_page[0].message.id,
+        };
+        let second_page = match messages
+            .messages_for_user(match_record.id, first, 2, 0, Some(cursor))
+            .await
+            .map_err(|_| FixtureError("second_message_page"))?
+        {
+            MatchCommandResult::Available(rows) => rows,
+            _ => return Err(FixtureError("second_page_unavailable").into()),
+        };
+        assert_eq!(
+            second_page
+                .iter()
+                .map(|row| row.message.content.as_str())
+                .collect::<Vec<_>>(),
+            ["middle", "oldest"]
+        );
+
+        let read = messages
+            .mark_messages_read_through(match_record.id, ids[0], first)
+            .await
+            .map_err(|_| FixtureError("read_through"))?;
+        assert!(matches!(
+            read,
+            MatchCommandResult::Available(Some(ref update)) if update.updated_count == 2
+        ));
+        let rows = sqlx::query(
+            "SELECT sender_id, read_at IS NOT NULL AS is_read
+             FROM chat_message WHERE match_id = $1 ORDER BY created_at DESC",
+        )
+        .bind(match_record.id)
+        .fetch_all(database.acquire().await?.as_mut())
+        .await?;
+        assert!(rows.iter().all(|row| {
+            let sender: Result<Uuid, _> = row.try_get("sender_id");
+            let is_read: Result<bool, _> = row.try_get("is_read");
+            matches!((sender, is_read), (Ok(id), Ok(read)) if read == (id == second))
+        }));
+        assert_eq!(
+            messages
+                .mark_message_read(match_record.id, ids[1], first)
+                .await
+                .map_err(|_| FixtureError("read_own_message"))?,
+            MatchCommandResult::Available(None)
+        );
+        Ok(())
+    }
+    .await;
+
+    let cleanup_result = cleanup(&database, &[first, second], &[]).await;
+    test_result?;
+    cleanup_result?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn expired_match_transition_commits_while_the_new_message_is_refused()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&postgres_config()?).await?;
+    let matches = PgMatchRepository::new(database.clone());
+    let messages = PgMatchMessageRepository::new(database.clone());
+    let first = Uuid::new_v4();
+    let second = Uuid::new_v4();
+    cleanup(&database, &[first, second], &[]).await?;
+    account(&database, first, "ExpiredFirst").await?;
+    account(&database, second, "ExpiredSecond").await?;
+
+    let test_result: Result<(), Box<dyn std::error::Error>> = async {
+        let mut match_record = record(first, second, Utc::now() - TimeDelta::seconds(1));
+        match_record.status = MatchStatus::AwaitingContinuation;
+        matches
+            .create(match_record.clone())
+            .await
+            .map_err(|_| FixtureError("create_expired_message_match"))?;
+        let result = messages
+            .create_message(
+                Uuid::new_v4(),
+                match_record.id,
+                first,
+                "too late".to_owned(),
+                Uuid::new_v4(),
+            )
+            .await
+            .map_err(|_| FixtureError("expired_message"))?;
+        assert_eq!(
+            result,
+            MessageCreationResult::Unavailable(
+                histae_api_rust::matches::domain::MatchAvailabilityFailure::Expired
+            )
+        );
+        let row = sqlx::query(
+            "SELECT status, purge_after IS NOT NULL AS purge_scheduled,
+               (SELECT count(*)::integer FROM chat_message WHERE match_id = $1) AS messages
+             FROM match_init WHERE id = $1",
+        )
+        .bind(match_record.id)
+        .fetch_one(database.acquire().await?.as_mut())
+        .await?;
+        assert_eq!(row.try_get::<String, _>("status")?, "expired");
+        assert!(row.try_get::<bool, _>("purge_scheduled")?);
+        assert_eq!(row.try_get::<i32, _>("messages")?, 0);
         Ok(())
     }
     .await;

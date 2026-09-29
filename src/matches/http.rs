@@ -1,14 +1,16 @@
 use axum::extract::Extension;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, patch};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::{Uuid, Variant};
 
-use super::domain::{ContinuationQuota, PublicUserMatch};
-use super::service::{MatchError, MatchPage, MatchService};
+use super::domain::{ContinuationQuota, PublicMessage, PublicUserMatch};
+use super::service::{MatchError, MatchPage, MatchService, MessagePage};
+use crate::config::LimitPolicy;
 use crate::http::error::ApiError;
 use crate::http::extract::{ApiDto, ValidatedPath, ValidatedQuery};
+use crate::http::rate_limit::RateLimiter;
 use crate::http::router::HttpState;
 use crate::identity::mobile::http::{MobileAuthState, OnboardedMobile};
 use crate::shared::text::validator_js_length;
@@ -16,11 +18,17 @@ use crate::shared::text::validator_js_length;
 #[derive(Clone)]
 pub struct MatchHttpState {
     service: MatchService,
+    limiter: RateLimiter,
+    message_policy: LimitPolicy,
 }
 
 impl MatchHttpState {
-    pub fn new(service: MatchService) -> Self {
-        Self { service }
+    pub fn new(service: MatchService, limiter: RateLimiter, message_policy: LimitPolicy) -> Self {
+        Self {
+            service,
+            limiter,
+            message_policy,
+        }
     }
 }
 
@@ -29,6 +37,18 @@ pub fn routes(state: MatchHttpState, auth: MobileAuthState) -> Router<HttpState>
         .route("/api/matches/me", get(list))
         .route("/api/matches/{id}/reveal", patch(reveal))
         .route("/api/matches/{id}/continue", patch(continue_match))
+        .route(
+            "/api/matches/{id}/messages",
+            get(list_messages).post(send_message),
+        )
+        .route(
+            "/api/matches/{id}/messages/read",
+            patch(mark_messages_read_through),
+        )
+        .route(
+            "/api/matches/{id}/messages/{msgId}/read",
+            patch(mark_message_read),
+        )
         .route("/api/users/me/continuation-quota", get(continuation_quota))
         .layer(Extension(state))
         .layer(Extension(auth))
@@ -209,6 +229,174 @@ async fn continuation_quota(
         .map_err(match_error)
 }
 
+#[derive(Serialize)]
+struct MessageListResponse {
+    messages: Vec<PublicMessage>,
+    next_cursor: Option<String>,
+}
+
+async fn list_messages(
+    OnboardedMobile(identity): OnboardedMobile,
+    Extension(state): Extension<MatchHttpState>,
+    ValidatedPath(path): ValidatedPath<MatchPath>,
+    ValidatedQuery(query): ValidatedQuery<PaginationQuery>,
+) -> Result<Json<MessageListResponse>, ApiError> {
+    let match_id = path.id().ok_or_else(invalid_match_id)?;
+    let limit = query.limit().ok_or_else(invalid_pagination)?;
+    let offset = query.offset().ok_or_else(invalid_pagination)?;
+    let MessagePage { items, next_cursor } = state
+        .service
+        .messages(
+            match_id,
+            identity.account.user_id,
+            limit,
+            offset,
+            query.cursor.as_deref(),
+        )
+        .await
+        .map_err(match_error)?;
+    Ok(Json(MessageListResponse {
+        messages: items,
+        next_cursor,
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SendMessageBody {
+    content: String,
+}
+
+impl ApiDto for SendMessageBody {
+    const ERROR_CODE: &'static str = "invalid_message_payload";
+    const ERROR_MESSAGE: &'static str = "The message request body is invalid.";
+
+    fn is_valid(&self) -> bool {
+        true
+    }
+}
+
+async fn send_message(
+    OnboardedMobile(identity): OnboardedMobile,
+    Extension(state): Extension<MatchHttpState>,
+    ValidatedPath(path): ValidatedPath<MatchPath>,
+    headers: HeaderMap,
+    crate::http::extract::ValidatedJson(body): crate::http::extract::ValidatedJson<SendMessageBody>,
+) -> Result<(StatusCode, Json<PublicMessage>), ApiError> {
+    let match_id = path.id().ok_or_else(invalid_match_id)?;
+    let user_id = identity.account.user_id;
+    state
+        .limiter
+        .enforce(
+            "messages",
+            &user_id.hyphenated().to_string(),
+            &state.message_policy,
+            "message_rate_limit_exceeded",
+        )
+        .await?;
+    let idempotency_key = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok());
+    let message = state
+        .service
+        .send_message(match_id, user_id, &body.content, idempotency_key)
+        .await
+        .map_err(match_error)?;
+    Ok((StatusCode::CREATED, Json(message)))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadMessagesBody {
+    read_through_message_id: String,
+}
+
+impl ReadMessagesBody {
+    fn message_id(&self) -> Option<Uuid> {
+        canonical_uuid(&self.read_through_message_id)
+    }
+}
+
+impl ApiDto for ReadMessagesBody {
+    const ERROR_CODE: &'static str = "invalid_read_payload";
+    const ERROR_MESSAGE: &'static str = "The read request body is invalid.";
+
+    fn is_valid(&self) -> bool {
+        self.message_id().is_some()
+    }
+}
+
+#[derive(Serialize)]
+struct ReadMessagesResponse {
+    updated_count: i32,
+    read_through_message_id: Uuid,
+}
+
+async fn mark_messages_read_through(
+    OnboardedMobile(identity): OnboardedMobile,
+    Extension(state): Extension<MatchHttpState>,
+    ValidatedPath(path): ValidatedPath<MatchPath>,
+    crate::http::extract::ValidatedJson(body): crate::http::extract::ValidatedJson<
+        ReadMessagesBody,
+    >,
+) -> Result<Json<ReadMessagesResponse>, ApiError> {
+    let match_id = path.id().ok_or_else(invalid_match_id)?;
+    let message_id = body.message_id().ok_or_else(invalid_read_payload)?;
+    let updated_count = state
+        .service
+        .mark_messages_read_through(match_id, message_id, identity.account.user_id)
+        .await
+        .map_err(match_error)?;
+    Ok(Json(ReadMessagesResponse {
+        updated_count,
+        read_through_message_id: message_id,
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MatchMessagePath {
+    id: String,
+    #[serde(rename = "msgId")]
+    msg_id: String,
+}
+
+impl MatchMessagePath {
+    fn ids(&self) -> Option<(Uuid, Uuid)> {
+        Some((canonical_uuid(&self.id)?, canonical_uuid(&self.msg_id)?))
+    }
+}
+
+impl ApiDto for MatchMessagePath {
+    const ERROR_CODE: &'static str = "invalid_message_id";
+    const ERROR_MESSAGE: &'static str = "The message ID must be a valid UUID.";
+
+    fn is_valid(&self) -> bool {
+        self.ids().is_some()
+    }
+}
+
+#[derive(Serialize)]
+struct MarkMessageReadResponse {
+    message: &'static str,
+}
+
+async fn mark_message_read(
+    OnboardedMobile(identity): OnboardedMobile,
+    Extension(state): Extension<MatchHttpState>,
+    ValidatedPath(path): ValidatedPath<MatchMessagePath>,
+) -> Result<Json<MarkMessageReadResponse>, ApiError> {
+    let (match_id, message_id) = path.ids().ok_or_else(invalid_message_id)?;
+    state
+        .service
+        .mark_message_read(match_id, message_id, identity.account.user_id)
+        .await
+        .map_err(match_error)?;
+    Ok(Json(MarkMessageReadResponse {
+        message: "message marked as read",
+    }))
+}
+
 fn invalid_pagination() -> ApiError {
     ApiError::new(
         StatusCode::BAD_REQUEST,
@@ -225,12 +413,50 @@ fn invalid_match_id() -> ApiError {
     )
 }
 
+fn invalid_read_payload() -> ApiError {
+    ApiError::new(
+        StatusCode::BAD_REQUEST,
+        "invalid_read_payload",
+        "The read request body is invalid.",
+    )
+}
+
+fn invalid_message_id() -> ApiError {
+    ApiError::new(
+        StatusCode::BAD_REQUEST,
+        "invalid_message_id",
+        "The message ID must be a valid UUID.",
+    )
+}
+
+fn canonical_uuid(value: &str) -> Option<Uuid> {
+    let parsed = Uuid::parse_str(value).ok()?;
+    (value.len() == 36
+        && [8, 13, 18, 23]
+            .iter()
+            .all(|index| value.as_bytes()[*index] == b'-')
+        && parsed.hyphenated().to_string().eq_ignore_ascii_case(value)
+        && (1..=8).contains(&parsed.get_version_num())
+        && parsed.get_variant() == Variant::RFC4122)
+        .then_some(parsed)
+}
+
 fn match_error(error: MatchError) -> ApiError {
     match error {
         MatchError::InvalidRequest => ApiError::new(
             StatusCode::BAD_REQUEST,
             "invalid_match_request",
             "The match request is invalid.",
+        ),
+        MatchError::InvalidMessageRequest => ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_message_request",
+            "The message request is invalid.",
+        ),
+        MatchError::InvalidIdempotencyKey => ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_idempotency_key",
+            "The Idempotency-Key header must contain a UUID v4.",
         ),
         MatchError::InvalidCursor => ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -269,6 +495,21 @@ fn match_error(error: MatchError) -> ApiError {
             StatusCode::FORBIDDEN,
             "continuation_quota_reached",
             "The weekly continuation quota has been reached. Upgrade to Premium for unlimited continuations.",
+        ),
+        MatchError::MessagingUnavailable => ApiError::new(
+            StatusCode::CONFLICT,
+            "messaging_not_available",
+            "Messaging is not available for this match.",
+        ),
+        MatchError::MessageNotFound => ApiError::new(
+            StatusCode::NOT_FOUND,
+            "message_not_found",
+            "The message could not be found.",
+        ),
+        MatchError::IdempotencyConflict => ApiError::new(
+            StatusCode::CONFLICT,
+            "idempotency_key_conflict",
+            "The idempotency key was already used for another request.",
         ),
         MatchError::PhotoStorageUnavailable => ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
