@@ -161,6 +161,17 @@ service Python/ONNX autonome et son image non-root sont dans `services/photo-mod
 `compose.dev.yaml` le publie uniquement sur `127.0.0.1:8090`. Les routes, transactions, écarts connus et validations
 figurent dans [docs/s16-moderation.md](docs/s16-moderation.md).
 
+## S17 — matchs, reveal, continuation et quotas
+
+Les routes mobiles de liste, reveal, continuation et lecture du quota sont disponibles sous forme de routeur Axum
+composable. Les projections conservent le masquage des photos avant consentement mutuel et filtrent photos, bios et
+réponses libres selon leur modération. Les URL S3 courtes ne sont signées qu’après la sélection PostgreSQL.
+
+La création de match écrit ses deux états et ses notifications dans une seule transaction. Reveal, expiration et
+continuation verrouillent le match avant de lire l’horloge ; le quota hebdomadaire UTC est consommé atomiquement au
+second consentement et une limite de zéro ne crée aucune consommation. Le mapping, les erreurs publiques, les
+requêtes et les preuves de concurrence figurent dans [docs/s17-matches.md](docs/s17-matches.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.
