@@ -217,7 +217,7 @@ pub async fn middleware(
         status: response.status(),
         request_id,
     };
-    if is_event_stream(&response) {
+    if is_streaming_response(&response) {
         let body = std::mem::replace(response.body_mut(), Body::empty());
         *response.body_mut() = Body::from_stream(ObservedBodyStream {
             inner: Box::pin(body.into_data_stream()),
@@ -229,8 +229,8 @@ pub async fn middleware(
     response
 }
 
-fn is_event_stream(response: &Response) -> bool {
-    response
+fn is_streaming_response(response: &Response) -> bool {
+    let event_stream = response
         .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
@@ -239,7 +239,18 @@ fn is_event_stream(response: &Response) -> bool {
                 .split(';')
                 .next()
                 .is_some_and(|kind| kind.trim().eq_ignore_ascii_case("text/event-stream"))
-        })
+        });
+    let attachment = response
+        .headers()
+        .get(header::CONTENT_DISPOSITION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .split(';')
+                .next()
+                .is_some_and(|kind| kind.trim().eq_ignore_ascii_case("attachment"))
+        });
+    event_stream || attachment
 }
 
 struct PendingObservation {
@@ -408,5 +419,28 @@ mod tests {
         assert_eq!(observer.0.load(Ordering::Relaxed), 0);
         drop(stream);
         assert_eq!(observer.0.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn defers_observation_for_download_attachments_as_well_as_event_streams() {
+        let event_stream = Response::builder()
+            .header(header::CONTENT_TYPE, "text/event-stream; charset=utf-8")
+            .body(Body::empty())
+            .expect("event stream response");
+        let attachment = Response::builder()
+            .header(
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"histae-data-export.json\"",
+            )
+            .body(Body::empty())
+            .expect("attachment response");
+        let ordinary = Response::builder()
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::empty())
+            .expect("ordinary response");
+
+        assert!(is_streaming_response(&event_stream));
+        assert!(is_streaming_response(&attachment));
+        assert!(!is_streaming_response(&ordinary));
     }
 }

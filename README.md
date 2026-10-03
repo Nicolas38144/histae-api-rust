@@ -245,6 +245,17 @@ règles de hiérarchie et la révocation transactionnelle des sessions mobiles l
 Le détail des contrats, du SQL et des tests figure dans
 [docs/s23-blocks-reports-administration.md](docs/s23-blocks-reports-administration.md).
 
+## S24 — DSR et export utilisateur
+
+Les demandes RGPD mobiles et administratives conservent leurs types, transitions, audits et permissions. La
+programmation d’un effacement reste atomique et idempotente : la DSR demeure `in_progress`, le compte est désactivé
+et l’événement `account.erase` est écrit dans l’outbox de la même transaction.
+
+L’export portable utilise un unique instantané PostgreSQL `REPEATABLE READ`, écrit chaque collection par pages dans
+un fichier temporaire privé et ne contient que les décisions de découverte sortantes. Sa taille et sa concurrence
+sont bornées ; le fichier est supprimé et la place libérée à la fermeture du flux. Les contrats et preuves sont
+détaillés dans [docs/s24-dsr-data-export.md](docs/s24-dsr-data-export.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.
