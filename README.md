@@ -256,6 +256,18 @@ un fichier temporaire privé et ne contient que les décisions de découverte so
 sont bornées ; le fichier est supprimé et la place libérée à la fermeture du flux. Les contrats et preuves sont
 détaillés dans [docs/s24-dsr-data-export.md](docs/s24-dsr-data-export.md).
 
+## S25 — effacement de compte reprenable
+
+Les routes mobiles émettent désormais un jeton dédié à usage unique et acceptent l’effacement par une réponse
+`202`. La consommation du jeton, la DSR, le checkpoint, l’événement `account.erase`, la désactivation du compte et
+l’invalidation des sessions restent atomiques dans PostgreSQL.
+
+Le handler reprend les étapes Stripe, photos, swipes et anonymisation locale sous verrou d’activité exclusif. Les
+effets externes restent hors transaction, les lots sont bornés et chaque checkpoint vérifie l’ownership du worker.
+La DSR n’est terminée qu’après disparition confirmée des photos et swipes puis anonymisation locale. Les contrats,
+requêtes et tests de reprise sont détaillés dans
+[docs/s25-account-erasure.md](docs/s25-account-erasure.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.

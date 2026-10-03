@@ -33,7 +33,7 @@ concurrent ne peut donc pas laisser une préférence, un sexe ou une présence r
 | `PATCH` | `/api/users/me/preferences` | session mobile active et onboarding complet | `200 { message: "preferences updated" }` |
 | `PATCH` | `/api/users/me/presence` | session mobile active et onboarding complet | `200 { message: "presence updated" }` |
 
-Les routes photo appartiennent à S15. L’émission et la consommation du jeton de suppression appartiennent à S25.
+Les routes photo appartiennent à S15. L’émission et la consommation du jeton de suppression sont livrées par S25.
 
 ## Mapping NestJS → Rust
 

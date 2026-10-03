@@ -1,4 +1,7 @@
 pub mod domain;
+pub mod erasure;
+pub mod erasure_http;
+pub mod erasure_pg;
 pub mod export;
 pub mod export_http;
 pub mod export_pg;

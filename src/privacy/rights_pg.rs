@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use sqlx::Row as _;
 use uuid::Uuid;
 
+use super::erasure_pg::enqueue_account_erasure;
 use super::rights::{
     AdminDataRequestRow, DataAccessLogRow, DataRequestRow, DataRequestStatus,
     DataRequestTransition, DataRequestType, DataRightsFuture, DataRightsStore, ErasureProgress,
@@ -231,49 +232,8 @@ impl DataRightsStore for PgDataRightsStore {
                         .map_err(map_sqlx_error)?;
 
                         if scheduling {
-                            let existing = sqlx::query_scalar::<_, Uuid>(
-                                "SELECT request_id FROM account_erasure WHERE user_id = $1",
-                            )
-                            .bind(user_id)
-                            .fetch_optional(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
-                            if existing.is_some_and(|request_id| request_id != input.request_id) {
-                                return Err(DatabaseError::QueryFailed);
-                            }
-                            sqlx::query(
-                                "INSERT INTO account_erasure (request_id, user_id)
-                                 VALUES ($1, $2) ON CONFLICT (request_id) DO NOTHING",
-                            )
-                            .bind(input.request_id)
-                            .bind(user_id)
-                            .execute(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
-                            sqlx::query(
-                                "INSERT INTO outbox_event (id, event_type, aggregate_id)
-                                 VALUES ($1, 'account.erase', $2)
-                                 ON CONFLICT (event_type, aggregate_id) DO NOTHING",
-                            )
-                            .bind(Uuid::new_v4())
-                            .bind(input.request_id)
-                            .execute(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
-                            sqlx::query(
-                                "UPDATE user_account
-                                 SET deleted_at = COALESCE(deleted_at, clock_timestamp())
-                                 WHERE user_id = $1",
-                            )
-                            .bind(user_id)
-                            .execute(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
-                            sqlx::query("DELETE FROM account_deletion_token WHERE user_id = $1")
-                                .bind(user_id)
-                                .execute(&mut *connection)
-                                .await
-                                .map_err(map_sqlx_error)?;
+                            enqueue_account_erasure(connection, user_id, Some(input.request_id))
+                                .await?;
                             return Ok(UpdateRequestResult::ErasureScheduled);
                         }
 

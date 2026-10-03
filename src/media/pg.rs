@@ -41,6 +41,11 @@ pub trait PhotoStore: Send + Sync {
         moderation: AutomatedPhotoModeration,
     ) -> PhotoStoreFuture<'_, bool>;
     fn begin_delete(&self, user_id: Uuid) -> PhotoStoreFuture<'_, bool>;
+    fn begin_account_deletion(
+        &self,
+        user_id: Uuid,
+        limit: u32,
+    ) -> PhotoStoreFuture<'_, Vec<PhotoObject>>;
     fn find_deleting(&self, photo_id: Uuid) -> PhotoStoreFuture<'_, Option<PhotoObject>>;
     fn complete_deletion(&self, photo_id: Uuid) -> PhotoStoreFuture<'_, ()>;
     fn discard_processing(&self, photo_id: Uuid, user_id: Uuid) -> PhotoStoreFuture<'_, ()>;
@@ -229,6 +234,37 @@ impl PhotoStore for PgPhotoRepository {
                     })
                 })
                 .await
+        })
+    }
+
+    fn begin_account_deletion(
+        &self,
+        user_id: Uuid,
+        limit: u32,
+    ) -> PhotoStoreFuture<'_, Vec<PhotoObject>> {
+        Box::pin(async move {
+            let rows = sqlx::query_as::<_, (Uuid, Uuid, String)>(
+                "UPDATE user_photo SET status = 'deleting', updated_at = clock_timestamp()
+                 WHERE id IN (
+                   SELECT id FROM user_photo WHERE user_id = $1 ORDER BY id LIMIT $2
+                 )
+                 RETURNING id, user_id, object_key",
+            )
+            .bind(user_id)
+            .bind(i64::from(limit))
+            .fetch_all(self.database.pool())
+            .await
+            .map_err(map_sqlx_error)?;
+            Ok(rows
+                .into_iter()
+                .map(|(id, user_id, object_key)| PhotoObject {
+                    id,
+                    user_id,
+                    object_key,
+                    moderation_status: ModerationStatus::Pending,
+                    moderation_reasons: vec![ModerationReason::AnalysisUnavailable],
+                })
+                .collect())
         })
     }
 

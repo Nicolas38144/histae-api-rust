@@ -75,6 +75,6 @@ checkpoint et un événement outbox.
 ## Risques restant ouverts
 
 Le téléchargement occupe une connexion PostgreSQL pendant sa préparation complète, conformément à NestJS. Les
-budgets doivent être calibrés avec des volumes représentatifs avant la production. S25 doit fournir le handler
-`account.erase`; S28/S29 assembleront les routeurs dans le binaire final et exécuteront la comparaison différentielle
-complète avec NestJS.
+budgets doivent être calibrés avec des volumes représentatifs avant la production. Le handler `account.erase` est
+maintenant fourni par S25 ; S28/S29 assembleront les routeurs dans le binaire final et exécuteront la comparaison
+différentielle complète avec NestJS.

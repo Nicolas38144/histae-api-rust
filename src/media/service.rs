@@ -215,6 +215,41 @@ impl PhotoService {
         }
     }
 
+    /// Deletes at most one bounded batch while the caller owns the exclusive
+    /// account-activity lease used by the resumable erasure workflow.
+    pub async fn delete_for_account(
+        &self,
+        user_id: Uuid,
+        batch_size: u32,
+    ) -> Result<bool, PhotoError> {
+        let photos = self
+            .store
+            .begin_account_deletion(user_id, batch_size)
+            .await?;
+        let mut failed = false;
+        for photo in &photos {
+            if self.storage.delete(&photo.object_key).await.is_err() {
+                tracing::warn!(
+                    event_code = "photo_storage_failed",
+                    operation = "account_deletion"
+                );
+                failed = true;
+                continue;
+            }
+            if self.store.complete_deletion(photo.id).await.is_err() {
+                tracing::warn!(
+                    event_code = "photo_storage_failed",
+                    operation = "account_deletion"
+                );
+                failed = true;
+            }
+        }
+        if failed {
+            return Err(PhotoError::StorageUnavailable);
+        }
+        Ok(photos.len() < usize::try_from(batch_size).unwrap_or(usize::MAX))
+    }
+
     pub async fn url_for_object_key(
         &self,
         object_key: Option<String>,
