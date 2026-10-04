@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use uuid::{Uuid, Variant};
 
 use super::domain::{AdminUser, AdminUserDetail, AdminUserRole, AdminUserStatus};
+use super::metrics::{AdminMetrics, AdminMetricsService, AdminRevenue, RevenuePeriod};
 use super::service::{AdministrationError, AdministrationService, AuditedPageRequest, Page};
 use crate::http::error::ApiError;
 use crate::http::extract::{ApiDto, ValidatedJson, ValidatedPath, ValidatedQuery};
@@ -18,17 +19,20 @@ use crate::shared::text::validator_js_length;
 #[derive(Clone)]
 pub struct AdministrationHttpState {
     service: AdministrationService,
+    metrics: AdminMetricsService,
 }
 
 impl AdministrationHttpState {
-    pub fn new(service: AdministrationService) -> Self {
-        Self { service }
+    pub fn new(service: AdministrationService, metrics: AdminMetricsService) -> Self {
+        Self { service, metrics }
     }
 }
 
 pub fn routes(state: AdministrationHttpState, auth: AdminAuthHttpState) -> Router<HttpState> {
     Router::new()
         .route("/api/admin/me", get(me))
+        .route("/api/admin/metrics", get(metrics))
+        .route("/api/admin/revenue", get(revenue))
         .route("/api/admin/users", get(users))
         .route("/api/admin/users/{id}", get(user_detail))
         .route("/api/admin/users/{id}/status", patch(update_status))
@@ -36,6 +40,52 @@ pub fn routes(state: AdministrationHttpState, auth: AdminAuthHttpState) -> Route
         .route("/api/admin/matches/{id}/messages", get(messages))
         .layer(Extension(state))
         .layer(Extension(auth))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RevenueQuery {
+    revenue_period: Option<RevenuePeriod>,
+}
+
+impl RevenueQuery {
+    fn period(&self) -> RevenuePeriod {
+        self.revenue_period.unwrap_or(RevenuePeriod::MonthToDate)
+    }
+}
+
+impl ApiDto for RevenueQuery {
+    const ERROR_CODE: &'static str = "invalid_admin_request";
+    const ERROR_MESSAGE: &'static str = "The administrator request is invalid.";
+    fn is_valid(&self) -> bool {
+        true
+    }
+}
+
+async fn metrics(
+    AdminIdentity(_identity): AdminIdentity,
+    Extension(state): Extension<AdministrationHttpState>,
+    ValidatedQuery(query): ValidatedQuery<RevenueQuery>,
+) -> Result<Json<AdminMetrics>, ApiError> {
+    state
+        .metrics
+        .metrics(query.period())
+        .await
+        .map(Json)
+        .map_err(Into::into)
+}
+
+async fn revenue(
+    AdminIdentity(_identity): AdminIdentity,
+    Extension(state): Extension<AdministrationHttpState>,
+    ValidatedQuery(query): ValidatedQuery<RevenueQuery>,
+) -> Result<Json<AdminRevenue>, ApiError> {
+    state
+        .metrics
+        .revenue(query.period())
+        .await
+        .map(Json)
+        .map_err(Into::into)
 }
 
 #[derive(Serialize)]
@@ -476,5 +526,21 @@ fn administration_error(error: AdministrationError) -> ApiError {
             "Photo storage is temporarily unavailable",
         ),
         AdministrationError::Database(error) => error.into(),
+    }
+}
+
+#[cfg(test)]
+mod metrics_query_tests {
+    use super::*;
+
+    #[test]
+    fn revenue_period_defaults_to_month_to_date() {
+        assert_eq!(
+            RevenueQuery {
+                revenue_period: None,
+            }
+            .period(),
+            RevenuePeriod::MonthToDate
+        );
     }
 }

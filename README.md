@@ -293,6 +293,16 @@ l’UID 1000 sur un rootfs en lecture seule. Les manifests de développement, pr
 maintenant au dépôt Rust. Le contrat, les décisions et les commandes sont détaillés dans
 [docs/s27-operations.md](docs/s27-operations.md).
 
+## S28 — campagne de parité
+
+Le contrat HTTP NestJS est désormais conservé dans le dépôt Rust et comparé automatiquement aux enregistrements
+Axum : les 100 couples méthode/chemin sont présents, sans route supplémentaire. Cette vérification a rétabli les
+routes administratives de métriques et de revenu, avec leurs agrégats PostgreSQL et leur snapshot opérationnel.
+
+La campagne complète compile toutes les features et exerce les contrats ainsi que PostgreSQL, Redis, S3 et le codec
+photo réels. La matrice de preuve, les divergences runtime expliquées et les validations externes à exécuter sur le
+binaire assemblé en S29 figurent dans [docs/s28-parity.md](docs/s28-parity.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.

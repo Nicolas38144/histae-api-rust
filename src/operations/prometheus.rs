@@ -522,7 +522,7 @@ fn escape(value: &str) -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn resident_memory_bytes() -> Option<u64> {
+pub(crate) fn resident_memory_bytes() -> Option<u64> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     let kb = status.lines().find_map(|line| {
         line.strip_prefix("VmRSS:")?
@@ -534,7 +534,7 @@ fn resident_memory_bytes() -> Option<u64> {
     kb.checked_mul(1_024)
 }
 #[cfg(not(target_os = "linux"))]
-fn resident_memory_bytes() -> Option<u64> {
+pub(crate) fn resident_memory_bytes() -> Option<u64> {
     None
 }
 

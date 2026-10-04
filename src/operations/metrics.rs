@@ -28,6 +28,8 @@ pub struct Counters {
     pub buckets: [u64; 11],
     pub last_success_at: Option<SystemTime>,
     pub last_error_at: Option<SystemTime>,
+    pub last_error_code: Option<String>,
+    pub last_outcome: Option<bool>,
 }
 
 #[derive(Clone, Debug)]
@@ -121,6 +123,16 @@ impl OperationalMetrics {
     }
 
     pub fn record_dependency(&self, name: &'static str, succeeded: bool, duration: Duration) {
+        self.record_dependency_with_error(name, succeeded, duration, None);
+    }
+
+    pub fn record_dependency_with_error(
+        &self,
+        name: &'static str,
+        succeeded: bool,
+        duration: Duration,
+        error_code: Option<&str>,
+    ) {
         if !DEPENDENCIES.contains(&name) {
             return;
         }
@@ -136,9 +148,12 @@ impl OperationalMetrics {
         counters.buckets[bucket(elapsed)] = counters.buckets[bucket(elapsed)].saturating_add(1);
         if succeeded {
             counters.last_success_at = Some(SystemTime::now());
+            counters.last_outcome = Some(true);
         } else {
             counters.errors = counters.errors.saturating_add(1);
             counters.last_error_at = Some(SystemTime::now());
+            counters.last_error_code = Some(normalized_error_code(error_code));
+            counters.last_outcome = Some(false);
         }
     }
 
@@ -166,6 +181,24 @@ impl OperationalMetrics {
                 })
                 .collect(),
         }
+    }
+}
+
+fn normalized_error_code(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "operation_failed".to_owned();
+    };
+    let mut characters = value.chars();
+    let valid = value.len() <= 64
+        && characters
+            .next()
+            .is_some_and(|value| value.is_ascii_lowercase())
+        && characters
+            .all(|value| value.is_ascii_lowercase() || value.is_ascii_digit() || value == '_');
+    if valid {
+        value.to_owned()
+    } else {
+        "operation_failed".to_owned()
     }
 }
 
