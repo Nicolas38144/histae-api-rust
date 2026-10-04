@@ -9,7 +9,7 @@ use super::domain::{
     ProfileQuestion, ProfileQuestionInput, ProfileQuestionPatch, ReplaceAnswersOutcome,
     SubscriptionPlan, Trait,
 };
-use super::pg::CatalogStore;
+use super::store::CatalogStore;
 use crate::infra::postgres::{ConstraintKind, DatabaseError};
 use crate::moderation::text::TextModerator;
 use crate::shared::text::{javascript_trim, utf8_len};

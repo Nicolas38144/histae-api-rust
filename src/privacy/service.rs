@@ -5,7 +5,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::domain::BlockedUser;
-use super::pg::PrivacyStore;
+use super::store::PrivacyStore;
 use crate::infra::postgres::DatabaseError;
 use crate::notifications::delivery::MobileDeliveryService;
 
@@ -92,7 +92,7 @@ mod tests {
 
     use super::*;
     use crate::privacy::domain::BlockedUserRow;
-    use crate::privacy::pg::PrivacyStoreFuture;
+    use crate::privacy::store::PrivacyStoreFuture;
 
     #[derive(Default)]
     struct FakeStore {

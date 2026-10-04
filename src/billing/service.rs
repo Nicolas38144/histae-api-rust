@@ -9,7 +9,7 @@ use super::domain::{
     CUSTOMER_CREATE_SAFETY_HOURS, CheckoutSessionView, CustomerCreation, PersistedCheckoutSession,
     SubscriptionView,
 };
-use super::pg::{BeginCheckoutInput, BillingStore, BillingStoreError};
+use super::store::{BeginCheckoutInput, BillingStore, BillingStoreError};
 use super::stripe::{CheckoutInput, StripeGateway};
 use crate::config::{BillingConfig, BillingProvider};
 use crate::infra::postgres::DatabaseError;

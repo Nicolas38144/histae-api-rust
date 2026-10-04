@@ -11,9 +11,10 @@ use chrono::{DateTime, TimeDelta, Utc};
 use histae_api_rust::billing::domain::{
     BeginCheckoutResult, BillingPeriod, PersistedCheckoutSession,
 };
-use histae_api_rust::billing::pg::BeginCheckoutInput;
-use histae_api_rust::billing::pg::{BillingStore, PgBillingRepository};
+use histae_api_rust::billing::pg::PgBillingRepository;
 use histae_api_rust::billing::service::{BillingError, BillingService};
+use histae_api_rust::billing::store::BeginCheckoutInput;
+use histae_api_rust::billing::store::BillingStore;
 use histae_api_rust::billing::stripe::{
     CheckoutInput, StripeCheckoutSession, StripeCustomer, StripeError, StripeFuture, StripeGateway,
     StripePortalSession,

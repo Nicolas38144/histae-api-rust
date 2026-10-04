@@ -1,8 +1,9 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
+
 pub mod administration;
-#[cfg(feature = "webauthn-probe")]
-pub mod api;
+pub mod app;
 pub mod billing;
-pub mod bootstrap;
 pub mod catalog;
 pub mod config;
 pub mod contract;
@@ -16,10 +17,7 @@ pub mod moderation;
 pub mod notifications;
 pub mod operations;
 pub mod outbox;
-pub mod photo_codec_probe;
 pub mod privacy;
 pub mod profiles;
 pub mod reports;
 pub mod shared;
-#[cfg(feature = "webauthn-probe")]
-pub mod webauthn_probe;

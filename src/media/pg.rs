@@ -1,21 +1,3 @@
-use std::future::Future;
-use std::pin::Pin;
-
-use sqlx::PgConnection;
-use uuid::Uuid;
-
-use super::domain::{CreationResult, PhotoObject, ProcessingPhoto};
-use super::maintenance::{PhotoMaintenanceFuture, PhotoMaintenanceStore};
-use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
-use crate::moderation::domain::AutomatedPhotoModeration;
-use crate::outbox::pg::PgOutboxRepository;
-use crate::outbox::types::{NewOutboxEvent, OutboxEventType};
-use crate::photo_codec_probe::ProcessedPhoto;
-use crate::profiles::domain::{ModerationReason, ModerationStatus};
-
-pub type PhotoStoreFuture<'a, T> =
-    Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'a>>;
-
 type ExistingUploadRequest = (
     Vec<u8>,
     String,
@@ -27,30 +9,19 @@ type ExistingUploadRequest = (
     Option<Vec<String>>,
 );
 
-pub trait PhotoStore: Send + Sync {
-    fn create_processing(&self, photo: ProcessingPhoto) -> PhotoStoreFuture<'_, CreationResult>;
-    fn record_processed<'a>(
-        &'a self,
-        photo_id: Uuid,
-        user_id: Uuid,
-        photo: &'a ProcessedPhoto,
-    ) -> PhotoStoreFuture<'a, bool>;
-    fn activate(
-        &self,
-        photo_id: Uuid,
-        user_id: Uuid,
-        moderation: AutomatedPhotoModeration,
-    ) -> PhotoStoreFuture<'_, bool>;
-    fn begin_delete(&self, user_id: Uuid) -> PhotoStoreFuture<'_, bool>;
-    fn begin_account_deletion(
-        &self,
-        user_id: Uuid,
-        limit: u32,
-    ) -> PhotoStoreFuture<'_, Vec<PhotoObject>>;
-    fn find_deleting(&self, photo_id: Uuid) -> PhotoStoreFuture<'_, Option<PhotoObject>>;
-    fn complete_deletion(&self, photo_id: Uuid) -> PhotoStoreFuture<'_, ()>;
-    fn discard_processing(&self, photo_id: Uuid, user_id: Uuid) -> PhotoStoreFuture<'_, ()>;
-}
+use sqlx::PgConnection;
+use uuid::Uuid;
+
+use super::domain::{CreationResult, PhotoObject, ProcessingPhoto};
+use super::maintenance::{PhotoMaintenanceFuture, PhotoMaintenanceStore};
+use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
+use crate::media::codec::ProcessedPhoto;
+use crate::moderation::domain::AutomatedPhotoModeration;
+use crate::outbox::pg::PgOutboxRepository;
+use crate::outbox::types::{NewOutboxEvent, OutboxEventType};
+use crate::profiles::domain::{ModerationReason, ModerationStatus};
+
+use super::store::{PhotoStore, PhotoStoreFuture};
 
 #[derive(Clone)]
 pub struct PgPhotoRepository {

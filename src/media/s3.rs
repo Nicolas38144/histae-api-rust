@@ -10,7 +10,7 @@ use url::Url;
 
 use super::storage::{ObjectStorageError, PhotoObjectStorage, StorageFuture};
 use crate::config::ObjectStorageConfig;
-use crate::http::health::{DependencyProbe, ProbeError, ProbeFuture};
+use crate::http::health::{DependencyProbe, ProbeFuture, WebauthnError};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_ATTEMPTS: u8 = 3;
@@ -240,7 +240,7 @@ impl DependencyProbe for S3ObjectStorage {
         Box::pin(async move {
             PhotoObjectStorage::check(self)
                 .await
-                .map_err(|_| ProbeError)
+                .map_err(|_| WebauthnError)
         })
     }
 }

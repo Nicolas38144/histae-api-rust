@@ -15,8 +15,8 @@ use histae_api_rust::identity::mobile::domain::{
     SessionCursor,
 };
 use histae_api_rust::identity::mobile::http::{MobileAuthState, routes};
-use histae_api_rust::identity::mobile::pg::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::service::MobileAuthService;
+use histae_api_rust::identity::mobile::store::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::tokens::{NewRefreshToken, TokenService};
 use histae_api_rust::infra::postgres::DatabaseError;
 use serde_json::{Value, json};

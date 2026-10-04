@@ -11,7 +11,7 @@ use super::domain::{
     ProfileInput, PublicConsent, PublicModeration, PublicModerationState, PublicPreferences,
     PublicProfile, Sex, VersionedConsentChange, WriteOutcome,
 };
-use super::pg::ProfileStore;
+use super::store::ProfileStore;
 use crate::config::LegalConfig;
 use crate::infra::postgres::DatabaseError;
 use crate::moderation::text::TextModerator;

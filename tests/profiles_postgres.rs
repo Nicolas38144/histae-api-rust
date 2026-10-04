@@ -13,7 +13,8 @@ use histae_api_rust::profiles::domain::{
     ConsentType, LookingFor, PreferencesInput, PresenceInput, ProfileInput, Sex,
     VersionedConsentChange, WriteOutcome,
 };
-use histae_api_rust::profiles::pg::{PgProfileRepository, ProfileStore};
+use histae_api_rust::profiles::pg::PgProfileRepository;
+use histae_api_rust::profiles::store::ProfileStore;
 use url::Url;
 use uuid::Uuid;
 

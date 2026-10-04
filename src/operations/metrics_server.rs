@@ -19,6 +19,7 @@ use super::prometheus::MetricsRenderer;
 struct ServerState {
     token: Arc<[u8]>,
     renderer: Arc<dyn MetricsRenderer>,
+    cancellation: CancellationToken,
 }
 
 pub struct MetricsServer {
@@ -42,12 +43,13 @@ impl MetricsServer {
             .local_addr()
             .map_err(|_| "metrics_bind_failed")?
             .port();
+        let cancellation = CancellationToken::new();
         let state = ServerState {
             token: Arc::from(config.token.expose_secret().as_bytes()),
             renderer,
+            cancellation: cancellation.clone(),
         };
         let router = Router::new().fallback(handler).with_state(state);
-        let cancellation = CancellationToken::new();
         let shutdown = cancellation.clone();
         let task = tokio::spawn(async move {
             axum::serve(listener, router)
@@ -74,12 +76,31 @@ impl MetricsServer {
     }
 
     pub async fn shutdown(self) -> Result<(), &'static str> {
+        self.shutdown_with_timeout(std::time::Duration::from_secs(5))
+            .await
+    }
+
+    async fn shutdown_with_timeout(
+        mut self,
+        budget: std::time::Duration,
+    ) -> Result<(), &'static str> {
         self.cancellation.cancel();
-        match tokio::time::timeout(std::time::Duration::from_secs(5), self.task).await {
+        match tokio::time::timeout(budget, &mut self.task).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err("metrics_server_task_failed"),
-            Err(_) => Err("metrics_server_shutdown_timed_out"),
+            Err(_) => {
+                self.task.abort();
+                let _ = (&mut self.task).await;
+                Err("metrics_server_shutdown_timed_out")
+            }
         }
+    }
+}
+
+impl Drop for MetricsServer {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+        self.task.abort();
     }
 }
 
@@ -111,7 +132,13 @@ async fn handler(State(state): State<ServerState>, request: Request) -> Response
             .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
         return response;
     }
-    match state.renderer.render().await {
+    // Cancel an in-flight scrape before closing the pools it may be querying.
+    let rendered = tokio::select! {
+        biased;
+        _ = state.cancellation.cancelled() => Err("metrics_server_stopping"),
+        result = state.renderer.render() => result,
+    };
+    match rendered {
         Ok(body) => {
             let mut response = plain(StatusCode::OK, body);
             response.headers_mut().insert(
@@ -152,6 +179,79 @@ mod tests {
     use std::pin::Pin;
     use tower::ServiceExt;
 
+    struct DropFlag(Arc<std::sync::atomic::AtomicBool>);
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn deadline_aborts_and_joins_the_server_task() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dropped = Arc::new(AtomicBool::new(false));
+        let guard = DropFlag(dropped.clone());
+        let (started, running) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let _guard = guard;
+            let _ = started.send(());
+            std::future::pending().await
+        });
+        running.await.expect("task started");
+        let server = MetricsServer {
+            cancellation: CancellationToken::new(),
+            task,
+            local_port: 0,
+        };
+        assert_eq!(
+            server
+                .shutdown_with_timeout(std::time::Duration::from_millis(10))
+                .await,
+            Err("metrics_server_shutdown_timed_out")
+        );
+        assert!(dropped.load(Ordering::SeqCst));
+    }
+
+    struct PendingRenderer(Arc<tokio::sync::Notify>);
+    impl MetricsRenderer for PendingRenderer {
+        fn render(
+            &self,
+        ) -> Pin<Box<dyn Future<Output = Result<String, &'static str>> + Send + '_>> {
+            Box::pin(async move {
+                self.0.notify_one();
+                std::future::pending().await
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_cancels_an_inflight_scrape() {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let cancellation = CancellationToken::new();
+        let router = Router::new().fallback(handler).with_state(ServerState {
+            token: Arc::from(b"test-only-token".as_slice()),
+            renderer: Arc::new(PendingRenderer(started.clone())),
+            cancellation: cancellation.clone(),
+        });
+        let response = tokio::spawn(
+            router.oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .header(header::AUTHORIZATION, "Bearer test-only-token")
+                    .body(Body::empty())
+                    .expect("request"),
+            ),
+        );
+        started.notified().await;
+        cancellation.cancel();
+        let response = tokio::time::timeout(std::time::Duration::from_secs(1), response)
+            .await
+            .expect("scrape stops")
+            .expect("task")
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
     struct Renderer(Result<&'static str, &'static str>);
     impl MetricsRenderer for Renderer {
         fn render(
@@ -164,6 +264,7 @@ mod tests {
         Router::new().fallback(handler).with_state(ServerState {
             token: Arc::from(b"01234567890123456789012345678901".as_slice()),
             renderer: Arc::new(Renderer(renderer)),
+            cancellation: CancellationToken::new(),
         })
     }
     async fn call(

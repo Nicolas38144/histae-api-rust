@@ -1,22 +1,12 @@
-use std::future::Future;
-use std::pin::Pin;
-
 use sqlx::Row as _;
 use uuid::Uuid;
 
 use super::domain::BlockedUserRow;
-use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
+use crate::infra::postgres::{Database, map_sqlx_error};
 
 const ENDED_MATCH_RETENTION_DAYS: i32 = 30;
 
-pub type PrivacyStoreFuture<'a, T> =
-    Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'a>>;
-
-pub trait PrivacyStore: Send + Sync {
-    fn block(&self, blocker_id: Uuid, blocked_id: Uuid) -> PrivacyStoreFuture<'_, bool>;
-    fn unblock(&self, blocker_id: Uuid, blocked_id: Uuid) -> PrivacyStoreFuture<'_, ()>;
-    fn blocked_users(&self, blocker_id: Uuid) -> PrivacyStoreFuture<'_, Vec<BlockedUserRow>>;
-}
+use super::store::{PrivacyStore, PrivacyStoreFuture};
 
 #[derive(Clone)]
 pub struct PgPrivacyStore {

@@ -5,7 +5,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::domain::{ActiveAccount, RotationOutcome, decode_cursor, encode_cursor, wire_timestamp};
-use super::pg::MobileSessionStore;
+use super::store::MobileSessionStore;
 use super::tokens::{TokenError, TokenService};
 use crate::infra::postgres::DatabaseError;
 

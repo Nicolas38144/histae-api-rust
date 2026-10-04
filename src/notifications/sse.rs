@@ -16,6 +16,7 @@ use serde_json::{Map, Value, json};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::{self, Instant, MissedTickBehavior};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::http::router::HttpState;
@@ -74,6 +75,7 @@ pub struct RealtimeService {
 }
 
 struct RealtimeInner {
+    shutdown: CancellationToken,
     redis: RedisService,
     events: broadcast::Sender<MobileEvent>,
     _subscription: Option<RedisSubscription>,
@@ -113,6 +115,7 @@ impl RealtimeService {
         };
         Ok(Self {
             inner: Arc::new(RealtimeInner {
+                shutdown: CancellationToken::new(),
                 redis,
                 events,
                 _subscription: subscription,
@@ -155,6 +158,11 @@ impl RealtimeService {
 
     pub fn subscribe(&self) -> broadcast::Receiver<MobileEvent> {
         self.inner.events.subscribe()
+    }
+
+    /// Close HTTP streams before draining the server and closing its database pools.
+    pub fn shutdown(&self) {
+        self.inner.shutdown.cancel();
     }
 }
 
@@ -241,6 +249,7 @@ async fn events(
         identity.session_id,
         identity.access_expires_at_seconds,
         state.policy,
+        state.realtime.inner.shutdown.clone(),
     );
     Sse::new(stream)
 }
@@ -263,6 +272,7 @@ fn event_stream(
     session_id: Uuid,
     access_expires_at_seconds: u64,
     policy: SsePolicy,
+    shutdown: CancellationToken,
 ) -> BoxStream<'static, Result<Event, Infallible>> {
     let until_expiry = access_expires_at_seconds.saturating_sub(unix_seconds());
     let mut heartbeat = time::interval(policy.heartbeat_interval);
@@ -309,6 +319,7 @@ fn event_stream(
             }
         }
     })
+    .take_until(shutdown.cancelled_owned())
     .boxed()
 }
 
@@ -341,6 +352,44 @@ fn unix_seconds() -> u64 {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct PendingSessions(Arc<tokio::sync::Notify>);
+    impl SessionActivity for PendingSessions {
+        fn is_active(&self, _user_id: Uuid, _session_id: Uuid) -> SessionActivityFuture<'_> {
+            Box::pin(async move {
+                self.0.notify_one();
+                std::future::pending().await
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_closes_streams_even_during_a_stalled_session_check() {
+        let realtime = RealtimeService::connect(RedisService::disabled())
+            .await
+            .expect("realtime");
+        let checking = Arc::new(tokio::sync::Notify::new());
+        let mut stream = event_stream(
+            realtime.subscribe(),
+            Arc::new(PendingSessions(checking.clone())),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            unix_seconds() + 3600,
+            SsePolicy::default(),
+            realtime.inner.shutdown.clone(),
+        );
+        assert!(stream.next().await.is_some());
+        let next = tokio::spawn(async move { stream.next().await });
+        checking.notified().await;
+        realtime.shutdown();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), next)
+                .await
+                .expect("stream stops")
+                .expect("task")
+                .is_none()
+        );
+    }
 
     struct Sessions(AtomicBool);
 
@@ -388,6 +437,7 @@ mod tests {
             SsePolicy {
                 heartbeat_interval: Duration::from_millis(10),
             },
+            realtime.inner.shutdown.clone(),
         );
         futures_util::pin_mut!(stream);
         assert!(stream.next().await.is_some());
@@ -408,6 +458,7 @@ mod tests {
             SsePolicy {
                 heartbeat_interval: Duration::from_secs(25),
             },
+            realtime.inner.shutdown.clone(),
         );
         futures_util::pin_mut!(stream);
         assert!(stream.next().await.is_some());
@@ -436,6 +487,7 @@ mod tests {
             SsePolicy {
                 heartbeat_interval: Duration::from_secs(25),
             },
+            realtime.inner.shutdown.clone(),
         );
         futures_util::pin_mut!(stream);
         assert!(stream.next().await.is_some());

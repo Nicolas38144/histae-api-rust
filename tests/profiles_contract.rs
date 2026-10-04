@@ -16,8 +16,8 @@ use histae_api_rust::identity::mobile::domain::{
     SessionCursor,
 };
 use histae_api_rust::identity::mobile::http::MobileAuthState;
-use histae_api_rust::identity::mobile::pg::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::service::{MobileAuthService, TokenPair};
+use histae_api_rust::identity::mobile::store::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::tokens::{NewRefreshToken, TokenService};
 use histae_api_rust::infra::postgres::DatabaseError;
 use histae_api_rust::profiles::domain::{
@@ -25,10 +25,10 @@ use histae_api_rust::profiles::domain::{
     PresenceInput, ProfileInput, ProfileRecord, Sex, VersionedConsentChange, WriteOutcome,
 };
 use histae_api_rust::profiles::http::{ProfileHttpState, routes};
-use histae_api_rust::profiles::pg::{ProfileStore, ProfileStoreFuture};
 use histae_api_rust::profiles::service::{
     ProfilePhotoUrlFuture, ProfilePhotoUrlProvider, ProfileService,
 };
+use histae_api_rust::profiles::store::{ProfileStore, ProfileStoreFuture};
 use histae_api_rust::shared::clock::Clock;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;

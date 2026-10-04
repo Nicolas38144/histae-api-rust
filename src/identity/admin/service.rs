@@ -12,18 +12,18 @@ use unicode_normalization::UnicodeNormalization as _;
 use uuid::{Uuid, Variant, Version};
 
 use crate::config::AdminAuthConfig;
-use crate::infra::postgres::{ConstraintKind, DatabaseError};
-use crate::webauthn_probe::{
-    CeremonyState, DeviceType, ExistingCredential, ProbeError, StoredCredential, WebauthnProbe,
-    validate_authentication_payload,
+use crate::identity::admin::webauthn::{
+    CeremonyState, DeviceType, ExistingCredential, StoredCredential, WebauthnError,
+    WebauthnVerifier, validate_authentication_payload,
 };
+use crate::infra::postgres::{ConstraintKind, DatabaseError};
 
 use super::domain::{
     ActiveSessionRow, AdminRole, AuthEventRow, ChallengePurpose, CredentialRevocation,
     CredentialRow, EventCursor, NewCredential, NewSession, decode_cursor, encode_cursor,
     wire_timestamp,
 };
-use super::pg::{AdminAuthStore, NewChallenge};
+use super::store::{AdminAuthStore, NewChallenge};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdminAuthError {
@@ -145,7 +145,7 @@ pub struct IssuedBootstrap {
 #[derive(Clone)]
 pub struct AdminAuthService {
     store: Arc<dyn AdminAuthStore>,
-    webauthn: Arc<WebauthnProbe>,
+    webauthn: Arc<WebauthnVerifier>,
     config: AdminAuthConfig,
 }
 
@@ -156,8 +156,9 @@ impl AdminAuthService {
     ) -> Result<Self, AdminAuthError> {
         let timeout = u64::try_from(config.challenge_ttl.as_millis())
             .map_err(|_| AdminAuthError::Internal)?;
-        let webauthn = WebauthnProbe::new(&config.rp_name, &config.rp_id, &config.origin, timeout)
-            .map_err(|_| AdminAuthError::Internal)?;
+        let webauthn =
+            WebauthnVerifier::new(&config.rp_name, &config.rp_id, &config.origin, timeout)
+                .map_err(|_| AdminAuthError::Internal)?;
         Ok(Self {
             store,
             webauthn: Arc::new(webauthn),
@@ -258,7 +259,7 @@ impl AdminAuthService {
             .webauthn
             .finish_authentication(credential, &probe_credential(&stored)?, &mut state)
             .map_err(|error| match error {
-                ProbeError::InvalidPayload => AdminAuthError::InvalidWebauthnPayload,
+                WebauthnError::InvalidPayload => AdminAuthError::InvalidWebauthnPayload,
                 _ => AdminAuthError::InvalidAuthentication,
             })?;
         let secrets = self.new_session()?;
@@ -565,7 +566,7 @@ impl AdminAuthService {
 
     async fn persist_challenge(
         &self,
-        issued: crate::webauthn_probe::IssuedOptions,
+        issued: crate::identity::admin::webauthn::IssuedOptions,
         purpose: ChallengePurpose,
         user_id: Option<Uuid>,
         bootstrap_id: Option<Uuid>,
@@ -606,7 +607,7 @@ impl AdminAuthService {
             .webauthn
             .finish_registration(credential, &mut state)
             .map_err(|error| match error {
-                ProbeError::InvalidPayload => AdminAuthError::InvalidWebauthnPayload,
+                WebauthnError::InvalidPayload => AdminAuthError::InvalidWebauthnPayload,
                 _ => AdminAuthError::InvalidRegistration,
             })?;
         Ok(NewCredential {
@@ -753,8 +754,8 @@ fn map_credential_conflict(error: DatabaseError) -> AdminAuthError {
     }
 }
 
-fn probe_payload_error(error: ProbeError) -> AdminAuthError {
-    if error == ProbeError::InvalidPayload {
+fn probe_payload_error(error: WebauthnError) -> AdminAuthError {
+    if error == WebauthnError::InvalidPayload {
         AdminAuthError::InvalidWebauthnPayload
     } else {
         AdminAuthError::InvalidAuthentication

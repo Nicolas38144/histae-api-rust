@@ -10,8 +10,9 @@ use histae_api_rust::catalog::domain::{
     PreparedProfileAnswer, ProfileQuestionCategory, ProfileQuestionInput, ReplaceAnswersOutcome,
     Trait,
 };
-use histae_api_rust::catalog::pg::{CatalogStore, PgCatalogRepository};
+use histae_api_rust::catalog::pg::PgCatalogRepository;
 use histae_api_rust::catalog::service::CatalogService;
+use histae_api_rust::catalog::store::CatalogStore;
 use histae_api_rust::config::{PostgresConfig, SecretString};
 use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use histae_api_rust::moderation::text::TextModerator;

@@ -10,14 +10,14 @@ use crate::infra::redis::RedisService;
 
 use super::error::ApiError;
 
-pub type ProbeFuture<'a> = Pin<Box<dyn Future<Output = Result<(), ProbeError>> + Send + 'a>>;
+pub type ProbeFuture<'a> = Pin<Box<dyn Future<Output = Result<(), WebauthnError>> + Send + 'a>>;
 
 pub trait DependencyProbe: Send + Sync {
     fn check(&self) -> ProbeFuture<'_>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ProbeError;
+pub struct WebauthnError;
 
 #[derive(Clone)]
 pub struct Readiness {
@@ -58,13 +58,13 @@ impl Readiness {
 
 impl DependencyProbe for Database {
     fn check(&self) -> ProbeFuture<'_> {
-        Box::pin(async move { self.ping().await.map_err(|_| ProbeError) })
+        Box::pin(async move { self.ping().await.map_err(|_| WebauthnError) })
     }
 }
 
 impl DependencyProbe for RedisService {
     fn check(&self) -> ProbeFuture<'_> {
-        Box::pin(async move { RedisService::check(self).await.map_err(|_| ProbeError) })
+        Box::pin(async move { RedisService::check(self).await.map_err(|_| WebauthnError) })
     }
 }
 

@@ -9,8 +9,9 @@ use std::time::Duration;
 
 use histae_api_rust::config::{JwtConfig, PostgresConfig, SecretString};
 use histae_api_rust::identity::mobile::domain::RotationOutcome;
-use histae_api_rust::identity::mobile::pg::{MobileSessionRepository, MobileSessionStore};
+use histae_api_rust::identity::mobile::pg::MobileSessionRepository;
 use histae_api_rust::identity::mobile::service::{MobileAuthError, MobileAuthService};
+use histae_api_rust::identity::mobile::store::MobileSessionStore;
 use histae_api_rust::identity::mobile::tokens::{TokenService, VerifiedAccessToken};
 use histae_api_rust::infra::crypto::sha256_hex;
 use histae_api_rust::infra::postgres::{Database, DatabaseError};

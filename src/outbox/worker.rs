@@ -13,7 +13,7 @@ use crate::config::WorkloadConfig;
 use crate::infra::postgres::DatabaseError;
 use crate::operations::logging::{self, SafeLogValue};
 use crate::operations::maintenance::{MaintenanceJobName, MaintenanceProgress, MaintenanceTracker};
-use crate::outbox::pg::OutboxStore;
+use crate::outbox::store::OutboxStore;
 use crate::outbox::types::{
     ClaimWindow, DispatchFailure, DispatchOutcome, OutboxEvent, OutboxEventType,
     OutboxWorkerResult, PurgeResult, RetryResult,
@@ -423,7 +423,7 @@ mod tests {
 
     use super::*;
     use crate::operations::maintenance::{MaintenanceFuture, MaintenanceStatusStore};
-    use crate::outbox::pg::OutboxFuture;
+    use crate::outbox::store::OutboxFuture;
     use crate::outbox::types::OutboxStatus;
 
     #[derive(Default)]

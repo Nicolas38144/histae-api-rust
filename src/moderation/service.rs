@@ -12,7 +12,7 @@ use super::domain::{
     ModerationCase, ModerationContentType, ModerationDecision, ModerationDetail,
     ModerationReviewInput, ModerationReviewResult, PageCursor, PhotoReviewChecks,
 };
-use super::pg::ModerationStore;
+use super::store::ModerationStore;
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::DatabaseError;
 use crate::media::service::PhotoService;
@@ -243,7 +243,7 @@ mod tests {
 
     use super::*;
     use crate::moderation::domain::{ModerationRow, wire_timestamp};
-    use crate::moderation::pg::{ModerationStore, ModerationStoreFuture};
+    use crate::moderation::store::{ModerationStore, ModerationStoreFuture};
     use crate::profiles::domain::ModerationReason;
 
     #[test]

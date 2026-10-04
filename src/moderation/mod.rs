@@ -6,3 +6,4 @@ pub mod text;
 
 #[cfg(feature = "webauthn-probe")]
 pub mod http;
+pub mod store;

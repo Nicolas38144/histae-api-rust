@@ -1,3 +1,4 @@
+pub mod codec;
 pub mod domain;
 pub mod http;
 pub mod maintenance;
@@ -9,3 +10,4 @@ pub mod storage;
 pub use pg::PgPhotoRepository;
 pub use s3::S3ObjectStorage;
 pub use service::{PhotoDeletionHandler, PhotoService};
+pub mod store;

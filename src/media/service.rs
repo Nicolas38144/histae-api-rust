@@ -11,16 +11,16 @@ use super::domain::{
     CreationResult, PHOTO_CACHE_CONTROL, PHOTO_IDEMPOTENCY_HOURS, PHOTO_URL_TTL_SECONDS,
     ProcessingPhoto, UploadPhoto, UploadResult,
 };
-use super::pg::PhotoStore;
 use super::storage::PhotoObjectStorage;
+use super::store::PhotoStore;
 use crate::infra::postgres::DatabaseError;
 use crate::infra::postgres_locks::{AccountActivityError, AccountActivityPool, ActivityLease};
+use crate::media::codec::{
+    InvalidPhotoReason, PhotoCodec, PhotoCodecError, ProcessedPhoto, UploadedPhoto,
+};
 use crate::moderation::photo::PhotoModerator;
 use crate::outbox::types::{DispatchFailure, DispatchOutcome, OutboxEvent};
 use crate::outbox::worker::{DispatchFuture, OutboxHandler};
-use crate::photo_codec_probe::{
-    InvalidPhotoReason, PhotoCodecError, PhotoCodecProbe, ProcessedPhoto, UploadedPhoto,
-};
 use crate::profiles::service::{ProfilePhotoUrlFuture, ProfilePhotoUrlProvider};
 use crate::shared::clock::Clock;
 
@@ -31,7 +31,7 @@ pub trait PhotoProcessor: Send + Sync {
     fn process<'a>(&'a self, upload: &'a UploadPhoto) -> ProcessorFuture<'a>;
 }
 
-impl PhotoProcessor for PhotoCodecProbe {
+impl PhotoProcessor for PhotoCodec {
     fn process<'a>(&'a self, upload: &'a UploadPhoto) -> ProcessorFuture<'a> {
         Box::pin(async move {
             self.to_webp(UploadedPhoto {

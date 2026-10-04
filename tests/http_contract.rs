@@ -8,7 +8,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use histae_api_rust::config::{Environment, LimitPolicy, SecretString, TrustProxy};
 use histae_api_rust::http::extract::{ApiDto, ValidatedJson, ValidatedPath, ValidatedQuery};
-use histae_api_rust::http::health::{DependencyProbe, ProbeError, ProbeFuture, Readiness};
+use histae_api_rust::http::health::{DependencyProbe, ProbeFuture, Readiness, WebauthnError};
 use histae_api_rust::http::lifecycle::{HttpObservation, HttpObserver};
 use histae_api_rust::http::rate_limit::{FixedWindowStore, RateLimiter, StoreError, StoreFuture};
 use histae_api_rust::http::router::{HttpState, build_router, health_routes};
@@ -31,7 +31,11 @@ impl DependencyProbe for Probe {
     fn check(&self) -> ProbeFuture<'_> {
         Box::pin(async move {
             self.calls.lock().expect("probe lock").push(self.name);
-            if self.fails { Err(ProbeError) } else { Ok(()) }
+            if self.fails {
+                Err(WebauthnError)
+            } else {
+                Ok(())
+            }
         })
     }
 }

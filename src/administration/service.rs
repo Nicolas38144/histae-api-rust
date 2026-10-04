@@ -8,7 +8,7 @@ use uuid::{Uuid, Variant};
 use super::domain::{
     AdminUser, AdminUserDetail, AdminUserRole, AdminUserStatus, BanResult, PageCursor,
 };
-use super::pg::AdministrationStore;
+use super::store::AdministrationStore;
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::DatabaseError;
 use crate::matches::domain::{PublicMatch, PublicMessage};
@@ -337,7 +337,7 @@ mod tests {
     use crate::administration::domain::{
         AdminUserDetailRow, AdminUserRow, BanResult, CursorMatchRow, CursorMessageRow,
     };
-    use crate::administration::pg::AdministrationStoreFuture;
+    use crate::administration::store::AdministrationStoreFuture;
     use crate::profiles::service::ProfilePhotoUrlFuture;
 
     struct FakeStore {

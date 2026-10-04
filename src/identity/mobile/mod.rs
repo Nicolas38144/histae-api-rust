@@ -4,5 +4,6 @@ pub mod http;
 pub mod otp;
 pub mod pg;
 pub mod service;
+pub mod store;
 pub mod sweego;
 pub mod tokens;

@@ -354,4 +354,4 @@ PostgreSQL prévus et conserver les preuves de restauration sans donnée personn
 
 Cette livraison fournit le packaging et l’orchestration, pas la haute disponibilité. Une seule machine demeure un
 point de panne unique. La cible S3 durable, les sauvegardes PostgreSQL restaurées, la rotation réelle des
-secrets, le canal d’alertes et les tests de charge/sécurité restent suivis dans [roadmap.md](roadmap.md).
+secrets, le canal d’alertes et les tests de charge/sécurité restent suivis dans [les critères de bascule](migration/s29-cutover.md).

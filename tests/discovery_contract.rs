@@ -14,11 +14,11 @@ use histae_api_rust::discovery::domain::{
     SwipeRecord,
 };
 use histae_api_rust::discovery::http::{DiscoveryHttpState, routes};
-use histae_api_rust::discovery::pg::{
-    DiscoveryRepository, DiscoveryStoreError, DiscoveryStoreFuture, SwipeStore,
-};
 use histae_api_rust::discovery::service::{
     DiscoveryError, DiscoveryService, MatchCreator, MatchCreatorFuture,
+};
+use histae_api_rust::discovery::store::{
+    DiscoveryRepository, DiscoveryStoreError, DiscoveryStoreFuture, SwipeStore,
 };
 use histae_api_rust::http::health::{DependencyProbe, ProbeFuture, Readiness};
 use histae_api_rust::http::rate_limit::RateLimiter;
@@ -28,8 +28,8 @@ use histae_api_rust::identity::mobile::domain::{
     SessionCursor,
 };
 use histae_api_rust::identity::mobile::http::MobileAuthState;
-use histae_api_rust::identity::mobile::pg::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::service::MobileAuthService;
+use histae_api_rust::identity::mobile::store::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::tokens::{NewRefreshToken, TokenService};
 use histae_api_rust::infra::postgres::DatabaseError;
 use histae_api_rust::matches::domain::{MatchStatus, PublicMatch};

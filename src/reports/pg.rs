@@ -1,6 +1,3 @@
-use std::future::Future;
-use std::pin::Pin;
-
 use sqlx::Row as _;
 use uuid::Uuid;
 
@@ -8,28 +5,7 @@ use super::domain::{CursorReportRow, PageCursor, ReportReason, ReportRecord, Rep
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 
-pub type ReportStoreFuture<'a, T> =
-    Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'a>>;
-
-pub trait ReportStore: Send + Sync {
-    fn account_exists(&self, user_id: Uuid) -> ReportStoreFuture<'_, bool>;
-    fn match_participants(&self, match_id: Uuid) -> ReportStoreFuture<'_, Option<[Uuid; 2]>>;
-    fn create(&self, report: ReportRecord) -> ReportStoreFuture<'_, ()>;
-    fn list(
-        &self,
-        status: Option<ReportStatus>,
-        limit: u32,
-        offset: u32,
-        cursor: Option<PageCursor>,
-    ) -> ReportStoreFuture<'_, Vec<CursorReportRow>>;
-    fn update_status(
-        &self,
-        id: Uuid,
-        status: ReportStatus,
-        admin_id: Uuid,
-        admin_role: AdminRole,
-    ) -> ReportStoreFuture<'_, bool>;
-}
+use super::store::{ReportStore, ReportStoreFuture};
 
 #[derive(Clone)]
 pub struct PgReportStore {

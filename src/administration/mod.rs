@@ -5,3 +5,4 @@ pub mod metrics;
 pub mod pg;
 pub mod photos;
 pub mod service;
+pub mod store;

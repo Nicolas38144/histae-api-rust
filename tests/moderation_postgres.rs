@@ -15,7 +15,8 @@ use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use histae_api_rust::moderation::domain::{
     ModerationDecision, ModerationReviewInput, ModerationReviewResult, PhotoReviewChecks,
 };
-use histae_api_rust::moderation::pg::{ModerationStore, PgModerationRepository};
+use histae_api_rust::moderation::pg::PgModerationRepository;
+use histae_api_rust::moderation::store::ModerationStore;
 use histae_api_rust::outbox::pg::PgOutboxRepository;
 use uuid::Uuid;
 

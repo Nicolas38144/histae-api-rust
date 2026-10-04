@@ -1,0 +1,330 @@
+# Historique de la migration NestJS → Rust
+
+Ce document conserve les comptes rendus successifs. Les mentions « à venir » décrivent l’état au moment de chaque lot. Pour l’organisation et les commandes actuelles, consulter le [README](../../README.md) et l’[architecture](../architecture.md).
+
+Migration incrémentale de l’API NestJS Histae. Le backend Nest reste la référence exécutable jusqu’à la campagne de parité et la bascule de développement. Cette dépendance est strictement transitoire : `histae-api-rust` possède sa configuration, son schéma et son migrateur PostgreSQL, son codec photo, ses services locaux, son image applicative et ses manifests d’exploitation.
+
+## Configuration locale
+
+Le fichier `.env` local est chargé automatiquement par l’application et par les tests d’infrastructure, reste ignoré par Git et ne doit contenir que des secrets de développement. Les variables définies explicitement dans le terminal gardent la priorité.
+
+Depuis Windows, les adresses et ports de `.env` ciblent les ports hôte des services locaux. Aucune commande Rust ne doit charger le fichier `.env` du dépôt NestJS. Lorsqu’un prochain lot ajoute une variable, `.env`, la configuration typée et la documentation du lot doivent être mises à jour ensemble.
+
+## S01 — comparaison de contrat HTTP
+
+Le binaire `contract-compare` exécute séquentiellement le même corpus contre une API de référence et une API candidate. Il vérifie chaque cible contre le contrat explicite, puis compare les réponses. Les corps reçus ne sont jamais inclus dans le rapport d’écart.
+
+Les deux URLs et les deux namespaces d’état doivent être distincts. Un scénario `isolated_mutation` est refusé sans `--allow-isolated-mutations`. Ce drapeau certifie seulement l’intention : la préparation effective de schémas PostgreSQL, namespaces Redis et préfixes S3 distincts reste à la charge du lanceur d’intégration de chaque lot.
+
+```powershell
+cargo run --bin contract-compare -- `
+  --corpus tests/contract/corpus/smoke.json `
+  --reference-url http://127.0.0.1:8080/ `
+  --reference-state nest-contract-a `
+  --candidate-url http://127.0.0.1:8081/ `
+  --candidate-state rust-contract-b
+```
+
+Le code de sortie vaut `0` pour une parité complète, `1` pour des différences de contrat et `2` pour une configuration, un corpus ou un transport inexploitable. Le rapport JSON identifie scénario, cible et champ sans recopier de payload potentiellement sensible.
+
+Les scénarios sont exécutés dans l’ordre du corpus. Une mutation peut donc être suivie de lectures qui vérifient ses effets HTTP observables sur chaque état isolé. Chaque cible possède son propre client et son propre jar de cookies afin de couvrir les parcours authentifiés sans fuite de session. Dans un corps `exact_json`, `dynamic_fields` catalogue par pointeur JSON les seules valeurs non déterministes tolérées (`any`, `uuid_v4`, `non_empty_string` ou `integer`) ; toutes les autres valeurs, l’ordre des tableaux, `null` et l’absence restent comparés exactement.
+
+Le corpus initial fixe deux comportements communs observés dans NestJS : `GET /health/live` et l’enveloppe JSON d’une route inconnue. Il grandira avec chaque module migré. Les flux multipart, SSE et fournisseurs signés auront des adaptateurs spécialisés dans leurs lots ; ils ne sont pas normalisés silencieusement par ce harnais JSON.
+
+## S04 — socle d’exécution
+
+Le crate expose désormais quatre binaires Tokio distincts : `api`, `outbox`, `maintenance` et `admin-bootstrap`. Ils partagent une configuration typée et stricte, un superviseur de tâches avec annulation explicite et drain borné, ainsi qu’un formateur de logs à champs autorisés. Les secrets utilisent un type dont `Debug` est expurgé et les erreurs de configuration ne recopient jamais leur valeur.
+
+Au stade S04, aucun serveur HTTP, worker ou accès PostgreSQL n’était encore disponible. Les binaires refusaient donc leur lancement normal avec le code sûr `component_not_implemented`. Depuis S29, l’API et les workers sont actifs ; le mode suivant reste disponible pour valider uniquement la configuration :
+
+```powershell
+cargo run --bin api -- --check-config
+```
+
+Les variables et contraintes conservées depuis NestJS sont décrites dans [s04-runtime.md](s04-runtime.md). Les routes HTTP commencent avec S07, après le socle PostgreSQL S05 et les verrous S06.
+
+## S05 — PostgreSQL et historique des migrations
+
+Le socle PostgreSQL utilise SQLx avec un pool borné, les timeouts existants, TLS avec vérification complète et les codecs explicites nécessaires au schéma Histae. À la connexion, Rust exige l’historique exact `001_baseline_20260905`, `017_postgres_discovery` puis `018_postgres_admin_webauthn_state`, leurs checksums actuels et les objets terminaux indispensables.
+
+Depuis S27, le migrateur Rust fait évoluer une base existante :
+
+```powershell
+cargo run --bin db-migrate
+```
+
+Depuis S14, le dépôt Rust contient aussi les assets PostgreSQL figés et `compose.dev.yaml` initialise une base locale neuve avec l’historique exact. Il ne modifie pas une base existante et ne répare aucun checksum. Le test réel est isolé derrière la feature explicite `postgres-integration` et refuse toute cible autre que `histae-dev` sur loopback :
+
+```powershell
+cargo test --locked --features postgres-integration --test postgres_compatibility
+```
+
+Les garanties et limites de ce lot sont détaillées dans [s05-postgres.md](s05-postgres.md).
+
+## S06 — verrous PostgreSQL de session
+
+Le pool d’activité séparé conserve les clés advisory existantes, l’ordre canonique des UUID et les règles d’éligibilité des comptes. Une lease vérifiable empêche un effet externe après la perte de la session qui portait le verrou. Une annulation détruit toute connexion dont le déverrouillage n’est pas prouvé.
+
+Le leader de maintenance des matchs conserve de la même façon sa connexion et le verrou `37142581` entre les commits de lots. Cette infrastructure exige un pooling PostgreSQL de session. Les choix, garanties et tests de concurrence sont détaillés dans [s06-postgres-locks.md](s06-postgres-locks.md).
+
+## S07 — Redis et cycle HTTP axum
+
+Le socle HTTP expose maintenant le routeur de santé, l’enveloppe d’erreur stable, les extracteurs JSON/query/path, les en-têtes défensifs, CORS, la résolution d’IP derrière proxies et le quota global. Les méthodes non déclarées conservent le `404` Fastify historique et les prévols CORS restent extérieurs au lifecycle.
+
+Redis fournit les fenêtres fixes Lua et le Pub/Sub avec connexions et commandes bornées. Les identités de quota sont HMACées avant stockage et toute panne du store configuré échoue fermement. Les décisions de parité et les commandes de test figurent dans [s07-http-redis.md](s07-http-redis.md).
+
+## S08 — identité mobile et familles de refresh
+
+Les primitives mobiles couvrent maintenant AES-256-GCM/HMAC pour les téléphones, JWT HS256 avec rotation locale par `kid`, refresh opaques, familles PostgreSQL, détection de rejeu, révocation des appareils et pagination des sessions. Les routes `me`, `refresh`, `logout`, `sessions`, révocation ciblée et `logout-all` sont disponibles sous forme de routeur axum composable.
+
+Les mutations conservent l’ordre de verrouillage du backend NestJS. Un faux secret ne révoque rien ; le rejeu d’un ancêtre authentique révoque sa famille et committe avant que le service ne retourne l’erreur publique. Les choix, le mapping NestJS → Rust et les validations figurent dans [s08-mobile-identity.md](s08-mobile-identity.md).
+
+## S09 — OTP et livraison Sweego
+
+Les routes publiques d’envoi et de vérification OTP, ainsi que le webhook Sweego signé, sont disponibles sous forme de routeurs axum composables. PostgreSQL sérialise chaque téléphone pseudonymisé, conserve l’idempotence des demandes et empêche un callback tardif de réactiver un ancien code. La vérification peut créer le compte puis délègue l’émission de la famille mobile au socle S08.
+
+Le client Sweego effectue un seul POST borné, sans retry automatique. Les issues réseau incertaines restent récupérables par callback signé sur les octets bruts. Les contrats, états et commandes de validation figurent dans [s09-otp-sweego.md](s09-otp-sweego.md).
+
+## S10 — authentification administrateur WebAuthn
+
+Les quinze routes d’authentification administrateur sont disponibles sous forme de routeur Axum composable. Elles utilisent exclusivement une session opaque en cookie, contrôlent l’Origin sur les mutations et distinguent l’identité admin récente de l’identité mobile JWT. Passkeys, sessions, compteurs, challenges à usage unique et audits restent transactionnels dans PostgreSQL.
+
+La migration additive `018_postgres_admin_webauthn_state` conserve l’état de cérémonie requis par `webauthn-rs-core` tout en restant compatible avec NestJS. Le moteur et le binaire `admin-bootstrap` sont compilés avec la feature `webauthn-probe`; les invariants, commandes et prérequis OpenSSL sont détaillés dans [s10-admin-auth.md](s10-admin-auth.md).
+
+## S11 — moteur d’outbox et suivi de maintenance
+
+Le repository SQLx conserve l’insertion transactionnelle, les claims `SKIP LOCKED`, l’ownership, les reprises de
+lease, le retry exponentiel, les dead letters et la purge bornée. Le worker Tokio traite des lots de 50 avec au plus
+cinq handlers simultanés, renouvelle chaque claim avant l’effet et s’arrête via un `CancellationToken`.
+
+Le suivi de maintenance persiste une progression bornée sans faire échouer le travail métier si l’écriture de statut
+est indisponible. Le binaire `outbox` reste désactivé tant que les cinq handlers métier ne sont pas tous migrés. Les
+invariants, tests et limites d’activation figurent dans [s11-outbox.md](s11-outbox.md).
+
+## S12 — consentements, profil, préférences et présence
+
+Les sept routes du compte concernées sont disponibles sous forme de routeur Axum composable. Les consentements
+d’onboarding restent accessibles avant acceptation des textes courants ; les autres routes utilisent l’extracteur
+mobile exigeant un onboarding complet. Les DTO refusent les champs inconnus et conservent la distinction entre
+erreur de payload et règle métier.
+
+Chaque écriture verrouille d’abord le compte puis relit les versions de consentement dans la même transaction SQLx.
+Retirer le consentement sensible efface immédiatement le sexe et les préférences ; retirer la localisation efface la
+présence. La bio réutilise exactement les règles locales `text_rules_v1`. L’interface d’URL photo est prête, mais son
+implémentation S3 reste dans S15. Les contrats, requêtes et preuves de concurrence figurent dans
+[s12-profiles.md](s12-profiles.md).
+
+## S13 — catalogues, traits et réponses de profil
+
+Les quinze routes des plans, traits, questions et réponses de profil sont disponibles sous forme de routeur Axum
+composable. Le catalogue de plans reste public ; les lectures et attributions mobiles exigent l’onboarding complet ;
+les mutations de catalogue utilisent la session WebAuthn admin et son contrôle d’Origin lorsque la feature
+`webauthn-probe` est active.
+
+Les réponses sont normalisées en NFKC, limitées à trois questions distinctes et remplacées dans une transaction
+unique avec leur décision de modération. Les ordres SQL, la casse du champ mobile `traitId`, le comptage
+`answer_count`, les statuts HTTP et les cascades de suppression restent compatibles avec NestJS. Les contrats,
+requêtes, limites Unicode et validations figurent dans [s13-catalog.md](s13-catalog.md).
+
+## S14 — appareils mobiles et notifications transactionnelles
+
+Les trois routes d’appareils mobiles sont disponibles sous forme de routeur Axum composable et
+restent accessibles avec une session active avant la fin de l’onboarding. Les DTO reproduisent le
+comptage Unicode de validator.js avant le trim ECMAScript ; le token fournisseur reste privé.
+
+La création d’une notification, de ses références par appareil et de ses jobs `notification.push`
+utilise la transaction métier de l’appelant. La clé de déduplication, les payloads autorisés, le
+filtrage des familles et les prédicats de facturation sont compatibles avec NestJS. Une pile
+PostgreSQL locale autonome accompagne désormais les tests réels. Les routes, requêtes et preuves
+de concurrence figurent dans [s14-notifications.md](s14-notifications.md).
+
+## S15 — photos privées et stockage objet
+
+Les routes `PUT` et `DELETE /api/users/me/photo` sont disponibles sous forme de routeur Axum composable. Le
+multipart impose un seul fichier `photo`, 500 000 octets, une clé d’idempotence UUID v4 et la limite dédiée de dix
+tentatives par heure. Le protocole PostgreSQL conserve les états `processing`, `ready` et `deleting`; un échec S3
+reste donc réconciliable et les suppressions passent par l’outbox `photo.delete`.
+
+Le client S3 compatible utilise les six variables `OBJECT_STORAGE_*`, des signatures AWS v4 et des URL de 300
+secondes. Le codec Node isolé appartient désormais au dépôt Rust avec Sharp et `heic-decode` épinglés. Le Compose
+de développement fournit SeaweedFS mini et un volume distinct. Les contrats, transactions, tests réels et limites
+d’exploitation figurent dans [s15-media.md](s15-media.md).
+
+## S16 — modération et administration photo
+
+Les routes de file de modération et de réconciliation photo sont disponibles sous forme de routeurs Axum
+composables. Les listes restent minimales et ne contiennent ni texte privé, ni clé objet, ni URL. Le détail motivé
+écrit son audit avant toute signature S3 ; les décisions utilisent la version optimiste et une revue photo exige les
+trois contrôles explicites.
+
+L’upload S15 appelle maintenant l’analyseur local borné avant l’activation transactionnelle. Une réponse sûre peut
+approuver automatiquement ; tout signal, timeout ou résultat invalide reste `pending`, sans rejet automatique. Le
+service Python/ONNX autonome et son image non-root sont dans `services/photo-moderation`, et
+`compose.dev.yaml` le publie uniquement sur `127.0.0.1:8090`. Les routes, transactions, écarts connus et validations
+figurent dans [s16-moderation.md](s16-moderation.md).
+
+## S17 — matchs, reveal, continuation et quotas
+
+Les routes mobiles de liste, reveal, continuation et lecture du quota sont disponibles sous forme de routeur Axum
+composable. Les projections conservent le masquage des photos avant consentement mutuel et filtrent photos, bios et
+réponses libres selon leur modération. Les URL S3 courtes ne sont signées qu’après la sélection PostgreSQL.
+
+La création de match écrit ses deux états et ses notifications dans une seule transaction. Reveal, expiration et
+continuation verrouillent le match avant de lire l’horloge ; le quota hebdomadaire UTC est consommé atomiquement au
+second consentement et une limite de zéro ne crée aucune consommation. Le mapping, les erreurs publiques, les
+requêtes et les preuves de concurrence figurent dans [s17-matches.md](s17-matches.md).
+
+## S18 — messagerie, lecture et pagination
+
+Les routes mobiles de lecture, d’envoi idempotent et d’accusé de lecture sont disponibles dans le routeur Axum des
+matchs. Le contenu est normalisé comme dans NestJS, limité à 2 000 caractères et protégé par le quota distribué de
+60 envois par minute. Les curseurs conservent la précision PostgreSQL à la microseconde.
+
+L’insertion du message, `last_message_at` et la notification `new_message` sans texte privé partagent une transaction.
+Les replays concurrents renvoient le même message sans dupliquer la notification. La lecture groupée ne marque que
+les messages reçus jusqu’à la borne incluse. Les contrats, erreurs et preuves PostgreSQL figurent dans
+[s18-messaging.md](s18-messaging.md).
+
+## S19 — découverte, feed et swipes
+
+Les trois routes mobiles de statut, feed et swipe sont disponibles sous forme de routeur Axum composable. Le feed
+reprend les filtres réciproques de sexe, âge et distance, les consentements courants, la fraîcheur de présence, les
+blocages et la modération des contenus libres. Son curseur conserve la distance exacte malgré l’arrondi public.
+
+Les décisions PostgreSQL restent immuables pendant 365 jours et sont écrites sous verrou d’activité partagé des deux
+comptes. Les likes simultanés ne créent qu’un match grâce à la contrainte de paire de S17 ; un replay identique peut
+reprendre la fenêtre entre le commit du swipe et la création du match. Les contrats, requêtes et validations réelles
+figurent dans [s19-discovery.md](s19-discovery.md).
+
+## S20 — parcours client Stripe
+
+Les trois routes mobiles d’abonnement, Checkout et portail sont disponibles sous forme de routeur Axum composable.
+Les prix, essais, URLs et identifiants Stripe restent exclusivement côté serveur ; le DTO Checkout refuse tout champ
+supplémentaire et exige une clé d’idempotence UUID v4.
+
+La création Customer persiste son intention et son watchdog de réconciliation avant le POST Stripe. La même clé
+peut reprendre l’intention pendant moins de 23 heures ; passé cette fenêtre, aucun nouveau POST n’est autorisé.
+Checkout conserve le verrou d’activité du compte jusqu’aux effets externes et compense les objets qui ne peuvent pas
+être persistés sûrement. Le mapping, les formulaires Stripe et les preuves PostgreSQL figurent dans
+[s20-billing.md](s20-billing.md).
+
+## S21 — webhooks et réconciliation Stripe
+
+Le webhook public Stripe vérifie la signature HMAC sur les octets bruts, la fenêtre temporelle et la concordance
+test/live avant toute écriture. Les événements pris en charge sont dédupliqués en PostgreSQL ; projection
+d’abonnement, facture, état Checkout et notification mobile partagent ensuite une même transaction. Les timestamps
+fournisseur et `provider_snapshot_at` empêchent un événement ou un snapshot ancien d’écraser un état récent.
+
+Les deux effets `billing.subscription.reconcile` et `billing.customer.reconcile` sont maintenant des handlers du
+moteur d’outbox S11. Les lectures Stripe ont lieu hors transaction sous verrou d’activité de compte, puis
+l’application compare la version de projection avant d’écrire. La recherche d’un Customer incertain devient une
+dead letter en cas d’ambiguïté et ne relance jamais le POST après 23 heures. La route admin liste uniquement les
+métadonnées opérationnelles des dead letters. Le détail du mapping, des requêtes et des tests figure dans
+[s21-stripe-webhooks.md](s21-stripe-webhooks.md).
+
+## S22 — SSE et push FCM
+
+La route authentifiée `GET /api/users/me/events` fournit le flux SSE compatible : événement `connected`, heartbeat
+de 25 secondes, événements ciblés, fermeture à la révocation de famille ou à l’expiration du JWT. Le relais Redis
+permet la diffusion entre instances ; les buffers locaux sont bornés et un consommateur lent est déconnecté afin de
+préserver la mémoire. Le flux reste best-effort et sans replay.
+
+Le handler `notification.push` relit toute l’éligibilité PostgreSQL avant le réseau, construit une allowlist sans
+texte privé et envoie via FCM avec OAuth Google RS256 mis en cache. Seul `UNREGISTERED` supprime le token ; les
+autres erreurs sont normalisées pour les reprises de l’outbox. Le service Redis éphémère de développement est
+maintenant inclus dans `compose.dev.yaml`. Les contrats et preuves sont détaillés dans
+[s22-sse-push.md](s22-sse-push.md).
+
+## S23 — Blocages, signalements et vues administratives
+
+Les blocages utilisateur sont atomiques avec la clôture des matchs et déclenchent ensuite une invalidation SSE
+best-effort. Les signalements conservent la validation, le rate limiting, l’unicité `pending`, les projections
+optionnelles et les transitions auditées de NestJS.
+
+Les vues administratives des comptes, matchs et conversations exigent une session WebAuthn et un motif pour chaque
+lecture sensible. Les listes ne signent aucune photo ; le détail d’un compte n’en signe une qu’après l’audit. Les
+règles de hiérarchie et la révocation transactionnelle des sessions mobiles lors d’un bannissement sont conservées.
+Le détail des contrats, du SQL et des tests figure dans
+[s23-blocks-reports-administration.md](s23-blocks-reports-administration.md).
+
+## S24 — DSR et export utilisateur
+
+Les demandes RGPD mobiles et administratives conservent leurs types, transitions, audits et permissions. La
+programmation d’un effacement reste atomique et idempotente : la DSR demeure `in_progress`, le compte est désactivé
+et l’événement `account.erase` est écrit dans l’outbox de la même transaction.
+
+L’export portable utilise un unique instantané PostgreSQL `REPEATABLE READ`, écrit chaque collection par pages dans
+un fichier temporaire privé et ne contient que les décisions de découverte sortantes. Sa taille et sa concurrence
+sont bornées ; le fichier est supprimé et la place libérée à la fermeture du flux. Les contrats et preuves sont
+détaillés dans [s24-dsr-data-export.md](s24-dsr-data-export.md).
+
+## S25 — effacement de compte reprenable
+
+Les routes mobiles émettent désormais un jeton dédié à usage unique et acceptent l’effacement par une réponse
+`202`. La consommation du jeton, la DSR, le checkpoint, l’événement `account.erase`, la désactivation du compte et
+l’invalidation des sessions restent atomiques dans PostgreSQL.
+
+Le handler reprend les étapes Stripe, photos, swipes et anonymisation locale sous verrou d’activité exclusif. Les
+effets externes restent hors transaction, les lots sont bornés et chaque checkpoint vérifie l’ownership du worker.
+La DSR n’est terminée qu’après disparition confirmée des photos et swipes puis anonymisation locale. Les contrats,
+requêtes et tests de reprise sont détaillés dans
+[s25-account-erasure.md](s25-account-erasure.md).
+
+## S26 — maintenances métier et administration de l’outbox
+
+Les cinq types d’événement possèdent désormais leur handler réel dans le worker lançable. Les maintenances de
+matchs, privacy, photos et facturation s’exécutent en lots bornés avec suivi persistant de la progression. Le leader
+des matchs reste détenu entre les lots, tandis que chaque lot commit séparément et nettoie messages et références
+de signalement avant le parent.
+
+Les routes admin des dead letters conservent la liste minimale, l’authentification récente, le motif normalisé et
+l’audit transactionnel. L’abandon de l’effacement de compte, des réconciliations Stripe ou d’une photo encore
+présente est refusé. Les contrats, rétentions, commandes et preuves PostgreSQL sont détaillés dans
+[s26-maintenance-outbox-admin.md](s26-maintenance-outbox-admin.md).
+
+## S27 — métriques privées, CLI et image
+
+Le contrat Prometheus conserve les noms, labels et buckets HTTP, dépendances, outbox, OTP et maintenance. Le
+listener séparé reste désactivé par défaut, n’accepte que `GET /metrics` avec son bearer token et normalise toute
+panne de rendu en `503`. Les métriques V8/Node ont été retirées au profit de
+`histae_runtime_info{runtime="rust"}` et de la RSS Linux réelle.
+
+Les binaires `db-migrate` et `storage-init` remplacent les scripts TypeScript correspondants. L’image multi-stage
+commune embarque les binaires Rust et le seul runtime Node encore requis par le codec photo, puis s’exécute avec
+l’UID 1000 sur un rootfs en lecture seule. Les manifests de développement, production et supervision appartiennent
+maintenant au dépôt Rust. Le contrat, les décisions et les commandes sont détaillés dans
+[s27-operations.md](s27-operations.md).
+
+## S28 — campagne de parité
+
+Le contrat HTTP NestJS est désormais conservé dans le dépôt Rust et comparé automatiquement aux enregistrements
+Axum : les 100 couples méthode/chemin sont présents, sans route supplémentaire. Cette vérification a rétabli les
+routes administratives de métriques et de revenu, avec leurs agrégats PostgreSQL et leur snapshot opérationnel.
+
+La campagne complète compile toutes les features et exerce les contrats ainsi que PostgreSQL, Redis, S3 et le codec
+photo réels. La matrice de preuve, les divergences runtime expliquées et les validations externes à exécuter sur le
+binaire assemblé en S29 figurent dans [s28-parity.md](s28-parity.md).
+
+## S29 — bascule de développement et retour arrière
+
+Le binaire `api` assemble maintenant les 100 routes et leurs adaptateurs PostgreSQL, Redis, S3, fournisseurs et
+observabilité. Il vérifie ses dépendances avant d’écouter, démarre le listener Prometheus privé lorsqu’il est activé
+et draine HTTP pendant au plus trente secondes. Les workers restent des processus séparés afin d’empêcher les doubles
+consommateurs pendant une bascule.
+
+Le dépôt fournit un smoke HTTP local et une restauration de sauvegarde dans une base temporaire :
+
+```powershell
+cargo run --locked --features webauthn-probe --bin api
+./scripts/smoke-api.ps1
+./scripts/verify-dev-backup-restore.ps1
+```
+
+L’ordre de bascule, le retour vers NestJS avec les mêmes données et les validations externes encore requises avant
+suppression du backend TypeScript sont décrits dans [s29-cutover.md](s29-cutover.md).
+
+## S03 — prototype du codec photo
+
+Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.
+
+Cette décision préserve exactement le pipeline Sharp/libvips pour JPEG, PNG, WebP, HEIC et HEIF, notamment l’orientation EXIF, le refus des animations, les limites de pixels et les six tentatives d’encodage WebP. Elle est détaillée dans [s03-photo-codec.md](s03-photo-codec.md).

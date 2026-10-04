@@ -12,9 +12,8 @@ use histae_api_rust::matches::domain::{
     ContinuationResult, MatchCommandResult, MatchRecord, MatchStatus, MessageCreationResult,
     PageCursor,
 };
-use histae_api_rust::matches::pg::{
-    MatchMessageStore, MatchStore, PgMatchMessageRepository, PgMatchRepository,
-};
+use histae_api_rust::matches::pg::{PgMatchMessageRepository, PgMatchRepository};
+use histae_api_rust::matches::store::{MatchMessageStore, MatchStore};
 use sqlx::{Acquire as _, Row as _};
 use uuid::Uuid;
 

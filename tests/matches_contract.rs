@@ -14,8 +14,8 @@ use histae_api_rust::identity::mobile::domain::{
     SessionCursor,
 };
 use histae_api_rust::identity::mobile::http::MobileAuthState;
-use histae_api_rust::identity::mobile::pg::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::service::MobileAuthService;
+use histae_api_rust::identity::mobile::store::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::tokens::{NewRefreshToken, TokenService};
 use histae_api_rust::infra::postgres::DatabaseError;
 use histae_api_rust::matches::domain::{
@@ -24,10 +24,10 @@ use histae_api_rust::matches::domain::{
     PageCursor, UserMatchRow,
 };
 use histae_api_rust::matches::http::{MatchHttpState, routes};
-use histae_api_rust::matches::pg::{
+use histae_api_rust::matches::service::{MatchService, NoopMatchEventPublisher};
+use histae_api_rust::matches::store::{
     MatchMessageStore, MatchStore, MatchStoreError, MatchStoreFuture,
 };
-use histae_api_rust::matches::service::{MatchService, NoopMatchEventPublisher};
 use histae_api_rust::profiles::domain::Sex;
 use histae_api_rust::profiles::service::{ProfilePhotoUrlFuture, ProfilePhotoUrlProvider};
 use histae_api_rust::shared::clock::Clock;

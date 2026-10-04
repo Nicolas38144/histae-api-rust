@@ -12,7 +12,7 @@ use crate::http::error::ApiError;
 use crate::http::rate_limit::RateLimiter;
 use crate::http::router::HttpState;
 use crate::identity::mobile::http::{MobileAuthState, OnboardedMobile};
-use crate::photo_codec_probe::MAX_PHOTO_UPLOAD_BYTES;
+use crate::media::codec::MAX_PHOTO_UPLOAD_BYTES;
 
 #[derive(Clone)]
 pub struct PhotoHttpState {

@@ -1,14 +1,9 @@
 pub mod domain;
 pub mod erasure;
-pub mod erasure_http;
-pub mod erasure_pg;
 pub mod export;
-pub mod export_http;
-pub mod export_pg;
 pub mod http;
 pub mod maintenance;
 pub mod pg;
 pub mod rights;
-pub mod rights_http;
-pub mod rights_pg;
 pub mod service;
+pub mod store;

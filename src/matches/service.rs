@@ -12,7 +12,7 @@ use super::domain::{
     MatchCommandResult, MatchRecord, MatchStatus, MessageCreationResult, MessageRead, PageCursor,
     PublicMatch, PublicMessage, PublicUserMatch, start_of_utc_week,
 };
-use super::pg::{MatchMessageStore, MatchStore, MatchStoreError};
+use super::store::{MatchMessageStore, MatchStore, MatchStoreError};
 use crate::infra::postgres::DatabaseError;
 use crate::profiles::service::ProfilePhotoUrlProvider;
 use crate::shared::clock::Clock;

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use uuid::{Uuid, Variant};
 
 use super::domain::{PageCursor, PublicReport, ReportReason, ReportRecord, ReportStatus};
-use super::pg::ReportStore;
+use super::store::ReportStore;
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::{ConstraintKind, DatabaseError};
 use crate::shared::text::javascript_trim;
@@ -213,7 +213,7 @@ mod tests {
 
     use super::*;
     use crate::reports::domain::CursorReportRow;
-    use crate::reports::pg::ReportStoreFuture;
+    use crate::reports::store::ReportStoreFuture;
 
     struct FakeStore {
         account_exists: bool,

@@ -28,8 +28,8 @@ use histae_api_rust::identity::mobile::otp::{
     BeginOtpDelivery, OtpDeliverySnapshot, OtpDeliveryStart, OtpDeliveryState, OtpDeliveryStates,
     OtpService, OtpStore, OtpStoreFuture, SmsDeliveryEvent, SmsEventOutcome,
 };
-use histae_api_rust::identity::mobile::pg::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::service::MobileAuthService;
+use histae_api_rust::identity::mobile::store::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::sweego::{
     SmsDelivery, SmsDeliveryError, SmsDeliveryFuture, SmsDeliveryReceipt, SmsFailureReason,
     SmsMessage, SweegoWebhookMetrics, SweegoWebhookService,

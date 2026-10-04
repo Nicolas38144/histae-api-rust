@@ -10,7 +10,7 @@ use uuid::{Uuid, Variant};
 use super::domain::{
     DiscoveryCursor, DiscoveryRequiredAction, DiscoveryStatus, FeedCandidate, SwipeDecision,
 };
-use super::pg::{DiscoveryRepository, DiscoveryStoreError, SwipeStore};
+use super::store::{DiscoveryRepository, DiscoveryStoreError, SwipeStore};
 use crate::config::LegalConfig;
 use crate::identity::mobile::domain::wire_timestamp;
 use crate::infra::postgres::DatabaseError;
