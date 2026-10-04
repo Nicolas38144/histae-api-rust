@@ -1,0 +1,124 @@
+# Supervision privée, projet indépendant ; 1,5 Gio de plafonds mémoire cumulés.
+# Ajouter compose.observability-container.yaml quand l'API tourne dans Docker.
+name: histae-observability
+
+services:
+  # Séries temporelles persistantes ; limiter aussi la rétention sur disque.
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+    ports:
+      - "127.0.0.1:9090:9090"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./observability/prometheus/alerts.test.yml:/etc/prometheus/alerts.test.yml:ro
+      - histae-prometheus-data:/prometheus
+    secrets:
+      - source: histae-metrics-token
+        target: histae_metrics_token
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1.0
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:9090/-/healthy]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    depends_on:
+      alertmanager:
+        condition: service_healthy
+
+  # Groupe les alertes ; le canal de notification est configuré par l'exploitation.
+  alertmanager:
+    image: prom/alertmanager:v0.32.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - histae-alertmanager-data:/alertmanager
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:9093/-/healthy]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # Dashboard privé, authentification obligatoire et mot de passe monté comme secret.
+  grafana:
+    image: grafana/grafana:13.2.1
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: histae-admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/histae_grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
+      GF_SERVER_HTTP_PORT: "3000"
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - histae-grafana-data:/var/lib/grafana
+    secrets:
+      - source: histae-grafana-password
+        target: histae_grafana_admin_password
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+      - /var/log/grafana:size=16m,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:3000/api/health]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+      start_period: 20s
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
+volumes:
+  histae-prometheus-data:
+  histae-alertmanager-data:
+  histae-grafana-data:
+
+secrets:
+  histae-metrics-token:
+    file: ./.secrets/histae_metrics_token
+  histae-grafana-password:
+    file: ./.secrets/histae_grafana_admin_password

@@ -1,6 +1,6 @@
 # Histae API Rust
 
-Migration incrémentale de l’API NestJS Histae. Le backend Nest reste la référence exécutable jusqu’à la campagne de parité et la bascule de développement. Cette dépendance est strictement transitoire : `histae-api-rust` possède désormais sa configuration, son schéma PostgreSQL, son codec photo et ses services PostgreSQL/stockage objet locaux. Les scripts d’exploitation et l’image finale restent à migrer avant la suppression du dépôt NestJS.
+Migration incrémentale de l’API NestJS Histae. Le backend Nest reste la référence exécutable jusqu’à la campagne de parité et la bascule de développement. Cette dépendance est strictement transitoire : `histae-api-rust` possède sa configuration, son schéma et son migrateur PostgreSQL, son codec photo, ses services locaux, son image applicative et ses manifests d’exploitation.
 
 ## Configuration locale
 
@@ -45,13 +45,13 @@ Les variables et contraintes conservées depuis NestJS sont décrites dans [docs
 
 Le socle PostgreSQL utilise SQLx avec un pool borné, les timeouts existants, TLS avec vérification complète et les codecs explicites nécessaires au schéma Histae. À la connexion, Rust exige l’historique exact `001_baseline_20260905`, `017_postgres_discovery` puis `018_postgres_admin_webauthn_state`, leurs checksums actuels et les objets terminaux indispensables.
 
-Le migrateur TypeScript reste provisoirement l’outil qui fait évoluer une base existante pendant les lots de parité :
+Depuis S27, le migrateur Rust fait évoluer une base existante :
 
 ```powershell
-pnpm run db:migrate
+cargo run --bin db-migrate
 ```
 
-Depuis S14, le dépôt Rust contient aussi les assets PostgreSQL figés et `compose.dev.yaml` initialise une base locale neuve avec l’historique exact. Il ne modifie pas une base existante et ne répare aucun checksum. Un migrateur incrémental autonome reste nécessaire avant S29. Le test réel est isolé derrière la feature explicite `postgres-integration` et refuse toute cible autre que `histae-dev` sur loopback :
+Depuis S14, le dépôt Rust contient aussi les assets PostgreSQL figés et `compose.dev.yaml` initialise une base locale neuve avec l’historique exact. Il ne modifie pas une base existante et ne répare aucun checksum. Le test réel est isolé derrière la feature explicite `postgres-integration` et refuse toute cible autre que `histae-dev` sur loopback :
 
 ```powershell
 cargo test --locked --features postgres-integration --test postgres_compatibility
@@ -279,6 +279,19 @@ Les routes admin des dead letters conservent la liste minimale, l’authentifica
 l’audit transactionnel. L’abandon de l’effacement de compte, des réconciliations Stripe ou d’une photo encore
 présente est refusé. Les contrats, rétentions, commandes et preuves PostgreSQL sont détaillés dans
 [docs/s26-maintenance-outbox-admin.md](docs/s26-maintenance-outbox-admin.md).
+
+## S27 — métriques privées, CLI et image
+
+Le contrat Prometheus conserve les noms, labels et buckets HTTP, dépendances, outbox, OTP et maintenance. Le
+listener séparé reste désactivé par défaut, n’accepte que `GET /metrics` avec son bearer token et normalise toute
+panne de rendu en `503`. Les métriques V8/Node ont été retirées au profit de
+`histae_runtime_info{runtime="rust"}` et de la RSS Linux réelle.
+
+Les binaires `db-migrate` et `storage-init` remplacent les scripts TypeScript correspondants. L’image multi-stage
+commune embarque les binaires Rust et le seul runtime Node encore requis par le codec photo, puis s’exécute avec
+l’UID 1000 sur un rootfs en lecture seule. Les manifests de développement, production et supervision appartiennent
+maintenant au dépôt Rust. Le contrat, les décisions et les commandes sont détaillés dans
+[docs/s27-operations.md](docs/s27-operations.md).
 
 ## S03 — prototype du codec photo
 

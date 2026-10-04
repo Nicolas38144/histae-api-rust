@@ -1,0 +1,75 @@
+name: histae-api-rust
+
+x-runtime-service: &runtime-service
+  image: ${HISTAE_API_IMAGE:-histae-api-rust:local}
+  build:
+    context: .
+  env_file:
+    - ${HISTAE_ENV_FILE:-.env}
+  init: true
+  user: "1000:1000"
+  read_only: true
+  tmpfs:
+    - /tmp:size=128m,noexec,nosuid,nodev,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 30s
+  networks: [backend]
+  logging:
+    driver: json-file
+    options: { max-size: 10m, max-file: "5" }
+
+services:
+  migrate:
+    <<: *runtime-service
+    entrypoint: [/app/bin/db-migrate]
+    environment: { MAINTENANCE_MODE: disabled, METRICS_ENABLED: "false" }
+    restart: "no"
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 2.0
+
+  api:
+    <<: *runtime-service
+    entrypoint: [/app/bin/api]
+    environment: { PORT: "8080", MAINTENANCE_MODE: disabled, METRICS_HOST: 0.0.0.0 }
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    restart: unless-stopped
+    expose: ["8080", "9091"]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 2.0
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  outbox-worker:
+    <<: *runtime-service
+    entrypoint: [/app/bin/outbox]
+    environment: { MAINTENANCE_MODE: worker, METRICS_ENABLED: "false" }
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    restart: unless-stopped
+    pids_limit: 256
+    mem_limit: 768m
+    cpus: 1.5
+
+  maintenance:
+    <<: *runtime-service
+    profiles: [jobs]
+    entrypoint: [/app/bin/maintenance]
+    environment: { MAINTENANCE_MODE: worker, METRICS_ENABLED: "false" }
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    restart: "no"
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 2.0
+
+networks:
+  backend:
+    name: ${HISTAE_BACKEND_NETWORK:-histae-rust-backend}

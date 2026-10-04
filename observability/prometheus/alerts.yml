@@ -1,0 +1,149 @@
+groups:
+  - name: histae-api-availability
+    rules:
+      - alert: HistaeMetricsUnavailable
+        expr: up{job="histae-api"} == 0
+        for: 2m
+        labels: { severity: critical, component: api }
+        annotations:
+          summary: Histae metrics endpoint is unavailable
+          runbook_url: docs/observability.md#metrics-unavailable
+      - alert: HistaeMetricsCollectionFailed
+        expr: histae_metrics_collection_success == 0
+        for: 2m
+        labels: { severity: critical, component: api }
+        annotations:
+          summary: Histae cannot collect persistent operational state
+          runbook_url: docs/observability.md#collection-failed
+      - alert: HistaeHttpServerErrorRateHigh
+        expr: (sum(rate(histae_http_responses_total{status="5xx"}[10m])) / sum(rate(histae_http_requests_total[10m]))) > 0.02 and sum(increase(histae_http_requests_total[10m])) >= 20
+        for: 5m
+        labels: { severity: critical, component: http }
+        annotations:
+          summary: More than 2 percent of HTTP requests fail with 5xx
+          runbook_url: docs/observability.md#http-errors
+      - alert: HistaeHttpLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(histae_http_request_duration_seconds_bucket[10m]))) > 0.75 and sum(increase(histae_http_requests_total[10m])) >= 20
+        for: 5m
+        labels: { severity: warning, component: http }
+        annotations:
+          summary: Aggregate HTTP p95 latency exceeds 750 ms
+          runbook_url: docs/observability.md#http-latency
+      - alert: HistaeAuthenticationFailuresHigh
+        expr: sum(increase(histae_http_responses_total{status=~"401|403"}[10m])) > 50
+        for: 2m
+        labels: { severity: warning, component: authentication }
+        annotations:
+          summary: More than 50 authentication or authorization failures in 10 minutes
+          runbook_url: docs/observability.md#authentication-failures
+      - alert: HistaeRateLimitHigh
+        expr: sum(increase(histae_http_responses_total{status="429"}[10m])) > 20
+        for: 2m
+        labels: { severity: warning, component: ratelimit }
+        annotations:
+          summary: More than 20 rate-limited requests in 10 minutes
+          runbook_url: docs/observability.md#rate-limit
+
+  - name: histae-api-dependencies
+    rules:
+      - alert: HistaeDependencyDown
+        expr: histae_dependency_enabled == 1 and histae_dependency_calls_total > 0 and histae_dependency_up == 0
+        for: 5m
+        labels: { severity: critical, component: dependency }
+        annotations:
+          summary: The last observed operation against {{ $labels.dependency }} failed
+          runbook_url: docs/observability.md#dependency-down
+      - alert: HistaeDependencyErrorRateHigh
+        expr: (increase(histae_dependency_errors_total[10m]) / increase(histae_dependency_calls_total[10m])) > 0.2 and increase(histae_dependency_calls_total[10m]) >= 5
+        for: 5m
+        labels: { severity: warning, component: dependency }
+        annotations:
+          summary: Dependency {{ $labels.dependency }} error rate exceeds 20 percent
+          runbook_url: docs/observability.md#dependency-errors
+      - alert: HistaePostgresPoolWaiting
+        expr: histae_postgres_pool_connections{state="waiting"} > 0
+        for: 2m
+        labels: { severity: warning, component: postgres }
+        annotations:
+          summary: Requests are waiting for a PostgreSQL connection
+          runbook_url: docs/observability.md#postgres-pool
+      - alert: HistaePostgresPoolSaturated
+        expr: histae_postgres_pool_connections{state="total"} / scalar(histae_postgres_pool_max_connections) > 0.8
+        for: 5m
+        labels: { severity: warning, component: postgres }
+        annotations:
+          summary: PostgreSQL application pool exceeds 80 percent utilization
+          runbook_url: docs/observability.md#postgres-pool
+      - alert: HistaeSweegoDeliveryStuck
+        expr: histae_sweego_oldest_unresolved_age_seconds > histae_sweego_otp_ttl_seconds * 0.8
+        for: 2m
+        labels: { severity: warning, component: sweego }
+        annotations:
+          summary: An unresolved OTP delivery is nearing expiry
+          runbook_url: docs/observability.md#sweego
+
+  - name: histae-api-background-work
+    rules:
+      - alert: HistaeDeadLettersPresent
+        expr: histae_outbox_events{status="dead_letter"} > 0
+        for: 1m
+        labels: { severity: critical, component: outbox }
+        annotations:
+          summary: The Histae outbox contains dead letters
+          runbook_url: docs/observability.md#dead-letters
+      - alert: HistaeNotificationDeadLettersPresent
+        expr: histae_outbox_queue_events{queue="notification_push",status="dead_letter"} > 0
+        for: 5m
+        labels: { severity: warning, component: notifications }
+        annotations:
+          summary: Push notification delivery has dead letters
+          runbook_url: docs/observability.md#dead-letters
+      - alert: HistaeOutboxBacklogOld
+        expr: histae_outbox_oldest_pending_age_seconds > 1800
+        for: 5m
+        labels: { severity: critical, component: outbox }
+        annotations:
+          summary: The oldest pending outbox event is older than 30 minutes
+          runbook_url: docs/observability.md#outbox-delay
+      - alert: HistaeNotificationBacklogOld
+        expr: histae_outbox_queue_oldest_pending_age_seconds{queue="notification_push"} > 120
+        for: 5m
+        labels: { severity: warning, component: notifications }
+        annotations:
+          summary: The oldest pending push notification is older than 2 minutes
+          runbook_url: docs/observability.md#outbox-delay
+      - alert: HistaeBillingReconciliationLate
+        expr: histae_outbox_queue_oldest_pending_age_seconds{queue="billing_reconciliation"} > 900
+        for: 5m
+        labels: { severity: critical, component: billing }
+        annotations:
+          summary: Billing reconciliation has been pending for more than 15 minutes
+          runbook_url: docs/observability.md#billing-reconciliation
+      - alert: HistaeMaintenanceMissing
+        expr: histae_maintenance_missing == 1
+        for: 10m
+        labels: { severity: critical, component: maintenance }
+        annotations:
+          summary: Maintenance job {{ $labels.job }} has never reported a run
+          runbook_url: docs/observability.md#maintenance
+      - alert: HistaeMaintenanceOverdue
+        expr: histae_maintenance_overdue == 1
+        for: 5m
+        labels: { severity: critical, component: maintenance }
+        annotations:
+          summary: Maintenance job {{ $labels.job }} is overdue or stuck
+          runbook_url: docs/observability.md#maintenance
+      - alert: HistaeMaintenanceFailed
+        expr: histae_maintenance_last_run_status{status="failed"} == 1
+        for: 2m
+        labels: { severity: critical, component: maintenance }
+        annotations:
+          summary: Maintenance job {{ $labels.job }} failed
+          runbook_url: docs/observability.md#maintenance
+      - alert: HistaeMaintenanceWorkRemaining
+        expr: histae_maintenance_work_remaining == 1
+        for: 15m
+        labels: { severity: warning, component: maintenance }
+        annotations:
+          summary: Maintenance job {{ $labels.job }} repeatedly reaches its work budget
+          runbook_url: docs/observability.md#maintenance

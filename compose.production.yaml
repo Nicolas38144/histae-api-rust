@@ -1,0 +1,312 @@
+# À combiner uniquement avec compose.yaml. Image compilée, sans montage des sources.
+# Pile initiale sur un serveur de 16 Gio : PostgreSQL à 7 Gio, Redis, S3 et modération.
+# Certificat serveur et CA à préparer selon docs/container-deployment.md.
+name: histae-api-production
+
+x-production-database-environment: &production-database-environment
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_SSLMODE: verify-full
+  NODE_EXTRA_CA_CERTS: /run/secrets/postgres_ca
+  RATE_LIMIT_STORE: redis
+  REDIS_ADDR: redis:6379
+  REDIS_TLS: "true"
+  OBJECT_STORAGE_ENDPOINT: https://${HISTAE_STORAGE_HOST:?Define the public S3 hostname in HISTAE_STORAGE_HOST}
+  PHOTO_MODERATION_PROVIDER: local_http
+  PHOTO_MODERATION_ENDPOINT: http://photo-moderation:8080
+
+x-production-logging: &production-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+x-production-dependencies: &production-dependencies
+  migrate:
+    condition: service_completed_successfully
+  redis:
+    condition: service_healthy
+  storage-init:
+    condition: service_completed_successfully
+  photo-moderation:
+    condition: service_healthy
+
+services:
+  # Instance unique persistante, accessible uniquement sur le réseau backend.
+  postgres:
+    image: postgres:18.6-bookworm
+    command: [postgres, -c, config_file=/etc/postgresql/histae/postgresql.conf]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Define POSTGRES_DB in .env.production}
+      POSTGRES_USER: ${POSTGRES_USER:?Define POSTGRES_USER in .env.production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env.production}
+      POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      # Volume distinct du développement, même si le nom de projet est identique.
+      - histae-postgres-production-data:/var/lib/postgresql
+      - type: bind
+        source: ./docker/postgres
+        target: /etc/postgresql/histae
+        read_only: true
+        bind:
+          create_host_path: false
+      # La clé reste sur l'hôte, hors image ; permissions Unix strictes requises.
+      - type: bind
+        source: ./.secrets/postgres
+        target: /etc/postgresql/tls
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+    stop_grace_period: 1m
+    shm_size: 256m
+    pids_limit: 256
+    # Limite totale du conteneur ; buffers, requêtes et /dev/shm y sont inclus.
+    mem_limit: 7g
+    memswap_limit: 7g
+    cpus: 2.0
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    networks:
+      - backend
+
+  # Redis éphémère, TLS et authentification obligatoires, aucune écoute TCP en clair.
+  redis:
+    image: redis:7.4.2-alpine
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - exec /usr/local/bin/docker-entrypoint.sh redis-server /etc/redis/histae.conf --requirepass "$$REDIS_PASSWORD"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Define REDIS_PASSWORD in .env.production}
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?Define REDIS_PASSWORD in .env.production}
+    volumes:
+      - ./docker/redis/redis.conf:/etc/redis/histae.conf:ro
+      - type: bind
+        source: ./.secrets/redis
+        target: /etc/redis/tls
+        read_only: true
+        bind:
+          create_host_path: false
+    secrets: [postgres_ca]
+    healthcheck:
+      test: [CMD-SHELL, 'redis-cli --tls --cacert /run/secrets/postgres_ca -h redis ping | grep -qx PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    logging: *production-logging
+    networks: [backend]
+
+  # SeaweedFS server (master, volume, filer et S3), pas le mode mini de développement.
+  # Ses interfaces brutes restent sur un réseau dédié, inaccessible à l'API/proxy public.
+  object-storage:
+    image: chrislusf/seaweedfs:4.45
+    command:
+      - server
+      - -dir=/data
+      - -ip=object-storage
+      - -ip.bind=0.0.0.0
+      - -master.telemetry=false
+      - -master.volumeSizeLimitMB=1024
+      - -volume.max=0
+      - -volume.index=leveldb
+      - -filer
+      - -filer.exposeDirectoryData=false
+      - -s3
+      - -s3.config=/run/secrets/s3_identity
+      - -s3.iam=false
+      - -s3.port.iceberg=0
+      - -s3.port.lance=0
+      - -s3.allowDeleteBucketNotEmpty=false
+      - -s3.concurrentUploadLimitMB=32
+    volumes:
+      - histae-object-storage-production-data:/data
+      - ./docker/seaweedfs/filer.toml:/etc/seaweedfs/filer.toml:ro
+    secrets: [s3_identity]
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:8333/healthz]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+    stop_grace_period: 1m
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 256
+    logging: *production-logging
+    networks: [storage]
+
+  # Unique entrée S3 : HTTPS, Host conservé pour les signatures, aucun accès au filer.
+  storage-gateway:
+    image: nginx:1.30.4-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c
+    entrypoint: [nginx]
+    command: [-g, 'daemon off;']
+    user: "101:101"
+    read_only: true
+    tmpfs: [/tmp:size=32m,noexec,nosuid,nodev]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ./docker/storage-gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+      - type: bind
+        source: ./.secrets/storage-gateway
+        target: /etc/nginx/tls
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/health/live]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      object-storage:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    logging: *production-logging
+    networks:
+      backend:
+        aliases:
+          - ${HISTAE_STORAGE_HOST:?Define HISTAE_STORAGE_HOST}
+      storage:
+      edge:
+
+  # Initialise seulement le bucket privé via S3 ; aucune permission publique ajoutée.
+  storage-init:
+    image: ${HISTAE_API_IMAGE:-histae-api:local}
+    env_file: ["${HISTAE_ENV_FILE:-.env}"]
+    entrypoint: [/app/bin/storage-init]
+    environment:
+      <<: *production-database-environment
+      ENV: production
+      MAINTENANCE_MODE: disabled
+    secrets: [postgres_ca]
+    init: true
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+    logging: *production-logging
+    networks: [backend]
+    depends_on:
+      storage-gateway:
+        condition: service_healthy
+
+  photo-moderation:
+    image: ${HISTAE_PHOTO_MODERATION_IMAGE:-histae-photo-moderation:local}
+    build:
+      context: ./services/photo-moderation
+    environment:
+      MODERATION_TOKEN: ${PHOTO_MODERATION_TOKEN:?Define PHOTO_MODERATION_TOKEN}
+    init: true
+    read_only: true
+    tmpfs: [/tmp:size=32m,noexec,nosuid,nodev]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).read()"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 45s
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 1.0
+    pids_limit: 128
+    logging: *production-logging
+    networks: [backend]
+
+  migrate:
+    entrypoint: [/app/bin/db-migrate]
+    environment:
+      <<: *production-database-environment
+      ENV: production
+    secrets:
+      - postgres_ca
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    entrypoint: [/app/bin/api]
+    depends_on: *production-dependencies
+    environment:
+      <<: *production-database-environment
+      ENV: production
+      PORT: "8080"
+      MAINTENANCE_MODE: disabled
+      METRICS_HOST: 0.0.0.0
+    secrets:
+      - postgres_ca
+    restart: always
+    # API et passerelle S3 rejoignent le proxy ; aucun stockage brut n'y est exposé.
+    networks:
+      - backend
+      - edge
+
+  outbox-worker:
+    entrypoint: [/app/bin/outbox]
+    depends_on: *production-dependencies
+    environment:
+      <<: *production-database-environment
+      ENV: production
+      MAINTENANCE_MODE: worker
+      METRICS_ENABLED: "false"
+    secrets:
+      - postgres_ca
+    restart: always
+
+  maintenance:
+    entrypoint: [/app/bin/maintenance]
+    depends_on: *production-dependencies
+    environment:
+      <<: *production-database-environment
+      ENV: production
+      MAINTENANCE_MODE: worker
+      METRICS_ENABLED: "false"
+    secrets:
+      - postgres_ca
+
+volumes:
+  histae-postgres-production-data:
+  histae-object-storage-production-data:
+
+secrets:
+  # Certificat public de l'autorité, jamais sa clé privée.
+  postgres_ca:
+    file: ./.secrets/postgres/ca.crt
+  s3_identity:
+    file: ./.secrets/seaweedfs/s3.json
+
+networks:
+  storage:
+    internal: true
+  # Réseaux créés par l'exploitation avant le déploiement ; aucun port hôte public.
+  backend:
+    name: ${HISTAE_BACKEND_NETWORK:-histae-backend}
+    external: true
+  edge:
+    name: ${HISTAE_EDGE_NETWORK:-histae-edge}
+    external: true

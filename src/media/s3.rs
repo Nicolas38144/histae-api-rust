@@ -44,6 +44,13 @@ impl S3ObjectStorage {
         })
     }
 
+    pub async fn ensure_bucket(&self) -> Result<(), ObjectStorageError> {
+        if self.send(Method::HEAD, None, &[], None, None).await.is_ok() {
+            return Ok(());
+        }
+        self.send(Method::PUT, None, &[], None, None).await
+    }
+
     fn object_url(&self, key: Option<&str>) -> Result<Url, ObjectStorageError> {
         let mut url = self.endpoint.clone();
         url.set_query(None);
@@ -97,7 +104,14 @@ impl S3ObjectStorage {
                 request = request.body(body.to_vec());
             }
             match timeout_at(deadline, request.send()).await {
-                Ok(Ok(response)) if response.status().is_success() => return Ok(()),
+                Ok(Ok(response))
+                    if response.status().is_success()
+                        || (method == Method::PUT
+                            && key.is_none()
+                            && response.status() == StatusCode::CONFLICT) =>
+                {
+                    return Ok(());
+                }
                 Ok(Ok(response)) if attempt < MAX_ATTEMPTS && retryable(response.status()) => {
                     continue;
                 }

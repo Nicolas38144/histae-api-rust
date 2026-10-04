@@ -69,3 +69,11 @@ path = "src/bin/maintenance.rs"
 [[bin]]
 name = "admin-bootstrap"
 path = "src/bin/admin_bootstrap.rs"
+
+[[bin]]
+name = "db-migrate"
+path = "src/bin/db_migrate.rs"
+
+[[bin]]
+name = "storage-init"
+path = "src/bin/storage_init.rs"

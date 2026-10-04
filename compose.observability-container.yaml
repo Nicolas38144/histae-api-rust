@@ -1,0 +1,13 @@
+# Prometheus seul rejoint le backend de l'API, sans publier son listener 9091.
+services:
+  prometheus:
+    volumes:
+      - ./observability/prometheus/prometheus.container.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - default
+      - backend
+
+networks:
+  backend:
+    name: ${HISTAE_BACKEND_NETWORK:-histae-backend}
+    external: true

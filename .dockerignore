@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+.secrets
+target
+tools/photo-codec/node_modules
+tests
+test
+docs
+*.log
+*.pem
+*.key
+**/__pycache__
+**/.pytest_cache

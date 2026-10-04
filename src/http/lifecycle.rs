@@ -133,6 +133,24 @@ pub trait HttpObserver: Send + Sync {
     fn record(&self, observation: HttpObservation);
 }
 
+pub struct CompositeHttpObserver {
+    observers: Vec<Arc<dyn HttpObserver>>,
+}
+
+impl CompositeHttpObserver {
+    pub fn new(observers: Vec<Arc<dyn HttpObserver>>) -> Self {
+        Self { observers }
+    }
+}
+
+impl HttpObserver for CompositeHttpObserver {
+    fn record(&self, observation: HttpObservation) {
+        for observer in &self.observers {
+            observer.record(observation.clone());
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct SafeHttpObserver;
 

@@ -88,7 +88,10 @@ pub struct PhotoCodecProbe {
 
 impl PhotoCodecProbe {
     pub fn for_runtime() -> Self {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let configured_root = std::env::var_os("HISTAE_RUNTIME_ROOT").map(PathBuf::from);
+        let root = configured_root
+            .as_deref()
+            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")));
         Self {
             node_executable: PathBuf::from("node"),
             runner_script: root.join("tools").join("photo-codec-runner.cjs"),

@@ -1,0 +1,58 @@
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: metrics outage reaches the critical alert after two minutes
+    interval: 1m
+    input_series:
+      - series: up{job="histae-api"}
+        values: 0x4
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: HistaeMetricsUnavailable
+        exp_alerts:
+          - exp_labels:
+              alertname: HistaeMetricsUnavailable
+              component: api
+              severity: critical
+              job: histae-api
+            exp_annotations:
+              summary: Histae metrics endpoint is unavailable
+              runbook_url: docs/observability.md#metrics-unavailable
+
+  - name: a persistent collection failure reaches the critical alert
+    interval: 1m
+    input_series:
+      - series: histae_metrics_collection_success
+        values: 0x4
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: HistaeMetricsCollectionFailed
+        exp_alerts:
+          - exp_labels:
+              alertname: HistaeMetricsCollectionFailed
+              component: api
+              severity: critical
+            exp_annotations:
+              summary: Histae cannot collect persistent operational state
+              runbook_url: docs/observability.md#collection-failed
+
+  - name: one dead letter reaches the critical alert
+    interval: 1m
+    input_series:
+      - series: histae_outbox_events{status="dead_letter"}
+        values: 1x3
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: HistaeDeadLettersPresent
+        exp_alerts:
+          - exp_labels:
+              alertname: HistaeDeadLettersPresent
+              component: outbox
+              severity: critical
+              status: dead_letter
+            exp_annotations:
+              summary: The Histae outbox contains dead letters
+              runbook_url: docs/observability.md#dead-letters
