@@ -150,8 +150,18 @@ pub async fn binary_main(component: Component) -> ExitCode {
         );
         return ExitCode::SUCCESS;
     }
-    let _ = logging::error(component.failure_event(), Some("component_not_implemented"));
-    ExitCode::FAILURE
+    let result = match component {
+        Component::Outbox => crate::outbox::runtime::run(config).await,
+        Component::Maintenance => crate::operations::runtime::run(config).await,
+        Component::Api | Component::AdminBootstrap => Err("component_not_implemented"),
+    };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(code) => {
+            let _ = logging::error(component.failure_event(), Some(code));
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn requires_worker_mode(component: Component) -> bool {

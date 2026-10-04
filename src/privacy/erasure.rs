@@ -13,7 +13,7 @@ use crate::billing::service::{BillingError, BillingService};
 use crate::infra::crypto::sha256_hex;
 use crate::infra::postgres::DatabaseError;
 use crate::infra::postgres_locks::{AccountActivityError, AccountActivityPool, TryExclusive};
-use crate::media::service::PhotoService;
+use crate::media::service::{PhotoDeletionHandler, PhotoService};
 use crate::outbox::types::{DispatchFailure, DispatchOutcome, OutboxEvent};
 use crate::outbox::worker::{DispatchFuture, OutboxHandler};
 use crate::shared::clock::Clock;
@@ -298,6 +298,16 @@ pub trait PhotoEraser: Send + Sync {
 }
 
 impl PhotoEraser for PhotoService {
+    fn delete_photos_for_account(&self, user_id: Uuid) -> ErasureDependencyFuture<'_> {
+        Box::pin(async move {
+            self.delete_for_account(user_id, PHOTO_ERASURE_BATCH_SIZE)
+                .await
+                .map_err(|_| ErasureStepError::new("erasure_photos_unavailable"))
+        })
+    }
+}
+
+impl PhotoEraser for PhotoDeletionHandler {
     fn delete_photos_for_account(&self, user_id: Uuid) -> ErasureDependencyFuture<'_> {
         Box::pin(async move {
             self.delete_for_account(user_id, PHOTO_ERASURE_BATCH_SIZE)

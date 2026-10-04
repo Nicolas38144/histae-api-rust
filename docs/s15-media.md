@@ -61,6 +61,6 @@ d’aucun type propre à SeaweedFS.
 
 ## Limites reportées
 
-La récupération automatique des traitements anciens et la purge bornée appartiennent à S26 ; les états et clés
-nécessaires sont déjà conservés. L’image multi-stage et l’installation de production du codec autonome appartiennent
-à S27.
+La récupération automatique des traitements anciens et la purge bornée sont livrées dans S26 en conservant la
+trace PostgreSQL jusqu’à la suppression confirmée de l’objet. L’image multi-stage et l’installation de production
+du codec autonome appartiennent à S27.

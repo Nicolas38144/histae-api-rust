@@ -94,5 +94,5 @@ données après chaque scénario.
 ## Limites du lot
 
 Le relais SSE/Redis de `message.created` et `message.read` est fourni par S22 à travers `MatchEventPublisher`. Le
-push durable est déjà programmé dans la transaction grâce à S14. Les vues administratives de conversation restent
-dans S23 et la suppression bornée des messages expirés dans S26.
+push durable est programmé dans la transaction grâce à S14. Les vues administratives de conversation sont livrées
+par S23 et la suppression bornée des messages expirés, avant le parent match, par S26.

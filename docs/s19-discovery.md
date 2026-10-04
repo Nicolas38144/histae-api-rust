@@ -87,6 +87,6 @@ comptes après chaque scénario.
 
 ## Limites du lot
 
-La purge quotidienne bornée des swipes expirés appartient à S26. L’export et l’effacement des décisions sont traités
-dans les lots RGPD S24 à S26. S19 n’ajoute aucune variable d’environnement : les limites `RATE_LIMIT_FEED` et
-`RATE_LIMIT_SWIPE`, PostgreSQL et les versions légales étaient déjà configurés.
+La purge quotidienne bornée des swipes expirés est livrée dans S26. L’export et l’effacement des décisions sont
+traités dans les lots RGPD S24 à S26. S19 n’ajoute aucune variable d’environnement : les limites
+`RATE_LIMIT_FEED` et `RATE_LIMIT_SWIPE`, PostgreSQL et les versions légales étaient déjà configurés.

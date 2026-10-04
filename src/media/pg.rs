@@ -5,6 +5,7 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::domain::{CreationResult, PhotoObject, ProcessingPhoto};
+use super::maintenance::{PhotoMaintenanceFuture, PhotoMaintenanceStore};
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use crate::moderation::domain::AutomatedPhotoModeration;
 use crate::outbox::pg::PgOutboxRepository;
@@ -319,6 +320,76 @@ impl PhotoStore for PgPhotoRepository {
                 Ok(())
             })).await
         })
+    }
+}
+
+impl PhotoMaintenanceStore for PgPhotoRepository {
+    fn purge_expired_upload_requests(
+        &self,
+        before: chrono::DateTime<chrono::Utc>,
+        limit: u32,
+    ) -> PhotoMaintenanceFuture<'_, u64> {
+        Box::pin(async move {
+            let result = sqlx::query(
+                "DELETE FROM photo_upload_request
+                 WHERE (user_id, idempotency_key) IN (
+                   SELECT user_id, idempotency_key FROM photo_upload_request
+                   WHERE expires_at <= $1
+                   ORDER BY expires_at, user_id, idempotency_key LIMIT $2
+                 )",
+            )
+            .bind(before)
+            .bind(i64::from(limit))
+            .execute(self.database.pool())
+            .await
+            .map_err(map_sqlx_error)?;
+            Ok(result.rows_affected())
+        })
+    }
+
+    fn claim_cleanup_batch(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+        stale_before: chrono::DateTime<chrono::Utc>,
+        retry_before: chrono::DateTime<chrono::Utc>,
+        limit: u32,
+    ) -> PhotoMaintenanceFuture<'_, Vec<PhotoObject>> {
+        Box::pin(async move {
+            let rows = sqlx::query_as::<_, (Uuid, Uuid, String)>(
+                "WITH candidates AS (
+                   SELECT id FROM user_photo
+                   WHERE (status IN ('pending', 'processing') AND updated_at <= $2)
+                      OR (status = 'deleting' AND updated_at <= $3)
+                   ORDER BY updated_at, id FOR UPDATE SKIP LOCKED LIMIT $4
+                 )
+                 UPDATE user_photo AS photo
+                 SET status = 'deleting', updated_at = $1
+                 FROM candidates WHERE photo.id = candidates.id
+                 RETURNING photo.id, photo.user_id, photo.object_key",
+            )
+            .bind(now)
+            .bind(stale_before)
+            .bind(retry_before)
+            .bind(i64::from(limit))
+            .fetch_all(self.database.pool())
+            .await
+            .map_err(map_sqlx_error)?;
+            rows.into_iter()
+                .map(|(id, user_id, object_key)| {
+                    Ok(PhotoObject {
+                        id,
+                        user_id,
+                        object_key,
+                        moderation_status: ModerationStatus::Pending,
+                        moderation_reasons: Vec::new(),
+                    })
+                })
+                .collect()
+        })
+    }
+
+    fn complete_cleanup(&self, photo_id: Uuid) -> PhotoMaintenanceFuture<'_, ()> {
+        self.complete_deletion(photo_id)
     }
 }
 

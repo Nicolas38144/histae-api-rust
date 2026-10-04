@@ -268,6 +268,18 @@ La DSR n’est terminée qu’après disparition confirmée des photos et swipes
 requêtes et tests de reprise sont détaillés dans
 [docs/s25-account-erasure.md](docs/s25-account-erasure.md).
 
+## S26 — maintenances métier et administration de l’outbox
+
+Les cinq types d’événement possèdent désormais leur handler réel dans le worker lançable. Les maintenances de
+matchs, privacy, photos et facturation s’exécutent en lots bornés avec suivi persistant de la progression. Le leader
+des matchs reste détenu entre les lots, tandis que chaque lot commit séparément et nettoie messages et références
+de signalement avant le parent.
+
+Les routes admin des dead letters conservent la liste minimale, l’authentification récente, le motif normalisé et
+l’audit transactionnel. L’abandon de l’effacement de compte, des réconciliations Stripe ou d’une photo encore
+présente est refusé. Les contrats, rétentions, commandes et preuves PostgreSQL sont détaillés dans
+[docs/s26-maintenance-outbox-admin.md](docs/s26-maintenance-outbox-admin.md).
+
 ## S03 — prototype du codec photo
 
 Le prototype conserve temporairement `PhotoProcessorService` comme référence de conversion dans un processus Node isolé. Le parent Rust reproduit les contrôles extension/MIME/signature et borne l’entrée, la sortie, la concurrence et la durée du processus. Les octets circulent par pipes : aucune photo temporaire n’est créée sur disque.

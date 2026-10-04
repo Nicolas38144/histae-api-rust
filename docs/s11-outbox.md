@@ -84,7 +84,7 @@ local éventuel, puis effectue un nettoyage ciblé.
 
 ## Limites du lot
 
-Les handlers externes et leurs règles d’éligibilité appartiennent aux lots métier ultérieurs. Les routes de liste,
-retry et discard des dead letters, leur authentification récente et leur audit transactionnel restent dans S26.
-S11 ne modifie aucun contrat HTTP.
+Les cinq handlers, le worker lançable et les routes de liste, retry et discard des dead letters sont achevés dans
+S26 avec authentification récente, audit transactionnel et interdictions d’abandon. S11 n’avait modifié aucun
+contrat HTTP à lui seul.
 

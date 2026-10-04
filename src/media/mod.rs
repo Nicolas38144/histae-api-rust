@@ -1,5 +1,6 @@
 pub mod domain;
 pub mod http;
+pub mod maintenance;
 pub mod pg;
 pub mod s3;
 pub mod service;

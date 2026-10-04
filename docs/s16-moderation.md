@@ -93,6 +93,6 @@ Rust et révèle ce défaut restant dans la référence NestJS.
 ## Limites reportées
 
 Le branchement des routeurs dans le binaire API complet reste lié au bootstrap final. La reprise automatique des
-photos anciennes, la purge et les métriques de maintenance appartiennent à S26. La calibration des seuils, les
+photos anciennes et la purge sont livrées dans S26 ; l’état de maintenance persistant conserve leurs compteurs. La calibration des seuils, les
 recours opérateur et la validation indépendante du modèle avant production restent des dépendances de la roadmap,
 pas des constantes à inventer dans ce lot.

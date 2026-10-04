@@ -80,7 +80,6 @@ directions, l’anonymisation, l’audit, la clôture DSR et l’acquittement ou
 
 ## Risques restant ouverts
 
-Le handler `account.erase` est prêt à être injecté dans le dispatcher. S26 doit achever l’assemblage du worker et les
-opérations administratives de dead letter, notamment l’interdiction absolue d’abandon de `account.erase`. S28 doit
-encore éprouver les coupures réseau réelles, les crashs de processus entre chaque checkpoint et les volumes proches
-des bornes de production.
+S26 injecte le handler `account.erase` dans le dispatcher complet et interdit son abandon par l’administration des
+dead letters. S28 doit encore éprouver les coupures réseau réelles, les crashs de processus entre chaque checkpoint
+et les volumes proches des bornes de production.

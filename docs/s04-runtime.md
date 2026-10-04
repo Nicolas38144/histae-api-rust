@@ -16,8 +16,8 @@ Les composants métier ne sont pas démarrés avant leur lot : exécuter un bina
 
 Le formateur reprend les motifs et la liste blanche de `safe-logging.ts`. Il refuse les champs sensibles, les chaînes libres, les nombres non finis et les noms d’événement invalides. Le subscriber n’active que la cible `histae` aux niveaux INFO et ERROR, afin que les dépendances ne puissent pas injecter leurs propres messages dans les logs de production par défaut.
 
-Une divergence existe déjà dans la source NestJS : `scripts/maintenance.ts` utilise notamment `match_batches` et `match_work_remaining`, absents de la liste blanche de `safe-logging.ts`. Le port Rust conserve la politique centrale actuelle. S26 devra soit employer les champs autorisés, soit faire approuver et tester un élargissement de la liste avant de brancher la maintenance.
+Une divergence existe déjà dans la source NestJS : `scripts/maintenance.ts` utilise notamment `match_batches` et `match_work_remaining`, absents de la liste blanche de `safe-logging.ts`. S26 a branché la maintenance avec des compteurs agrégés explicitement autorisés, sans réintroduire ces champs non conformes.
 
 ## Limites du lot
 
-Le listener HTTP, les pools PostgreSQL, Redis, les métriques privées et les commandes d’exploitation arrivent respectivement dans S07, S05, S07 et S27. Les quatre binaires sont compilables dès S04, mais leur lancement normal reste volontairement fermé jusqu’à ce que leur composant soit complet.
+Le listener HTTP, les pools PostgreSQL et Redis sont arrivés dans S07/S05/S07. Les binaires outbox et maintenance sont lançables depuis S26. Les métriques privées, l’image et les commandes d’exploitation finales restent dans S27 ; le binaire API attend encore son assemblage complet.

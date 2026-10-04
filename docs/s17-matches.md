@@ -87,5 +87,5 @@ sont supprimées après le scénario.
 
 Le routeur reste composable et sera assemblé dans le binaire API lors du lot d’intégration prévu. Le transport SSE
 best-effort et son relais Redis implémentent désormais `MatchEventPublisher` dans S22. Les routes de messages,
-la décision réciproque de découverte, les écrans administratifs et la maintenance d’expiration appartiennent
-respectivement à S18, S19, S23 et S26.
+la décision réciproque de découverte et les écrans administratifs sont livrés par S18, S19 et S23. S26 fournit la
+maintenance d’expiration et de purge avec leader conservé entre les lots.

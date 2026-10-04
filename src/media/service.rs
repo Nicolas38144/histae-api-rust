@@ -290,6 +290,33 @@ impl PhotoDeletionHandler {
     pub fn new(store: Arc<dyn PhotoStore>, storage: Arc<dyn PhotoObjectStorage>) -> Self {
         Self { store, storage }
     }
+
+    pub async fn delete_for_account(
+        &self,
+        user_id: Uuid,
+        batch_size: u32,
+    ) -> Result<bool, PhotoError> {
+        let photos = self
+            .store
+            .begin_account_deletion(user_id, batch_size)
+            .await?;
+        let mut failed = false;
+        for photo in &photos {
+            if self.storage.delete(&photo.object_key).await.is_err()
+                || self.store.complete_deletion(photo.id).await.is_err()
+            {
+                tracing::warn!(
+                    event_code = "photo_storage_failed",
+                    operation = "account_deletion"
+                );
+                failed = true;
+            }
+        }
+        if failed {
+            return Err(PhotoError::StorageUnavailable);
+        }
+        Ok(photos.len() < usize::try_from(batch_size).unwrap_or(usize::MAX))
+    }
 }
 
 impl OutboxHandler for PhotoDeletionHandler {
