@@ -27,7 +27,11 @@ FROM node:22.22.1-bookworm-slim AS runtime
 ENV HISTAE_RUNTIME_ROOT=/app
 ENV PATH=/app/bin:$PATH
 WORKDIR /app
-RUN groupmod --gid 1000 node && usermod --uid 1000 --gid 1000 node
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupmod --gid 1000 node \
+    && usermod --uid 1000 --gid 1000 node
 COPY --from=builder --chown=1000:1000 /artifacts/ /app/bin/
 COPY --from=codec --chown=1000:1000 /build/tools/photo-codec/node_modules /app/tools/photo-codec/node_modules
 COPY --chown=1000:1000 tools/photo-codec/package.json tools/photo-codec/processor.cjs /app/tools/photo-codec/

@@ -49,6 +49,7 @@ pub async fn apply(config: &PostgresConfig) -> Result<u32, DatabaseError> {
         .execute(&mut *connection)
         .await
         .map_err(map_sqlx_error);
+    drop(connection);
     pool.close().await;
     match result {
         Ok(count) => unlock.map(|_| count),

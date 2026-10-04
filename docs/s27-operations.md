@@ -48,6 +48,8 @@ Le build utilise Rust 1.88 et compile la feature WebAuthn. Le dernier étage est
 
 Les workers conservent le superviseur et le `CancellationToken` S04/S26. Le listener métriques a son propre token d’annulation et un drain de cinq secondes. `db-migrate` et `storage-init` rendent un code non nul et un code d’erreur normalisé sans imprimer de secret. Le migrateur ne reset jamais, ne répare jamais un checksum et refuse toute version inconnue.
 
-## Limite d’activation
+## Activation en S29
 
-S27 fournit les composants et manifests d’exploitation, mais n’active pas encore le service `api` : l’assemblage des routeurs, des adaptateurs et du listener métriques dans le binaire HTTP appartient à S29 après la campagne de parité S28. Les constructeurs sont prêts pour cette composition ; lancer `api` normalement continue donc d’échouer fermement au lieu d’annoncer une fausse disponibilité.
+S27 a fourni les composants et manifests d’exploitation. S29 assemble maintenant les routeurs, adaptateurs et le
+listener métriques dans le binaire HTTP. La procédure de démarrage, de drain et de retour arrière est décrite dans
+[s29-cutover.md](s29-cutover.md).

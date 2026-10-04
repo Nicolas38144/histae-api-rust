@@ -33,7 +33,7 @@ Le corpus initial fixe deux comportements communs observés dans NestJS : `GET /
 
 Le crate expose désormais quatre binaires Tokio distincts : `api`, `outbox`, `maintenance` et `admin-bootstrap`. Ils partagent une configuration typée et stricte, un superviseur de tâches avec annulation explicite et drain borné, ainsi qu’un formateur de logs à champs autorisés. Les secrets utilisent un type dont `Debug` est expurgé et les erreurs de configuration ne recopient jamais leur valeur.
 
-Durant cette étape, aucun serveur HTTP, worker ou accès PostgreSQL n’est encore disponible. Pour éviter un faux état prêt, les binaires refusent donc leur lancement normal avec un code sûr `component_not_implemented`. Le mode suivant valide seulement la configuration et sort immédiatement :
+Au stade S04, aucun serveur HTTP, worker ou accès PostgreSQL n’était encore disponible. Les binaires refusaient donc leur lancement normal avec le code sûr `component_not_implemented`. Depuis S29, l’API et les workers sont actifs ; le mode suivant reste disponible pour valider uniquement la configuration :
 
 ```powershell
 cargo run --bin api -- --check-config
@@ -302,6 +302,24 @@ routes administratives de métriques et de revenu, avec leurs agrégats PostgreS
 La campagne complète compile toutes les features et exerce les contrats ainsi que PostgreSQL, Redis, S3 et le codec
 photo réels. La matrice de preuve, les divergences runtime expliquées et les validations externes à exécuter sur le
 binaire assemblé en S29 figurent dans [docs/s28-parity.md](docs/s28-parity.md).
+
+## S29 — bascule de développement et retour arrière
+
+Le binaire `api` assemble maintenant les 100 routes et leurs adaptateurs PostgreSQL, Redis, S3, fournisseurs et
+observabilité. Il vérifie ses dépendances avant d’écouter, démarre le listener Prometheus privé lorsqu’il est activé
+et draine HTTP pendant au plus trente secondes. Les workers restent des processus séparés afin d’empêcher les doubles
+consommateurs pendant une bascule.
+
+Le dépôt fournit un smoke HTTP local et une restauration de sauvegarde dans une base temporaire :
+
+```powershell
+cargo run --locked --features webauthn-probe --bin api
+./scripts/smoke-api.ps1
+./scripts/verify-dev-backup-restore.ps1
+```
+
+L’ordre de bascule, le retour vers NestJS avec les mêmes données et les validations externes encore requises avant
+suppression du backend TypeScript sont décrits dans [docs/s29-cutover.md](docs/s29-cutover.md).
 
 ## S03 — prototype du codec photo
 

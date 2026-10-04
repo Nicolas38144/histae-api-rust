@@ -445,7 +445,7 @@ fn canonical_uuid(value: &str, parsed: Uuid) -> bool {
 }
 
 #[cfg(feature = "webauthn-probe")]
-mod http {
+pub mod http {
     use axum::extract::Extension;
     use axum::http::StatusCode;
     use axum::routing::{get, post};

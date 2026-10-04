@@ -153,7 +153,17 @@ pub async fn binary_main(component: Component) -> ExitCode {
     let result = match component {
         Component::Outbox => crate::outbox::runtime::run(config).await,
         Component::Maintenance => crate::operations::runtime::run(config).await,
-        Component::Api | Component::AdminBootstrap => Err("component_not_implemented"),
+        Component::Api => {
+            #[cfg(feature = "webauthn-probe")]
+            {
+                crate::api::run(config).await
+            }
+            #[cfg(not(feature = "webauthn-probe"))]
+            {
+                Err("webauthn_feature_required")
+            }
+        }
+        Component::AdminBootstrap => Err("component_not_implemented"),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

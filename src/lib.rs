@@ -1,4 +1,6 @@
 pub mod administration;
+#[cfg(feature = "webauthn-probe")]
+pub mod api;
 pub mod billing;
 pub mod bootstrap;
 pub mod catalog;

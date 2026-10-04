@@ -74,13 +74,13 @@ Le runtime admin expose `{ "runtime": "rust", "uptime_seconds", "memory_rss_byte
 `heap_used_bytes` et `event_loop_delay_p95_ms` ne sont pas émis, car leur conserver le nom avec une autre sémantique
 produirait une métrique trompeuse. Cette décision est cohérente avec les séries Prometheus S27.
 
-Le binaire `api` n'assemble pas encore les routeurs. S29 doit construire l'état global, brancher les adaptateurs et
-ouvrir le listener HTTP avant de lancer la comparaison processus contre processus. Cette limite empêche d'annoncer
-une disponibilité partielle et n'altère pas les contrats des routeurs déjà testés.
+Le binaire `api` assemble depuis S29 l’état global, les adaptateurs, les 100 routes et les listeners HTTP et métriques.
+Le smoke processus vérifie santé, readiness, authentification mobile/admin, validation JSON et route inconnue. La
+procédure de bascule complète et ses validations externes figurent dans [s29-cutover.md](s29-cutover.md).
 
 ## Validations externes restantes avant suppression de NestJS
 
-Ces contrôles dépendent de l'API assemblée ou d'identifiants externes et appartiennent à la validation finale S29 :
+Ces contrôles dépendent d’identifiants ou de fournisseurs externes et restent requis avant suppression de NestJS :
 
 - exécuter `contract-compare` entre deux bases, buckets et espaces Redis isolés ; le corpus générique actuel ne
   contient encore que la santé et la route inconnue, les scénarios métier étant couverts directement par domaine ;
