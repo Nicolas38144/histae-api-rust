@@ -24,14 +24,16 @@ commandes d’exploitation utilisent tous cette même image.
 
 ## Développement complet
 
-Sur le PC Windows, exécuter Docker et les tests d'infrastructure via WSL, depuis ce dépôt. Par exemple :
+Sur Debian 13, préparer les outils avec [le script d’installation](../scripts/install-debian-13.sh), puis démarrer
+la pile locale depuis ce dépôt :
 
-```powershell
-wsl docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
 ```
 
-Les commandes Bash ci-dessous s'exécutent directement dans WSL ou sur Debian. Le PC de développement reste
-distinct du serveur de production : PostgreSQL y conserve son plafond de 1 Gio.
+Les commandes Bash ci-dessous s'exécutent directement sur Debian. La pile de développement reste distincte
+du serveur de production : PostgreSQL y conserve son plafond de 1 Gio. Les exemples `docker compose` supposent
+un accès administré au daemon ; préfixer par `sudo` si l’utilisateur n’a pas cet accès.
 
 ### Préparer les valeurs locales
 
@@ -161,11 +163,11 @@ Le fichier d’origine sans override reste utilisable lorsque l’API tourne dir
 ## Construire l’image finale
 
 ```bash
-docker build --pull --target production -t histae-api:local .
+docker build --pull -t histae-api:local .
 docker image inspect histae-api:local --format '{{.Config.User}} {{.Config.WorkingDir}}'
 ```
 
-L’inspection doit retourner l’utilisateur `node` et `/app`. Pour un déploiement, étiqueter l’image avec une version
+L’inspection doit retourner l’utilisateur `1000:1000` et `/app`. Pour un déploiement, étiqueter l’image avec une version
 immuable ou, de préférence, la référencer par digest. Ne pas utiliser `latest` comme mécanisme de retour arrière.
 
 ## Déploiement mono-machine
@@ -245,7 +247,7 @@ simultanément, elle atteint 14,25 Gio. Il reste alors 1,75 Gio sur 16 Gio pour 
 les autres processus ; en régime permanent, la marge est de 4 Gio. Éviter builds et gros traitements de sauvegarde
 pendant les pics. Les sauvegardes doivent disposer d'une destination hors serveur malgré cette colocalisation.
 Les plafonds ne réservent pas toute cette mémoire. Docker utilise ici des unités binaires (`7g` = 7 Gio) ;
-vérifier la RAM réellement disponible sur le serveur et dans la VM Docker Desktop/WSL en local.
+vérifier la RAM réellement disponible sur le serveur et sur la machine locale de développement.
 
 Le plafond PostgreSQL couvre buffers, connexions, mémoire partagée et cache de fichiers imputé au conteneur.
 `memswap_limit: 7g`, égal à `mem_limit`, interdit de dépasser le budget via le swap.

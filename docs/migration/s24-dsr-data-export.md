@@ -62,7 +62,7 @@ enregistrée à la fin ou à l’abandon du body, comme pour SSE, plutôt qu’a
 
 ## Validation
 
-```powershell
+```bash
 cargo test --lib
 cargo test --test privacy_rights_contract
 cargo test --features postgres-integration --test privacy_rights_postgres -- --test-threads=1

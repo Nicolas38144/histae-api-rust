@@ -72,7 +72,7 @@ d’environnement, migration ou dépendance Docker n’est nécessaire dans S26 
 
 ## Validation
 
-```powershell
+```bash
 cargo test --lib --all-features
 cargo test --features postgres-integration --test maintenance_outbox_postgres -- --test-threads=1
 cargo check --all-targets --all-features

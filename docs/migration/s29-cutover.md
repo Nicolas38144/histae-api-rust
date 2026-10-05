@@ -30,17 +30,17 @@ client Redis, même stockage S3, même relais SSE et mêmes compteurs opération
 
 ## Préparation vérifiable
 
-Depuis PowerShell, Docker est piloté par WSL :
+Depuis la racine du dépôt sur Debian 13 :
 
-```powershell
-wsl.exe docker compose -f compose.yaml -f compose.dev.yaml up -d postgres redis object-storage photo-moderation
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d postgres redis object-storage photo-moderation
 cargo run --locked --features webauthn-probe --bin db-migrate
 ```
 
 Vérifier une vraie sauvegarde et sa restauration dans une base temporaire générée, sans modifier `histae-dev` :
 
-```powershell
-./scripts/verify-dev-backup-restore.ps1
+```bash
+bash scripts/verify-dev-backup-restore.sh
 ```
 
 Le script refuse toute base autre que `histae-dev` et tout conteneur qui ne correspond pas au PostgreSQL du projet
@@ -61,21 +61,21 @@ La bascule conserve une seule API et un seul worker outbox actifs :
 
 Avec Compose :
 
-```powershell
-wsl.exe docker compose -f compose.yaml -f compose.dev.yaml up -d --build api outbox-worker
-./scripts/smoke-api.ps1
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build api outbox-worker
+bash scripts/smoke-api.sh
 ```
 
 Le service `maintenance` est derrière le profil `jobs` et ne démarre pas avec l’API. Une passe reste explicite :
 
-```powershell
-wsl.exe docker compose -f compose.yaml -f compose.dev.yaml --profile jobs run --rm --no-deps maintenance
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml --profile jobs run --rm --no-deps maintenance
 ```
 
 Le dashboard garde sa configuration actuelle. Son smoke réel peut être lancé depuis `histae-dashboard` :
 
-```powershell
-$env:HISTAE_REAL_API_URL = 'http://127.0.0.1:8080'
+```bash
+export HISTAE_REAL_API_URL='http://127.0.0.1:8080'
 pnpm run test:e2e:real
 ```
 
@@ -125,7 +125,6 @@ La composition finale a été vérifiée sur la pile de développement réelle :
 - arrêt `SIGTERM` avec fermeture ordonnée des listeners, ressources et pools en moins de trente secondes ;
 - smoke Playwright du dashboard contre l’API Rust réelle.
 
-Sous Windows, les tests du codec doivent pouvoir lire les hardlinks du store pnpm. Une sandbox qui refuse ces accès
-avec `EPERM` produit un faux `photo codec is unavailable`; le même corpus a été exécuté hors sandbox et ses cinq tests
-ont réussi. Les avertissements `LNK4099` relatifs au PDB OpenSSL statique ne changent ni le binaire ni le résultat des
-tests.
+Pendant la validation historique, une restriction de sandbox a empêché l’accès aux hardlinks du store pnpm et
+produit un faux `photo codec is unavailable` ; le même corpus a réussi après levée de cette restriction. Cette
+preuve doit être rejouée avec le codec installé sur la nouvelle machine de développement.

@@ -69,8 +69,8 @@ la paire dans `match_init` garantit un seul match lors de likes simultanés.
 
 ## Validation
 
-```powershell
-$env:CARGO_BUILD_JOBS='1'
+```bash
+export CARGO_BUILD_JOBS=1
 cargo test --lib
 cargo test --test discovery_contract
 cargo clippy --all-targets --features postgres-integration -- -D warnings
@@ -78,9 +78,9 @@ cargo clippy --all-targets --features postgres-integration -- -D warnings
 
 Avec PostgreSQL local :
 
-```powershell
-wsl.exe -e bash -lc 'cd /mnt/c/Users/nicol/Nicolas_Germani/Programmation/Histae/histae-api-rust && docker compose --env-file .env -f compose.dev.yaml up -d postgres'
-$env:CARGO_BUILD_JOBS='1'
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d postgres
+export CARGO_BUILD_JOBS=1
 cargo test --features postgres-integration --test discovery_postgres
 ```
 

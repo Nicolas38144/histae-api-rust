@@ -83,7 +83,7 @@ Références : [architecture](docs/architecture.md), [déploiement](docs/contain
 - [ ] Documenter toutes les variables réellement acceptées, leurs valeurs par défaut, sensibilité, validation et mode d’injection par environnement. Conserver le `.env` local ignoré ; **ne pas créer de `.env.example`**. La configuration de production doit être provisionnée séparément.
 - [ ] Vérifier qu’aucun secret, fixture privée ou sortie de test n’entre dans une image, un paquet de livraison ou une preuve archivée.
 - [ ] Garder explicite le runtime Node/Sharp du codec photo : supprimer NestJS ne supprime pas ce besoin. Documenter aussi les dépendances et modèles du service Python de modération.
-- [ ] Fournir les procédures d’exploitation Linux équivalentes aux scripts PowerShell nécessaires, puis les exécuter sur une machine vierge. Docker et les tests d’infrastructure locaux Windows passent par WSL.
+- [ ] Exécuter les scripts Bash de préparation, smoke et restauration sur une machine Debian 13 vierge et vérifier que les procédures d’exploitation fonctionnent sans accès au dépôt NestJS.
 
 **Terminé :** une autre personne installe et exploite une pile Rust neuve sans accès au dossier, à la base ni aux conteneurs NestJS. Les seuls éléments externes requis sont inventoriés. **Risque :** un chemin de développement ou une politique non transférée rendrait la suppression prématurée de NestJS irréversible en pratique.
 
@@ -98,7 +98,7 @@ Références : [architecture](docs/architecture.md), [déploiement](docs/contain
   ```
 
 - [ ] Refaire compilation et tests pertinents sous Linux, puis construire l’image finale et lancer ses vrais binaires. Vérifier la feature `webauthn-probe` nécessaire au moteur WebAuthn et la compatibilité de la toolchain avec le lockfile.
-- [ ] Vérifier OpenSSL, certificats CA, bibliothèques natives, Sharp/libvips et décodage HEIC dans l’image ; une réussite MSVC locale ne valide pas ces composants Linux.
+- [ ] Vérifier OpenSSL, certificats CA, bibliothèques natives, Sharp/libvips et décodage HEIC dans l’image Linux de livraison ; les validations locales ne suffisent pas à elles seules.
 - [ ] Tester chaque CLI et son code de sortie : configuration invalide, migration refusée, stockage inaccessible, tâche réussie et interrompue. Ne pas confondre le code de sortie d’un wrapper de terminal avec celui du binaire.
 - [ ] Exécuter le smoke sur l’image finale avec la configuration de préproduction : santé, erreurs, garde mobile/admin et métriques privées. Conserver l’image identifiée par digest, ses dépendances et la procédure de reconstruction.
 - [ ] Vérifier absence de tests ignorés indispensables, données résiduelles et faux succès dus à un service non lancé. Tester aussi les modes de configuration réellement supportés, pas uniquement `--all-features`.
@@ -240,7 +240,7 @@ Référence : [guide de déploiement](docs/container-deployment.md) et manifests
 
 ## 14. R11 — Sauvegarde, restauration et reprise après sinistre
 
-Le script [verify-dev-backup-restore.ps1](scripts/verify-dev-backup-restore.ps1) constitue une preuve locale utile : restauration dans une base temporaire et contrôles de structure/historique. Il ne prouve pas une reprise complète du service, la cohérence métier ni l’atteinte d’un RPO/RTO hors machine.
+Le script [verify-dev-backup-restore.sh](scripts/verify-dev-backup-restore.sh) permet une preuve locale utile : restauration dans une base temporaire et contrôles de structure/historique. Il ne prouve pas une reprise complète du service, la cohérence métier ni l’atteinte d’un RPO/RTO hors machine. Son portage Debian doit être exécuté avant de comptabiliser cette preuve.
 
 - [ ] Choisir la stratégie PostgreSQL selon RPO/RTO : fréquence des sauvegardes, éventuels WAL/PITR, chiffrement, vérification d’intégrité, rétention et surveillance des échecs. Tester les mécanismes effectivement retenus.
 - [ ] Sauvegarder les objets privés et les métadonnées S3 nécessaires, pas seulement PostgreSQL. Documenter la cohérence temporelle entre base, objets, outbox et fournisseurs ; identifier objets manquants, supplémentaires ou déjà supprimés après restauration.

@@ -60,7 +60,7 @@ publiques conservées sont `invalid_stripe_signature`, `invalid_stripe_event`, `
 - `tests/billing_reconciliation_postgres.rs` prouve qu’un snapshot/version ancien ne peut écraser une projection
   récente, que la liste admin reste minimale et que le watchdog sans résultat est nettoyé sans nouveau POST.
 
-```powershell
+```bash
 cargo test --test billing_webhook_contract
 cargo test --features postgres-integration --test billing_reconciliation_postgres -- --test-threads=1
 ```

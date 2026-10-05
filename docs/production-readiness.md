@@ -30,14 +30,14 @@ La date du profil HTTP ordinaire reste une date calendrier YYYY-MM-DD.
 
 ## Validation locale
 
-Validation exécutée le 5 octobre 2026 sous Windows, avec PostgreSQL, Redis, S3 et le service de modération
-de la pile Docker locale gérée via WSL :
+Validation historique exécutée le 5 octobre 2026, avec PostgreSQL, Redis, S3 et le service de modération
+de la pile Docker locale. Les commandes restent à rejouer sur Debian 13 et sur l’image de livraison :
 
 - `cargo fmt --all -- --check` : réussi.
 - `cargo clippy --locked --all-targets --all-features -j 2 -- -D warnings` : réussi.
 - `cargo test --locked --all-targets --all-features --no-fail-fast -j 2` : **312 tests réussis**,
   dont 182 tests unitaires ; 0 échec, 0 test ignoré, 47 cibles exécutées.
-- `scripts/smoke-api.ps1 -BaseUrl http://127.0.0.1:18081` : santé, readiness, authentification mobile/admin,
+- smoke HTTP de `http://127.0.0.1:18081` (équivalent Debian : `bash scripts/smoke-api.sh http://127.0.0.1:18081`) : santé, readiness, authentification mobile/admin,
   validation OTP et route inexistante vérifiées sur le binaire assemblé.
 - Listener Prometheus local : 401 sans bearer, 200 avec un jeton temporaire aléatoire et 404 sur `/api/metrics`.
   Les compteurs HTTP et les compteurs PostgreSQL, Redis et S3 augmentent effectivement après le smoke.
@@ -47,8 +47,7 @@ La première passe en sandbox bloquait les connexions locales ; les résultats r
 complète avec cet accès. Elle a révélé la course SSE corrigée ci-dessus. OpenSSL a été compilé depuis les
 sources vendored du lockfile puis cette même bibliothèque statique a été réutilisée pour les tests/Clippy
 via des variables limitées aux processus de validation (`OPENSSL_NO_VENDOR`, `OPENSSL_DIR`, `OPENSSL_STATIC`).
-La configuration du projet et du système n'a pas été changée pour cela. Les avertissements Windows LNK4099
-portent sur les symboles de débogage OpenSSL manquants ; aucune erreur de lien n'est retenue dans le bilan final.
+La configuration du projet et du système n'a pas été changée pour cela ; aucune erreur de lien n'est retenue dans le bilan final.
 
 Ces résultats ne constituent pas une comparaison exhaustive des 100 routes contre deux déploiements réels,
 ni une validation du déploiement Linux de production. Les commandes et règles d'isolation sont dans

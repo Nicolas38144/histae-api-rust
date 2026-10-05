@@ -58,13 +58,13 @@ L’extraction axum conserve l’ordre visible de NestJS : l’authentification 
 
 Les tests unitaires vérifient les vecteurs produits par Node pour AES-GCM, HMAC, JWT et hash de refresh, ainsi que la forme opaque et les curseurs. `mobile_auth_contract` couvre le Bearer absent/invalide, la relecture de famille, l’ordre auth/validation, les champs inconnus, les valeurs par défaut, la pagination, les dates, le curseur invalide, l’UUID v4, la ressource absente et `confirm:true`.
 
-```powershell
+```bash
 cargo test --locked --test mobile_auth_contract
 ```
 
 `mobile_identity`, activé explicitement, refuse une base autre que `histae-dev` et une adresse autre que loopback. Il crée des comptes UUID isolés puis les supprime. Il couvre le faux secret, la rotation, le replay committé, deux rotations concurrentes, le rollback après collision d’enfant, le logout avec ancêtre, le nettoyage des appareils, l’isolation par propriétaire et les révocations ciblée/globale.
 
-```powershell
+```bash
 cargo test --locked --features postgres-integration --test mobile_identity
 ```
 

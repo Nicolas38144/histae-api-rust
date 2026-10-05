@@ -8,7 +8,7 @@ Migration incrémentale de l’API NestJS Histae. Le backend Nest reste la réf�
 
 Le fichier `.env` local est chargé automatiquement par l’application et par les tests d’infrastructure, reste ignoré par Git et ne doit contenir que des secrets de développement. Les variables définies explicitement dans le terminal gardent la priorité.
 
-Depuis Windows, les adresses et ports de `.env` ciblent les ports hôte des services locaux. Aucune commande Rust ne doit charger le fichier `.env` du dépôt NestJS. Lorsqu’un prochain lot ajoute une variable, `.env`, la configuration typée et la documentation du lot doivent être mises à jour ensemble.
+En exécution directe sur Debian, les adresses et ports de `.env` ciblent les ports hôte des services locaux. Aucune commande Rust ne doit charger le fichier `.env` du dépôt NestJS. Lorsqu’un prochain lot ajoute une variable, `.env`, la configuration typée et la documentation du lot doivent être mises à jour ensemble.
 
 ## S01 — comparaison de contrat HTTP
 
@@ -16,12 +16,12 @@ Le binaire `contract-compare` exécute séquentiellement le même corpus contre 
 
 Les deux URLs et les deux namespaces d’état doivent être distincts. Un scénario `isolated_mutation` est refusé sans `--allow-isolated-mutations`. Ce drapeau certifie seulement l’intention : la préparation effective de schémas PostgreSQL, namespaces Redis et préfixes S3 distincts reste à la charge du lanceur d’intégration de chaque lot.
 
-```powershell
-cargo run --bin contract-compare -- `
-  --corpus tests/contract/corpus/smoke.json `
-  --reference-url http://127.0.0.1:8080/ `
-  --reference-state nest-contract-a `
-  --candidate-url http://127.0.0.1:8081/ `
+```bash
+cargo run --bin contract-compare -- \
+  --corpus tests/contract/corpus/smoke.json \
+  --reference-url http://127.0.0.1:8080/ \
+  --reference-state nest-contract-a \
+  --candidate-url http://127.0.0.1:8081/ \
   --candidate-state rust-contract-b
 ```
 
@@ -37,7 +37,7 @@ Le crate expose désormais quatre binaires Tokio distincts : `api`, `outbox`, `m
 
 Au stade S04, aucun serveur HTTP, worker ou accès PostgreSQL n’était encore disponible. Les binaires refusaient donc leur lancement normal avec le code sûr `component_not_implemented`. Depuis S29, l’API et les workers sont actifs ; le mode suivant reste disponible pour valider uniquement la configuration :
 
-```powershell
+```bash
 cargo run --bin api -- --check-config
 ```
 
@@ -49,13 +49,13 @@ Le socle PostgreSQL utilise SQLx avec un pool borné, les timeouts existants, TL
 
 Depuis S27, le migrateur Rust fait évoluer une base existante :
 
-```powershell
+```bash
 cargo run --bin db-migrate
 ```
 
 Depuis S14, le dépôt Rust contient aussi les assets PostgreSQL figés et `compose.dev.yaml` initialise une base locale neuve avec l’historique exact. Il ne modifie pas une base existante et ne répare aucun checksum. Le test réel est isolé derrière la feature explicite `postgres-integration` et refuse toute cible autre que `histae-dev` sur loopback :
 
-```powershell
+```bash
 cargo test --locked --features postgres-integration --test postgres_compatibility
 ```
 
@@ -314,10 +314,10 @@ consommateurs pendant une bascule.
 
 Le dépôt fournit un smoke HTTP local et une restauration de sauvegarde dans une base temporaire :
 
-```powershell
+```bash
 cargo run --locked --features webauthn-probe --bin api
-./scripts/smoke-api.ps1
-./scripts/verify-dev-backup-restore.ps1
+bash scripts/smoke-api.sh
+bash scripts/verify-dev-backup-restore.sh
 ```
 
 L’ordre de bascule, le retour vers NestJS avec les mêmes données et les validations externes encore requises avant

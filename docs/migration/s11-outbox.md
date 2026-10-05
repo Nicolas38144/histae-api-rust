@@ -67,7 +67,7 @@ Une fois les cinq handlers livrés, le binaire pourra construire `PgOutboxReposi
 
 Sans infrastructure :
 
-```powershell
+```bash
 cargo test --locked --lib outbox::
 cargo test --locked --lib operations::maintenance::
 cargo test --locked
@@ -76,7 +76,7 @@ cargo clippy --locked --all-targets --features postgres-integration -- -D warnin
 
 Avec PostgreSQL local `histae-dev`, préparé et migré par le dépôt NestJS :
 
-```powershell
+```bash
 cargo test --locked --features postgres-integration --test outbox_postgres
 ```
 

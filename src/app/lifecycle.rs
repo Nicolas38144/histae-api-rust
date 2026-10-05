@@ -115,13 +115,10 @@ pub async fn wait_for_shutdown_signal() -> Result<(), BootstrapError> {
             _ = terminate.recv() => Ok(()),
         }
     }
-    #[cfg(windows)]
+    #[cfg(not(unix))]
     {
-        let mut ctrl_break = tokio::signal::windows::ctrl_break()
-            .map_err(|_| BootstrapError::TaskFailed("signal_setup_failed"))?;
-        tokio::select! {
-            result = tokio::signal::ctrl_c() => result.map_err(|_| BootstrapError::TaskFailed("signal_wait_failed")),
-            _ = ctrl_break.recv() => Ok(()),
-        }
+        tokio::signal::ctrl_c()
+            .await
+            .map_err(|_| BootstrapError::TaskFailed("signal_wait_failed"))
     }
 }

@@ -67,8 +67,8 @@ Les erreurs restent enveloppées sous `{ "error": { "code", "message" } }`. S17 
 
 Sans infrastructure :
 
-```powershell
-$env:CARGO_BUILD_JOBS='1'
+```bash
+export CARGO_BUILD_JOBS=1
 cargo test --test matches_contract
 cargo test --lib
 cargo clippy --all-targets -- -D warnings
@@ -76,9 +76,9 @@ cargo clippy --all-targets -- -D warnings
 
 Avec le PostgreSQL de développement Rust :
 
-```powershell
-wsl.exe -e bash -lc 'cd /mnt/c/Users/nicol/Nicolas_Germani/Programmation/Histae/histae-api-rust && docker compose --env-file .env -f compose.dev.yaml up -d postgres'
-$env:CARGO_BUILD_JOBS='1'
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d postgres
+export CARGO_BUILD_JOBS=1
 cargo test --features postgres-integration --test matches_postgres
 ```
 

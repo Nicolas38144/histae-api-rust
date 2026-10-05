@@ -66,7 +66,7 @@ Les codes spécifiques sont conservés : `invalid_phone_number`, `invalid_otp_re
 
 Sans infrastructure :
 
-```powershell
+```bash
 cargo test --locked --test otp_sweego_contract
 cargo test --locked --test sweego_client
 cargo test --locked --test sweego_signature
@@ -76,7 +76,7 @@ cargo clippy --locked --all-targets --features postgres-integration -- -D warnin
 
 Avec PostgreSQL local `histae-dev`, préparé par le dépôt NestJS :
 
-```powershell
+```bash
 cargo test --locked --features postgres-integration --test otp_delivery
 ```
 

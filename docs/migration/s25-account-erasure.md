@@ -66,7 +66,7 @@ Aucun service Docker supplémentaire n’est requis.
 
 ## Validation
 
-```powershell
+```bash
 cargo test --test account_erasure_contract
 cargo test --features postgres-integration --test account_erasure_postgres -- --test-threads=1
 cargo check --all-targets --all-features

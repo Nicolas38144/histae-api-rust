@@ -77,7 +77,7 @@ les variables et le PostgreSQL nécessaires. S20 n’ajoute donc ni migration, n
 
 Commandes ciblées :
 
-```powershell
+```bash
 cargo test --test billing_contract --test billing_stripe
 cargo test --features postgres-integration --test billing_postgres -- --test-threads=1
 ```

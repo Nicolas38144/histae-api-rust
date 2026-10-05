@@ -70,28 +70,28 @@ Les corps refusent les champs inconnus. Les UUID de challenge, passkey et sessio
 
 ## Validation
 
-Le build courant sans WebAuthn reste vérifiable sur Windows :
+Le build sans WebAuthn reste vérifiable par :
 
-```powershell
+```bash
 cargo check --locked --all-targets
 cargo test --locked
 ```
 
 Le module S10 et son binaire exigent OpenSSL/Perl et se valident avec :
 
-```powershell
+```bash
 cargo test --locked --features webauthn-probe
 cargo clippy --locked --all-targets --features webauthn-probe,postgres-integration -- -D warnings
 ```
 
-La procédure Windows complète est décrite dans [windows-openssl.md](../windows-openssl.md). Le projet compile une copie vendored d’OpenSSL : il faut installer Strawberry Perl et les outils C++ Microsoft, pas une DLL OpenSSL globale.
+Sur Debian 13, [le script d’installation](../../scripts/install-debian-13.sh) fournit Perl, le compilateur C/C++ et les autres outils nécessaires à la copie vendored d’OpenSSL.
 
-La migration est appliquée par le migrateur TypeScript conservé :
+Au moment du lot S10, la migration était appliquée par le migrateur TypeScript. Le migrateur Rust courant est :
 
-```powershell
-pnpm run db:migrate
+```bash
+cargo run --locked --bin db-migrate
 ```
 
 ## Limites du lot
 
-Le routeur S10 reste composable comme les lots S07 à S09 ; le binaire API final sera assemblé lors de la phase de composition prévue par le plan. La validation cryptographique complète ne peut pas être exécutée sur le poste Windows tant qu’un Perl Windows compatible MSVC n’est pas installé. Aucun moteur factice n’est activé dans le code livré.
+Au stade S10, le routeur restait composable comme les lots S07 à S09 ; l’assemblage final est documenté en S29. Aucun moteur factice n’est activé dans le code livré.

@@ -69,9 +69,8 @@ Le texte privé d’un message et les objets fournisseur ne sont jamais copiés.
 configuré dans `.env` (5433 actuellement). Un volume Rust distinct est initialisé par les assets
 de `db/` avec la baseline, les migrations 017/018 et leurs checksums attendus.
 
-```powershell
-wsl.exe --cd C:\Users\nicol\Nicolas_Germani\Programmation\Histae\histae-api-rust `
-  docker compose -f compose.dev.yaml up -d postgres
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d postgres
 ```
 
 Cette initialisation s’applique à un volume neuf. Le binaire de migration incrémentale pour une
@@ -80,8 +79,8 @@ services Docker sont ajoutés avec les lots qui les utilisent.
 
 ## Validation
 
-```powershell
-$env:CARGO_BUILD_JOBS = '1'
+```bash
+export CARGO_BUILD_JOBS=1
 cargo test --locked --test notifications_contract
 cargo test --locked --features postgres-integration --test notifications_postgres
 ```

@@ -71,7 +71,7 @@ stockage réellement substituées dans les tests. Aucun conteneur DI ni modèle 
 
 Sans infrastructure :
 
-```powershell
+```bash
 cargo test --locked --test profiles_contract
 cargo test --locked --lib profiles::
 cargo test --locked --lib moderation::text::
@@ -80,7 +80,7 @@ cargo test --locked --lib shared::
 
 Avec PostgreSQL local `histae-dev` sur loopback :
 
-```powershell
+```bash
 cargo test --locked --features postgres-integration --test profiles_postgres
 ```
 

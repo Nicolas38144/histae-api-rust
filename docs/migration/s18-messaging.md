@@ -76,17 +76,17 @@ S18 conserve notamment :
 
 ## Validation
 
-```powershell
-$env:CARGO_BUILD_JOBS='1'
+```bash
+export CARGO_BUILD_JOBS=1
 cargo test --test matches_contract
 cargo clippy --all-targets -- -D warnings
 ```
 
 Avec PostgreSQL local :
 
-```powershell
-wsl.exe -e bash -lc 'cd /mnt/c/Users/nicol/Nicolas_Germani/Programmation/Histae/histae-api-rust && docker compose --env-file .env -f compose.dev.yaml up -d postgres'
-$env:CARGO_BUILD_JOBS='1'
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d postgres
+export CARGO_BUILD_JOBS=1
 cargo test --features postgres-integration --test matches_postgres
 ```
 

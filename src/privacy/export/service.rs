@@ -362,7 +362,7 @@ impl PreparedDataExport {
     }
 
     fn cleanup(&mut self) {
-        // Close the file before scheduling deletion (also required on Windows).
+        // Close the file before scheduling deletion.
         self.stream.take();
         self.directory.take();
         self.permit.take();

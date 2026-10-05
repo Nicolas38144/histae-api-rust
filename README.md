@@ -34,6 +34,7 @@ docker/            # Configuration des services conteneurisés
 services/          # Service autonome de modération photo
 tools/             # Codec photo et génération de ses fixtures
 scripts/           # Smoke et restauration de développement
+  install-debian-13.sh # Prérequis de développement Debian 13
 observability/     # Supervision privée
 docs/              # Architecture, contrat HTTP et exploitation
   migration/       # Historique S03–S29 et décisions de migration
@@ -43,20 +44,29 @@ Les responsabilités et règles de dépendance sont décrites dans [docs/archite
 
 ## Développement
 
-Prérequis : Rust compatible avec `Cargo.toml`, Node.js 22+, pnpm pour le codec, Docker via WSL sous Windows. WebAuthn utilise OpenSSL ; voir [les prérequis Windows](docs/windows-openssl.md).
+Sur **Debian 13 (trixie)**, préparer une machine de développement avec :
+
+```bash
+bash scripts/install-debian-13.sh
+source "$HOME/.profile"
+```
+
+Le script demande `sudo` pour les paquets Debian et Docker, installe Rust 1.88 avec Cargo, rustfmt et Clippy, les outils de compilation d’OpenSSL, Node.js 22.22.1, pnpm 10.28.2, Docker Engine/Compose, `curl`, `jq` et `openssl`. Il vérifie l’archive Node avec le manifeste SHA-256 officiel. Il ne crée aucun secret, ne modifie aucune base/volume et n’ajoute pas l’utilisateur au groupe `docker` (qui donne des privilèges équivalents à root). Préparer d’abord un compte non-root ayant accès à `sudo` ; en cas de paquets Docker incompatibles déjà installés, le script s’arrête avant de les retirer. Pour travailler avec Docker, utiliser `sudo docker …` ou un mode d’accès administré séparément. Le script suit les procédures officielles de [Docker pour Debian](https://docs.docker.com/engine/install/debian/), [Rustup](https://www.rust-lang.org/tools/install) et la [distribution Node.js 22.22.1](https://nodejs.org/download/release/v22.22.1/).
+
+La machine de production exécute l’image Docker construite par ce dépôt ; l’installation de Rust, Node ou pnpm sur l’hôte n’y est pas nécessaire. Le service de modération Python est également construit en conteneur.
 
 Le fichier `.env` de ce dépôt est chargé automatiquement et reste ignoré. Les variables du terminal ont priorité. Les secrets et les valeurs fournisseurs ne doivent pas apparaître dans les logs. La configuration locale et les ports Docker sont détaillés dans [le guide de déploiement](docs/container-deployment.md).
 
 Depuis la racine du dépôt, après préparation de `.env` :
 
-```powershell
-wsl.exe docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
-./scripts/smoke-api.ps1
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
+bash scripts/smoke-api.sh
 ```
 
 Pour exécuter les binaires sur l’hôte, avec les services locaux disponibles et sans API concurrente sur le port :
 
-```powershell
+```bash
 pnpm --dir tools/photo-codec install --frozen-lockfile
 cargo run --locked --bin db-migrate
 cargo run --locked --features webauthn-probe --bin api
@@ -66,7 +76,7 @@ Le worker `outbox` et la passe `maintenance` sont des binaires séparés. `admin
 
 ## Validation
 
-```powershell
+```bash
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-targets --all-features

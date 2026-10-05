@@ -40,7 +40,7 @@ Les tests unitaires vérifient l’ordre canonique des UUID, les codes publics e
 
 Le test réutilise les mêmes garde-fous que S05 : il refuse une base autre que `histae-dev` et un hôte non loopback. Il crée deux comptes synthétiques déterministes puis les supprime ; il ne modifie ni migration ni schéma.
 
-```powershell
+```bash
 cargo test --locked --features postgres-integration --test postgres_locks
 ```
 

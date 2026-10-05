@@ -59,7 +59,7 @@ statut d'une dépendance dépend de sa dernière issue, et son dernier code d'er
 
 La pile locale requise est démarrée sans exposer PostgreSQL, Redis ou S3 publiquement :
 
-```powershell
+```bash
 docker compose -f compose.yaml -f compose.dev.yaml up -d postgres redis object-storage photo-moderation
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
@@ -67,8 +67,7 @@ cargo test --locked --all-targets --all-features
 ```
 
 Le dernier passage S28 a validé les 100 routes, les tests unitaires, toutes les suites de contrat et toutes les suites
-réelles PostgreSQL, Redis, S3 et codec photo. Sous Windows, le build OpenSSL peut afficher `LNK4099` pour le fichier
-de symboles `ossl_static.pdb`; ce diagnostic ne change ni le binaire ni le résultat des tests.
+réelles PostgreSQL, Redis, S3 et codec photo. Ces résultats historiques doivent être rejoués sur la candidate Debian.
 
 ## Divergences expliquées
 

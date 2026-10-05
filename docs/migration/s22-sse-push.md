@@ -73,7 +73,7 @@ valeur n’a été ajouté. `compose.dev.yaml` contient désormais le Redis loca
 
 ## Validation
 
-```powershell
+```bash
 cargo test --lib notifications::
 cargo test --test sse_contract
 cargo test --features postgres-integration --test notifications_postgres -- --test-threads=1

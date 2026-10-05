@@ -21,7 +21,7 @@ schémas JSON ou les permissions. Les tests de contrat et le smoke du binaire as
 
 Contrôles statiques et tests unitaires sans stockages externes :
 
-```powershell
+```bash
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --lib --all-features
@@ -29,14 +29,14 @@ cargo test --locked --lib --all-features
 
 Suite complète après préparation de PostgreSQL, Redis, S3 et du codec :
 
-```powershell
+```bash
 pnpm --dir tools/photo-codec install --frozen-lockfile
 cargo test --locked --all-targets --all-features
 ```
 
 Exemples ciblés :
 
-```powershell
+```bash
 cargo test --locked --test http_contract --test route_inventory
 cargo test --locked --features postgres-integration --test matches_postgres
 cargo test --locked --features redis-integration --test redis_integration
@@ -57,10 +57,9 @@ ses événements ne sont pas nettoyés par ce test.
 Redis utilise sa base logique de test et des clés isolées ; S3 utilise les objets de test dédiés. Ne pas arrêter
 les conteneurs partagés pour simuler une panne et ne pas remplacer le nettoyage ciblé par un reset global.
 
-Sous Windows, gérer Docker via WSL. Les tests du codec doivent pouvoir lire les hardlinks du store pnpm ;
-une restriction de sandbox peut provoquer `EPERM` alors que Node et le codec sont installés.
-Les avertissements de lien OpenSSL `LNK4099` ne constituent pas une réussite ou un échec des tests : vérifier
-le code de sortie et les résultats des suites.
+Sur Debian 13, installer les outils de développement avec [le script dédié](../scripts/install-debian-13.sh).
+Les tests du codec doivent pouvoir lire le store pnpm et lancer le processus Node. Vérifier le code de sortie
+de chaque commande et les résultats des suites.
 
 Les tests de cycle de vie couvrent le drain après échec d’une tâche, la sortie imprévue du worker, l’annulation
 au drop, la fermeture d’un SSE bloqué sur une lecture de session et l’arrêt d’un scrape de métriques bloqué.

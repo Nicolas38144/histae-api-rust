@@ -64,7 +64,7 @@ le relais SSE de S22. Aucune variable `.env`, migration ou ressource Docker supp
 
 ## Validation
 
-```powershell
+```bash
 cargo test --lib
 cargo test --test administration_reports_contract
 cargo test --features postgres-integration --test administration_reports_postgres -- --test-threads=1

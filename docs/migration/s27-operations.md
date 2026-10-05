@@ -31,14 +31,14 @@ Les séries `histae_process_heap_used_bytes` et `histae_nodejs_event_loop_delay_
 
 Développement :
 
-```powershell
+```bash
 docker compose -f compose.yaml -f compose.dev.yaml up -d postgres redis object-storage photo-moderation
 cargo run --bin db-migrate
 ```
 
 Image commune :
 
-```powershell
+```bash
 docker build -t histae-api-rust:local .
 ```
 

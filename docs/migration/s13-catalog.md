@@ -63,8 +63,8 @@ Les handlers admin sont compilés avec `webauthn-probe`, comme le socle S10 dont
 
 Validation autonome :
 
-```powershell
-$env:CARGO_BUILD_JOBS = "1"
+```bash
+export CARGO_BUILD_JOBS=1
 cargo test --all-targets
 cargo test --all-targets --features webauthn-probe
 cargo clippy --all-targets --features webauthn-probe -- -D warnings
@@ -73,7 +73,7 @@ cargo clippy --all-targets --features webauthn-probe -- -D warnings
 Validation PostgreSQL locale, limitée par le test à `ENV=development`, une adresse loopback et la base
 `histae-dev` :
 
-```powershell
+```bash
 cargo test --features postgres-integration --test catalog_postgres
 ```
 

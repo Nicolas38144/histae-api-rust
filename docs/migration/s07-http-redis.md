@@ -34,13 +34,13 @@ La suite `http_contract` couvre les enveloppes, en-têtes, UUID, HSTS, quotas et
 
 Le test Redis réel est isolé derrière une feature, utilise exclusivement la base logique 15 sur loopback et crée des clés/canaux UUID qui expirent :
 
-```powershell
+```bash
 cargo test --locked --features redis-integration --test redis_integration
 ```
 
 La suite autonome du lot s’exécute avec :
 
-```powershell
+```bash
 cargo test --locked
 cargo clippy --locked --all-targets --features redis-integration -- -D warnings
 ```

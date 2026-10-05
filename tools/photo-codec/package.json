@@ -1,6 +1,7 @@
 {
   "name": "histae-photo-codec",
   "private": true,
+  "packageManager": "pnpm@10.28.2",
   "engines": { "node": ">=22" },
   "dependencies": {
     "heic-decode": "2.1.0",
