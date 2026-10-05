@@ -6,7 +6,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-use uuid::{Uuid, Variant};
+use uuid::Uuid;
 
 use super::domain::{
     ModerationContentType, ModerationDecision, ModerationReviewInput, PhotoReviewChecks,
@@ -15,7 +15,7 @@ use super::service::{ModerationError, ModerationService, Page};
 use crate::http::error::ApiError;
 use crate::http::extract::{ApiDto, ValidatedJson, ValidatedPath, ValidatedQuery};
 use crate::http::router::HttpState;
-use crate::identity::admin::http::{AdminAuthHttpState, AdminIdentity, RecentAdminIdentity};
+use crate::identity::admin::http::{AdminAuthHttpState, AdminIdentity};
 use crate::profiles::domain::ModerationStatus;
 use crate::shared::text::validator_js_length;
 
@@ -46,9 +46,15 @@ pub fn routes(state: ModerationHttpState, auth: AdminAuthHttpState) -> Router<Ht
 struct ListQuery {
     status: Option<ModerationStatus>,
     content_type: Option<ModerationContentType>,
-    #[serde(default = "default_limit")]
+    #[serde(
+        default = "default_limit",
+        deserialize_with = "crate::shared::validation::deserialize_query_u32"
+    )]
     limit: u32,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::shared::validation::deserialize_query_u32"
+    )]
     offset: u32,
     cursor: Option<String>,
 }
@@ -100,6 +106,7 @@ async fn list(
 
 #[derive(Deserialize)]
 struct CasePath {
+    #[serde(deserialize_with = "crate::shared::validation::deserialize_uuid")]
     id: Uuid,
 }
 
@@ -108,7 +115,7 @@ impl ApiDto for CasePath {
     const ERROR_MESSAGE: &'static str = "The moderation case ID must be a valid UUID.";
 
     fn is_valid(&self) -> bool {
-        (1..=8).contains(&self.id.get_version_num()) && self.id.get_variant() == Variant::RFC4122
+        crate::shared::validation::uuid_all(self.id)
     }
 }
 
@@ -199,9 +206,8 @@ impl Visitor<'_> for IntegerVisitor {
     where
         E: de::Error,
     {
-        value
-            .trim()
-            .parse::<f64>()
+        crate::shared::validation::javascript_number(value)
+            .ok_or(())
             .map_err(|_| E::custom("value must be numeric"))
             .and_then(|value| self.visit_f64(value))
     }
@@ -238,7 +244,7 @@ struct MessageResponse {
 }
 
 async fn review(
-    RecentAdminIdentity(identity): RecentAdminIdentity,
+    AdminIdentity(identity): AdminIdentity,
     Extension(state): Extension<ModerationHttpState>,
     ValidatedPath(path): ValidatedPath<CasePath>,
     ValidatedJson(body): ValidatedJson<ReviewBody>,
@@ -295,13 +301,39 @@ fn moderation_error(error: ModerationError) -> ApiError {
             "photo_storage_unavailable",
             "Photo storage is temporarily unavailable",
         ),
-        ModerationError::Database(_) => ApiError::internal(),
+        ModerationError::Database(error) => error.into(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pagination_coercion_matches_class_transformer() {
+        for value in ["20", "0x14", "2e1", "20.0", "0b10100", "0o24"] {
+            let uri = format!("/?limit={value}").parse().expect("URI");
+            let axum::extract::Query(query) =
+                axum::extract::Query::<ListQuery>::try_from_uri(&uri).expect("query");
+            assert!(query.is_valid());
+            assert_eq!(query.limit, 20);
+        }
+        for value in ["0", "101", "1.5", "-1", "NaN", "Infinity"] {
+            let uri = format!("/?limit={value}").parse().expect("URI");
+            assert!(
+                axum::extract::Query::<ListQuery>::try_from_uri(&uri)
+                    .map_or(true, |query| !query.0.is_valid())
+            );
+        }
+    }
+
+    #[test]
+    fn account_erasure_sql_guard_remains_a_conflict() {
+        let error = moderation_error(ModerationError::Database(
+            crate::infra::postgres::DatabaseError::AccountUnavailable,
+        ));
+        assert_eq!(error.status(), StatusCode::CONFLICT);
+        assert_eq!(error.code(), "account_unavailable");
+    }
 
     #[test]
     fn coerces_the_version_like_class_transformer() {

@@ -84,3 +84,13 @@ La dernière commande exige les dépendances locales et le codec installés. Les
 - [Bascule et validations externes restantes](docs/migration/s29-cutover.md)
 
 La migration des modules ne remplace pas les validations fournisseurs, les cérémonies WebAuthn réelles, les essais de charge et les contrôles préalables à la production.
+
+## Corrections de parité et espace de compilation
+
+Le suivi des corrections de la revue se trouve dans [production-readiness.md](docs/production-readiness.md).
+Les prérequis fournisseur, juridiques et d’exploitation y sont distingués des validations locales.
+
+Les profils de développement et de test utilisent des symboles réduits (`debug = 1`) et désactivent
+le cache incrémental. Le dossier `target/` contient uniquement des artefacts reconstructibles ;
+`cargo clean` les supprime, puis Cargo recompile au prochain lancement. Cela inclut les dépendances
+natives comme OpenSSL : réserver ce nettoyage complet aux besoins d’espace, pas à chaque test.

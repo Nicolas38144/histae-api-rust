@@ -89,7 +89,9 @@ where
 
 fn json_error<T: ApiDto>(rejection: JsonRejection) -> ApiError {
     match rejection {
-        JsonRejection::JsonDataError(_) => dto_error::<T>(),
+        JsonRejection::JsonDataError(_) | JsonRejection::MissingJsonContentType(_) => {
+            dto_error::<T>()
+        }
         other => ApiError::invalid_body_with_status(other.status()),
     }
 }

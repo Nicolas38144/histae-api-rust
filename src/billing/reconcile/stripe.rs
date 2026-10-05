@@ -117,10 +117,16 @@ fn parse_customer(value: &Value) -> Result<StripeCustomerState, StripeError> {
         .pointer("/metadata/histae_user_id")
         .and_then(Value::as_str)
         .and_then(|value| Uuid::parse_str(value).ok());
-    let metadata_attempt_id = value
-        .pointer("/metadata/histae_customer_attempt_id")
-        .and_then(Value::as_str)
-        .and_then(|value| Uuid::parse_str(value).ok());
+    // Only absent/empty metadata belongs to the legacy compatibility path.
+    // Invalid nonempty metadata must never become an unqualified candidate.
+    let metadata_attempt_id = match value.pointer("/metadata/histae_customer_attempt_id") {
+        None => None,
+        Some(Value::String(value)) if value.is_empty() => None,
+        Some(Value::String(value)) => {
+            Some(Uuid::parse_str(value).map_err(|_| StripeError::InvalidResponse)?)
+        }
+        Some(_) => return Err(StripeError::InvalidResponse),
+    };
     Ok(StripeCustomerState {
         id: id.to_owned(),
         deleted: value
@@ -130,4 +136,41 @@ fn parse_customer(value: &Value) -> Result<StripeCustomerState, StripeError> {
         metadata_user_id,
         metadata_attempt_id,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn invalid_attempt_metadata_cannot_enter_the_legacy_recovery_path() {
+        let user_id = Uuid::new_v4();
+        let attempt_id = Uuid::new_v4();
+        let mut customer = json!({"id":"cus_fixture", "metadata":{"histae_user_id":user_id}});
+        assert_eq!(
+            parse_customer(&customer)
+                .expect("legacy")
+                .metadata_attempt_id,
+            None
+        );
+        customer["metadata"]["histae_customer_attempt_id"] = json!("");
+        assert_eq!(
+            parse_customer(&customer)
+                .expect("legacy empty")
+                .metadata_attempt_id,
+            None
+        );
+        customer["metadata"]["histae_customer_attempt_id"] = json!(attempt_id);
+        assert_eq!(
+            parse_customer(&customer)
+                .expect("valid")
+                .metadata_attempt_id,
+            Some(attempt_id)
+        );
+        for invalid in [json!("another-attempt"), json!(false), json!(42), json!({})] {
+            customer["metadata"]["histae_customer_attempt_id"] = invalid;
+            assert_eq!(parse_customer(&customer), Err(StripeError::InvalidResponse));
+        }
+    }
 }

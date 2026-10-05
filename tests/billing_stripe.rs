@@ -234,3 +234,27 @@ async fn portal_uses_the_linked_customer_and_configured_return_url() {
         Some("https://app.histae.test/settings/subscription")
     );
 }
+
+#[tokio::test]
+async fn stripe_requests_update_aggregated_metrics() {
+    let (endpoint, captured) =
+        capture_one(r#"{"id":"cus_fixture","object":"customer"}"#.into()).await;
+    let metrics =
+        std::sync::Arc::new(histae_api_rust::operations::metrics::OperationalMetrics::new());
+    let client = StripeClient::with_endpoint(config(), endpoint)
+        .expect("client")
+        .with_metrics(metrics.clone());
+    let attempt = Uuid::new_v4();
+    client
+        .create_customer(Uuid::new_v4(), attempt, format!("customer-{attempt}"))
+        .await
+        .expect("customer");
+    captured.await.expect("server");
+    let snapshot = metrics.snapshot();
+    let (_, counters) = snapshot
+        .dependencies
+        .iter()
+        .find(|(name, _)| *name == "stripe")
+        .expect("metrics");
+    assert_eq!((counters.calls, counters.errors), (1, 0));
+}

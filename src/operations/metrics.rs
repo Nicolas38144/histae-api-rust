@@ -220,6 +220,33 @@ fn bucket(duration_ms: f64) -> usize {
         .unwrap_or(DURATION_BUCKETS_MS.len() - 1)
 }
 
+/// Optional, instance-scoped instrumentation: no payloads, keys or SQL text.
+#[derive(Clone, Default)]
+pub struct DependencyMetrics(Option<std::sync::Arc<OperationalMetrics>>);
+impl DependencyMetrics {
+    pub fn new(metrics: std::sync::Arc<OperationalMetrics>) -> Self {
+        Self(Some(metrics))
+    }
+    pub async fn observe<T, E>(
+        &self,
+        name: &'static str,
+        error_code: &'static str,
+        operation: impl std::future::Future<Output = Result<T, E>>,
+    ) -> Result<T, E> {
+        let started = Instant::now();
+        let result = operation.await;
+        if let Some(metrics) = &self.0 {
+            metrics.record_dependency_with_error(
+                name,
+                result.is_ok(),
+                started.elapsed(),
+                result.as_ref().err().map(|_| error_code),
+            );
+        }
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +265,43 @@ mod tests {
                 .http
                 .iter()
                 .any(|route| route.route == "<unmatched>")
+        );
+    }
+
+    #[tokio::test]
+    async fn dependency_observation_preserves_results_and_isolates_instances() {
+        let metrics = std::sync::Arc::new(OperationalMetrics::new());
+        let other = OperationalMetrics::new();
+        let observer = DependencyMetrics::new(metrics.clone());
+        assert_eq!(
+            observer
+                .observe("redis", "redis_command_failed", async { Ok::<_, ()>(42) })
+                .await,
+            Ok(42)
+        );
+        assert_eq!(
+            observer
+                .observe("redis", "redis_command_failed", async { Err::<(), _>(7) })
+                .await,
+            Err(7)
+        );
+        let snapshot = metrics.snapshot();
+        let (_, counters) = snapshot
+            .dependencies
+            .iter()
+            .find(|(name, _)| *name == "redis")
+            .expect("dependency");
+        assert_eq!((counters.calls, counters.errors), (2, 1));
+        assert_eq!(
+            counters.last_error_code.as_deref(),
+            Some("redis_command_failed")
+        );
+        assert!(
+            other
+                .snapshot()
+                .dependencies
+                .iter()
+                .all(|(_, counters)| counters.calls == 0)
         );
     }
 

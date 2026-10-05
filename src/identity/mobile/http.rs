@@ -461,6 +461,10 @@ async fn refresh(
 #[serde(deny_unknown_fields)]
 struct LogoutBody {
     refresh_token: String,
+    #[serde(
+        default,
+        deserialize_with = "crate::shared::validation::deserialize_optional_uuid"
+    )]
     device_id: Option<Uuid>,
 }
 
@@ -492,7 +496,10 @@ async fn logout(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SessionQuery {
-    #[serde(default = "default_limit")]
+    #[serde(
+        default = "default_limit",
+        deserialize_with = "crate::shared::validation::deserialize_query_u32"
+    )]
     limit: u32,
     cursor: Option<String>,
 }
@@ -535,6 +542,7 @@ async fn sessions(
 
 #[derive(Deserialize)]
 struct SessionPath {
+    #[serde(deserialize_with = "crate::shared::validation::deserialize_uuid")]
     id: Uuid,
 }
 
@@ -605,7 +613,7 @@ async fn session_rate_limit(state: &MobileAuthState, user_id: Uuid) -> Result<()
 }
 
 fn valid_uuid_all(value: Uuid) -> bool {
-    (1..=8).contains(&value.get_version_num()) && value.get_variant() == Variant::RFC4122
+    crate::shared::validation::uuid_all(value)
 }
 
 fn api_error(error: MobileAuthError) -> ApiError {

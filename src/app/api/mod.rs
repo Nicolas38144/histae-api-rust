@@ -36,7 +36,7 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
 
     let result = {
         let shutdown = cancellation.clone();
-        let server = axum::serve(listener, router)
+        let server = axum::serve(listener, crate::http::router::connected_service(router))
             .with_graceful_shutdown(shutdown.cancelled_owned())
             .into_future();
         tokio::pin!(server);

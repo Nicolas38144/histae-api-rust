@@ -233,3 +233,14 @@ Pour vérifier toute la chaîne locale, arrêter volontairement **l’API seulem
 observer `HistaeMetricsUnavailable` dans Prometheus puis Alertmanager, suivre le runbook ci-dessus, redémarrer l’API
 et vérifier la résolution. Ne jamais arrêter PostgreSQL, Redis ou S3 partagés pour ce test. Archiver seulement
 le nom de l’alerte et les horodatages, sans capture contenant une configuration ou un secret.
+
+## Instrumentation des adaptateurs Rust
+
+Les compteurs sont branchés sur les clients utilisés par l’API : requêtes Stripe, envois Sweego,
+opérations S3, commandes Redis, acquisition des connexions PostgreSQL, sondes SQL et commandes de transaction (BEGIN/COMMIT/ROLLBACK).
+Les durées incluent les reprises internes du client. PostgreSQL compte des opérations d’accès et
+commandes de transaction, pas chaque instruction SQL individuelle. Les refus métier ne sont pas comptés comme des pannes de stockage.
+Ces compteurs ne doivent donc pas être interprétés comme un nombre de requêtes SQL ni comparés directement
+aux volumes du driver NestJS. Une erreur HTTP conserve aussi ses compteurs et un événement sûr
+`http_request_failed`. Les labels restent bornés et aucun payload, SQL, secret ou identifiant client
+n’est enregistré dans les métriques des dépendances.

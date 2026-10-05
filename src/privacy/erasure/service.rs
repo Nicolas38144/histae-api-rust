@@ -439,7 +439,9 @@ impl ErasureService {
                 })
             })
             .await;
-        let result = result.map_err(|_| ErasureStepError::new(step.unavailable_code()))?;
+        // Dependency errors are already normalized. In particular an uncertain
+        // Stripe creation needs reconciliation, not an ordinary provider retry.
+        let result = result?;
 
         match result {
             TryExclusive::Acquired(completed) => Ok(completed),

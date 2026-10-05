@@ -500,3 +500,35 @@ async fn logout_all_requires_literal_true_and_returns_the_revoked_count() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(json_body(response).await, json!({ "revoked_sessions": 3 }));
 }
+
+#[tokio::test]
+async fn session_limit_accepts_class_transformer_numeric_strings() {
+    let (app, tokens) = app(FakeStore::new(account()));
+    let access = tokens.access_token(user_id(), session_id()).expect("token");
+    for limit in ["20", "0x14", "2e1", "20.0", "0b10100", "0o24"] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                "GET",
+                &format!("/api/auth/sessions?limit={limit}"),
+                Some(&access),
+                "",
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK, "{limit}");
+    }
+    for limit in ["20.5", "0", "101", "0xZZ"] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                "GET",
+                &format!("/api/auth/sessions?limit={limit}"),
+                Some(&access),
+                "",
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{limit}");
+    }
+}

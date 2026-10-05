@@ -5,6 +5,12 @@ edition = "2024"
 rust-version = "1.88"
 autobins = false
 
+# Keep local builds bounded: full incremental snapshots and duplicated PDBs can
+# exceed tens of GiB across integration feature combinations.
+[profile.dev]
+debug = 1
+incremental = false
+
 [features]
 default = []
 postgres-integration = []

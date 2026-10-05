@@ -134,6 +134,17 @@ impl CustomerEraser for CustomerPort {
     }
 }
 
+struct ReconciliationRequired;
+impl CustomerEraser for ReconciliationRequired {
+    fn delete_customer_for_account(&self, _: Uuid) -> ErasureDependencyFuture<'_> {
+        Box::pin(async {
+            Err(ErasureStepError::new(
+                "erasure_stripe_reconciliation_required",
+            ))
+        })
+    }
+}
+
 struct UnusedPhotoProcessor;
 
 impl PhotoProcessor for UnusedPhotoProcessor {
@@ -383,6 +394,19 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
             Err(ErasureStepError::new("erasure_invalid_state"))
         );
 
+        let blocked = ErasureService::new(
+            repository.clone(),
+            activity.clone(),
+            Arc::new(ReconciliationRequired),
+            photos.clone(),
+        );
+        assert_eq!(
+            blocked.process(event_id, worker_id).await,
+            Err(ErasureStepError::new(
+                "erasure_stripe_reconciliation_required"
+            ))
+        );
+        assert_eq!(step(&database, accepted.request_id).await?, "stripe");
         assert!(!service.process(event_id, worker_id).await?);
         assert_eq!(step(&database, accepted.request_id).await?, "photos");
         claim(&database, event_id, worker_id).await?;

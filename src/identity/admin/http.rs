@@ -417,7 +417,10 @@ async fn revoke_other_sessions(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EventsQuery {
-    #[serde(default = "default_limit")]
+    #[serde(
+        default = "default_limit",
+        deserialize_with = "crate::shared::validation::deserialize_query_u32"
+    )]
     limit: u32,
     cursor: Option<String>,
 }
@@ -783,6 +786,23 @@ mod tests {
     use base64::Engine as _;
 
     use super::*;
+    #[test]
+    fn pagination_coercion_matches_class_transformer() {
+        for value in ["20", "0x14", "2e1", "20.0", "0b10100", "0o24"] {
+            let uri = format!("/?limit={value}").parse().expect("URI");
+            let axum::extract::Query(query) =
+                axum::extract::Query::<EventsQuery>::try_from_uri(&uri).expect("query");
+            assert!(query.is_valid());
+            assert_eq!(query.limit, 20);
+        }
+        for value in ["0", "101", "1.5", "-1", "NaN", "Infinity"] {
+            let uri = format!("/?limit={value}").parse().expect("URI");
+            assert!(
+                axum::extract::Query::<EventsQuery>::try_from_uri(&uri)
+                    .map_or(true, |query| !query.0.is_valid())
+            );
+        }
+    }
 
     fn config(secure: bool) -> AdminAuthConfig {
         AdminAuthConfig {

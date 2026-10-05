@@ -106,6 +106,7 @@ pub trait SmsDelivery: Send + Sync {
 
 #[derive(Clone)]
 pub struct SweegoSmsService {
+    metrics: crate::operations::metrics::DependencyMetrics,
     config: SmsConfig,
     client: reqwest::Client,
 }
@@ -117,10 +118,31 @@ impl SweegoSmsService {
             .timeout(config.timeout)
             .build()
             .map_err(|_| SmsDeliveryError::unknown(SmsFailureReason::ProviderNetworkError))?;
-        Ok(Self { config, client })
+        Ok(Self {
+            config,
+            client,
+            metrics: Default::default(),
+        })
+    }
+
+    pub fn with_metrics(
+        mut self,
+        metrics: std::sync::Arc<crate::operations::metrics::OperationalMetrics>,
+    ) -> Self {
+        self.metrics = crate::operations::metrics::DependencyMetrics::new(metrics);
+        self
     }
 
     async fn deliver(&self, message: SmsMessage) -> Result<SmsDeliveryReceipt, SmsDeliveryError> {
+        self.metrics
+            .observe("sweego", "sms_delivery_failed", self.deliver_inner(message))
+            .await
+    }
+
+    async fn deliver_inner(
+        &self,
+        message: SmsMessage,
+    ) -> Result<SmsDeliveryReceipt, SmsDeliveryError> {
         if self.config.provider != SmsProvider::Sweego {
             return Err(SmsDeliveryError::failed(SmsFailureReason::NotConfigured));
         }

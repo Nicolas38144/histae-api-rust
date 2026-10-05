@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use uuid::{Uuid, Variant};
+use uuid::Uuid;
 
 use super::domain::BlockedUser;
 use super::service::{PrivacyError, PrivacyService};
@@ -124,9 +124,8 @@ fn canonical_uuid(value: &str) -> Option<Uuid> {
             .iter()
             .all(|index| value.as_bytes()[*index] == b'-')
         && parsed.hyphenated().to_string().eq_ignore_ascii_case(value)
-        && (1..=8).contains(&parsed.get_version_num())
-        && parsed.get_variant() == Variant::RFC4122)
-        .then_some(parsed)
+        && crate::shared::validation::uuid_all(parsed))
+    .then_some(parsed)
 }
 
 fn invalid_user_id() -> ApiError {

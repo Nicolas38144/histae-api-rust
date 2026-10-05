@@ -188,11 +188,11 @@ fn javascript_number(value: &Option<String>, default: u32) -> Option<u32> {
     let Some(value) = value else {
         return Some(default);
     };
-    let value = value.trim();
+    let value = crate::shared::text::javascript_trim(value);
     if value.is_empty() {
         return Some(0);
     }
-    let number = value.parse::<f64>().ok()?;
+    let number = crate::shared::validation::javascript_number(value)?;
     if !number.is_finite()
         || number.fract() != 0.0
         || !(0.0..=f64::from(u32::MAX)).contains(&number)

@@ -46,7 +46,9 @@ impl DependencyProbe for Probe {
 }
 
 #[derive(Clone)]
-struct AuthStore;
+struct AuthStore {
+    onboarded: bool,
+}
 
 impl MobileSessionStore for AuthStore {
     fn create(
@@ -107,12 +109,12 @@ impl MobileSessionStore for AuthStore {
         _terms_version: Arc<str>,
         _privacy_version: Arc<str>,
     ) -> SessionStoreFuture<'_, Option<ActiveAccount>> {
-        Box::pin(async {
+        Box::pin(async move {
             Ok(Some(ActiveAccount {
                 user_id: user_id(),
                 role: AccountRole::User,
                 is_banned: false,
-                onboarding_complete: true,
+                onboarding_complete: self.onboarded,
             }))
         })
     }
@@ -138,10 +140,14 @@ fn jwt_config() -> JwtConfig {
 }
 
 async fn app() -> (axum::Router, String) {
+    app_with_onboarding(true).await
+}
+
+async fn app_with_onboarding(onboarded: bool) -> (axum::Router, String) {
     let tokens = TokenService::new(jwt_config());
     let auth_service = MobileAuthService::new(
         tokens.clone(),
-        Arc::new(AuthStore),
+        Arc::new(AuthStore { onboarded }),
         "terms-v1".to_owned(),
         "privacy-v1".to_owned(),
     );
@@ -234,4 +240,14 @@ async fn opens_the_nest_compatible_event_stream_with_an_initial_connected_event(
     assert!(text.contains("event: connected"));
     assert!(text.contains("server_time"));
     assert!(!text.contains(&user_id().to_string()));
+}
+
+#[tokio::test]
+async fn incomplete_onboarding_cannot_open_an_event_stream() {
+    let (app, token) = app_with_onboarding(false).await;
+    let response = app.oneshot(request(Some(&token))).await.expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body = to_bytes(response.into_body(), 4096).await.expect("body");
+    let body: Value = serde_json::from_slice(&body).expect("json");
+    assert_eq!(body["error"]["code"], "onboarding_incomplete");
 }

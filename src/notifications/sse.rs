@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::http::router::HttpState;
-use crate::identity::mobile::http::{AuthenticatedMobile, MobileAuthState};
+use crate::identity::mobile::http::{MobileAuthState, OnboardedMobile};
 use crate::identity::mobile::pg::MobileSessionRepository;
 use crate::infra::postgres::DatabaseError;
 use crate::infra::redis::{RedisError, RedisService, RedisSubscription};
@@ -239,7 +239,7 @@ pub fn routes(state: SseHttpState, auth: MobileAuthState) -> Router<HttpState> {
 }
 
 async fn events(
-    AuthenticatedMobile(identity): AuthenticatedMobile,
+    OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<SseHttpState>,
 ) -> Sse<BoxStream<'static, Result<Event, Infallible>>> {
     let stream = event_stream(
@@ -274,7 +274,12 @@ fn event_stream(
     policy: SsePolicy,
     shutdown: CancellationToken,
 ) -> BoxStream<'static, Result<Event, Infallible>> {
-    let until_expiry = access_expires_at_seconds.saturating_sub(unix_seconds());
+    let until_expiry = Duration::from_secs(access_expires_at_seconds).saturating_sub(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default(),
+    );
+    let now = Instant::now();
     let mut heartbeat = time::interval(policy.heartbeat_interval);
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
     heartbeat.reset();
@@ -285,7 +290,8 @@ fn event_stream(
         sessions,
         user_id,
         session_id,
-        expiry: Instant::now() + Duration::from_secs(until_expiry),
+        // Out-of-range signed expiry dates must close the stream, never panic.
+        expiry: now.checked_add(until_expiry).unwrap_or(now),
         heartbeat,
         session_check,
         connected: false,
@@ -297,9 +303,15 @@ fn event_stream(
         }
         loop {
             tokio::select! {
+                biased;
                 _ = time::sleep_until(state.expiry) => return None,
                 _ = state.session_check.tick() => {
-                    if !state.sessions.is_active(state.user_id, state.session_id).await.unwrap_or(false) {
+                    let active = tokio::select! {
+                        biased;
+                        _ = time::sleep_until(state.expiry) => return None,
+                        active = state.sessions.is_active(state.user_id, state.session_id) => active.unwrap_or(false),
+                    };
+                    if !active {
                         return None;
                     }
                 }
@@ -341,6 +353,7 @@ fn mobile_event(event: MobileEvent) -> Event {
         .data(serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_owned()))
 }
 
+#[cfg(test)]
 fn unix_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -391,6 +404,35 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn expiry_closes_a_stream_even_during_a_stalled_session_check() {
+        let realtime = RealtimeService::connect(RedisService::disabled())
+            .await
+            .expect("realtime");
+        let checking = Arc::new(tokio::sync::Notify::new());
+        let mut stream = event_stream(
+            realtime.subscribe(),
+            Arc::new(PendingSessions(checking.clone())),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            unix_seconds() + 2,
+            SsePolicy::default(),
+            realtime.inner.shutdown.clone(),
+        );
+        assert!(stream.next().await.is_some());
+        let next = tokio::spawn(async move { stream.next().await });
+        time::timeout(Duration::from_secs(1), checking.notified())
+            .await
+            .expect("session check started");
+        assert!(
+            time::timeout(Duration::from_secs(3), next)
+                .await
+                .expect("token expiry closes stream")
+                .expect("task")
+                .is_none()
+        );
+    }
+
     struct Sessions(AtomicBool);
 
     impl SessionActivity for Sessions {
@@ -423,7 +465,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stream_closes_on_revocation_and_never_replays_for_lagged_consumers() {
+    async fn revocation_wins_when_a_heartbeat_is_also_ready() {
         let realtime = RealtimeService::connect(RedisService::disabled())
             .await
             .unwrap_or_else(|_| unreachable!());
@@ -441,6 +483,7 @@ mod tests {
         );
         futures_util::pin_mut!(stream);
         assert!(stream.next().await.is_some());
+        time::sleep(Duration::from_millis(25)).await;
         assert!(stream.next().await.is_none());
     }
 
@@ -461,6 +504,24 @@ mod tests {
             realtime.inner.shutdown.clone(),
         );
         futures_util::pin_mut!(stream);
+        assert!(stream.next().await.is_some());
+        assert!(stream.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn unrepresentable_expiry_closes_without_panicking() {
+        let realtime = RealtimeService::connect(RedisService::disabled())
+            .await
+            .expect("realtime");
+        let mut stream = event_stream(
+            realtime.subscribe(),
+            Arc::new(Sessions(AtomicBool::new(true))),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            u64::MAX,
+            SsePolicy::default(),
+            realtime.inner.shutdown.clone(),
+        );
         assert!(stream.next().await.is_some());
         assert!(stream.next().await.is_none());
     }

@@ -115,8 +115,11 @@ impl ApiResources {
         );
 
         let otp_repository = Arc::new(OtpRepository::new(self.database.clone()));
-        let sms: Arc<dyn SmsDelivery> =
-            Arc::new(SweegoSmsService::new(config.sms.clone()).map_err(|_| "sms_client_invalid")?);
+        let sms: Arc<dyn SmsDelivery> = Arc::new(
+            SweegoSmsService::new(config.sms.clone())
+                .map_err(|_| "sms_client_invalid")?
+                .with_metrics(Arc::clone(&self.metrics)),
+        );
         let otp = OtpService::new(
             otp_repository.clone(),
             sms,
@@ -200,7 +203,8 @@ impl ApiResources {
 
         let stripe = Arc::new(
             StripeClient::new(config.billing.clone())
-                .map_err(|_| "stripe_invalid_configuration")?,
+                .map_err(|_| "stripe_invalid_configuration")?
+                .with_metrics(Arc::clone(&self.metrics)),
         );
         let billing = Arc::new(BillingService::new(
             Arc::new(PgBillingRepository::new(self.database.clone())),
@@ -424,7 +428,10 @@ impl ApiResources {
             &config.cors_origins,
             limiter,
             config.rate_limit.global.clone(),
-            self.metrics.clone(),
+            Arc::new(crate::http::lifecycle::CompositeHttpObserver::new(vec![
+                self.metrics.clone(),
+                Arc::new(crate::http::lifecycle::SafeHttpObserver),
+            ])),
         )
         .map_err(|_| "http_configuration_invalid")?;
         Ok(build_router(routes, http_state))

@@ -64,7 +64,17 @@ le code de sortie et les résultats des suites.
 
 Les tests de cycle de vie couvrent le drain après échec d’une tâche, la sortie imprévue du worker, l’annulation
 au drop, la fermeture d’un SSE bloqué sur une lecture de session et l’arrêt d’un scrape de métriques bloqué.
+L’expiration du JWT ferme aussi le SSE pendant une lecture de session bloquée ; un contrôle de révocation
+prêt est traité avant un heartbeat ou un événement prêt simultanément. Ces bornes ont des tests dédiés.
 La configuration a aussi un test empêchant l’exposition des clés et valeurs d’environnement par `Debug`.
+
+Les régressions de migration couvrent aussi les JWT signés aux limites temporelles et avec des claims
+absents/mal formés, les IP réelles sur socket TCP malgré un X-Forwarded-For falsifié, la validation des
+corps sur les routes sans extracteur JSON, les conversions numériques des DTO, l’onboarding des appareils
+et du SSE, ainsi que les règles Unicode de modération. Les suites PostgreSQL vérifient le format de l’export
+(date UTC et bigint en chaînes), la conservation du diagnostic de réconciliation Stripe pendant l’effacement
+et l’accès aux mutations de modération avec une session admin valide mais non récente. Les tests des clients
+vérifient l’instrumentation agrégée sans changer les résultats et les durées OAuth hors plage sont refusées.
 
 Les fournisseurs réels, les cérémonies WebAuthn dans le navigateur, la charge et la restauration ne sont pas
 prouvés par des doubles de test. Leurs critères restent dans [le guide de bascule](../docs/migration/s29-cutover.md).

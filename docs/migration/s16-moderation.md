@@ -31,7 +31,7 @@ réponse sont des chaînes ISO UTC à la milliseconde, comme la sérialisation d
 Les rôles admin vivent dans `identity::admin_role`, indépendamment de la feature WebAuthn, afin que repositories et
 tests PostgreSQL n’aient pas à compiler le moteur cryptographique. Les handlers HTTP restent conditionnés par
 `webauthn-probe` et réutilisent les extracteurs S10, le cookie opaque, le contrôle d’origine et la réauthentification
-récente des mutations.
+et contrôle d’origine des mutations.
 
 ## Décision automatique
 
@@ -84,13 +84,12 @@ docker compose --env-file .env -f compose.dev.yaml up --build photo-moderation
 - régression PostgreSQL/S3 S15 après ajout de la décision automatique ;
 - build du service Docker, healthcheck et analyse réelle d’une fixture WebP publique.
 
-## Divergence connue
+## Correction de parité après revue
 
-Les contrôleurs NestJS `ModerationController` et `AdminController` n’attachent pas explicitement
-`RecentAdminAuthenticationGuard` à ces mutations, alors que les invariants du dépôt exigent une authentification
-admin récente pour les décisions sensibles et les reprises de dead letter. Les routes Rust appliquent
-`RecentAdminIdentity`. Une comparaison différentielle utilisant une ancienne session doit donc attendre `401` côté
-Rust et révèle ce défaut restant dans la référence NestJS.
+Les décisions de modération et reprises de réconciliation photo emploient `AdminIdentity`,
+avec contrôle strict de l’origine des mutations, comme les contrôleurs NestJS. Elles n’imposent pas
+une réauthentification supplémentaire. Les opérations sur les passkeys, sessions et dead letters
+conservent leur exigence d’authentification récente.
 
 ## Limites reportées
 

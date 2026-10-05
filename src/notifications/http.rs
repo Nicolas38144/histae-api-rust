@@ -3,14 +3,14 @@ use axum::http::StatusCode;
 use axum::routing::{delete, get};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use uuid::{Uuid, Variant};
+use uuid::Uuid;
 
 use super::devices::{DeviceError, DeviceService};
 use super::domain::{DevicePlatform, PublicDevice};
 use crate::http::error::ApiError;
 use crate::http::extract::{ApiDto, ValidatedJson, ValidatedPath};
 use crate::http::router::HttpState;
-use crate::identity::mobile::http::{AuthenticatedMobile, MobileAuthState};
+use crate::identity::mobile::http::{MobileAuthState, OnboardedMobile};
 use crate::shared::text::validator_js_length;
 
 #[derive(Clone)]
@@ -62,7 +62,7 @@ struct DevicesResponse {
 }
 
 async fn list_devices(
-    AuthenticatedMobile(identity): AuthenticatedMobile,
+    OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<NotificationHttpState>,
 ) -> Result<Json<DevicesResponse>, ApiError> {
     state
@@ -74,7 +74,7 @@ async fn list_devices(
 }
 
 async fn register_device(
-    AuthenticatedMobile(identity): AuthenticatedMobile,
+    OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<NotificationHttpState>,
     ValidatedJson(body): ValidatedJson<RegisterDeviceBody>,
 ) -> Result<(StatusCode, Json<PublicDevice>), ApiError> {
@@ -94,6 +94,7 @@ async fn register_device(
 
 #[derive(Deserialize)]
 struct DevicePath {
+    #[serde(deserialize_with = "crate::shared::validation::deserialize_uuid")]
     id: Uuid,
 }
 
@@ -102,12 +103,12 @@ impl ApiDto for DevicePath {
     const ERROR_MESSAGE: &'static str = "The device ID must be a valid UUID.";
 
     fn is_valid(&self) -> bool {
-        (1..=8).contains(&self.id.get_version_num()) && self.id.get_variant() == Variant::RFC4122
+        crate::shared::validation::uuid_all(self.id)
     }
 }
 
 async fn remove_device(
-    AuthenticatedMobile(identity): AuthenticatedMobile,
+    OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<NotificationHttpState>,
     ValidatedPath(path): ValidatedPath<DevicePath>,
 ) -> Result<StatusCode, ApiError> {

@@ -572,7 +572,7 @@ async fn explicit_extractors_keep_dto_errors_defaults_and_the_one_megabyte_limit
         )
         .await
         .expect("response");
-    assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert_eq!(
         response_json(response).await["error"]["code"],
         "invalid_request_body"
@@ -708,4 +708,159 @@ async fn real_socket_uses_connect_info_and_serves_the_same_health_contract() {
     );
     let _ = shutdown_tx.send(());
     server.await.expect("server task").expect("server result");
+}
+
+#[tokio::test]
+async fn bodies_are_validated_before_handlers_without_body_extractors() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let mutations = Arc::new(AtomicUsize::new(0));
+    let count = mutations.clone();
+    let (readiness, _) = readiness(None);
+    let state = HttpState::new(
+        readiness,
+        Environment::Test,
+        &TrustProxy::Disabled,
+        &[],
+        RateLimiter::memory(&hash_key()),
+        policy(100),
+    )
+    .expect("state");
+    let routes = Router::new().route(
+        "/api/bodyless",
+        post(move || {
+            let count = count.clone();
+            async move {
+                count.fetch_add(1, Ordering::Relaxed);
+                Json(json!({"ok":true}))
+            }
+        }),
+    );
+    let app = build_router(routes, state);
+    for (content_type, body, expected) in [
+        ("application/json", "{".to_owned(), StatusCode::BAD_REQUEST),
+        ("application/json", String::new(), StatusCode::BAD_REQUEST),
+        (
+            "application/octet-stream",
+            String::new(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            "application/octet-stream",
+            "unexpected".to_owned(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            "application/octet-stream",
+            "x".repeat(1024 * 1024 + 1),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            "application/json",
+            format!("\"{}\"", "x".repeat(1024 * 1024)),
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bodyless")
+                    .header(header::CONTENT_TYPE, content_type)
+                    .body(Body::from(body))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), expected);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "application/json; charset=utf-8"
+        );
+        assert_eq!(
+            response_json(response).await["error"]["code"],
+            "invalid_request_body"
+        );
+    }
+    assert_eq!(mutations.load(Ordering::Relaxed), 0);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/bodyless")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(mutations.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn tcp_peer_cannot_spoof_a_trusted_loopback_proxy_and_has_its_own_quota() {
+    use histae_api_rust::http::lifecycle::ClientIp;
+    let (readiness, _) = readiness(None);
+    let state = HttpState::new(
+        readiness,
+        Environment::Test,
+        &TrustProxy::Networks(vec!["127.0.0.1/32".into()]),
+        &[],
+        RateLimiter::memory(&hash_key()),
+        policy(1),
+    )
+    .expect("state");
+    let routes=Router::new().route("/ip",get(|axum::extract::Extension(ClientIp(ip)): axum::extract::Extension<ClientIp>| async move {Json(json!({"ip":ip.to_string()}))}));
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("address");
+    let (stop, stopped) = oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            histae_api_rust::http::router::connected_service(build_router(routes, state)),
+        )
+        .with_graceful_shutdown(async {
+            let _ = stopped.await;
+        })
+        .await
+        .expect("serve");
+    });
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .local_address("127.0.0.2".parse::<std::net::IpAddr>().expect("ip"))
+        .build()
+        .expect("client");
+    let url = format!("http://{address}/ip");
+    let response = client
+        .get(&url)
+        .header("x-forwarded-for", "198.51.100.7")
+        .send()
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.json::<Value>().await.expect("json")["ip"],
+        "127.0.0.2"
+    );
+    assert_eq!(
+        client
+            .get(&url)
+            .header("x-forwarded-for", "198.51.100.8")
+            .send()
+            .await
+            .expect("response")
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    let other = reqwest::Client::builder()
+        .no_proxy()
+        .local_address("127.0.0.3".parse::<std::net::IpAddr>().expect("ip"))
+        .build()
+        .expect("client");
+    assert_eq!(
+        other.get(&url).send().await.expect("response").status(),
+        StatusCode::OK
+    );
+    let _ = stop.send(());
+    server.await.expect("server task");
 }

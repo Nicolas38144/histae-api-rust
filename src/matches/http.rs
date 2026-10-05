@@ -3,7 +3,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, patch};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use uuid::{Uuid, Variant};
+use uuid::Uuid;
 
 use super::domain::{ContinuationQuota, PublicMessage, PublicUserMatch};
 use super::service::{MatchError, MatchPage, MatchService, MessagePage};
@@ -90,11 +90,11 @@ fn javascript_number(value: &Option<String>, default: u32) -> Option<u32> {
     let Some(value) = value else {
         return Some(default);
     };
-    let value = value.trim();
+    let value = crate::shared::text::javascript_trim(value);
     if value.is_empty() {
         return Some(0);
     }
-    let number = value.parse::<f64>().ok()?;
+    let number = crate::shared::validation::javascript_number(value)?;
     if !number.is_finite() || number.fract() != 0.0 || number < 0.0 || number > f64::from(u32::MAX)
     {
         return None;
@@ -148,9 +148,8 @@ impl MatchPath {
                 .hyphenated()
                 .to_string()
                 .eq_ignore_ascii_case(&self.id)
-            && (1..=8).contains(&parsed.get_version_num())
-            && parsed.get_variant() == Variant::RFC4122)
-            .then_some(parsed)
+            && crate::shared::validation::uuid_all(parsed))
+        .then_some(parsed)
     }
 }
 
@@ -436,9 +435,8 @@ fn canonical_uuid(value: &str) -> Option<Uuid> {
             .iter()
             .all(|index| value.as_bytes()[*index] == b'-')
         && parsed.hyphenated().to_string().eq_ignore_ascii_case(value)
-        && (1..=8).contains(&parsed.get_version_num())
-        && parsed.get_variant() == Variant::RFC4122)
-        .then_some(parsed)
+        && crate::shared::validation::uuid_all(parsed))
+    .then_some(parsed)
 }
 
 fn match_error(error: MatchError) -> ApiError {

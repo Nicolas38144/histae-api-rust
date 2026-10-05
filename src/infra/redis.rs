@@ -61,7 +61,9 @@ pub struct RedisService {
     inner: Option<Arc<RedisInner>>,
 }
 
+#[derive(Clone)]
 struct RedisInner {
+    metrics: crate::operations::metrics::DependencyMetrics,
     client: Client,
     manager: ConnectionManager,
     command_timeout: Duration,
@@ -93,11 +95,23 @@ impl RedisService {
         .map_err(|_| RedisError::ConnectionFailed)?;
         Ok(Self {
             inner: Some(Arc::new(RedisInner {
+                metrics: Default::default(),
                 client,
                 manager,
                 command_timeout: config.command_timeout,
             })),
         })
+    }
+
+    pub fn with_metrics(
+        mut self,
+        metrics: std::sync::Arc<crate::operations::metrics::OperationalMetrics>,
+    ) -> Self {
+        if let Some(inner) = &mut self.inner {
+            Arc::make_mut(inner).metrics =
+                crate::operations::metrics::DependencyMetrics::new(metrics);
+        }
+        self
     }
 
     pub fn enabled(&self) -> bool {
@@ -236,10 +250,15 @@ async fn command_with_timeout<T>(
     inner: &RedisInner,
     operation: impl Future<Output = redis::RedisResult<T>>,
 ) -> Result<T, RedisError> {
-    time::timeout(inner.command_timeout, operation)
+    inner
+        .metrics
+        .observe("redis", "redis_command_failed", async {
+            time::timeout(inner.command_timeout, operation)
+                .await
+                .map_err(|_| RedisError::CommandTimedOut)?
+                .map_err(|_| RedisError::CommandFailed)
+        })
         .await
-        .map_err(|_| RedisError::CommandTimedOut)?
-        .map_err(|_| RedisError::CommandFailed)
 }
 
 fn build_client(config: &RedisConfig) -> Result<Client, RedisError> {

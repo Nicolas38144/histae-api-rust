@@ -239,7 +239,7 @@ fn photo_error(error: PhotoError) -> ApiError {
             "Photo storage is temporarily unavailable",
         ),
         PhotoError::AccountActivity(error) => ApiError::from(error),
-        PhotoError::Database(_) => ApiError::internal(),
+        PhotoError::Database(error) => error.into(),
     }
 }
 

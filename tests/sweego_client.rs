@@ -194,3 +194,29 @@ async fn bounds_provider_responses_and_fails_closed_when_disabled() {
     assert_eq!(error.outcome, SmsFailureOutcome::Failed);
     assert_eq!(error.reason, SmsFailureReason::NotConfigured);
 }
+
+#[tokio::test]
+async fn provider_failures_update_only_aggregated_metrics() {
+    let (endpoint, captured) = server(503, b"{}".to_vec()).await;
+    let metrics =
+        std::sync::Arc::new(histae_api_rust::operations::metrics::OperationalMetrics::new());
+    let service = SweegoSmsService::new(config(endpoint, SmsProvider::Sweego))
+        .expect("client")
+        .with_metrics(metrics.clone());
+    assert!(service.send_otp(message()).await.is_err());
+    tokio::time::timeout(Duration::from_secs(5), captured)
+        .await
+        .expect("local provider received the request")
+        .expect("server");
+    let snapshot = metrics.snapshot();
+    let (_, counters) = snapshot
+        .dependencies
+        .iter()
+        .find(|(name, _)| *name == "sweego")
+        .expect("metrics");
+    assert_eq!((counters.calls, counters.errors), (1, 1));
+    assert_eq!(
+        counters.last_error_code.as_deref(),
+        Some("sms_delivery_failed")
+    );
+}

@@ -97,6 +97,7 @@ pub fn build_router(routes: Router<HttpState>, state: HttpState) -> Router {
     let mut router = routes
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
+        .layer(middleware::from_fn(super::body::middleware))
         .layer(DefaultBodyLimit::max(JSON_BODY_LIMIT))
         .layer(middleware::from_fn_with_state(
             lifecycle,
@@ -201,4 +202,11 @@ async fn normalize_cors_response(
         );
     }
     response
+}
+
+/// Share the production socket-to-request wiring with TCP contract tests.
+pub fn connected_service(
+    router: Router,
+) -> axum::extract::connect_info::IntoMakeServiceWithConnectInfo<Router, std::net::SocketAddr> {
+    router.into_make_service_with_connect_info::<std::net::SocketAddr>()
 }

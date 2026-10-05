@@ -11,18 +11,14 @@ pub const TEXT_MODERATION_POLICY_VERSION: &str = "text_rules_v1";
 static WORDS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[a-z0-9]+").unwrap_or_else(|_| unreachable!()));
 static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b[a-z0-9._%+-]+\s*(?:@|\bat\b)\s*[a-z0-9.-]+\.[a-z]{2,}\b")
-        .unwrap_or_else(|_| unreachable!())
+    javascript_regex(r"\b[a-z0-9._%+-]+\s*(?:@|\bat\b)\s*[a-z0-9.-]+\.[a-z]{2,}\b")
 });
 static URL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:https?://|www\.|\b[a-z0-9-]+\.(?:com|fr|net|org|io)\b)")
-        .unwrap_or_else(|_| unreachable!())
+    javascript_regex(r"(?:https?://|www\.|\b[a-z0-9-]+\.(?:com|fr|net|org|io)\b)")
 });
-static SOCIAL_HANDLE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:^|\s)@[a-z0-9._-]{3,32}\b").unwrap_or_else(|_| unreachable!())
-});
-static PHONE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?:\+?\d[\s().-]*){8,}").unwrap_or_else(|_| unreachable!()));
+static SOCIAL_HANDLE: LazyLock<Regex> =
+    LazyLock::new(|| javascript_regex(r"(?:^|\s)@[a-z0-9._-]{3,32}\b"));
+static PHONE: LazyLock<Regex> = LazyLock::new(|| javascript_regex(r"(?:\+?\d[\s().-]*){8,}"));
 static SPAM_ACTION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:contact|dm|ajoute|rejoins|gagne|gratuit|promo)")
         .unwrap_or_else(|_| unreachable!())
@@ -33,6 +29,16 @@ const INSULTS: &[&str] = &[
     "idiote", "imbecile", "merde", "salope", "pute", "asshole", "bastard", "bitch", "moron",
     "slut", "whore",
 ];
+
+// ECMAScript /u (without /i): word boundaries and digits are ASCII, but
+// whitespace includes BOM and excludes U+0085. These are static patterns.
+fn javascript_regex(pattern: &str) -> Regex {
+    let pattern = pattern
+        .replace(r"\b", r"(?-u:\b)")
+        .replace(r"\d", "[0-9]")
+        .replace(r"\s", r"[\u{0009}-\u{000d}\u{0020}\u{00a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}]");
+    Regex::new(&pattern).unwrap_or_else(|_| unreachable!("static moderation pattern"))
+}
 const SEXUAL_TERMS: &[&str] = &[
     "baise",
     "baiser",
@@ -127,6 +133,11 @@ fn has_repeated_character_run(value: &str, minimum: usize) -> bool {
     let mut previous = None;
     let mut count = 0;
     for current in value.chars() {
+        if matches!(current, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
+            previous = None;
+            count = 0;
+            continue;
+        }
         if previous == Some(current) {
             count += 1;
         } else {
@@ -150,6 +161,33 @@ fn contains_personal_contact(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matches_javascript_unicode_boundaries_digits_whitespace_and_dot() {
+        for text in [
+            "你example.com你",
+            "你test@example.dev你",
+            "hello\u{feff}@contact",
+            "01\u{feff}23 45 67 89",
+        ] {
+            assert_eq!(
+                TextModerator.analyze(text).reasons,
+                vec![ModerationReason::PersonalContact],
+                "{text:?}"
+            );
+        }
+        for text in [
+            "٠١٢٣٤٥٦٧٨٩",
+            "hello\n\n\n\n\n\n\n\nworld",
+            "hello\u{0085}@contact",
+        ] {
+            assert_eq!(
+                TextModerator.analyze(text).status,
+                ModerationStatus::Approved,
+                "{text:?}"
+            );
+        }
+    }
 
     #[test]
     fn preserves_reason_order_and_nfkd_matching() {

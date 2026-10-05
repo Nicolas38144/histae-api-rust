@@ -21,9 +21,9 @@ l’éligibilité finale et l’envoi FCM sont désormais livrés par S22.
 
 | Méthode | Route | Authentification | Réponse |
 | --- | --- | --- | --- |
-| `GET` | `/api/users/me/devices` | JWT mobile actif, onboarding facultatif | `200 { "devices": [...] }` |
-| `POST` | `/api/users/me/devices` | JWT mobile actif, onboarding facultatif | `201` avec l’appareil public |
-| `DELETE` | `/api/users/me/devices/{id}` | JWT mobile actif, onboarding facultatif | `204` sans corps |
+| `GET` | `/api/users/me/devices` | JWT mobile actif, onboarding complet requis | `200 { "devices": [...] }` |
+| `POST` | `/api/users/me/devices` | JWT mobile actif, onboarding complet requis | `201` avec l’appareil public |
+| `DELETE` | `/api/users/me/devices/{id}` | JWT mobile actif, onboarding complet requis | `204` sans corps |
 
 Le corps POST accepte uniquement `push_token`, `platform` (`ios` ou `android`) et
 `app_version` facultatif ou `null`. La longueur est validée avant trim, comme class-validator :
@@ -86,7 +86,7 @@ cargo test --locked --test notifications_contract
 cargo test --locked --features postgres-integration --test notifications_postgres
 ```
 
-Le contrat couvre création, projection, validation, authentification avant onboarding, suppression,
+Le contrat couvre création, projection, validation, refus des opérations avant onboarding, suppression,
 ressource absente et panne DB. Le test réel couvre l’upsert, les sessions révoquées, les appareils
 historiques, le rollback, la déduplication concurrente, les prédicats Stripe, l’absence de contenu
 privé et les cascades delivery/appareil.

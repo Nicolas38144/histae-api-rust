@@ -1,3 +1,4 @@
+mod body;
 pub mod error;
 pub mod extract;
 pub mod health;

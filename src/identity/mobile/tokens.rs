@@ -127,7 +127,7 @@ impl TokenService {
         {
             return None;
         }
-        let jti = Uuid::parse_str(jti).ok()?;
+        let jti = crate::shared::validation::canonical_uuid(jti)?;
         if jti.get_version() != Some(Version::Random) || jti.get_variant() != Variant::RFC4122 {
             return None;
         }
@@ -188,8 +188,12 @@ impl TokenService {
         let mut validation = Validation::new(Algorithm::HS256);
         validation.set_audience(&[ACCESS_TOKEN_AUDIENCE]);
         validation.set_issuer(&[ACCESS_TOKEN_ISSUER]);
-        validation.set_required_spec_claims(&["exp", "sub"]);
+        validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);
         validation.leeway = 0;
+        // Use the injected clock and Nest's exact NumericDate comparisons.
+        // jsonwebtoken rounds fractional nbf values and uses its own clock.
+        validation.validate_exp = false;
+        validation.validate_nbf = false;
         let claims = decode::<AccessClaimsOwned>(
             token,
             &DecodingKey::from_secret(key.expose_secret().as_bytes()),
@@ -197,15 +201,21 @@ impl TokenService {
         )
         .map_err(|_| TokenError::InvalidAccessToken)?
         .claims;
-        if claims.typ != ACCESS_TOKEN_TYPE || claims.exp > 9_007_199_254_740_991 {
+        let now = u64::try_from(self.clock.now().timestamp())
+            .map_err(|_| TokenError::InvalidAccessToken)?;
+        if claims.typ != ACCESS_TOKEN_TYPE
+            || claims.iss != ACCESS_TOKEN_ISSUER
+            || claims.exp > 9_007_199_254_740_991
+            || claims.exp <= now
+            || claims.nbf > now as f64
+        {
             return Err(TokenError::InvalidAccessToken);
         }
-        let user_id = Uuid::parse_str(&claims.sub).map_err(|_| TokenError::InvalidAccessToken)?;
-        let session_id =
-            Uuid::parse_str(&claims.sid).map_err(|_| TokenError::InvalidAccessToken)?;
-        if !(1..=8).contains(&user_id.get_version_num())
-            || user_id.get_variant() != Variant::RFC4122
-            || session_id.get_version() != Some(Version::Random)
+        let user_id = crate::shared::validation::canonical_uuid(&claims.sub)
+            .ok_or(TokenError::InvalidAccessToken)?;
+        let session_id = crate::shared::validation::canonical_uuid(&claims.sid)
+            .ok_or(TokenError::InvalidAccessToken)?;
+        if session_id.get_version() != Some(Version::Random)
             || session_id.get_variant() != Variant::RFC4122
         {
             return Err(TokenError::InvalidAccessToken);
@@ -235,6 +245,9 @@ struct AccessClaimsOwned {
     sid: String,
     typ: String,
     exp: u64,
+    iss: String,
+    #[serde(default)]
+    nbf: f64,
 }
 
 fn random_uuid_v4() -> Result<Uuid, TokenError> {
@@ -263,6 +276,119 @@ mod tests {
             verification_keys: BTreeMap::from([("primary".to_owned(), secret)]),
             access_ttl: Duration::from_secs(900),
             refresh_ttl: Duration::from_secs(3_600),
+        }
+    }
+
+    #[test]
+    fn rejects_expiry_equality_and_future_not_before_claims() {
+        struct Fixed(DateTime<Utc>);
+        impl Clock for Fixed {
+            fn now(&self) -> DateTime<Utc> {
+                self.0
+            }
+        }
+        let now = Utc::now().timestamp();
+        let service = TokenService::with_clock(
+            config(),
+            Arc::new(Fixed(DateTime::from_timestamp(now, 0).expect("clock"))),
+        );
+        let mut header = Header::new(Algorithm::HS256);
+        header.kid = Some("primary".to_owned());
+        for (expiry, nbf, accepted) in [
+            (now, now - 1, false),
+            (now + 300, now + 100, false),
+            (now + 300, now - 1, true),
+        ] {
+            let claims = serde_json::json!({"sub":Uuid::new_v4(),"sid":Uuid::new_v4(),"typ":"access","exp":expiry,"nbf":nbf,"aud":ACCESS_TOKEN_AUDIENCE,"iss":ACCESS_TOKEN_ISSUER});
+            let token = encode(
+                &header,
+                &claims,
+                &EncodingKey::from_secret(config().secret.expose_secret().as_bytes()),
+            )
+            .expect("sign");
+            assert_eq!(service.verify_access_token(&token).is_ok(), accepted);
+        }
+    }
+
+    #[test]
+    fn rejects_missing_or_malformed_identity_claims_even_with_a_valid_signature() {
+        let service = TokenService::new(config());
+        let mut header = Header::new(Algorithm::HS256);
+        header.kid = Some("primary".to_owned());
+        let base = serde_json::json!({
+            "sub": Uuid::new_v4(), "sid": Uuid::new_v4(), "typ": "access",
+            "exp": Utc::now().timestamp() + 300,
+            "iss": ACCESS_TOKEN_ISSUER, "aud": ACCESS_TOKEN_AUDIENCE
+        });
+        let sign = |claims: &serde_json::Value| {
+            encode(
+                &header,
+                claims,
+                &EncodingKey::from_secret(config().secret.expose_secret().as_bytes()),
+            )
+            .expect("sign fixture")
+        };
+        for field in ["iss", "aud", "exp", "sub", "sid", "typ"] {
+            let mut claims = base.clone();
+            claims.as_object_mut().expect("claims object").remove(field);
+            assert_eq!(
+                service.verify_access_token(&sign(&claims)),
+                Err(TokenError::InvalidAccessToken),
+                "missing {field}"
+            );
+        }
+        for (field, value) in [
+            ("iss", serde_json::json!([ACCESS_TOKEN_ISSUER])),
+            ("iss", serde_json::json!(null)),
+            ("aud", serde_json::json!(null)),
+            ("aud", serde_json::json!(42)),
+            ("aud", serde_json::json!([])),
+            ("aud", serde_json::json!("another-service")),
+            ("nbf", serde_json::json!(null)),
+            ("nbf", serde_json::json!("0")),
+            (
+                "sub",
+                serde_json::json!(Uuid::new_v4().simple().to_string()),
+            ),
+        ] {
+            let mut claims = base.clone();
+            claims[field] = value;
+            assert_eq!(
+                service.verify_access_token(&sign(&claims)),
+                Err(TokenError::InvalidAccessToken),
+                "invalid {field}"
+            );
+        }
+        let mut claims = base;
+        claims["aud"] = serde_json::json!(["another-service", ACCESS_TOKEN_AUDIENCE]);
+        claims["nbf"] = serde_json::json!(-0.5);
+        assert!(service.verify_access_token(&sign(&claims)).is_ok());
+    }
+
+    #[test]
+    fn fractional_not_before_uses_the_injected_clock_without_rounding() {
+        struct Fixed(DateTime<Utc>);
+        impl Clock for Fixed {
+            fn now(&self) -> DateTime<Utc> {
+                self.0
+            }
+        }
+        let now = 2_000_000_000;
+        let service = TokenService::with_clock(
+            config(),
+            Arc::new(Fixed(DateTime::from_timestamp(now, 0).expect("clock"))),
+        );
+        let mut header = Header::new(Algorithm::HS256);
+        header.kid = Some("primary".to_owned());
+        for (nbf, accepted) in [(now as f64, true), (now as f64 + 0.1, false)] {
+            let claims = serde_json::json!({"sub":Uuid::new_v4(),"sid":Uuid::new_v4(),"typ":"access","exp":now+300,"nbf":nbf,"aud":ACCESS_TOKEN_AUDIENCE,"iss":ACCESS_TOKEN_ISSUER});
+            let token = encode(
+                &header,
+                &claims,
+                &EncodingKey::from_secret(config().secret.expose_secret().as_bytes()),
+            )
+            .expect("sign");
+            assert_eq!(service.verify_access_token(&token).is_ok(), accepted);
         }
     }
 
@@ -318,6 +444,10 @@ mod tests {
             "not-a-uuid:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_owned(),
             format!("{wrong_version}:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
             format!("{jti}:short"),
+            format!(
+                "{}:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                jti.simple()
+            ),
             format!("{jti}:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA!"),
         ] {
             assert_eq!(TokenService::parse_refresh_token(&invalid), None);

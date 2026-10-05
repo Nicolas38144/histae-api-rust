@@ -105,6 +105,7 @@ pub trait StripeGateway: Send + Sync {
 
 #[derive(Clone)]
 pub struct StripeClient {
+    metrics: crate::operations::metrics::DependencyMetrics,
     config: BillingConfig,
     endpoint: Url,
     client: reqwest::Client,
@@ -127,10 +128,35 @@ impl StripeClient {
             config,
             endpoint,
             client,
+            metrics: Default::default(),
         })
     }
 
+    pub fn with_metrics(
+        mut self,
+        metrics: std::sync::Arc<crate::operations::metrics::OperationalMetrics>,
+    ) -> Self {
+        self.metrics = crate::operations::metrics::DependencyMetrics::new(metrics);
+        self
+    }
+
     pub(crate) async fn request(
+        &self,
+        method: Method,
+        path: &str,
+        form: Vec<(String, String)>,
+        idempotency_key: Option<&str>,
+    ) -> Result<Value, StripeError> {
+        self.metrics
+            .observe(
+                "stripe",
+                "stripe_operation_failed",
+                self.request_inner(method, path, form, idempotency_key),
+            )
+            .await
+    }
+
+    async fn request_inner(
         &self,
         method: Method,
         path: &str,

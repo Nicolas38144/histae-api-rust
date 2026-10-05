@@ -38,7 +38,10 @@ pub fn routes(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ListQuery {
-    #[serde(default = "default_limit")]
+    #[serde(
+        default = "default_limit",
+        deserialize_with = "crate::shared::validation::deserialize_query_u32"
+    )]
     limit: u32,
     cursor: Option<String>,
     #[serde(default = "default_kind")]
@@ -108,10 +111,27 @@ async fn list_reconciliation(
 mod tests {
     use super::*;
     #[test]
+    fn pagination_coercion_matches_class_transformer() {
+        for value in ["20", "0x14", "2e1", "20.0", "0b10100", "0o24"] {
+            let uri = format!("/?limit={value}").parse().expect("URI");
+            let axum::extract::Query(query) =
+                axum::extract::Query::<ListQuery>::try_from_uri(&uri).expect("query");
+            assert!(query.is_valid());
+            assert_eq!(query.limit, 20);
+        }
+        for value in ["0", "101", "1.5", "-1", "NaN", "Infinity"] {
+            let uri = format!("/?limit={value}").parse().expect("URI");
+            assert!(
+                axum::extract::Query::<ListQuery>::try_from_uri(&uri)
+                    .map_or(true, |query| !query.0.is_valid())
+            );
+        }
+    }
+    #[test]
     fn admin_query_is_strict_and_bounds_its_page_size() {
         let query: ListQuery = serde_json::from_value(serde_json::json!({
             "kind": "all",
-            "limit": 100
+            "limit": "100"
         }))
         .unwrap_or_else(|_| unreachable!());
         assert!(query.is_valid());
@@ -119,7 +139,7 @@ mod tests {
 
         let oversized: ListQuery = serde_json::from_value(serde_json::json!({
             "kind": "subscription",
-            "limit": 101
+            "limit": "101"
         }))
         .unwrap_or_else(|_| unreachable!());
         assert!(!oversized.is_valid());

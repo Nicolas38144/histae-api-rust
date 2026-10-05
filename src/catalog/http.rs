@@ -12,7 +12,7 @@ use serde::Deserializer;
 #[cfg(feature = "webauthn-probe")]
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Serialize};
-use uuid::{Uuid, Variant};
+use uuid::Uuid;
 
 #[cfg(feature = "webauthn-probe")]
 use super::domain::{
@@ -142,6 +142,7 @@ async fn list_my_traits(
 #[serde(deny_unknown_fields)]
 struct UserTraitBody {
     #[serde(rename = "traitId")]
+    #[serde(deserialize_with = "crate::shared::validation::deserialize_uuid")]
     trait_id: Uuid,
 }
 
@@ -170,6 +171,7 @@ async fn add_my_trait(
 #[derive(Deserialize)]
 struct UserTraitPath {
     #[serde(rename = "traitId")]
+    #[serde(deserialize_with = "crate::shared::validation::deserialize_uuid")]
     trait_id: Uuid,
 }
 
@@ -225,6 +227,7 @@ async fn create_trait(
 #[cfg(feature = "webauthn-probe")]
 #[derive(Deserialize)]
 struct IdPath {
+    #[serde(deserialize_with = "crate::shared::validation::deserialize_uuid")]
     id: Uuid,
 }
 
@@ -312,6 +315,7 @@ async fn list_my_answers(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AnswerBody {
+    #[serde(deserialize_with = "crate::shared::validation::deserialize_uuid")]
     question_id: Uuid,
     answer: String,
 }
@@ -444,12 +448,11 @@ impl Visitor<'_> for DisplayOrderVisitor {
     where
         E: de::Error,
     {
-        let number = if value.trim().is_empty() {
+        let number = if crate::shared::text::javascript_trim(value).is_empty() {
             0.0
         } else {
-            value
-                .trim()
-                .parse::<f64>()
+            crate::shared::validation::javascript_number(value)
+                .ok_or(())
                 .map_err(|_| E::custom("display order must be numeric"))?
         };
         self.visit_f64(number)
@@ -582,6 +585,7 @@ impl ApiDto for UpdateQuestionBody {
 #[cfg(feature = "webauthn-probe")]
 #[derive(Deserialize)]
 struct QuestionIdPath {
+    #[serde(deserialize_with = "crate::shared::validation::deserialize_uuid")]
     id: Uuid,
 }
 
@@ -637,7 +641,7 @@ async fn delete_question(
 }
 
 fn valid_uuid_all(value: Uuid) -> bool {
-    (1..=8).contains(&value.get_version_num()) && value.get_variant() == Variant::RFC4122
+    crate::shared::validation::uuid_all(value)
 }
 
 fn catalog_error(error: CatalogError) -> ApiError {
@@ -699,6 +703,20 @@ fn catalog_error(error: CatalogError) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn uuid_dtos_reject_compact_text_but_keep_validator_all_sentinels() {
+        for id in [Uuid::new_v4(), Uuid::nil(), Uuid::max()] {
+            let valid: UserTraitBody =
+                serde_json::from_value(serde_json::json!({"traitId":id})).expect("canonical UUID");
+            assert!(valid.is_valid());
+            assert!(
+                serde_json::from_value::<UserTraitBody>(
+                    serde_json::json!({"traitId":id.simple().to_string()})
+                )
+                .is_err()
+            );
+        }
+    }
 
     #[test]
     #[cfg(feature = "webauthn-probe")]

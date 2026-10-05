@@ -284,9 +284,8 @@ impl PushService {
             .get("expires_in")
             .and_then(Value::as_i64)
             .unwrap_or(3_600);
-        let token_expiry = now
-            .checked_add_signed(ChronoDuration::seconds(expires_in))
-            .ok_or(PushDeliveryError)?;
+        let ttl = ChronoDuration::try_seconds(expires_in).ok_or(PushDeliveryError)?;
+        let token_expiry = now.checked_add_signed(ttl).ok_or(PushDeliveryError)?;
         *cache = Some(AccessToken {
             value: value.clone(),
             expires_at: token_expiry,
@@ -509,6 +508,39 @@ mod tests {
                 .unwrap_or_else(|_| unreachable!())
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn invalid_oauth_durations_return_errors_without_panicking_or_sending() {
+        for expiry in [i64::MAX, i64::MIN, i64::MAX / 1000] {
+            let transport = Arc::new(Transport::default());
+            transport
+                .token_responses
+                .lock()
+                .expect("responses")
+                .push(response(
+                    200,
+                    json!({"access_token":"fixture-access", "expires_in":expiry}),
+                ));
+            let service = PushService::with_dependencies(
+                config(PushProvider::Fcm),
+                Arc::new(Store::default()),
+                transport.clone(),
+                Arc::new(Signer),
+                Arc::new(FixedClock(Utc::now())),
+            );
+            assert_eq!(
+                service
+                    .send(
+                        "fixture-device",
+                        NotificationType::NewMessage,
+                        BTreeMap::new()
+                    )
+                    .await,
+                Err(PushDeliveryError)
+            );
+            assert!(transport.json.lock().expect("requests").is_empty());
+        }
     }
 
     #[tokio::test]

@@ -17,6 +17,7 @@ const MAX_ATTEMPTS: u8 = 3;
 
 #[derive(Clone)]
 pub struct S3ObjectStorage {
+    metrics: crate::operations::metrics::DependencyMetrics,
     client: Client,
     endpoint: Url,
     region: String,
@@ -34,6 +35,7 @@ impl S3ObjectStorage {
             .build()
             .map_err(|_| ObjectStorageError)?;
         Ok(Self {
+            metrics: Default::default(),
             client,
             endpoint: config.endpoint.clone(),
             region: config.region.clone(),
@@ -70,7 +72,32 @@ impl S3ObjectStorage {
         Ok(url)
     }
 
+    pub fn with_metrics(
+        mut self,
+        metrics: std::sync::Arc<crate::operations::metrics::OperationalMetrics>,
+    ) -> Self {
+        self.metrics = crate::operations::metrics::DependencyMetrics::new(metrics);
+        self
+    }
+
     async fn send(
+        &self,
+        method: Method,
+        key: Option<&str>,
+        body: &[u8],
+        content_type: Option<&str>,
+        cache_control: Option<&str>,
+    ) -> Result<(), ObjectStorageError> {
+        self.metrics
+            .observe(
+                "object_storage",
+                "object_storage_unavailable",
+                self.send_inner(method, key, body, content_type, cache_control),
+            )
+            .await
+    }
+
+    async fn send_inner(
         &self,
         method: Method,
         key: Option<&str>,

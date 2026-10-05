@@ -129,6 +129,7 @@ pub struct PoolStats {
 
 #[derive(Clone)]
 pub struct Database {
+    metrics: crate::operations::metrics::DependencyMetrics,
     pool: PgPool,
     waiting: Arc<AtomicU32>,
     max_connections: u32,
@@ -141,6 +142,7 @@ impl Database {
     pub async fn connect(config: &PostgresConfig) -> Result<Self, DatabaseError> {
         let pool = connect_pool(config, config.max_connections, config.application_name).await?;
         let database = Self {
+            metrics: Default::default(),
             pool,
             waiting: Arc::new(AtomicU32::new(0)),
             max_connections: config.max_connections,
@@ -150,7 +152,21 @@ impl Database {
         Ok(database)
     }
 
+    pub fn with_metrics(
+        mut self,
+        metrics: std::sync::Arc<crate::operations::metrics::OperationalMetrics>,
+    ) -> Self {
+        self.metrics = crate::operations::metrics::DependencyMetrics::new(metrics);
+        self
+    }
+
     pub async fn ping(&self) -> Result<(), DatabaseError> {
+        self.metrics
+            .observe("postgres", "postgres_query_failed", self.ping_inner())
+            .await
+    }
+
+    async fn ping_inner(&self) -> Result<(), DatabaseError> {
         sqlx::query("SELECT 1")
             .execute(&self.pool)
             .await
@@ -160,7 +176,12 @@ impl Database {
 
     pub async fn acquire(&self) -> Result<sqlx::pool::PoolConnection<Postgres>, DatabaseError> {
         let waiting = WaitingAcquisition::new(&self.waiting);
-        let connection = self.pool.acquire().await.map_err(map_sqlx_error);
+        let connection = self
+            .metrics
+            .observe("postgres", "postgres_connection_failed", async {
+                self.pool.acquire().await.map_err(map_sqlx_error)
+            })
+            .await;
         drop(waiting);
         connection
     }
@@ -174,23 +195,43 @@ impl Database {
         ) -> TransactionFuture<'connection, T, E>,
     {
         let mut connection = self.acquire().await.map_err(E::from)?;
-        let mut transaction = connection
-            .begin()
+        let mut transaction = self
+            .metrics
+            .observe(
+                "postgres",
+                "postgres_transaction_begin_failed",
+                connection.begin(),
+            )
             .await
             .map_err(|error| E::from(map_transaction_error(error, TransactionPhase::Begin)))?;
-        let result = operation(&mut transaction).await;
-        match result {
+        // Business rejections are not dependency outages. Observe the actual
+        // transaction commands rather than the application's Result.
+        match operation(&mut transaction).await {
             Ok(value) => {
-                transaction.commit().await.map_err(|error| {
-                    E::from(map_transaction_error(error, TransactionPhase::Commit))
-                })?;
+                self.metrics
+                    .observe(
+                        "postgres",
+                        "postgres_transaction_commit_failed",
+                        transaction.commit(),
+                    )
+                    .await
+                    .map_err(|error| {
+                        E::from(map_transaction_error(error, TransactionPhase::Commit))
+                    })?;
                 Ok(value)
             }
-            Err(operation_error) => {
-                transaction.rollback().await.map_err(|error| {
-                    E::from(map_transaction_error(error, TransactionPhase::Rollback))
-                })?;
-                Err(operation_error)
+            Err(error) => {
+                self.metrics
+                    .observe(
+                        "postgres",
+                        "postgres_transaction_rollback_failed",
+                        transaction.rollback(),
+                    )
+                    .await
+                    .map_err(|error| {
+                        E::from(map_transaction_error(error, TransactionPhase::Rollback))
+                    })?;
+                Err(error)
             }
         }
     }

@@ -197,8 +197,12 @@ pub async fn middleware(
     let remote = request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
-        .map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |info| info.0.ip());
-    let client_ip = state.trust_proxy.client_ip(remote, request.headers());
+        .map(|info| info.0.ip());
+    // In-process test requests have no peer. Never trust a forwarded header
+    // based on an invented socket address.
+    let client_ip = remote.map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |remote| {
+        state.trust_proxy.client_ip(remote, request.headers())
+    });
     request
         .extensions_mut()
         .insert(RequestId(request_id.clone()));
@@ -222,6 +226,16 @@ pub async fn middleware(
         }
     };
     apply_security_headers(response.headers_mut(), state.environment);
+    if response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|value| value == "application/json")
+    {
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json; charset=utf-8"),
+        );
+    }
     if let Ok(value) = HeaderValue::from_str(&request_id) {
         response
             .headers_mut()

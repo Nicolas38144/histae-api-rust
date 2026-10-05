@@ -243,24 +243,25 @@ impl DataExportService {
             .map_err(|error| match error {
                 TryAcquireError::NoPermits | TryAcquireError::Closed => DataExportError::Busy,
             })?;
-        let directory = create_private_directory().map_err(|_| DataExportError::Unavailable)?;
-        match self.prepare_in_directory(user_id, &directory, permit).await {
-            Ok(prepared) => Ok(prepared),
-            Err(error) => {
-                remove_directory(&directory);
-                Err(error)
-            }
-        }
+        let (directory, file) = tokio::task::spawn_blocking(|| {
+            let directory = ExportDirectory(create_private_directory()?);
+            let file = open_private_file(&directory.0.join(EXPORT_FILENAME))?;
+            Ok::<_, io::Error>((directory, file))
+        })
+        .await
+        .map_err(|_| DataExportError::Unavailable)?
+        .map_err(|_| DataExportError::Unavailable)?;
+        self.prepare_in_directory(user_id, directory, file, permit)
+            .await
     }
 
     async fn prepare_in_directory(
         &self,
         user_id: Uuid,
-        directory: &Path,
+        directory: ExportDirectory,
+        file: std::fs::File,
         permit: OwnedSemaphorePermit,
     ) -> Result<PreparedDataExport, DataExportError> {
-        let file = open_private_file(&directory.join(EXPORT_FILENAME))
-            .map_err(|_| DataExportError::Unavailable)?;
         let mut writer = JsonExportWriter::new(File::from_std(file), self.max_bytes);
         writer.start_object(None).await.map_err(map_build_error)?;
 
@@ -327,8 +328,8 @@ impl DataExportService {
             .map_err(|_| DataExportError::Unavailable)?;
         Ok(PreparedDataExport {
             bytes,
-            stream: ReaderStream::new(file),
-            directory: Some(directory.to_path_buf()),
+            stream: Some(ReaderStream::new(file)),
+            directory: Some(directory),
             permit: Some(permit),
         })
     }
@@ -350,8 +351,8 @@ fn map_build_error(error: ExportBuildError) -> DataExportError {
 
 pub struct PreparedDataExport {
     bytes: u64,
-    stream: ReaderStream<File>,
-    directory: Option<PathBuf>,
+    stream: Option<ReaderStream<File>>,
+    directory: Option<ExportDirectory>,
     permit: Option<OwnedSemaphorePermit>,
 }
 
@@ -361,9 +362,9 @@ impl PreparedDataExport {
     }
 
     fn cleanup(&mut self) {
-        if let Some(directory) = self.directory.take() {
-            remove_directory(&directory);
-        }
+        // Close the file before scheduling deletion (also required on Windows).
+        self.stream.take();
+        self.directory.take();
         self.permit.take();
     }
 }
@@ -372,7 +373,10 @@ impl Stream for PreparedDataExport {
     type Item = Result<Bytes, io::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let polled = Pin::new(&mut self.stream).poll_next(context);
+        let Some(stream) = self.stream.as_mut() else {
+            return Poll::Ready(None);
+        };
+        let polled = Pin::new(stream).poll_next(context);
         if matches!(polled, Poll::Ready(None) | Poll::Ready(Some(Err(_)))) {
             self.cleanup();
         }
@@ -383,6 +387,20 @@ impl Stream for PreparedDataExport {
 impl Drop for PreparedDataExport {
     fn drop(&mut self) {
         self.cleanup();
+    }
+}
+
+struct ExportDirectory(PathBuf);
+
+impl Drop for ExportDirectory {
+    fn drop(&mut self) {
+        let path = std::mem::take(&mut self.0);
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn_blocking(move || remove_directory(&path));
+        } else {
+            // Already outside the async runtime, including cancelled preparation.
+            remove_directory(&path);
+        }
     }
 }
 
@@ -422,7 +440,16 @@ fn open_private_file(path: &Path) -> io::Result<std::fs::File> {
 }
 
 fn remove_directory(path: &Path) {
-    let _ = std::fs::remove_dir_all(path);
+    for attempt in 0..3 {
+        match std::fs::remove_dir_all(path) {
+            Ok(()) => return,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return,
+            Err(_) if attempt < 2 => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Err(_) => {
+                let _ = crate::operations::logging::error("data_export_cleanup_failed", None);
+            }
+        }
+    }
 }
 
 fn wire_timestamp(value: DateTime<Utc>) -> String {
@@ -432,6 +459,29 @@ fn wire_timestamp(value: DateTime<Utc>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn dropping_an_export_closes_its_file_and_removes_its_private_directory() {
+        let path = create_private_directory().expect("directory");
+        let file = open_private_file(&path.join(EXPORT_FILENAME)).expect("file");
+        let semaphore = Arc::new(Semaphore::new(1));
+        let export = PreparedDataExport {
+            bytes: 0,
+            stream: Some(ReaderStream::new(File::from_std(file))),
+            directory: Some(ExportDirectory(path.clone())),
+            permit: Some(semaphore.clone().acquire_owned().await.expect("permit")),
+        };
+        assert_eq!(semaphore.available_permits(), 0);
+        drop(export);
+        assert_eq!(semaphore.available_permits(), 1);
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while tokio::fs::try_exists(&path).await.expect("exists") {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("cleanup completes");
+    }
 
     #[tokio::test]
     async fn writer_rejects_oversized_documents_before_streaming() {

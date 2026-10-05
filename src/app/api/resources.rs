@@ -23,25 +23,28 @@ pub(super) struct ApiResources {
 
 impl ApiResources {
     pub(super) async fn connect(config: &AppConfig) -> Result<Self, &'static str> {
+        let metrics = Arc::new(OperationalMetrics::new());
         let database = Database::connect(&config.postgres)
             .await
-            .map_err(|_| "postgres_connection_failed")?;
+            .map_err(|_| "postgres_connection_failed")?
+            .with_metrics(Arc::clone(&metrics));
         let activity = AccountActivityPool::connect(&config.postgres)
             .await
             .map_err(|_| "account_activity_unavailable")?;
         let redis_enabled = config.rate_limit.store == RateLimitStore::Redis;
         let redis = RedisService::connect(&config.redis, redis_enabled)
             .await
-            .map_err(|_| "redis_connection_failed")?;
+            .map_err(|_| "redis_connection_failed")?
+            .with_metrics(Arc::clone(&metrics));
         let realtime = RealtimeService::connect(redis.clone())
             .await
             .map_err(|_| "redis_subscription_failed")?;
         let storage = Arc::new(
             S3ObjectStorage::new(&config.object_storage)
-                .map_err(|_| "object_storage_invalid_configuration")?,
+                .map_err(|_| "object_storage_invalid_configuration")?
+                .with_metrics(Arc::clone(&metrics)),
         );
         let callbacks = Arc::new(SweegoWebhookMetrics::default());
-        let metrics = Arc::new(OperationalMetrics::new());
         let persistent_status = Arc::new(PgOperationalStatus::new(
             database.clone(),
             Arc::clone(&callbacks),

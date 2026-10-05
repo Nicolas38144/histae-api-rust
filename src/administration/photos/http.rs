@@ -2,13 +2,13 @@ use axum::extract::Extension;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use uuid::{Uuid, Variant};
+use uuid::Uuid;
 
 use super::{AdminPhotoError, AdminPhotoPage, AdminPhotoService, PhotoReconciliationFilter};
 use crate::http::error::ApiError;
 use crate::http::extract::{ApiDto, ValidatedJson, ValidatedPath, ValidatedQuery};
 use crate::http::router::HttpState;
-use crate::identity::admin::http::{AdminAuthHttpState, AdminIdentity, RecentAdminIdentity};
+use crate::identity::admin::http::{AdminAuthHttpState, AdminIdentity};
 use crate::shared::text::validator_js_length;
 use serde::{Deserialize, Serialize};
 
@@ -39,9 +39,15 @@ pub fn routes(state: AdminPhotoHttpState, auth: AdminAuthHttpState) -> Router<Ht
 struct ListQuery {
     #[serde(default)]
     status: PhotoReconciliationFilter,
-    #[serde(default = "default_limit")]
+    #[serde(
+        default = "default_limit",
+        deserialize_with = "crate::shared::validation::deserialize_query_u32"
+    )]
     limit: u32,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::shared::validation::deserialize_query_u32"
+    )]
     offset: u32,
     cursor: Option<String>,
 }
@@ -83,6 +89,7 @@ async fn list(
 
 #[derive(Deserialize)]
 struct PhotoPath {
+    #[serde(deserialize_with = "crate::shared::validation::deserialize_uuid")]
     id: Uuid,
 }
 
@@ -91,7 +98,7 @@ impl ApiDto for PhotoPath {
     const ERROR_MESSAGE: &'static str = "The photo ID must be a valid UUID.";
 
     fn is_valid(&self) -> bool {
-        (1..=8).contains(&self.id.get_version_num()) && self.id.get_variant() == Variant::RFC4122
+        crate::shared::validation::uuid_all(self.id)
     }
 }
 
@@ -116,7 +123,7 @@ struct MessageResponse {
 }
 
 async fn reconcile(
-    RecentAdminIdentity(identity): RecentAdminIdentity,
+    AdminIdentity(identity): AdminIdentity,
     Extension(state): Extension<AdminPhotoHttpState>,
     ValidatedPath(path): ValidatedPath<PhotoPath>,
     ValidatedJson(body): ValidatedJson<ReconcileBody>,
@@ -161,6 +168,28 @@ fn admin_photo_error(error: AdminPhotoError) -> ApiError {
             "photo_reconciliation_in_progress",
             "This profile photo is already being processed.",
         ),
-        AdminPhotoError::Database(_) => ApiError::internal(),
+        AdminPhotoError::Database(error) => error.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn pagination_coercion_matches_class_transformer() {
+        for value in ["20", "0x14", "2e1", "20.0", "0b10100", "0o24"] {
+            let uri = format!("/?limit={value}").parse().expect("URI");
+            let axum::extract::Query(query) =
+                axum::extract::Query::<ListQuery>::try_from_uri(&uri).expect("query");
+            assert!(query.is_valid());
+            assert_eq!(query.limit, 20);
+        }
+        for value in ["0", "101", "1.5", "-1", "NaN", "Infinity"] {
+            let uri = format!("/?limit={value}").parse().expect("URI");
+            assert!(
+                axum::extract::Query::<ListQuery>::try_from_uri(&uri)
+                    .map_or(true, |query| !query.0.is_valid())
+            );
+        }
     }
 }

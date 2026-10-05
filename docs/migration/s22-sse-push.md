@@ -32,7 +32,7 @@ erreur réessayable.
 
 ## Contrat HTTP et SSE
 
-`GET /api/users/me/events` exige le même JWT mobile actif que NestJS et répond `200 text/event-stream`.
+`GET /api/users/me/events` exige un JWT mobile actif et un onboarding complet, comme NestJS et répond `200 text/event-stream`.
 
 - `connected` ne porte pas d’identifiant et contient `{ "server_time": <date ISO UTC> }` ;
 - `heartbeat` a le même payload et arrive toutes les 25 secondes ;

@@ -268,7 +268,7 @@ async fn registers_a_device_with_the_exact_public_projection_and_pre_trim_valida
     let store = FakeDeviceStore::default();
     let record = device();
     store.state.lock().expect("state").register_result = Some(record.clone());
-    let (app, token) = app(store.clone(), false);
+    let (app, token) = app(store.clone(), true);
     let response = app
         .oneshot(request(
             "POST",
@@ -297,7 +297,7 @@ async fn registers_a_device_with_the_exact_public_projection_and_pre_trim_valida
 }
 
 #[tokio::test]
-async fn lists_and_removes_devices_without_requiring_completed_onboarding() {
+async fn lists_and_removes_devices_after_completed_onboarding() {
     let store = FakeDeviceStore::default();
     let record = device();
     {
@@ -305,7 +305,7 @@ async fn lists_and_removes_devices_without_requiring_completed_onboarding() {
         state.devices = vec![record.clone()];
         state.remove_result = true;
     }
-    let (app, token) = app(store, false);
+    let (app, token) = app(store, true);
     let listed = app
         .clone()
         .oneshot(request("GET", "/api/users/me/devices", Some(&token), ""))
@@ -424,4 +424,35 @@ async fn authentication_and_database_failures_keep_stable_public_errors() {
         .expect("response");
     assert_eq!(database.status(), StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(json_body(database).await["error"]["code"], "internal_error");
+}
+
+#[tokio::test]
+async fn incomplete_onboarding_cannot_read_register_or_delete_devices() {
+    let store = FakeDeviceStore::default();
+    let (app, token) = app(store.clone(), false);
+    for (method, path, body) in [
+        ("GET", "/api/users/me/devices".to_owned(), ""),
+        (
+            "POST",
+            "/api/users/me/devices".to_owned(),
+            r#"{"push_token":"provider-token-with-enough-characters","platform":"ios"}"#,
+        ),
+        (
+            "DELETE",
+            format!("/api/users/me/devices/{}", Uuid::new_v4()),
+            "",
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request(method, &path, Some(&token), body))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            json_body(response).await["error"]["code"],
+            "onboarding_incomplete"
+        );
+    }
+    assert!(store.state.lock().expect("state").registration.is_none());
 }

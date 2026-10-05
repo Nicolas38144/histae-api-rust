@@ -54,7 +54,8 @@ impl PgDataExportStore {
                     .await?;
                     let stored_profile = sqlx::query(
                         "SELECT jsonb_build_object(
-                           'firstname', profile.firstname, 'birthdate', profile.birthdate,
+                           'firstname', profile.firstname, 'birthdate',
+                             to_char(profile.birthdate::timestamp, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),
                            'sex', profile.sex, 'bio', profile.bio) AS value,
                            photo.object_key AS photo_key
                          FROM user_profile AS profile
@@ -405,8 +406,8 @@ impl PgDataExportStore {
                 "SELECT jsonb_build_object(
                    'stripe_invoice_id', stripe_invoice_id,
                    'stripe_subscription_id', stripe_subscription_id, 'status', status,
-                   'currency', currency, 'amount_due', amount_due, 'amount_paid', amount_paid,
-                   'amount_remaining', amount_remaining,
+                   'currency', currency, 'amount_due', amount_due::text, 'amount_paid', amount_paid::text,
+                   'amount_remaining', amount_remaining::text,
                    'period_starts_at', CASE WHEN period_starts_at IS NULL THEN NULL ELSE
                      to_char(period_starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END,
                    'period_ends_at', CASE WHEN period_ends_at IS NULL THEN NULL ELSE
