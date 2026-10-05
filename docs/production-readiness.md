@@ -56,6 +56,9 @@ ni une validation du déploiement Linux de production. Les commandes et règles 
 
 ## Conditions de mise en production restant externes au code
 
+La [roadmap de mise en production](../roadmap.md) centralise désormais les travaux ouverts, leur ordre,
+leurs responsables à désigner et les preuves nécessaires. Ce document conserve le bilan des corrections déjà validées.
+
 - Déployer avec la configuration de production, TLS, secrets propres à chaque fournisseur, origine/RP ID WebAuthn réels et liste précise des proxies de confiance.
 - Valider les sandboxes puis les comptes fournisseurs Sweego, Stripe et FCM ; les mocks ne prouvent pas les livraisons réelles.
 - Effectuer les cérémonies WebAuthn et les parcours mobiles/dashboard avec les vrais clients.

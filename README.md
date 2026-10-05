@@ -76,6 +76,7 @@ La dernière commande exige les dépendances locales et le codec installés. Les
 
 ## Références
 
+- [Roadmap des validations et de la mise en production](roadmap.md)
 - [Contrat HTTP : 100 couples méthode/chemin](docs/http-contract.md)
 - [Architecture et conventions](docs/architecture.md)
 - [Conteneurisation et déploiement](docs/container-deployment.md)
