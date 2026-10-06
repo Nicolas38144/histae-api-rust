@@ -1,0 +1,3262 @@
+{
+  "info": {
+    "name": "Histae API Rust",
+    "description": "Collection issue de docs/http-contract.md (100 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Routes publiques et intégrations",
+      "item": [
+        {
+          "name": "Connexion mobile et catalogue",
+          "item": [
+            {
+              "name": "POST /api/auth/otp/send",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{otpIdempotencyKey}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/auth/otp/send",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ phone_number } + clé d’idempotence → 202 { message }.\n\nConserver la même clé pour rejouer la même intention ; choisir un nouvel UUID v4 pour une nouvelle intention."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/auth/otp/verify",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/auth/otp/verify",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"otp\": \"{{otp}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ phone_number, otp } → 200 { access_token, refresh_token }."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "  const data = pm.response.json();",
+                      "  if (data.access_token) pm.collectionVariables.set(\"accessToken\", data.access_token);",
+                      "  if (data.refresh_token) pm.collectionVariables.set(\"refreshToken\", data.refresh_token);",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "POST /api/auth/refresh",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/auth/refresh",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ refresh_token } → 200 { access_token, refresh_token }."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "  const data = pm.response.json();",
+                      "  if (data.access_token) pm.collectionVariables.set(\"accessToken\", data.access_token);",
+                      "  if (data.refresh_token) pm.collectionVariables.set(\"refreshToken\", data.refresh_token);",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "GET /api/plans",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/plans",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "200 { plans: [...] }."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Webhook Stripe",
+          "item": [
+            {
+              "name": "POST /api/billing/stripe/webhook",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Stripe-Signature",
+                    "value": "{{stripeSignature}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/billing/stripe/webhook",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Corps JSON brut + Stripe-Signature → 200 { received: true }.\n\nLa signature doit correspondre exactement au corps brut. Utiliser un événement signé par Stripe ; le placeholder renverra 401."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Webhook Sweego",
+          "item": [
+            {
+              "name": "POST /api/auth/sweego/webhook",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "webhook-id",
+                    "value": "{{sweegoWebhookId}}"
+                  },
+                  {
+                    "key": "webhook-timestamp",
+                    "value": "{{sweegoWebhookTimestamp}}"
+                  },
+                  {
+                    "key": "webhook-signature",
+                    "value": "{{sweegoWebhookSignature}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/auth/sweego/webhook",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Corps JSON brut + webhook-id, webhook-timestamp, webhook-signature → 200 { received: true }.\n\nSignature HMAC sur id.timestamp.corps-brut. Utiliser un callback Sweego signé ; les placeholders renverront 401."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Santé",
+          "item": [
+            {
+              "name": "GET /health/live",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/health/live",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "200 { status: \"ok\" } si le processus répond."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /health/ready",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/health/ready",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "200 { status: \"ready\" } si les dépendances requises répondent ; sinon 503."
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Client mobile",
+      "item": [
+        {
+          "name": "Session et déconnexion",
+          "item": [
+            {
+              "name": "GET /api/auth/me",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/auth/me",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 { user_id, onboarding_complete }, sans rôle admin."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/auth/logout",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/auth/logout",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ refresh_token, device_id? } → 204."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/auth/sessions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/auth/sessions",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "limit, cursor → 200 { sessions, next_cursor }. Pas d’offset."
+              },
+              "response": []
+            },
+            {
+              "name": "DELETE /api/auth/sessions/:id",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/auth/sessions/{{sessionId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nUUID v4 d’une famille du compte → 204."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/auth/logout-all",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/auth/logout-all",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"confirm\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ confirm: true } → 200 { revoked_sessions }."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Consentements",
+          "item": [
+            {
+              "name": "GET /api/users/me/consents",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/consents",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 { consents, onboarding_complete, required_actions }."
+              },
+              "response": []
+            },
+            {
+              "name": "PUT /api/users/me/consents",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/consents",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"consents\": [\n    {\n      \"consent_type\": \"terms_of_service_acceptance\",\n      \"granted\": true\n    },\n    {\n      \"consent_type\": \"privacy_notice_acknowledgement\",\n      \"granted\": true\n    },\n    {\n      \"consent_type\": \"sensitive_data_consent\",\n      \"granted\": true\n    },\n    {\n      \"consent_type\": \"location_consent\",\n      \"granted\": true\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ consents: [{ consent_type, granted }] } → même état enrichi."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Profil et préférences",
+          "item": [
+            {
+              "name": "GET /api/users/me",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 avec le profil propriétaire ; 404 profile_not_found s’il n’est pas complété."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/users/me/profile",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/profile",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"firstname\": \"Alice\",\n  \"birthdate\": \"1995-01-01\",\n  \"sex\": \"female\",\n  \"bio\": \"Bonjour, je découvre Histae.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ firstname, birthdate, sex?, bio? } → 200 { message: \"profile updated\" }."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/preferences",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/preferences",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 { min_age, max_age, max_distance_km, looking_for } ; 404 preferences_not_found."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/users/me/preferences",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/preferences",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"min_age\": 25,\n  \"max_age\": 40,\n  \"max_distance_km\": 30,\n  \"looking_for\": \"both\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Ces quatre champs requis → 200 { message: \"preferences updated\" }."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/users/me/presence",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/presence",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"latitude\": 48.8566,\n  \"longitude\": 2.3522\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ latitude, longitude } → 200 { message: \"presence updated\" }."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Photo unique",
+          "item": [
+            {
+              "name": "PUT /api/users/me/photo",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{photoIdempotencyKey}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/photo",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "photo",
+                      "type": "file",
+                      "src": ""
+                    }
+                  ]
+                },
+                "description": "Multipart photo + clé d’idempotence → 200 avec URL propriétaire et modération.\n\nConserver la même clé pour rejouer la même intention ; choisir un nouvel UUID v4 pour une nouvelle intention.\n\nChoisir un fichier local pour le champ multipart photo ; taille maximale 500 000 octets."
+              },
+              "response": []
+            },
+            {
+              "name": "DELETE /api/users/me/photo",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/photo",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nAucun corps → 204 dès acceptation durable du retrait."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Traits et questions de profil",
+          "item": [
+            {
+              "name": "GET /api/traits",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/traits",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 { traits: [{ id, name }] }, catalogue."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/traits",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/traits",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Même forme, traits attribués au demandeur."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/users/me/traits",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/traits",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"traitId\": \"{{traitId}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ traitId } → 204 ; 404 trait_not_found. Le champ snake_case trait_id est refusé."
+              },
+              "response": []
+            },
+            {
+              "name": "DELETE /api/users/me/traits/:traitId",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/traits/{{traitId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "UUID → 204, même si non attribué."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/profile-questions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/profile-questions",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 { questions: [...] }, catalogue ordonné."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/profile-answers",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/profile-answers",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 { answers: [...] }, réponses propriétaires ordonnées."
+              },
+              "response": []
+            },
+            {
+              "name": "PUT /api/users/me/profile-answers",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/profile-answers",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"answers\": [\n    {\n      \"question_id\": \"{{questionId}}\",\n      \"answer\": \"J’aime les longues promenades.\"\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ answers: [{ question_id, answer }] } → même collection remplacée."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Découverte, matchs et messages",
+          "item": [
+            {
+              "name": "GET /api/users/me/discovery-status",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/discovery-status",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 { ready, required_actions, presence_expires_at }."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/feed",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/feed",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "limit, cursor → 200 { profiles, next_cursor }."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/swipes",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/swipes",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"target_user_id\": \"{{targetUserId}}\",\n  \"decision\": \"like\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ target_user_id, decision: like ou pass } → 201 { decision, matched, match? }."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/matches/me",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/me",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "limit, cursor (offset déprécié) → 200 { matches, next_cursor }."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/continuation-quota",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/continuation-quota",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 : plan effectif, usage, weekly_limit, remaining pour un plan limité."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/matches/:id/reveal",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/{{matchId}}/reveal",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Aucun corps → 200 { message, photos_revealed }."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/matches/:id/continue",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/{{matchId}}/continue",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Aucun corps → 200 { message, match_confirmed }."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/matches/:id/messages",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/{{matchId}}/messages",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "limit, cursor (offset déprécié) → 200 { messages, next_cursor }."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/matches/:id/messages",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{messageIdempotencyKey}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/{{matchId}}/messages",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"content\": \"Bonjour !\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ content } + clé d’idempotence → 201 avec le message stable.\n\nConserver la même clé pour rejouer la même intention ; choisir un nouvel UUID v4 pour une nouvelle intention."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/matches/:id/messages/read",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/{{matchId}}/messages/read",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"read_through_message_id\": \"{{messageId}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ read_through_message_id } → 200 { updated_count, read_through_message_id }."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/matches/:id/messages/:msgId/read",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/{{matchId}}/messages/{{messageId}}/read",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Aucun corps → 200 { message: \"message marked as read\" }."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Appareils et temps réel",
+          "item": [
+            {
+              "name": "GET /api/users/me/devices",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/devices",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 { devices: [...] }, sans tokens FCM."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/users/me/devices",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/devices",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"push_token\": \"{{pushToken}}\",\n  \"platform\": \"android\",\n  \"app_version\": \"1.0.0\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ push_token, platform: ios ou android, app_version? } → 201 avec l’appareil public."
+              },
+              "response": []
+            },
+            {
+              "name": "DELETE /api/users/me/devices/:id",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/devices/{{deviceId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "UUID d’un appareil du compte → 204 ; 404 device_not_found."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/events",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "text/event-stream"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/events",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Flux SSE authentifié text/event-stream.\n\nFlux SSE de longue durée : lancer manuellement, puis interrompre dans Postman."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Abonnement",
+          "item": [
+            {
+              "name": "GET /api/users/me/subscription",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/subscription",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 avec l’état d’abonnement public."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/users/me/subscription/checkout",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{checkoutIdempotencyKey}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/subscription/checkout",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"billing_period\": \"monthly\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ billing_period: monthly ou annual } + clé d’idempotence → 201 { session_id, url, expires_at }.\n\nConserver la même clé pour rejouer la même intention ; choisir un nouvel UUID v4 pour une nouvelle intention."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/users/me/subscription/portal",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/subscription/portal",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nAucun corps → 201 { url }."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Droits, effacement et sûreté",
+          "item": [
+            {
+              "name": "POST /api/users/me/deletion-token",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/deletion-token",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nAucun corps → 201 { confirmation_token, expires_at }."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "  const data = pm.response.json();",
+                      "  if (data.confirmation_token) pm.collectionVariables.set(\"deletionToken\", data.confirmation_token);",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "DELETE /api/users/me",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"confirmation_token\": \"{{deletionToken}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ confirmation_token } → 202 { request_id, status: \"in_progress\" }.\n\nDésactive le compte ; utiliser uniquement un compte de test et le jeton à usage unique de la route précédente."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/users/me/data-subject-requests",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/data-subject-requests",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"access\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ type } → 201 avec la demande."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/data-subject-requests",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/data-subject-requests",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 { requests: [...] }."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/data-export",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/data-export",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 application/json en pièce jointe avec l’export portable du demandeur."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/blocks",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/blocks",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 { blocks: [...] }, toujours photo: null."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/users/me/blocks/:userId",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/blocks/{{targetUserId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nUUID → 204, clôt les matchs entre les comptes et empêche leur recréation."
+              },
+              "response": []
+            },
+            {
+              "name": "DELETE /api/users/me/blocks/:userId",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/blocks/{{targetUserId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nUUID → 204."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/reports",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/reports",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reported_user_id\": \"{{targetUserId}}\",\n  \"reason\": \"spam\",\n  \"description\": \"Signalement de test.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ reported_user_id, match_id?, reason, description? } → 201 avec le signalement."
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Administration",
+      "item": [
+        {
+          "name": "Entrée WebAuthn",
+          "item": [
+            {
+              "name": "POST /api/admin/auth/login/options",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/login/options",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Aucun corps → 200 { challenge_id, options }."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "  const data = pm.response.json();",
+                      "  if (data.challenge_id) pm.collectionVariables.set(\"challengeId\", data.challenge_id);",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "POST /api/admin/auth/login/verify",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/login/verify",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"challenge_id\": \"{{challengeId}}\",\n  \"credential\": {}\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ challenge_id, credential } → 200 avec session publique et cookie.\n\nRemplacer credential par une véritable assertion WebAuthn obtenue dans le navigateur admin."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/auth/bootstrap/options",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/bootstrap/options",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"bootstrap_token\": \"{{bootstrapToken}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ bootstrap_token } → 200 { challenge_id, options }."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "  const data = pm.response.json();",
+                      "  if (data.challenge_id) pm.collectionVariables.set(\"challengeId\", data.challenge_id);",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "POST /api/admin/auth/bootstrap/verify",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/bootstrap/verify",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"bootstrap_token\": \"{{bootstrapToken}}\",\n  \"challenge_id\": \"{{challengeId}}\",\n  \"credential\": {},\n  \"name\": \"Passkey de test\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ bootstrap_token, challenge_id, credential, name } → 201 avec session et cookie.\n\nRemplacer credential par une véritable attestation WebAuthn. Bootstrap seulement sur une instance de test."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Sessions et passkeys",
+          "item": [
+            {
+              "name": "GET /api/admin/auth/session",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/session",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Session courante après vérification du compte et de la passkey."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/me",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/me",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "200 { user_id, role }, alias métier ; préférer la route session."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/auth/logout",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/logout",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nAucun corps → 204, expire aussi le cookie."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/auth/credentials",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/credentials",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Passkeys actives, marqueur de la passkey courante, sans clé publique."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/auth/credentials/:id",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/credentials/{{credentialId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Passkey renommée\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "**Récente** ; { name } → 200, renommage audité."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/auth/credentials/options",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/credentials/options",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "**Récente** ; 201, options d’une passkey supplémentaire."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/auth/credentials/verify",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/credentials/verify",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"challenge_id\": \"{{challengeId}}\",\n  \"credential\": {},\n  \"name\": \"Passkey supplémentaire\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "**Récente** ; { challenge_id, credential, name } → 201.\n\nRemplacer credential par une véritable attestation WebAuthn."
+              },
+              "response": []
+            },
+            {
+              "name": "DELETE /api/admin/auth/credentials/:id",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/credentials/{{credentialId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n**Récente** ; UUID → 204."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/auth/sessions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/sessions",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Sessions actives du compte avec passkey, dates et current, sans token/hash."
+              },
+              "response": []
+            },
+            {
+              "name": "DELETE /api/admin/auth/sessions/:id",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/sessions/{{adminSessionId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n**Récente** ; UUID → 204, sauf session courante."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/auth/sessions/revoke-others",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/sessions/revoke-others",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n**Récente** ; 201 { revoked_sessions }, garde la session courante."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/auth/events",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/events",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "limit, cursor → 200 { events, next_cursor }, récents d’abord."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Comptes, signalements et droits",
+          "item": [
+            {
+              "name": "GET /api/admin/users",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/users",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "status, role, search, limit, cursor (offset déprécié) → 200 { users, next_cursor }."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/users/:id",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/users/{{targetUserId}}?reason={{auditReason}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "UUID + query reason obligatoire → détail administratif audité."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/users/:id/status",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/users/{{targetUserId}}/status",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"is_banned\": true,\n  \"reason\": \"Signalement confirmé\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ is_banned, reason? } → bannissement/débannissement. Motif requis pour bannir."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/matches/:userId",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/{{targetUserId}}?reason={{auditReason}}&limit={{pageSize}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "UUID utilisateur + reason, limit, cursor (offset déprécié) → 200 { matches, next_cursor }. **Route admin malgré son chemin.**"
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/matches/:id/messages",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/matches/{{matchId}}/messages?reason={{auditReason}}&limit={{pageSize}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "UUID match + reason, limit, cursor (offset déprécié) → conversation auditée."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/reports",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/reports",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "status?, limit, cursor (offset déprécié) → 200 { reports, next_cursor }."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/reports/:id",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/reports/{{reportId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"reviewed\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ status } → 200 { message: \"report updated\" } ; 404 report_not_found."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/data-subject-requests",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/data-subject-requests",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "status?, limit, cursor (offset déprécié) → 200 { requests, next_cursor }, avec progression erasure éventuelle."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/data-subject-requests/:id",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"in_progress\",\n  \"notes\": \"Prise en charge.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n**Récente** ; { status, notes? } → transition contrôlée et auditée."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/data-access-logs",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/data-access-logs?user_id={{targetUserId}}&limit={{pageSize}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "user_id, limit, cursor (offset déprécié) → 200 { logs, next_cursor }."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Catalogue et modération",
+          "item": [
+            {
+              "name": "POST /api/admin/traits",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/traits",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Trait de test\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ name } → 201 { id, name }."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/traits/:id",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/traits/{{traitId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Trait de test modifié\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ name } → 200 { message: \"trait updated\" }."
+              },
+              "response": []
+            },
+            {
+              "name": "DELETE /api/admin/traits/:id",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/traits/{{traitId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nUUID → 204, suppression définitive."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/profile-questions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/profile-questions",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "200 { questions: [...] }, avec dates et answer_count."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/profile-questions",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/profile-questions",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"prompt\": \"Quel est votre passe-temps préféré ?\",\n  \"category\": \"interests\",\n  \"display_order\": 100\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "{ prompt, category, display_order? } → 201 avec la question."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/profile-questions/:id",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/profile-questions/{{questionId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"prompt\": \"Quel passe-temps préférez-vous ?\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Au moins un de ces trois champs → 200 avec la question."
+              },
+              "response": []
+            },
+            {
+              "name": "DELETE /api/admin/profile-questions/:id",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/profile-questions/{{questionId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nUUID → 204, supprime aussi toutes ses réponses."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/content-moderation",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/content-moderation",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "status?, content_type?, limit, cursor (offset déprécié) → 200 { cases, next_cursor }."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/content-moderation/:id",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/content-moderation/{{moderationCaseId}}?reason={{auditReason}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "UUID + query reason (3–500 caractères) → contenu audité."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/content-moderation/:id",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/content-moderation/{{moderationCaseId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"version\": 1,\n  \"decision\": \"approved\",\n  \"reason\": \"Contenu vérifié manuellement\",\n  \"photo_checks\": {\n    \"face_detectable\": true,\n    \"sharp_enough\": true,\n    \"content_allowed\": true\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ version, decision, reason, photo_checks? } → 200 { message: \"content moderation decision recorded\" }.\n\nUtiliser la version courante issue du détail. photo_checks est requis pour une photo ; supprimer ce champ pour une bio ou une réponse."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Exploitation et reprises",
+          "item": [
+            {
+              "name": "GET /api/admin/metrics",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/metrics",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "revenue_period? → synthèse métier et operations."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/revenue",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/revenue",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "revenue_period? → estimation de chiffre d’affaires."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/photo-reconciliation",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/photo-reconciliation",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "status?, limit, cursor (offset déprécié) → traitements photo à réconcilier."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/photo-reconciliation/:id/retry",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/photo-reconciliation/{{photoId}}/retry",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"Reprise manuelle après vérification\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nUUID photo + { reason } (3–500 caractères) → 202."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/billing-reconciliation",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/billing-reconciliation",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "kind?, limit, cursor → dead letters Stripe 200 { events, next_cursor }."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/outbox/dead-letters",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/outbox/dead-letters",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "limit, cursor → 200 { events, next_cursor }."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/outbox/:id/retry",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/outbox/{{outboxEventId}}/retry",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"Reprise manuelle après vérification\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n**Récente** ; { reason } → 202, relance auditée."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/outbox/:id/discard",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/outbox/{{outboxEventId}}/discard",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"Abandon manuel après vérification\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n**Récente** ; { reason } → 204, abandon audité lorsque permis."
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8080",
+      "type": "string"
+    },
+    {
+      "key": "phoneNumber",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "otp",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminCookie",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminOrigin",
+      "value": "http://localhost:5173",
+      "type": "string"
+    },
+    {
+      "key": "bootstrapToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "challengeId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "otpIdempotencyKey",
+      "value": "11111111-1111-4111-8111-111111111111",
+      "type": "string"
+    },
+    {
+      "key": "photoIdempotencyKey",
+      "value": "22222222-2222-4222-8222-222222222222",
+      "type": "string"
+    },
+    {
+      "key": "messageIdempotencyKey",
+      "value": "33333333-3333-4333-8333-333333333333",
+      "type": "string"
+    },
+    {
+      "key": "checkoutIdempotencyKey",
+      "value": "44444444-4444-4444-8444-444444444444",
+      "type": "string"
+    },
+    {
+      "key": "sessionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminSessionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "credentialId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "targetUserId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "traitId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "questionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "matchId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "messageId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pushToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deletionToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "reportId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "dsrId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "moderationCaseId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "photoId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "outboxEventId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "auditReason",
+      "value": "Vérification manuelle dans Postman",
+      "type": "string"
+    },
+    {
+      "key": "pageSize",
+      "value": "20",
+      "type": "string"
+    },
+    {
+      "key": "stripeSignature",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sweegoWebhookId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sweegoWebhookTimestamp",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sweegoWebhookSignature",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

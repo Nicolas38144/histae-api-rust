@@ -85,8 +85,20 @@ curl -fsS http://127.0.0.1:8080/health/live
 curl -fsS http://127.0.0.1:8080/health/ready
 ```
 
-Les ports de développement sont liés à `127.0.0.1`. PostgreSQL utilise un volume Docker persistant à l’emplacement
-prévu par l’image PostgreSQL 18 ; retirer le conteneur n’efface donc pas la base.
+Les ports de développement sont liés à `127.0.0.1` par défaut. Pour appeler l’API depuis Postman sur
+une autre machine du réseau local, définir `HISTAE_API_BIND_IP=0.0.0.0` dans `.env`, ou l’adresse IPv4
+de l’interface LAN de l’hôte pour limiter l’écoute à cette interface. Recréer ensuite le service `api` :
+
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml \
+  up -d --no-deps --force-recreate --wait api
+```
+
+Dans Postman, utiliser `http://<IP_LAN_DE_L_HOTE>:<HISTAE_API_HOST_PORT>/health/live`. Le réglage
+`0.0.0.0` écoute sur toutes les interfaces de l’hôte : restreindre l’accès au réseau local avec le
+pare-feu si l’hôte possède d’autres interfaces. PostgreSQL, Redis, S3 et la modération restent liés
+à `127.0.0.1`. PostgreSQL utilise un volume Docker persistant à l’emplacement prévu par l’image
+PostgreSQL 18 ; retirer le conteneur n’efface donc pas la base.
 
 ### Développer et exploiter
 
