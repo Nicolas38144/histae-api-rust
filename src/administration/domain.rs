@@ -177,6 +177,14 @@ pub enum BanResult {
     Forbidden,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RoleChangeResult {
+    Updated,
+    Unchanged,
+    NotFound,
+    Forbidden,
+}
+
 pub fn wire_timestamp(value: DateTime<Utc>) -> String {
     value.to_rfc3339_opts(SecondsFormat::Millis, true)
 }

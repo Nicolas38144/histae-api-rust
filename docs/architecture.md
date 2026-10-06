@@ -100,7 +100,7 @@ Les règles d’exécution et les limites de preuve sont décrites dans [tests/R
 - `cargo check --locked --all-targets -j 2` : réussi avec les features par défaut.
 - `cargo test --locked --all-targets --all-features -j 2` : 286 tests réussis, dont 164 unitaires,
   avec PostgreSQL, Redis, S3 et le codec photo locaux.
-- Inventaire des 100 couples méthode/chemin et smoke du binaire assemblé : réussis.
+- Inventaire des 102 couples méthode/chemin et smoke du binaire assemblé : réussis.
 - Arrêt local : fermeture HTTP, métriques et ressources observée.
 - Les 383 chaînes SQL recensées dans les sources de production avant le refactoring sont inchangées.
 

@@ -28,7 +28,7 @@ fn documented_http_inventory_matches_rust_route_registrations() {
     );
     assert_eq!(
         documented.len(),
-        101,
+        102,
         "review the expected route count when the contract changes"
     );
 }

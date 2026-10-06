@@ -90,7 +90,7 @@ Le [workflow GitHub Actions](.github/workflows/rust-checks.yml) exécute le form
 ## Références
 
 - [Corrections et prérequis de mise en production](docs/production-readiness.md)
-- [Contrat HTTP : 100 couples méthode/chemin](docs/http-contract.md)
+- [Contrat HTTP : 102 couples méthode/chemin](docs/http-contract.md)
 - [Architecture et conventions](docs/architecture.md)
 - [Conteneurisation et déploiement](docs/container-deployment.md)
 - [Observabilité privée](docs/observability.md)

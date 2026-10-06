@@ -9,7 +9,7 @@ Les UUID de fixtures sont générés ; ne pas introduire d’identifiants person
 | --- | --- | --- |
 | Unitaire | Modules `#[cfg(test)]` dans `src/` | Règles isolées, configuration, codecs de transport et cycle de vie |
 | Contrat | `tests/*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, authentification et autorisation |
-| Inventaire | `route_inventory.rs` | 100 couples méthode/chemin documentés et enregistrements présents dans les sources |
+| Inventaire | `route_inventory.rs` | 102 couples méthode/chemin documentés et enregistrements présents dans les sources |
 | Intégration | `*_postgres.rs`, `postgres_*`, `redis_integration`, `media_integration`, etc. | SQL réel, contraintes, concurrence et dépendances locales |
 | Codec | `photo_codec.rs` et `fixtures/photos/` | JPEG/PNG/WebP/HEIC/HEIF, taille, métadonnées, corruption et arrêt du processus |
 | Comparaison | `contract_harness.rs` et `contract/corpus/` | Comparaison explicite de deux API avec états isolés |

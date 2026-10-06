@@ -5,6 +5,7 @@ use uuid::Uuid;
 use super::domain::{
     AdminConsent, AdminPreferences, AdminPresence, AdminTrait, AdminUserDetailRow, AdminUserRole,
     AdminUserRow, AdminUserStatus, BanResult, CursorMatchRow, CursorMessageRow, PageCursor,
+    RoleChangeResult,
 };
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
@@ -227,6 +228,81 @@ impl AdministrationStore for PgAdministrationStore {
                         )
                         .await?;
                         Ok(BanResult::Updated)
+                    })
+                })
+                .await
+        })
+    }
+
+    fn set_role(
+        &self,
+        target_id: Uuid,
+        role: AdminUserRole,
+        reason: String,
+        actor_id: Uuid,
+    ) -> AdministrationStoreFuture<'_, RoleChangeResult> {
+        Box::pin(async move {
+            self.database
+                .transaction(|connection| {
+                    Box::pin(async move {
+                        let actor: Option<Uuid> = sqlx::query_scalar(
+                            "SELECT user_id FROM user_account WHERE user_id = $1
+                             AND role = 'superadmin' AND deleted_at IS NULL
+                             AND is_banned = false FOR UPDATE",
+                        )
+                        .bind(actor_id)
+                        .fetch_optional(&mut *connection)
+                        .await
+                        .map_err(map_sqlx_error)?;
+                        if actor.is_none() || target_id == actor_id {
+                            return Ok(RoleChangeResult::Forbidden);
+                        }
+                        let target: Option<(String, bool)> = sqlx::query_as(
+                            "SELECT role, is_banned FROM user_account
+                             WHERE user_id = $1 AND deleted_at IS NULL FOR UPDATE",
+                        )
+                        .bind(target_id)
+                        .fetch_optional(&mut *connection)
+                        .await
+                        .map_err(map_sqlx_error)?;
+                        let Some((current_role_raw, is_banned)) = target else {
+                            return Ok(RoleChangeResult::NotFound);
+                        };
+                        let Some(current_role) = AdminUserRole::parse(&current_role_raw) else {
+                            return Err(DatabaseError::QueryFailed);
+                        };
+                        if current_role == AdminUserRole::Superadmin
+                            || role == AdminUserRole::Superadmin
+                            || (role == AdminUserRole::Admin && is_banned)
+                        {
+                            return Ok(RoleChangeResult::Forbidden);
+                        }
+                        if current_role == role {
+                            return Ok(RoleChangeResult::Unchanged);
+                        }
+                        sqlx::query("UPDATE user_account SET role = $2 WHERE user_id = $1")
+                            .bind(target_id)
+                            .bind(role.as_str())
+                            .execute(&mut *connection)
+                            .await
+                            .map_err(map_sqlx_error)?;
+                        if role == AdminUserRole::User {
+                            revoke_admin_access(connection, target_id).await?;
+                        }
+                        record_audit(
+                            connection,
+                            target_id,
+                            actor_id,
+                            AdminRole::Superadmin,
+                            if role == AdminUserRole::Admin {
+                                "admin_promote"
+                            } else {
+                                "admin_demote"
+                            },
+                            &reason,
+                        )
+                        .await?;
+                        Ok(RoleChangeResult::Updated)
                     })
                 })
                 .await
@@ -464,6 +540,25 @@ async fn revoke_mobile_sessions(
         .execute(&mut *connection)
         .await
         .map_err(map_sqlx_error)?;
+    Ok(())
+}
+
+async fn revoke_admin_access(
+    connection: &mut sqlx::PgConnection,
+    user_id: Uuid,
+) -> Result<(), DatabaseError> {
+    for query in [
+        "UPDATE admin_session SET revoked_at = clock_timestamp() WHERE user_id = $1 AND revoked_at IS NULL",
+        "UPDATE admin_webauthn_credential SET revoked_at = clock_timestamp() WHERE user_id = $1 AND revoked_at IS NULL",
+        "UPDATE admin_webauthn_bootstrap SET consumed_at = clock_timestamp() WHERE user_id = $1 AND consumed_at IS NULL",
+        "UPDATE admin_webauthn_challenge SET consumed_at = clock_timestamp() WHERE user_id = $1 AND consumed_at IS NULL",
+    ] {
+        sqlx::query(query)
+            .bind(user_id)
+            .execute(&mut *connection)
+            .await
+            .map_err(map_sqlx_error)?;
+    }
     Ok(())
 }
 

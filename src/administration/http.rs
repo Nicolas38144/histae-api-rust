@@ -36,6 +36,7 @@ pub fn routes(state: AdministrationHttpState, auth: AdminAuthHttpState) -> Route
         .route("/api/admin/users", get(users))
         .route("/api/admin/users/{id}", get(user_detail))
         .route("/api/admin/users/{id}/status", patch(update_status))
+        .route("/api/admin/users/{id}/role", patch(update_role))
         .route("/api/matches/{userId}", get(matches))
         .route("/api/admin/matches/{id}/messages", get(messages))
         .layer(Extension(state))
@@ -268,6 +269,48 @@ async fn update_status(
             "account banned"
         } else {
             "account unbanned"
+        },
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateRoleBody {
+    role: AdminUserRole,
+    reason: String,
+}
+
+impl ApiDto for UpdateRoleBody {
+    const ERROR_CODE: &'static str = "invalid_admin_request";
+    const ERROR_MESSAGE: &'static str = "The administrator request is invalid.";
+
+    fn is_valid(&self) -> bool {
+        self.role != AdminUserRole::Superadmin && validator_js_length(&self.reason) <= 500
+    }
+}
+
+async fn update_role(
+    AdminIdentity(identity): AdminIdentity,
+    Extension(state): Extension<AdministrationHttpState>,
+    ValidatedPath(path): ValidatedPath<IdPath>,
+    ValidatedJson(body): ValidatedJson<UpdateRoleBody>,
+) -> Result<Json<MessageResponse>, ApiError> {
+    state
+        .service
+        .update_role(
+            path.id().ok_or_else(invalid_user_id)?,
+            body.role,
+            &body.reason,
+            identity.user_id,
+            identity.role,
+        )
+        .await
+        .map_err(administration_error)?;
+    Ok(Json(MessageResponse {
+        message: if body.role == AdminUserRole::Admin {
+            "account is administrator"
+        } else {
+            "administrator access removed"
         },
     }))
 }
@@ -531,6 +574,26 @@ fn administration_error(error: AdministrationError) -> ApiError {
 #[cfg(test)]
 mod metrics_query_tests {
     use super::*;
+
+    #[test]
+    fn role_request_never_accepts_a_second_superadmin() {
+        for role in [AdminUserRole::User, AdminUserRole::Admin] {
+            assert!(
+                UpdateRoleBody {
+                    role,
+                    reason: "Motif valide".to_owned(),
+                }
+                .is_valid()
+            );
+        }
+        assert!(
+            !UpdateRoleBody {
+                role: AdminUserRole::Superadmin,
+                reason: "Motif valide".to_owned(),
+            }
+            .is_valid()
+        );
+    }
 
     #[test]
     fn revenue_period_defaults_to_month_to_date() {

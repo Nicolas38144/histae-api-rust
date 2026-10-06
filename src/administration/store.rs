@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use super::domain::{
     AdminUserDetailRow, AdminUserRole, AdminUserRow, AdminUserStatus, BanResult, CursorMatchRow,
-    CursorMessageRow, PageCursor,
+    CursorMessageRow, PageCursor, RoleChangeResult,
 };
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::DatabaseError;
@@ -45,6 +45,14 @@ pub trait AdministrationStore: Send + Sync {
         admin_id: Uuid,
         admin_role: AdminRole,
     ) -> AdministrationStoreFuture<'_, BanResult>;
+
+    fn set_role(
+        &self,
+        target_id: Uuid,
+        role: AdminUserRole,
+        reason: String,
+        actor_id: Uuid,
+    ) -> AdministrationStoreFuture<'_, RoleChangeResult>;
 
     fn matches(
         &self,

@@ -43,11 +43,7 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
     .map_err(map_sqlx_error)?;
 
     if populated {
-        verify_schema_compatibility_on(connection).await?;
-        sqlx::query("DROP TABLE IF EXISTS schema_migrations")
-            .execute(&mut *connection)
-            .await
-            .map_err(map_sqlx_error)?;
+        upgrade_existing_schema(connection).await?;
         return Ok(0);
     }
 
@@ -70,4 +66,49 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
         .map_err(map_sqlx_error)?;
     transaction.commit().await.map_err(map_sqlx_error)?;
     Ok(1)
+}
+
+async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
+    let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
+    verify_schema_compatibility_on(&mut transaction).await?;
+    sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_account_single_superadmin
+         ON user_account (role) WHERE role = 'superadmin'",
+    )
+    .execute(&mut *transaction)
+    .await
+    .map_err(map_sqlx_error)?;
+    let role_actions_present: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_constraint
+         WHERE conrelid = to_regclass(current_schema() || '.data_access_log')
+           AND conname = 'data_access_log_action_check'
+           AND pg_get_constraintdef(oid) LIKE '%admin_promote%'
+           AND pg_get_constraintdef(oid) LIKE '%admin_demote%')",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !role_actions_present {
+        sqlx::query("ALTER TABLE data_access_log DROP CONSTRAINT data_access_log_action_check")
+            .execute(&mut *transaction)
+            .await
+            .map_err(map_sqlx_error)?;
+        sqlx::query(
+            "ALTER TABLE data_access_log ADD CONSTRAINT data_access_log_action_check
+             CHECK (action IN (
+               'view_profile', 'view_messages', 'view_matches', 'export_data',
+               'admin_ban', 'admin_unban', 'admin_promote', 'admin_demote',
+               'admin_review_report', 'admin_review_dsr', 'admin_reconcile_photo',
+               'view_moderation_content', 'admin_review_content',
+               'system_anonymize', 'system_export_portability'))",
+        )
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
+    }
+    sqlx::query("DROP TABLE IF EXISTS schema_migrations")
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
+    transaction.commit().await.map_err(map_sqlx_error)
 }

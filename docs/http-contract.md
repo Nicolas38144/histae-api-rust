@@ -384,6 +384,7 @@ Erreurs : `invalid_or_expired_admin_bootstrap`, `invalid_or_expired_webauthn_cha
 | GET | `/api/admin/users` | `status, role, search, limit, cursor` (offset déprécié) → `200 { users, next_cursor }`. |
 | GET | `/api/admin/users/:id` | UUID + query `reason` obligatoire → détail administratif audité. |
 | PATCH | `/api/admin/users/:id/status` | `{ is_banned, reason? }` → bannissement/débannissement. Motif requis pour bannir. |
+| PATCH | `/api/admin/users/:id/role` | Superadmin uniquement : `{ role: "admin" | "user", reason }` → promotion ou retrait des droits admin. Motif de 3–500 caractères. |
 | GET | `/api/matches/:userId` | UUID utilisateur + `reason, limit, cursor` (offset déprécié) → `200 { matches, next_cursor }`. **Route admin malgré son chemin.** |
 | GET | `/api/admin/matches/:id/messages` | UUID match + `reason, limit, cursor` (offset déprécié) → conversation auditée. |
 | GET | `/api/admin/reports` | `status?, limit, cursor` (offset déprécié) → `200 { reports, next_cursor }`. |
@@ -395,6 +396,8 @@ Erreurs : `invalid_or_expired_admin_bootstrap`, `invalid_or_expired_webauthn_cha
 Recherche utilisateurs : prénom ou UUID exact ; `status = active | banned`, `role = user | admin | superadmin`. La liste ne signe aucune photo (`photo: null`). Le détail expose compte, profil, préférences, traits, consentements et fraîcheur de présence ; jamais téléphone, empreinte ou coordonnées précises. Les consultations sensibles requièrent un motif de 3–500 caractères ; une conversation est auditée pour les deux participants.
 
 Un bannissement invalide les sessions mobiles. Un admin n’agit que sur un rôle utilisateur ; un superadmin ne peut agir ni sur lui-même ni sur un autre superadmin. Statuts de signalement : `pending | reviewed | dismissed`.
+
+Le rôle `superadmin` ne peut pas être attribué par l’API et un index PostgreSQL limite la base à un seul superadmin. Le retrait du rôle admin révoque les sessions, passkeys et jetons d’enrôlement administrateur ; le compte utilisateur reste actif. La première passkey d’un nouvel admin nécessite ensuite un jeton émis par `admin-bootstrap`.
 
 Pour une demande RGPD, la mutation accepte `in_progress | completed | rejected`. Sur un effacement en cours, demander `completed` **programme** le workflow et répond `200 { "message": "account erasure scheduled" }` ; la demande reste `in_progress` jusqu’à réussite réelle. Le rejeu ne duplique pas le travail. Rejet d’un effacement commencé : `409 invalid_data_request_transition`. Autres transitions : `200 { "message": "data subject request updated" }`.
 

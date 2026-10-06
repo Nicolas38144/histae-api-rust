@@ -7,6 +7,7 @@ use uuid::{Uuid, Variant};
 
 use super::domain::{
     AdminUser, AdminUserDetail, AdminUserRole, AdminUserStatus, BanResult, PageCursor,
+    RoleChangeResult,
 };
 use super::store::AdministrationStore;
 use crate::identity::admin_role::AdminRole;
@@ -174,6 +175,32 @@ impl AdministrationService {
             BanResult::Updated => Ok(()),
             BanResult::NotFound => Err(AdministrationError::AccountNotFound),
             BanResult::Forbidden => Err(AdministrationError::ActionForbidden),
+        }
+    }
+
+    pub async fn update_role(
+        &self,
+        target_id: Uuid,
+        role: AdminUserRole,
+        raw_reason: &str,
+        actor_id: Uuid,
+        actor_role: AdminRole,
+    ) -> Result<(), AdministrationError> {
+        if actor_role != AdminRole::Superadmin
+            || target_id == actor_id
+            || role == AdminUserRole::Superadmin
+        {
+            return Err(AdministrationError::ActionForbidden);
+        }
+        let reason = normalize_reason(raw_reason)?;
+        match self
+            .store
+            .set_role(target_id, role, reason, actor_id)
+            .await?
+        {
+            RoleChangeResult::Updated | RoleChangeResult::Unchanged => Ok(()),
+            RoleChangeResult::NotFound => Err(AdministrationError::AccountNotFound),
+            RoleChangeResult::Forbidden => Err(AdministrationError::ActionForbidden),
         }
     }
 
@@ -404,6 +431,22 @@ mod tests {
             })
         }
 
+        fn set_role(
+            &self,
+            _target_id: Uuid,
+            _role: AdminUserRole,
+            reason: String,
+            _actor_id: Uuid,
+        ) -> AdministrationStoreFuture<'_, RoleChangeResult> {
+            Box::pin(async move {
+                self.reasons
+                    .lock()
+                    .map_err(|_| DatabaseError::QueryFailed)?
+                    .push(reason);
+                Ok(RoleChangeResult::Updated)
+            })
+        }
+
         fn matches(
             &self,
             _user_id: Uuid,
@@ -552,6 +595,80 @@ mod tests {
                 .reasons
                 .lock()
                 .is_ok_and(|items| items.as_slice() == ["Administrative unban"])
+        );
+    }
+
+    #[tokio::test]
+    async fn only_superadmin_can_change_user_or_admin_roles() {
+        let (service, store, _) = service(BanResult::Updated);
+        let actor_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        assert_eq!(
+            service
+                .update_role(
+                    target_id,
+                    AdminUserRole::Admin,
+                    "Mission",
+                    actor_id,
+                    AdminRole::Admin
+                )
+                .await,
+            Err(AdministrationError::ActionForbidden)
+        );
+        assert_eq!(
+            service
+                .update_role(
+                    target_id,
+                    AdminUserRole::Superadmin,
+                    "Mission",
+                    actor_id,
+                    AdminRole::Superadmin
+                )
+                .await,
+            Err(AdministrationError::ActionForbidden)
+        );
+        assert_eq!(
+            service
+                .update_role(
+                    actor_id,
+                    AdminUserRole::User,
+                    "Mission",
+                    actor_id,
+                    AdminRole::Superadmin
+                )
+                .await,
+            Err(AdministrationError::ActionForbidden)
+        );
+        assert!(store.reasons.lock().is_ok_and(|items| items.is_empty()));
+        assert_eq!(
+            service
+                .update_role(
+                    target_id,
+                    AdminUserRole::Admin,
+                    "  Nouvelle mission  ",
+                    actor_id,
+                    AdminRole::Superadmin
+                )
+                .await,
+            Ok(())
+        );
+        assert_eq!(
+            service
+                .update_role(
+                    target_id,
+                    AdminUserRole::User,
+                    "Fin de mission",
+                    actor_id,
+                    AdminRole::Superadmin
+                )
+                .await,
+            Ok(())
+        );
+        assert!(
+            store
+                .reasons
+                .lock()
+                .is_ok_and(|items| items.as_slice() == ["Nouvelle mission", "Fin de mission"])
         );
     }
 
