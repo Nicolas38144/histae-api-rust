@@ -1,5 +1,5 @@
--- Consolidated PostgreSQL schema through 016_bounded_workloads (2026-09-05).
--- Fresh schemas only; rebuild the protected development database after consolidation.
+-- Consolidated PostgreSQL schema, including discovery and admin WebAuthn state.
+-- Apply to an empty schema only; existing complete databases are checked by db-migrate.
 -- Reference data and opt-in development fixtures: insert_postgres.sql.
 -- Retention and cross-storage invariants: docs/retention-policy.md and AGENTS.md.
 
@@ -31,6 +31,27 @@ CREATE TABLE user_account (
 );
 
 CREATE INDEX idx_user_account_active_created ON user_account USING btree (created_at DESC, user_id DESC) WHERE (deleted_at IS NULL);
+
+-- PostgreSQL is the canonical store for immutable discovery decisions.
+CREATE TABLE swipe_decision (
+    actor_id uuid NOT NULL,
+    target_id uuid NOT NULL,
+    decision text NOT NULL,
+    swiped_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone DEFAULT (now() + '365 days'::interval) NOT NULL,
+    CONSTRAINT swipe_decision_pkey PRIMARY KEY (actor_id, target_id),
+    CONSTRAINT swipe_decision_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES user_account(user_id) ON DELETE CASCADE,
+    CONSTRAINT swipe_decision_target_id_fkey FOREIGN KEY (target_id) REFERENCES user_account(user_id) ON DELETE CASCADE,
+    CONSTRAINT swipe_decision_distinct_users_check CHECK (actor_id <> target_id),
+    CONSTRAINT swipe_decision_decision_check CHECK (decision = ANY (ARRAY['like'::text, 'pass'::text])),
+    CONSTRAINT swipe_decision_retention_check CHECK (expires_at = swiped_at + '365 days'::interval)
+);
+
+COMMENT ON TABLE swipe_decision IS 'Canonical immutable swipe decisions retained for 365 days.';
+
+CREATE INDEX idx_swipe_decision_target_actor ON swipe_decision USING btree (target_id, actor_id);
+CREATE INDEX idx_swipe_decision_actor_swiped_target ON swipe_decision USING btree (actor_id, swiped_at, target_id) INCLUDE (decision, expires_at);
+CREATE INDEX idx_swipe_decision_expires ON swipe_decision USING btree (expires_at, actor_id, target_id);
 
 CREATE TABLE account_tombstone (
     phone_number_hash text NOT NULL,
@@ -863,13 +884,11 @@ CREATE TABLE account_erasure (
     request_id uuid NOT NULL,
     user_id uuid NOT NULL,
     step text DEFAULT 'stripe'::text NOT NULL,
-    scylla_partition smallint DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     completed_at timestamp with time zone,
     CONSTRAINT account_erasure_check CHECK (((step = 'completed'::text) = (completed_at IS NOT NULL))),
-    CONSTRAINT account_erasure_scylla_partition_check CHECK (((scylla_partition >= 0) AND (scylla_partition <= 64))),
-    CONSTRAINT account_erasure_step_check CHECK ((step = ANY (ARRAY['stripe'::text, 'photos'::text, 'scylla'::text, 'postgres'::text, 'completed'::text]))),
+    CONSTRAINT account_erasure_step_check CHECK ((step = ANY (ARRAY['stripe'::text, 'photos'::text, 'swipes'::text, 'postgres'::text, 'completed'::text]))),
     CONSTRAINT account_erasure_pkey PRIMARY KEY (request_id),
     CONSTRAINT account_erasure_user_id_key UNIQUE (user_id),
     CONSTRAINT account_erasure_request_id_fkey FOREIGN KEY (request_id) REFERENCES data_subject_request(id) ON DELETE CASCADE,
@@ -996,10 +1015,12 @@ CREATE TABLE admin_webauthn_challenge (
     bootstrap_id uuid,
     expires_at timestamp with time zone NOT NULL,
     consumed_at timestamp with time zone,
+    ceremony_state bytea,
     created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     CONSTRAINT admin_webauthn_challenge_challenge_hash_check CHECK ((octet_length(challenge_hash) = 32)),
     CONSTRAINT admin_webauthn_challenge_check CHECK ((expires_at > created_at)),
     CONSTRAINT admin_webauthn_challenge_purpose_check CHECK ((purpose = ANY (ARRAY['bootstrap_registration'::text, 'additional_registration'::text, 'authentication'::text]))),
+    CONSTRAINT chk_admin_webauthn_challenge_state CHECK (ceremony_state IS NULL OR octet_length(ceremony_state) BETWEEN 1 AND 65536),
     CONSTRAINT chk_admin_webauthn_challenge_owner CHECK ((((purpose = 'authentication'::text) AND (user_id IS NULL) AND (bootstrap_id IS NULL)) OR ((purpose = 'additional_registration'::text) AND (user_id IS NOT NULL) AND (bootstrap_id IS NULL)) OR ((purpose = 'bootstrap_registration'::text) AND (user_id IS NOT NULL) AND (bootstrap_id IS NOT NULL)))),
     CONSTRAINT admin_webauthn_challenge_pkey PRIMARY KEY (id),
     CONSTRAINT admin_webauthn_challenge_bootstrap_id_fkey FOREIGN KEY (bootstrap_id) REFERENCES admin_webauthn_bootstrap(id) ON DELETE CASCADE,
@@ -1216,3 +1237,5 @@ CREATE TRIGGER trg_live_report BEFORE INSERT ON user_report FOR EACH ROW EXECUTE
 CREATE TRIGGER trg_live_subscription BEFORE INSERT OR UPDATE ON user_subscription FOR EACH ROW EXECUTE FUNCTION fct_require_live_account('user_id');
 
 CREATE TRIGGER trg_live_trait BEFORE INSERT OR UPDATE ON user_trait FOR EACH ROW EXECUTE FUNCTION fct_require_live_account('user_id');
+
+CREATE TRIGGER trg_live_swipe BEFORE INSERT OR UPDATE ON swipe_decision FOR EACH ROW EXECUTE FUNCTION fct_require_live_account('actor_id', 'target_id');

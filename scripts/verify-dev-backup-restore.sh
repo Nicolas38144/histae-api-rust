@@ -66,11 +66,11 @@ created=1
 "${docker_cmd[@]}" exec "$container" createdb -U "$database_user" "$restore_database"
 "${docker_cmd[@]}" exec "$container" pg_restore -U "$database_user" -d "$restore_database" --exit-on-error "$archive"
 
-history_query="SELECT version || ':' || checksum FROM schema_migrations ORDER BY version"
-source_history=$("${docker_cmd[@]}" exec "$container" psql -U "$database_user" -d "$source_database" -Atc "$history_query")
-restored_history=$("${docker_cmd[@]}" exec "$container" psql -U "$database_user" -d "$restore_database" -Atc "$history_query")
-if [[ -z $source_history || $source_history != "$restored_history" ]]; then
-  echo 'The restored migration history differs from the source.' >&2
+schema_query="SELECT md5(string_agg(table_name || ':' || column_name || ':' || data_type || ':' || is_nullable, '|' ORDER BY table_name, ordinal_position)) FROM information_schema.columns WHERE table_schema = 'public'"
+source_schema=$("${docker_cmd[@]}" exec "$container" psql -U "$database_user" -d "$source_database" -Atc "$schema_query")
+restored_schema=$("${docker_cmd[@]}" exec "$container" psql -U "$database_user" -d "$restore_database" -Atc "$schema_query")
+if [[ -z $source_schema || $source_schema != "$restored_schema" ]]; then
+  echo 'The restored public schema differs from the source.' >&2
   exit 1
 fi
 

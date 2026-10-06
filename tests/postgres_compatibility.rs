@@ -9,8 +9,7 @@ use std::time::Duration;
 use chrono::{DateTime, NaiveDate, Utc};
 use histae_api_rust::config::{PostgresConfig, SecretString};
 use histae_api_rust::infra::postgres::{
-    Database, DatabaseError, EXPECTED_MIGRATIONS, duration_setting, map_sqlx_error,
-    verify_schema_compatibility_on,
+    Database, DatabaseError, duration_setting, map_sqlx_error, verify_schema_compatibility_on,
 };
 use rust_decimal::Decimal;
 use serde_json::json;
@@ -115,86 +114,59 @@ async fn reads_the_existing_schema_types_and_transaction_protocol()
         Duration::from_secs(30)
     );
 
-    let schema = format!("s05_history_probe_{}", Uuid::new_v4().simple());
-    let mut history_probe = connection.begin().await?;
-    let history_result: Result<(), Box<dyn std::error::Error>> = async {
+    let schema = format!("schema_probe_{}", Uuid::new_v4().simple());
+    let mut schema_probe = connection.begin().await?;
+    let schema_result: Result<(), Box<dyn std::error::Error>> = async {
         sqlx::query(&format!("CREATE SCHEMA {schema}"))
-            .execute(&mut *history_probe)
+            .execute(&mut *schema_probe)
             .await?;
         sqlx::query(&format!("SET LOCAL search_path TO {schema}, public"))
-            .execute(&mut *history_probe)
+            .execute(&mut *schema_probe)
             .await?;
         assert_eq!(
-            verify_schema_compatibility_on(&mut history_probe).await,
-            Err(DatabaseError::MigrationHistoryMissing)
-        );
-        sqlx::query("CREATE TABLE sentinel(value text)")
-            .execute(&mut *history_probe)
-            .await?;
-        assert_eq!(
-            verify_schema_compatibility_on(&mut history_probe).await,
-            Err(DatabaseError::MigrationHistoryMissing)
-        );
-
-        sqlx::query(
-            "CREATE TABLE schema_migrations (
-                version text PRIMARY KEY,
-                checksum text NOT NULL,
-                applied_at timestamptz NOT NULL DEFAULT now()
-            )",
-        )
-        .execute(&mut *history_probe)
-        .await?;
-        sqlx::query(
-            "INSERT INTO schema_migrations(version, checksum) VALUES ('999_unknown', 'invalid')",
-        )
-        .execute(&mut *history_probe)
-        .await?;
-        assert_eq!(
-            verify_schema_compatibility_on(&mut history_probe).await,
-            Err(DatabaseError::UnknownMigration)
-        );
-
-        sqlx::query("TRUNCATE schema_migrations")
-            .execute(&mut *history_probe)
-            .await?;
-        for migration in EXPECTED_MIGRATIONS {
-            sqlx::query("INSERT INTO schema_migrations(version, checksum) VALUES ($1, $2)")
-                .bind(migration.version)
-                .bind(migration.checksum)
-                .execute(&mut *history_probe)
-                .await?;
-        }
-        assert_eq!(
-            verify_schema_compatibility_on(&mut history_probe).await,
+            verify_schema_compatibility_on(&mut schema_probe).await,
             Err(DatabaseError::SchemaObjectsMissing)
         );
         sqlx::query("CREATE TABLE user_account(id integer)")
-            .execute(&mut *history_probe)
+            .execute(&mut *schema_probe)
             .await?;
         sqlx::query("CREATE TABLE swipe_decision(id integer)")
-            .execute(&mut *history_probe)
+            .execute(&mut *schema_probe)
+            .await?;
+        sqlx::query("CREATE TABLE account_erasure(step text, scylla_partition smallint, CONSTRAINT account_erasure_step_check CHECK (step IN ('scylla', 'completed')))")
+            .execute(&mut *schema_probe)
+            .await?;
+        sqlx::query("CREATE TABLE admin_webauthn_challenge(id integer)")
+            .execute(&mut *schema_probe)
             .await?;
         assert_eq!(
-            verify_schema_compatibility_on(&mut history_probe).await,
-            Ok(())
+            verify_schema_compatibility_on(&mut schema_probe).await,
+            Err(DatabaseError::SchemaObjectsMissing)
         );
-
-        sqlx::query("UPDATE schema_migrations SET checksum = 'changed' WHERE version = $1")
-            .bind(EXPECTED_MIGRATIONS[1].version)
-            .execute(&mut *history_probe)
+        sqlx::query("ALTER TABLE account_erasure DROP COLUMN scylla_partition")
+            .execute(&mut *schema_probe)
+            .await?;
+        sqlx::query("ALTER TABLE account_erasure DROP CONSTRAINT account_erasure_step_check")
+            .execute(&mut *schema_probe)
+            .await?;
+        sqlx::query("ALTER TABLE account_erasure ADD CONSTRAINT account_erasure_step_check CHECK (step IN ('swipes', 'completed'))")
+            .execute(&mut *schema_probe)
+            .await?;
+        sqlx::query("ALTER TABLE admin_webauthn_challenge ADD COLUMN ceremony_state bytea")
+            .execute(&mut *schema_probe)
+            .await?;
+        sqlx::query("ALTER TABLE admin_webauthn_challenge ADD CONSTRAINT chk_admin_webauthn_challenge_state CHECK (ceremony_state IS NULL OR octet_length(ceremony_state) BETWEEN 1 AND 65536)")
+            .execute(&mut *schema_probe)
             .await?;
         assert_eq!(
-            verify_schema_compatibility_on(&mut history_probe).await,
-            Err(DatabaseError::MigrationChecksumMismatch(
-                "017_postgres_discovery"
-            ))
+            verify_schema_compatibility_on(&mut schema_probe).await,
+            Ok(())
         );
         Ok(())
     }
     .await;
-    history_probe.rollback().await?;
-    history_result?;
+    schema_probe.rollback().await?;
+    schema_result?;
 
     let identifier = Uuid::new_v4();
     let calendar_date = NaiveDate::parse_from_str("2000-02-29", "%Y-%m-%d")?;

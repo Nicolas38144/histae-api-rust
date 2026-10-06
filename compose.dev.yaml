@@ -77,9 +77,6 @@ services:
       - histae-rust-postgres-data:/var/lib/postgresql
       - ./db/001_schema_postgres.sql:/docker-entrypoint-initdb.d/001_schema_postgres.sql:ro
       - ./db/002_insert_postgres.sql:/docker-entrypoint-initdb.d/002_insert_postgres.sql:ro
-      - ./db/003_postgres_discovery.sql:/docker-entrypoint-initdb.d/003_postgres_discovery.sql:ro
-      - ./db/004_postgres_admin_webauthn_state.sql:/docker-entrypoint-initdb.d/004_postgres_admin_webauthn_state.sql:ro
-      - ./db/005_migration_history.sql:/docker-entrypoint-initdb.d/005_migration_history.sql:ro
     healthcheck:
       test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 5s

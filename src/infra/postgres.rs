@@ -11,33 +11,6 @@ use sqlx::{Acquire, ConnectOptions, PgConnection, PgPool, Postgres};
 
 use crate::config::PostgresConfig;
 
-pub const EXPECTED_MIGRATIONS: &[MigrationFingerprint] = &[
-    MigrationFingerprint {
-        version: "001_baseline_20260905",
-        checksum: "7d33ff78d8094576acc30af275e1426f2feb6333911283ef1f1aadf2f9b8e111",
-    },
-    MigrationFingerprint {
-        version: "017_postgres_discovery",
-        checksum: "f2e656a133d64a08873c86cb9a4dddbc84c4c1704e590851ed63a3a2ac6d1006",
-    },
-    MigrationFingerprint {
-        version: "018_postgres_admin_webauthn_state",
-        checksum: "7127cee30dbb61fc967e0864ffbe636a34a18fa44be9ea449ec0b035d9d8c95a",
-    },
-];
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct MigrationFingerprint {
-    pub version: &'static str,
-    pub checksum: &'static str,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct MigrationHistoryRow {
-    version: String,
-    checksum: Option<String>,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConstraintKind {
     NotNull,
@@ -59,11 +32,6 @@ pub enum DatabaseError {
     TransactionBeginFailed,
     TransactionCommitFailed,
     TransactionRollbackFailed,
-    MigrationHistoryMissing,
-    UnknownMigration,
-    MissingMigration(&'static str),
-    MigrationChecksumMissing(&'static str),
-    MigrationChecksumMismatch(&'static str),
     SchemaObjectsMissing,
 }
 
@@ -84,11 +52,6 @@ impl DatabaseError {
             Self::TransactionBeginFailed => "postgres_transaction_begin_failed",
             Self::TransactionCommitFailed => "postgres_transaction_commit_failed",
             Self::TransactionRollbackFailed => "postgres_transaction_rollback_failed",
-            Self::MigrationHistoryMissing => "postgres_migration_history_missing",
-            Self::UnknownMigration => "postgres_unknown_migration",
-            Self::MissingMigration(_) => "postgres_migration_missing",
-            Self::MigrationChecksumMissing(_) => "postgres_migration_checksum_missing",
-            Self::MigrationChecksumMismatch(_) => "postgres_migration_checksum_mismatch",
             Self::SchemaObjectsMissing => "postgres_schema_objects_missing",
         }
     }
@@ -304,29 +267,33 @@ pub(super) async fn connect_pool(
 pub async fn verify_schema_compatibility_on(
     connection: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let history_table: Option<String> =
-        sqlx::query_scalar("SELECT to_regclass(current_schema() || '.schema_migrations')::text")
-            .fetch_one(&mut *connection)
-            .await
-            .map_err(map_sqlx_error)?;
-    if history_table.is_none() {
-        return Err(DatabaseError::MigrationHistoryMissing);
-    }
-
-    let history = sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT version, checksum FROM schema_migrations",
-    )
-    .fetch_all(&mut *connection)
-    .await
-    .map_err(map_sqlx_error)?
-    .into_iter()
-    .map(|(version, checksum)| MigrationHistoryRow { version, checksum })
-    .collect::<Vec<_>>();
-    validate_migration_history(&history)?;
-
     let objects_present: bool = sqlx::query_scalar(
         "SELECT to_regclass(current_schema() || '.user_account') IS NOT NULL
-            AND to_regclass(current_schema() || '.swipe_decision') IS NOT NULL",
+            AND to_regclass(current_schema() || '.swipe_decision') IS NOT NULL
+            AND to_regclass(current_schema() || '.account_erasure') IS NOT NULL
+            AND to_regclass(current_schema() || '.admin_webauthn_challenge') IS NOT NULL
+            AND EXISTS (
+                SELECT 1 FROM pg_attribute
+                WHERE attrelid = to_regclass(current_schema() || '.admin_webauthn_challenge')
+                  AND attname = 'ceremony_state' AND atttypid = 'bytea'::regtype
+                  AND NOT attisdropped
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_attribute
+                WHERE attrelid = to_regclass(current_schema() || '.account_erasure')
+                  AND attname = 'scylla_partition' AND NOT attisdropped
+            )
+            AND EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conrelid = to_regclass(current_schema() || '.account_erasure')
+                  AND conname = 'account_erasure_step_check'
+                  AND pg_get_constraintdef(oid) LIKE '%swipes%'
+            )
+            AND EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conrelid = to_regclass(current_schema() || '.admin_webauthn_challenge')
+                  AND conname = 'chk_admin_webauthn_challenge_state'
+            )",
     )
     .fetch_one(&mut *connection)
     .await
@@ -352,32 +319,6 @@ impl Drop for WaitingAcquisition<'_> {
     fn drop(&mut self) {
         self.counter.fetch_sub(1, Ordering::Relaxed);
     }
-}
-
-fn validate_migration_history(history: &[MigrationHistoryRow]) -> Result<(), DatabaseError> {
-    if history.is_empty() {
-        return Err(DatabaseError::MigrationHistoryMissing);
-    }
-    for row in history {
-        let Some(expected) = EXPECTED_MIGRATIONS
-            .iter()
-            .find(|migration| migration.version == row.version)
-        else {
-            return Err(DatabaseError::UnknownMigration);
-        };
-        let Some(checksum) = row.checksum.as_deref() else {
-            return Err(DatabaseError::MigrationChecksumMissing(expected.version));
-        };
-        if checksum != expected.checksum {
-            return Err(DatabaseError::MigrationChecksumMismatch(expected.version));
-        }
-    }
-    for expected in EXPECTED_MIGRATIONS {
-        if !history.iter().any(|row| row.version == expected.version) {
-            return Err(DatabaseError::MissingMigration(expected.version));
-        }
-    }
-    Ok(())
 }
 
 pub fn map_sqlstate(code: Option<&str>) -> DatabaseError {
@@ -454,62 +395,6 @@ pub fn duration_setting(value: &str) -> Result<std::time::Duration, DatabaseErro
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn valid_history() -> Vec<MigrationHistoryRow> {
-        EXPECTED_MIGRATIONS
-            .iter()
-            .map(|migration| MigrationHistoryRow {
-                version: migration.version.to_owned(),
-                checksum: Some(migration.checksum.to_owned()),
-            })
-            .collect()
-    }
-
-    #[test]
-    fn accepts_only_the_current_complete_migration_history() {
-        assert_eq!(validate_migration_history(&valid_history()), Ok(()));
-
-        let mut unknown = valid_history();
-        unknown.push(MigrationHistoryRow {
-            version: "999_unknown".to_owned(),
-            checksum: Some("invalid".to_owned()),
-        });
-        assert_eq!(
-            validate_migration_history(&unknown),
-            Err(DatabaseError::UnknownMigration)
-        );
-
-        let mut missing = valid_history();
-        missing.pop();
-        assert_eq!(
-            validate_migration_history(&missing),
-            Err(DatabaseError::MissingMigration(
-                "018_postgres_admin_webauthn_state"
-            ))
-        );
-    }
-
-    #[test]
-    fn rejects_missing_or_changed_checksums_without_retaining_the_value() {
-        let mut missing = valid_history();
-        missing[0].checksum = None;
-        assert_eq!(
-            validate_migration_history(&missing),
-            Err(DatabaseError::MigrationChecksumMissing(
-                "001_baseline_20260905"
-            ))
-        );
-
-        let mut changed = valid_history();
-        changed[1].checksum = Some("private-or-corrupt-value".to_owned());
-        let error = validate_migration_history(&changed)
-            .expect_err("a modified migration checksum must be refused");
-        assert_eq!(
-            error,
-            DatabaseError::MigrationChecksumMismatch("017_postgres_discovery")
-        );
-        assert!(!format!("{error:?}").contains("private-or-corrupt-value"));
-    }
 
     #[test]
     fn maps_publicly_relevant_sqlstates_without_database_details() {

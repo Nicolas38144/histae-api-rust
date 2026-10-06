@@ -29,7 +29,7 @@ src/
   operations/       # Logs, métriques privées et suivi des maintenances
   shared/           # Horloge et fonctions texte communes
 tests/             # Contrats HTTP et intégrations, nommés par fonctionnalité
-db/                # Schéma, catalogues et migrations SQL figés
+db/                # Schéma PostgreSQL consolidé, données initiales et script de suppression
 docker/            # Configuration des services conteneurisés
 services/          # Service autonome de modération photo
 tools/             # Codec photo et génération de ses fixtures
@@ -56,6 +56,8 @@ Le script demande `sudo` pour les paquets Debian et Docker, installe Rust 1.88 a
 La machine de production exécute l’image Docker construite par ce dépôt ; l’installation de Rust, Node ou pnpm sur l’hôte n’y est pas nécessaire. Le service de modération Python est également construit en conteneur.
 
 Le fichier `.env` de ce dépôt est chargé automatiquement et reste ignoré. Les variables du terminal ont priorité. Les secrets et les valeurs fournisseurs ne doivent pas apparaître dans les logs. La configuration locale et les ports Docker sont détaillés dans [le guide de déploiement](docs/container-deployment.md).
+
+`db/001_schema_postgres.sql` contient le schéma complet. Le migrateur l'installe sur une base vide et vérifie les objets attendus sur une base déjà initialisée ; il retire l'ancienne table `schema_migrations` si elle existe. `db/drop_postgres.sql` supprime tous les objets du schéma `public` de la base ciblée : sauvegarder les données avant de l'exécuter manuellement.
 
 Depuis la racine du dépôt, après préparation de `.env` :
 
