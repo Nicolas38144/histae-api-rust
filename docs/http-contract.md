@@ -404,6 +404,7 @@ Pour une demande RGPD, la mutation accepte `in_progress | completed | rejected`.
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
+| GET | `/api/admin/traits` | `200 { traits: [...] }`, lecture du catalogue avec session administrateur. |
 | POST | `/api/admin/traits` | `{ name }` → `201 { id, name }`. |
 | PATCH | `/api/admin/traits/:id` | `{ name }` → `200 { message: "trait updated" }`. |
 | DELETE | `/api/admin/traits/:id` | UUID → `204`, suppression définitive. |

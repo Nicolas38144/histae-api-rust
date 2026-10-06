@@ -3,8 +3,6 @@ use std::fmt;
 
 use axum::extract::Extension;
 use axum::http::StatusCode;
-#[cfg(feature = "webauthn-probe")]
-use axum::routing::post;
 use axum::routing::{delete, get};
 use axum::{Json, Router};
 #[cfg(feature = "webauthn-probe")]
@@ -76,7 +74,10 @@ fn public_mobile_routes(
 #[cfg(feature = "webauthn-probe")]
 fn admin_routes(state: CatalogHttpState, admin_auth: AdminAuthHttpState) -> Router<HttpState> {
     Router::new()
-        .route("/api/admin/traits", post(create_trait))
+        .route(
+            "/api/admin/traits",
+            get(list_admin_traits).post(create_trait),
+        )
         .route(
             "/api/admin/traits/{id}",
             axum::routing::patch(update_trait).delete(delete_trait),
@@ -195,6 +196,19 @@ async fn remove_my_trait(
         .await
         .map_err(catalog_error)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(feature = "webauthn-probe")]
+async fn list_admin_traits(
+    AdminIdentity(_identity): AdminIdentity,
+    Extension(state): Extension<CatalogHttpState>,
+) -> Result<Json<TraitsResponse>, ApiError> {
+    state
+        .service
+        .traits()
+        .await
+        .map(|traits| Json(TraitsResponse { traits }))
+        .map_err(catalog_error)
 }
 
 #[cfg(feature = "webauthn-probe")]

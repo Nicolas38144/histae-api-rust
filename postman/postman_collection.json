@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection issue de docs/http-contract.md (100 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
+    "description": "Collection issue de docs/http-contract.md (101 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -2532,6 +2532,28 @@
         {
           "name": "Catalogue et modération",
           "item": [
+            {
+              "name": "GET /api/admin/traits",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/traits",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Session administrateur requise → 200 { traits: [...] }."
+              },
+              "response": []
+            },
             {
               "name": "POST /api/admin/traits",
               "request": {
