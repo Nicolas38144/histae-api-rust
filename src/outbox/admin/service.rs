@@ -306,8 +306,8 @@ mod tests {
             .unwrap_or_else(|_| unreachable!());
         let json = serde_json::to_value(&page.events).unwrap_or_else(|_| unreachable!());
         assert_eq!(page.events[0].event_id, event_id);
-        assert!(json.to_string().find("aggregate_id").is_none());
-        assert!(json.to_string().find("payload").is_none());
+        assert!(!json.to_string().contains("aggregate_id"));
+        assert!(!json.to_string().contains("payload"));
         service
             .retry(
                 event_id,

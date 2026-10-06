@@ -83,10 +83,11 @@ cargo test --locked --all-targets --all-features
 ```
 
 La dernière commande exige les dépendances locales et le codec installés. Les protections d’isolation et les commandes ciblées sont documentées dans [tests/README.md](tests/README.md).
+Le [workflow GitHub Actions](.github/workflows/rust-checks.yml) exécute le formatage, Clippy, la compilation sans feature, les tests unitaires et les contrats HTTP sans démarrer ces dépendances.
 
 ## Références
 
-- [Roadmap des validations et de la mise en production](roadmap.md)
+- [Corrections et prérequis de mise en production](docs/production-readiness.md)
 - [Contrat HTTP : 100 couples méthode/chemin](docs/http-contract.md)
 - [Architecture et conventions](docs/architecture.md)
 - [Conteneurisation et déploiement](docs/container-deployment.md)

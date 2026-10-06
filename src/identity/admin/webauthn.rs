@@ -159,7 +159,10 @@ impl WebauthnVerifier {
         }
         u32::try_from(timeout_millis).map_err(|_| WebauthnError::InvalidConfiguration)?;
         let parsed_origin = Url::parse(origin).map_err(|_| WebauthnError::InvalidConfiguration)?;
-        if parsed_origin.host_str() != Some(rp_id)
+        let valid_host = parsed_origin
+            .host_str()
+            .is_some_and(|host| host == rp_id || host.ends_with(&format!(".{rp_id}")));
+        if !valid_host
             || parsed_origin.path() != "/"
             || parsed_origin.query().is_some()
             || parsed_origin.fragment().is_some()
@@ -726,4 +729,29 @@ fn validate_transports(values: &[String]) -> Result<(), WebauthnError> {
         return Err(WebauthnError::InvalidPayload);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_an_origin_under_the_configured_rp_id() {
+        assert!(
+            WebauthnVerifier::new("Histae", "example.com", "https://example.com", 300_000).is_ok()
+        );
+        assert!(
+            WebauthnVerifier::new(
+                "Histae",
+                "example.com",
+                "https://admin.example.com",
+                300_000
+            )
+            .is_ok()
+        );
+        assert!(
+            WebauthnVerifier::new("Histae", "example.com", "https://badexample.com", 300_000)
+                .is_err()
+        );
+    }
 }

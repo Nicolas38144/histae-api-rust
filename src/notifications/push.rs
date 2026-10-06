@@ -604,10 +604,9 @@ mod tests {
             Some("new_message")
         );
         assert!(
-            serde_json::to_string(&sent[0])
+            !serde_json::to_string(&sent[0])
                 .unwrap_or_default()
-                .find("private")
-                .is_none()
+                .contains("private")
         );
     }
 

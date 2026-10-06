@@ -431,7 +431,7 @@ fn verify_signature(
         }
     }
     let timestamp = timestamp.ok_or(StripeWebhookError::InvalidSignature)?;
-    if (now.timestamp() - timestamp).abs() > SIGNATURE_TOLERANCE_SECONDS {
+    if now.timestamp().abs_diff(timestamp) > SIGNATURE_TOLERANCE_SECONDS as u64 {
         return Err(StripeWebhookError::InvalidSignature);
     }
     let mut signed = timestamp.to_string().into_bytes();
@@ -707,6 +707,18 @@ mod tests {
             verify_signature(b"{}", &signature, "whsec_test", now),
             Err(StripeWebhookError::InvalidSignature)
         );
+    }
+
+    #[test]
+    fn rejects_extreme_signature_timestamps_without_panicking() {
+        let now = DateTime::from_timestamp(2_000, 0).unwrap_or_else(Utc::now);
+        for timestamp in [i64::MIN, i64::MAX] {
+            let signature = format!("t={timestamp},v1={}", "0".repeat(64));
+            assert_eq!(
+                verify_signature(b"{}", &signature, "whsec_test", now),
+                Err(StripeWebhookError::InvalidSignature)
+            );
+        }
     }
 
     #[test]
