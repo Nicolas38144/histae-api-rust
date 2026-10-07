@@ -42,7 +42,7 @@
                     }
                   }
                 },
-                "description": "{ phone_number } + idempotency key → 202 { message }.\n\nPostman generates a new UUID v4 for each request. Repeating a request with the same key is accepted without sending another SMS."
+                "description": "{ phone_number } + idempotency key → 202 { message }.\n\nPostman generates a new UUID v4 for each new send. If the first send was accepted, replaying the same key does not send another SMS. On 503 otp_delivery_unknown, do not retry with a new key: wait, then replay with the original key shown in the Postman Console."
               },
               "response": []
             },

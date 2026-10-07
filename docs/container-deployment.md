@@ -100,6 +100,10 @@ pare-feu si l’hôte possède d’autres interfaces. PostgreSQL, Redis, S3 et l
 à `127.0.0.1`. PostgreSQL utilise un volume Docker persistant à l’emplacement prévu par l’image
 PostgreSQL 18 ; retirer le conteneur n’efface donc pas la base.
 
+Le conteneur API de développement utilise `1.1.1.1` pour résoudre les services externes, afin
+d’éviter un résolveur DNS local à l’hôte, comme celui de Tailscale. Si ce DNS n’est pas accessible
+sur votre réseau, définissez `HISTAE_API_DNS_SERVER` dans `.env`, puis recréez le service `api`.
+
 ### Développer et exploiter
 
 Les conteneurs utilisent l’image compilée. Un changement Rust, codec ou configuration de compilation exige donc un

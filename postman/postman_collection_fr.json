@@ -42,7 +42,7 @@
                     }
                   }
                 },
-                "description": "{ phone_number } + clé d’idempotence → 202 { message }.\n\nPostman génère un nouvel UUID v4 pour chaque envoi. Une requête répétée avec la même clé est acceptée sans renvoyer de SMS."
+                "description": "{ phone_number } + clé d’idempotence → 202 { message }.\n\nPostman génère un nouvel UUID v4 pour chaque nouvel envoi. Si le premier envoi a été accepté, rejouer la même clé ne renvoie pas de SMS supplémentaire. En cas de 503 otp_delivery_unknown, ne pas relancer avec une nouvelle clé : attendre puis rejouer avec la clé initiale relevée dans la console Postman."
               },
               "response": []
             },
