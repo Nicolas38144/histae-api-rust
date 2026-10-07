@@ -120,7 +120,7 @@ impl ApiDto for EventPath {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ResolveBody {
-    reason: String,
+    reason: Option<String>,
 }
 
 impl ApiDto for ResolveBody {
@@ -128,7 +128,9 @@ impl ApiDto for ResolveBody {
     const ERROR_MESSAGE: &'static str = "The outbox administrator request is invalid.";
 
     fn is_valid(&self) -> bool {
-        (3..=500).contains(&validator_js_length(&self.reason))
+        self.reason
+            .as_ref()
+            .is_none_or(|reason| validator_js_length(reason) <= 500)
     }
 }
 
@@ -151,7 +153,7 @@ async fn retry(
                 user_id: identity.user_id,
                 role: identity.role,
             },
-            &body.reason,
+            body.reason.as_deref().unwrap_or_default(),
         )
         .await
         .map_err(map_error)?;
@@ -177,7 +179,7 @@ async fn discard(
                 user_id: identity.user_id,
                 role: identity.role,
             },
-            &body.reason,
+            body.reason.as_deref().unwrap_or_default(),
         )
         .await
         .map_err(map_error)?;

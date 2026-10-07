@@ -15,6 +15,11 @@ pub type AdministrationStoreFuture<'a, T> =
 
 #[allow(clippy::too_many_arguments)]
 pub trait AdministrationStore: Send + Sync {
+    fn user_names(
+        &self,
+        ids: Vec<Uuid>,
+    ) -> AdministrationStoreFuture<'_, Vec<(Uuid, Option<String>)>>;
+
     fn list_users(
         &self,
         status: Option<AdminUserStatus>,

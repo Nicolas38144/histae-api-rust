@@ -101,7 +101,7 @@ impl OutboxAdminService {
         operator: OutboxOperator,
         raw_reason: &str,
     ) -> Result<(), OutboxAdminError> {
-        let reason = normalize_reason(raw_reason)?;
+        let reason = normalize_reason(operator.role.audit_reason(raw_reason, "Superadmin retry"))?;
         map_operator_result(
             self.store
                 .retry_dead_letter(event_id, operator, reason)
@@ -115,7 +115,8 @@ impl OutboxAdminService {
         operator: OutboxOperator,
         raw_reason: &str,
     ) -> Result<(), OutboxAdminError> {
-        let reason = normalize_reason(raw_reason)?;
+        let reason =
+            normalize_reason(operator.role.audit_reason(raw_reason, "Superadmin discard"))?;
         map_operator_result(
             self.store
                 .discard_dead_letter(event_id, operator, reason)

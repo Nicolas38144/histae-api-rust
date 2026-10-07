@@ -109,7 +109,8 @@ impl ModerationService {
         admin_role: AdminRole,
         raw_reason: &str,
     ) -> Result<ModerationDetail, ModerationError> {
-        let reason = normalize_moderation_reason(raw_reason)?;
+        let reason =
+            normalize_moderation_reason(admin_role.audit_reason(raw_reason, "Superadmin access"))?;
         let row = self
             .store
             .detail(case_id, admin_id, admin_role, reason)
@@ -138,7 +139,9 @@ impl ModerationService {
         if input.version < 1 || !coherent_photo_checks(input.decision, input.photo_checks) {
             return Err(ModerationError::InvalidRequest);
         }
-        input.reason = normalize_moderation_reason(&input.reason)?;
+        input.reason = normalize_moderation_reason(
+            admin_role.audit_reason(&input.reason, "Superadmin moderation"),
+        )?;
         match self
             .store
             .review(case_id, input, admin_id, admin_role)

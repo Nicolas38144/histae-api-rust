@@ -22,4 +22,12 @@ impl AdminRole {
             Self::Superadmin => "superadmin",
         }
     }
+
+    pub fn audit_reason<'a>(self, supplied: &'a str, automatic: &'static str) -> &'a str {
+        if self == Self::Superadmin && crate::shared::text::javascript_trim(supplied).is_empty() {
+            automatic
+        } else {
+            supplied
+        }
+    }
 }

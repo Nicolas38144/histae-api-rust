@@ -122,7 +122,7 @@ impl ApiDto for CasePath {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AccessQuery {
-    reason: String,
+    reason: Option<String>,
 }
 
 impl ApiDto for AccessQuery {
@@ -130,7 +130,9 @@ impl ApiDto for AccessQuery {
     const ERROR_MESSAGE: &'static str = "The moderation request is invalid.";
 
     fn is_valid(&self) -> bool {
-        (3..=500).contains(&validator_js_length(&self.reason))
+        self.reason
+            .as_ref()
+            .is_none_or(|reason| validator_js_length(reason) <= 500)
     }
 }
 
@@ -142,7 +144,12 @@ async fn detail(
 ) -> Result<Json<super::domain::ModerationDetail>, ApiError> {
     state
         .service
-        .detail(path.id, identity.user_id, identity.role, &query.reason)
+        .detail(
+            path.id,
+            identity.user_id,
+            identity.role,
+            query.reason.as_deref().unwrap_or_default(),
+        )
         .await
         .map(Json)
         .map_err(moderation_error)
@@ -225,7 +232,7 @@ impl Visitor<'_> for IntegerVisitor {
 struct ReviewBody {
     version: PositiveInteger,
     decision: ModerationDecision,
-    reason: String,
+    reason: Option<String>,
     photo_checks: Option<PhotoReviewChecks>,
 }
 
@@ -234,7 +241,11 @@ impl ApiDto for ReviewBody {
     const ERROR_MESSAGE: &'static str = "The moderation request is invalid.";
 
     fn is_valid(&self) -> bool {
-        self.version.0 >= 1 && (3..=500).contains(&validator_js_length(&self.reason))
+        self.version.0 >= 1
+            && self
+                .reason
+                .as_ref()
+                .is_none_or(|reason| validator_js_length(reason) <= 500)
     }
 }
 
@@ -256,7 +267,7 @@ async fn review(
             ModerationReviewInput {
                 version: body.version.0,
                 decision: body.decision,
-                reason: body.reason,
+                reason: body.reason.unwrap_or_default(),
                 photo_checks: body.photo_checks,
             },
             identity.user_id,

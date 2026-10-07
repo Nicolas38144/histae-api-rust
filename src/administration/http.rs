@@ -34,6 +34,7 @@ pub fn routes(state: AdministrationHttpState, auth: AdminAuthHttpState) -> Route
         .route("/api/admin/metrics", get(metrics))
         .route("/api/admin/revenue", get(revenue))
         .route("/api/admin/users", get(users))
+        .route("/api/admin/user-names", get(user_names))
         .route("/api/admin/users/{id}", get(user_detail))
         .route("/api/admin/users/{id}/status", patch(update_status))
         .route("/api/admin/users/{id}/role", patch(update_role))
@@ -171,6 +172,50 @@ async fn users(
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UserNamesQuery {
+    ids: String,
+}
+
+impl ApiDto for UserNamesQuery {
+    const ERROR_CODE: &'static str = "invalid_admin_request";
+    const ERROR_MESSAGE: &'static str = "The administrator request is invalid.";
+
+    fn is_valid(&self) -> bool {
+        let ids: Vec<_> = self.ids.split(',').collect();
+        (1..=100).contains(&ids.len()) && ids.iter().all(|id| canonical_uuid(id).is_some())
+    }
+}
+
+#[derive(Serialize)]
+struct UserName {
+    user_id: Uuid,
+    firstname: Option<String>,
+}
+
+#[derive(Serialize)]
+struct UserNamesResponse {
+    users: Vec<UserName>,
+}
+
+async fn user_names(
+    AdminIdentity(_identity): AdminIdentity,
+    Extension(state): Extension<AdministrationHttpState>,
+    ValidatedQuery(query): ValidatedQuery<UserNamesQuery>,
+) -> Result<Json<UserNamesResponse>, ApiError> {
+    let ids = query.ids.split(',').filter_map(canonical_uuid).collect();
+    let users = state
+        .service
+        .user_names(ids)
+        .await
+        .map_err(administration_error)?
+        .into_iter()
+        .map(|(user_id, firstname)| UserName { user_id, firstname })
+        .collect();
+    Ok(Json(UserNamesResponse { users }))
+}
+
+#[derive(Deserialize)]
 struct IdPath {
     id: String,
 }
@@ -193,7 +238,7 @@ impl ApiDto for IdPath {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AccessQuery {
-    reason: String,
+    reason: Option<String>,
 }
 
 impl ApiDto for AccessQuery {
@@ -201,7 +246,9 @@ impl ApiDto for AccessQuery {
     const ERROR_MESSAGE: &'static str = "The administrator request is invalid.";
 
     fn is_valid(&self) -> bool {
-        (3..=500).contains(&validator_js_length(&self.reason))
+        self.reason
+            .as_ref()
+            .is_none_or(|reason| validator_js_length(reason) <= 500)
     }
 }
 
@@ -217,7 +264,7 @@ async fn user_detail(
             path.id().ok_or_else(invalid_user_id)?,
             identity.user_id,
             identity.role,
-            &query.reason,
+            query.reason.as_deref().unwrap_or_default(),
         )
         .await
         .map(Json)
@@ -277,7 +324,7 @@ async fn update_status(
 #[serde(deny_unknown_fields)]
 struct UpdateRoleBody {
     role: AdminUserRole,
-    reason: String,
+    reason: Option<String>,
 }
 
 impl ApiDto for UpdateRoleBody {
@@ -285,7 +332,11 @@ impl ApiDto for UpdateRoleBody {
     const ERROR_MESSAGE: &'static str = "The administrator request is invalid.";
 
     fn is_valid(&self) -> bool {
-        self.role != AdminUserRole::Superadmin && validator_js_length(&self.reason) <= 500
+        self.role != AdminUserRole::Superadmin
+            && self
+                .reason
+                .as_ref()
+                .is_none_or(|reason| validator_js_length(reason) <= 500)
     }
 }
 
@@ -300,7 +351,7 @@ async fn update_role(
         .update_role(
             path.id().ok_or_else(invalid_user_id)?,
             body.role,
-            &body.reason,
+            body.reason.as_deref().unwrap_or_default(),
             identity.user_id,
             identity.role,
         )
@@ -339,7 +390,7 @@ impl ApiDto for UserPath {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AccessPageQuery {
-    reason: String,
+    reason: Option<String>,
     limit: Option<String>,
     offset: Option<String>,
     cursor: Option<String>,
@@ -360,7 +411,9 @@ impl ApiDto for AccessPageQuery {
     const ERROR_MESSAGE: &'static str = "Pagination parameters are invalid.";
 
     fn is_valid(&self) -> bool {
-        (3..=500).contains(&validator_js_length(&self.reason))
+        self.reason
+            .as_ref()
+            .is_none_or(|reason| validator_js_length(reason) <= 500)
             && self.limit().is_some_and(|limit| (1..=100).contains(&limit))
             && self.offset().is_some()
             && self
@@ -373,7 +426,7 @@ impl ApiDto for AccessPageQuery {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AdminMessageQuery {
-    reason: String,
+    reason: Option<String>,
     limit: Option<String>,
     offset: Option<String>,
     cursor: Option<String>,
@@ -394,7 +447,9 @@ impl ApiDto for AdminMessageQuery {
     const ERROR_MESSAGE: &'static str = "The administrator request is invalid.";
 
     fn is_valid(&self) -> bool {
-        (3..=500).contains(&validator_js_length(&self.reason))
+        self.reason
+            .as_ref()
+            .is_none_or(|reason| validator_js_length(reason) <= 500)
             && self.limit().is_some_and(|limit| (1..=100).contains(&limit))
             && self.offset().is_some()
             && self
@@ -422,7 +477,7 @@ async fn matches(
             resource_id: path.id().ok_or_else(invalid_user_id)?,
             admin_id: identity.user_id,
             admin_role: identity.role,
-            reason: &query.reason,
+            reason: query.reason.as_deref().unwrap_or_default(),
             limit: query.limit().ok_or_else(invalid_admin_request)?,
             offset: query.offset().ok_or_else(invalid_admin_request)?,
             cursor: query.cursor.as_deref(),
@@ -473,7 +528,7 @@ async fn messages(
             resource_id: path.id().ok_or_else(invalid_match_id)?,
             admin_id: identity.user_id,
             admin_role: identity.role,
-            reason: &query.reason,
+            reason: query.reason.as_deref().unwrap_or_default(),
             limit: query.limit().ok_or_else(invalid_admin_request)?,
             offset: query.offset().ok_or_else(invalid_admin_request)?,
             cursor: query.cursor.as_deref(),
@@ -576,12 +631,31 @@ mod metrics_query_tests {
     use super::*;
 
     #[test]
+    fn user_name_lookup_accepts_only_bounded_canonical_ids() {
+        let id = Uuid::new_v4().to_string();
+        assert!(UserNamesQuery { ids: id.clone() }.is_valid());
+        assert!(!UserNamesQuery { ids: String::new() }.is_valid());
+        assert!(
+            !UserNamesQuery {
+                ids: id.replace('-', ""),
+            }
+            .is_valid()
+        );
+        assert!(
+            !UserNamesQuery {
+                ids: vec![id; 101].join(","),
+            }
+            .is_valid()
+        );
+    }
+
+    #[test]
     fn role_request_never_accepts_a_second_superadmin() {
         for role in [AdminUserRole::User, AdminUserRole::Admin] {
             assert!(
                 UpdateRoleBody {
                     role,
-                    reason: "Motif valide".to_owned(),
+                    reason: Some("Motif valide".to_owned()),
                 }
                 .is_valid()
             );
@@ -589,7 +663,7 @@ mod metrics_query_tests {
         assert!(
             !UpdateRoleBody {
                 role: AdminUserRole::Superadmin,
-                reason: "Motif valide".to_owned(),
+                reason: Some("Motif valide".to_owned()),
             }
             .is_valid()
         );

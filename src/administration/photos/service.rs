@@ -68,7 +68,9 @@ impl AdminPhotoService {
         admin_id: Uuid,
         admin_role: AdminRole,
     ) -> Result<(), AdminPhotoError> {
-        let reason = normalize_admin_reason(raw_reason)?;
+        let reason = normalize_admin_reason(
+            admin_role.audit_reason(raw_reason, "Superadmin photo reconciliation"),
+        )?;
         let now = self.clock.now();
         match self
             .store

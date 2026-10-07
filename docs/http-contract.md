@@ -39,7 +39,7 @@ Les corps sont JSON, sauf l’upload photo multipart. Les champs inconnus sont r
 
 Les routes mobiles marquées **onboarding incomplet accepté** restent accessibles avant acceptation des textes. Le contrôle global renvoie sinon `403 onboarding_incomplete`. Le sexe et les préférences exigent aussi le consentement sensible, la présence celui de localisation : `403 required_consent_missing`. Un retrait concurrent empêche une requête préalablement validée de réintroduire les données effacées.
 
-Toute mutation authentifiée par session admin exige l’en-tête `Origin` égal à `ADMIN_WEBAUTHN_ORIGIN`. Pour les routes publiques de connexion/enrôlement, l’origine est vérifiée dans la preuve WebAuthn lors de sa validation, pas par ce guard de session. Les actions marquées **récentes** exigent une authentification WebAuthn récente (moins de dix minutes par défaut). Les consultations sensibles demandent un motif et sont auditées.
+Toute mutation authentifiée par session admin exige l’en-tête `Origin` égal à `ADMIN_WEBAUTHN_ORIGIN`. Pour les routes publiques de connexion/enrôlement, l’origine est vérifiée dans la preuve WebAuthn lors de sa validation, pas par ce guard de session. Les actions marquées **récentes** exigent une authentification WebAuthn récente (moins de dix minutes par défaut). Les consultations sensibles sont auditées ; le motif est obligatoire pour un admin et facultatif pour le superadmin. Sans motif fourni, l’API inscrit un libellé automatique dans l’audit.
 
 ### Erreurs et limites de débit
 
@@ -382,18 +382,19 @@ Erreurs : `invalid_or_expired_admin_bootstrap`, `invalid_or_expired_webauthn_cha
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
 | GET | `/api/admin/users` | `status, role, search, limit, cursor` (offset déprécié) → `200 { users, next_cursor }`. |
-| GET | `/api/admin/users/:id` | UUID + query `reason` obligatoire → détail administratif audité. |
-| PATCH | `/api/admin/users/:id/status` | `{ is_banned, reason? }` → bannissement/débannissement. Motif requis pour bannir. |
-| PATCH | `/api/admin/users/:id/role` | Superadmin uniquement : `{ role: "admin" | "user", reason }` → promotion ou retrait des droits admin. Motif de 3–500 caractères. |
-| GET | `/api/matches/:userId` | UUID utilisateur + `reason, limit, cursor` (offset déprécié) → `200 { matches, next_cursor }`. **Route admin malgré son chemin.** |
-| GET | `/api/admin/matches/:id/messages` | UUID match + `reason, limit, cursor` (offset déprécié) → conversation auditée. |
+| GET | `/api/admin/user-names` | `ids` : 1 à 100 UUID séparés par des virgules → `200 { users: [{ user_id, firstname }] }`. Comptes actifs uniquement. |
+| GET | `/api/admin/users/:id` | UUID + query `reason?` → détail administratif audité. |
+| PATCH | `/api/admin/users/:id/status` | `{ is_banned, reason? }` → bannissement/débannissement. Motif requis pour bannir par un admin. |
+| PATCH | `/api/admin/users/:id/role` | Superadmin uniquement : `{ role: "admin" | "user", reason? }` → promotion ou retrait des droits admin. |
+| GET | `/api/matches/:userId` | UUID utilisateur + `reason?, limit, cursor` (offset déprécié) → `200 { matches, next_cursor }`. **Route admin malgré son chemin.** |
+| GET | `/api/admin/matches/:id/messages` | UUID match + `reason?, limit, cursor` (offset déprécié) → conversation auditée. |
 | GET | `/api/admin/reports` | `status?, limit, cursor` (offset déprécié) → `200 { reports, next_cursor }`. |
 | PATCH | `/api/admin/reports/:id` | `{ status }` → `200 { message: "report updated" }` ; `404 report_not_found`. |
 | GET | `/api/admin/data-subject-requests` | `status?, limit, cursor` (offset déprécié) → `200 { requests, next_cursor }`, avec progression `erasure` éventuelle. |
 | PATCH | `/api/admin/data-subject-requests/:id` | **Récente** ; `{ status, notes? }` → transition contrôlée et auditée. |
 | GET | `/api/admin/data-access-logs` | `user_id, limit, cursor` (offset déprécié) → `200 { logs, next_cursor }`. |
 
-Recherche utilisateurs : prénom ou UUID exact ; `status = active | banned`, `role = user | admin | superadmin`. La liste ne signe aucune photo (`photo: null`). Le détail expose compte, profil, préférences, traits, consentements et fraîcheur de présence ; jamais téléphone, empreinte ou coordonnées précises. Les consultations sensibles requièrent un motif de 3–500 caractères ; une conversation est auditée pour les deux participants.
+Recherche utilisateurs : prénom ou UUID exact ; `status = active | banned`, `role = user | admin | superadmin`. La liste ne signe aucune photo (`photo: null`). Le détail expose compte, profil, préférences, traits, consentements et fraîcheur de présence ; jamais téléphone, empreinte ou coordonnées précises. Les motifs fournis mesurent 3–500 caractères ; une conversation est auditée pour les deux participants.
 
 Un bannissement invalide les sessions mobiles. Un admin n’agit que sur un rôle utilisateur ; un superadmin ne peut agir ni sur lui-même ni sur un autre superadmin. Statuts de signalement : `pending | reviewed | dismissed`.
 
@@ -416,12 +417,12 @@ Pour une demande RGPD, la mutation accepte `in_progress | completed | rejected`.
 | PATCH | `/api/admin/profile-questions/:id` | Au moins un de ces trois champs → `200` avec la question. |
 | DELETE | `/api/admin/profile-questions/:id` | UUID → `204`, supprime aussi toutes ses réponses. |
 | GET | `/api/admin/content-moderation` | `status?, content_type?, limit, cursor` (offset déprécié) → `200 { cases, next_cursor }`. |
-| GET | `/api/admin/content-moderation/:id` | UUID + query `reason` (3–500 caractères) → contenu audité. |
-| PATCH | `/api/admin/content-moderation/:id` | `{ version, decision, reason, photo_checks? }` → `200 { message: "content moderation decision recorded" }`. |
+| GET | `/api/admin/content-moderation/:id` | UUID + query `reason?` → contenu audité. |
+| PATCH | `/api/admin/content-moderation/:id` | `{ version, decision, reason?, photo_checks? }` → `200 { message: "content moderation decision recorded" }`. |
 
 Traits : nom non vide, au plus 100 octets ; doublon `409 trait_already_exists`. Questions : catégories `daily_life | personality | interests | relationships | conversation`, ordre par défaut 100 ; doublon de libellé insensible à la casse : `409 profile_question_already_exists`. Modifier le libellé affecte aussi les réponses existantes. **Avant suppression, afficher `answer_count` et demander confirmation explicite** : les réponses ne sont pas conservées.
 
-**Revoir un contenu.** Filtrer par `status = pending | approved | rejected` et `content_type = photo | bio | profile_answer`. La liste expose identifiants, utilisateur/prénom, statut/motifs, versions de politique et de revue, signaux/contrôles photo et dates ; pas le texte, la question, la clé objet, l’URL ou l’image. Ouvrir le détail avec un motif fournit `content, question, photo` selon le type ; toute consultation est auditée avant signature photo.
+**Revoir un contenu.** Filtrer par `status = pending | approved | rejected` et `content_type = photo | bio | profile_answer`. La liste expose identifiants, utilisateur/prénom, statut/motifs, versions de politique et de revue, signaux/contrôles photo et dates ; pas le texte, la question, la clé objet, l’URL ou l’image. Ouvrir le détail fournit `content, question, photo` selon le type ; toute consultation est auditée avant signature photo.
 
 La décision est `approved | rejected`, avec la `version` lue au préalable. Une photo exige les trois booléens `face_detectable, sharp_enough, content_allowed` : tous vrais pour approuver, au moins un faux pour rejeter. Un rejet retire la photo et programme sa suppression. En cas de `409 moderation_case_stale`, recharger plutôt que réappliquer aveuglément. Autres erreurs : `400 invalid_moderation_case_id`, `400 invalid_moderation_request`, `404 moderation_case_not_found`, `409 moderation_review_not_allowed`.
 
@@ -432,11 +433,11 @@ La décision est `approved | rejected`, avec la `version` lue au préalable. Une
 | GET | `/api/admin/metrics` | `revenue_period?` → synthèse métier et `operations`. |
 | GET | `/api/admin/revenue` | `revenue_period?` → estimation de chiffre d’affaires. |
 | GET | `/api/admin/photo-reconciliation` | `status?, limit, cursor` (offset déprécié) → traitements photo à réconcilier. |
-| POST | `/api/admin/photo-reconciliation/:id/retry` | UUID photo + `{ reason }` (3–500 caractères) → `202`. |
+| POST | `/api/admin/photo-reconciliation/:id/retry` | UUID photo + `{ reason? }` → `202`. |
 | GET | `/api/admin/billing-reconciliation` | `kind?, limit, cursor` → dead letters Stripe `200 { events, next_cursor }`. |
 | GET | `/api/admin/outbox/dead-letters` | `limit, cursor` → `200 { events, next_cursor }`. |
-| POST | `/api/admin/outbox/:id/retry` | **Récente** ; `{ reason }` → `202`, relance auditée. |
-| POST | `/api/admin/outbox/:id/discard` | **Récente** ; `{ reason }` → `204`, abandon audité lorsque permis. |
+| POST | `/api/admin/outbox/:id/retry` | **Récente** ; `{ reason? }` → `202`, relance auditée. |
+| POST | `/api/admin/outbox/:id/discard` | **Récente** ; `{ reason? }` → `204`, abandon audité lorsque permis. |
 
 `revenue_period = last_7_days | last_30_days | month_to_date | previous_month | year_to_date | all_time`, défaut `month_to_date`. Le revenu est une estimation : abonnements Premium mis à jour sur la période × tarif mensuel actuel ; **ni encaissements ni bénéfice comptable**.
 
@@ -453,7 +454,7 @@ portent sur les OTP non expirés, pas sur un historique complet ; les compteurs 
 
 Réconciliation photo : filtre `all | stale_processing | deleting | dead_letter` (défaut `all`). UUID photo/utilisateur, métadonnées techniques, diagnostics et état outbox uniquement ; aucune image ni clé objet. Une photo prête ou un traitement récent refuse la relance : `409 photo_reconciliation_not_allowed` ; worker actif : `409 photo_reconciliation_in_progress` ; photo absente : `404 photo_not_found`.
 
-Réconciliation Stripe : la liste ne contient que les dead letters qui exigent une action humaine ; la file normale reste agrégée dans `operations`. `kind = all | subscription | customer_creation`. Elle expose UUID d’événement/utilisateur, type, tentatives, code d’erreur normalisé et dates ; jamais payload, identifiant fournisseur ou moyen de paiement. Une dead letter peut être relancée par la route outbox commune, après authentification récente, motif et audit. La relance effectue une nouvelle lecture et n’ordonne aucun paiement. Voir [protocole Stripe](migration/s21-stripe-webhooks.md).
+Réconciliation Stripe : la liste ne contient que les dead letters qui exigent une action humaine ; la file normale reste agrégée dans `operations`. `kind = all | subscription | customer_creation`. Elle expose UUID d’événement/utilisateur, type, tentatives, code d’erreur normalisé et dates ; jamais payload, identifiant fournisseur ou moyen de paiement. Une dead letter peut être relancée par la route outbox commune, après authentification récente et avec audit. La relance effectue une nouvelle lecture et n’ordonne aucun paiement. Voir [protocole Stripe](migration/s21-stripe-webhooks.md).
 
 Les dead letters exposent type, tentatives et code normalisé, jamais payload/agrégat/clé objet. Une décision devenue obsolète renvoie `409 outbox_event_not_dead_letter`. L’abandon de `account.erase` et des événements `billing.*` est toujours interdit ; celui de `photo.delete` est interdit tant que sa trace existe : `409 outbox_discard_not_allowed`. `notification.push` peut être abandonné sans effacer la notification. Un `202` de reprise ne garantit pas que la dépendance sera disponible lors du prochain essai.
 

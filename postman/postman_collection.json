@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection issue de docs/http-contract.md (102 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
+    "description": "Collection issue de docs/http-contract.md (103 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -2279,6 +2279,28 @@
               "response": []
             },
             {
+              "name": "GET /api/admin/user-names",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/user-names?ids={{targetUserId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "1 à 100 UUID séparés par des virgules → 200 { users: [{ user_id, firstname }] }."
+              },
+              "response": []
+            },
+            {
               "name": "GET /api/admin/users/:id",
               "request": {
                 "method": "GET",
@@ -2296,7 +2318,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "UUID + query reason obligatoire → détail administratif audité."
+                "description": "UUID + query reason facultatif pour le superadmin → détail administratif audité."
               },
               "response": []
             },
@@ -2335,7 +2357,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ is_banned, reason? } → bannissement/débannissement. Motif requis pour bannir."
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ is_banned, reason? } → bannissement/débannissement. Motif requis pour bannir par un admin."
               },
               "response": []
             },
@@ -2374,7 +2396,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Réservé au superadmin. role=admin promeut un utilisateur ; role=user retire les droits admin et révoque sessions, passkeys et jetons d’enrôlement. Motif de 3 à 500 caractères. Impossible de créer un autre superadmin."
+                "description": "⚠️ Réservé au superadmin. role=admin promeut un utilisateur ; role=user retire les droits admin et révoque sessions, passkeys et jetons d’enrôlement. Motif facultatif de 3 à 500 caractères. Impossible de créer un autre superadmin."
               },
               "response": []
             },
@@ -2863,7 +2885,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "UUID + query reason (3–500 caractères) → contenu audité."
+                "description": "UUID + query reason facultatif pour le superadmin → contenu audité."
               },
               "response": []
             },
@@ -3012,7 +3034,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nUUID photo + { reason } (3–500 caractères) → 202."
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nUUID photo + { reason? } → 202 ; motif facultatif pour le superadmin."
               },
               "response": []
             },
@@ -3095,7 +3117,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n**Récente** ; { reason } → 202, relance auditée."
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n**Récente** ; { reason? } → 202, relance auditée. Motif facultatif pour le superadmin."
               },
               "response": []
             },
@@ -3134,7 +3156,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n**Récente** ; { reason } → 204, abandon audité lorsque permis."
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n**Récente** ; { reason? } → 204, abandon audité lorsque permis. Motif facultatif pour le superadmin."
               },
               "response": []
             }

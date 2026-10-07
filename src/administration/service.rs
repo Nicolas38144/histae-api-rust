@@ -72,6 +72,13 @@ impl AdministrationService {
         }
     }
 
+    pub async fn user_names(
+        &self,
+        ids: Vec<Uuid>,
+    ) -> Result<Vec<(Uuid, Option<String>)>, AdministrationError> {
+        self.store.user_names(ids).await.map_err(Into::into)
+    }
+
     pub async fn users(
         &self,
         status: Option<AdminUserStatus>,
@@ -122,7 +129,7 @@ impl AdministrationService {
         admin_role: AdminRole,
         raw_reason: &str,
     ) -> Result<AdminUserDetail, AdministrationError> {
-        let reason = normalize_reason(raw_reason)?;
+        let reason = normalize_reason(admin_role.audit_reason(raw_reason, "Superadmin access"))?;
         let row = self
             .store
             .user_detail(
@@ -159,7 +166,9 @@ impl AdministrationService {
         admin_role: AdminRole,
     ) -> Result<(), AdministrationError> {
         let reason = if is_banned {
-            normalize_reason(raw_reason.unwrap_or_default())?
+            normalize_reason(
+                admin_role.audit_reason(raw_reason.unwrap_or_default(), "Superadmin ban"),
+            )?
         } else {
             normalize_reason(
                 raw_reason
@@ -192,7 +201,8 @@ impl AdministrationService {
         {
             return Err(AdministrationError::ActionForbidden);
         }
-        let reason = normalize_reason(raw_reason)?;
+        let reason =
+            normalize_reason(actor_role.audit_reason(raw_reason, "Superadmin role change"))?;
         match self
             .store
             .set_role(target_id, role, reason, actor_id)
@@ -209,7 +219,11 @@ impl AdministrationService {
         request: AuditedPageRequest<'_>,
     ) -> Result<Page<PublicMatch>, AdministrationError> {
         validate_pagination(request.limit, request.offset, request.cursor)?;
-        let reason = normalize_reason(request.reason)?;
+        let reason = normalize_reason(
+            request
+                .admin_role
+                .audit_reason(request.reason, "Superadmin access"),
+        )?;
         let rows = self
             .store
             .matches(
@@ -246,7 +260,11 @@ impl AdministrationService {
         request: AuditedPageRequest<'_>,
     ) -> Result<Page<PublicMessage>, AdministrationError> {
         validate_pagination(request.limit, request.offset, request.cursor)?;
-        let reason = normalize_reason(request.reason)?;
+        let reason = normalize_reason(
+            request
+                .admin_role
+                .audit_reason(request.reason, "Superadmin access"),
+        )?;
         let rows = self
             .store
             .messages(
@@ -375,6 +393,13 @@ mod tests {
 
     #[allow(clippy::too_many_arguments)]
     impl AdministrationStore for FakeStore {
+        fn user_names(
+            &self,
+            ids: Vec<Uuid>,
+        ) -> AdministrationStoreFuture<'_, Vec<(Uuid, Option<String>)>> {
+            Box::pin(async move { Ok(ids.into_iter().map(|id| (id, None)).collect()) })
+        }
+
         fn list_users(
             &self,
             _status: Option<AdminUserStatus>,
@@ -670,6 +695,44 @@ mod tests {
                 .lock()
                 .is_ok_and(|items| items.as_slice() == ["Nouvelle mission", "Fin de mission"])
         );
+    }
+
+    #[tokio::test]
+    async fn superadmin_uses_auditable_defaults_when_reasons_are_omitted() {
+        let (service, store, _) = service(BanResult::Updated);
+        let target_id = store.user.id;
+        let actor_id = Uuid::new_v4();
+        service
+            .user_detail(target_id, actor_id, AdminRole::Superadmin, "")
+            .await
+            .unwrap_or_else(|_| unreachable!());
+        service
+            .update_ban(target_id, true, None, actor_id, AdminRole::Superadmin)
+            .await
+            .unwrap_or_else(|_| unreachable!());
+        service
+            .update_role(
+                target_id,
+                AdminUserRole::Admin,
+                "",
+                actor_id,
+                AdminRole::Superadmin,
+            )
+            .await
+            .unwrap_or_else(|_| unreachable!());
+        assert!(store.reasons.lock().is_ok_and(|items| items.as_slice()
+            == [
+                "Superadmin access",
+                "Superadmin ban",
+                "Superadmin role change"
+            ]));
+
+        assert!(matches!(
+            service
+                .user_detail(target_id, actor_id, AdminRole::Admin, "")
+                .await,
+            Err(AdministrationError::InvalidRequest)
+        ));
     }
 
     #[test]

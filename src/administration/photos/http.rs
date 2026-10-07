@@ -105,7 +105,7 @@ impl ApiDto for PhotoPath {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReconcileBody {
-    reason: String,
+    reason: Option<String>,
 }
 
 impl ApiDto for ReconcileBody {
@@ -113,7 +113,9 @@ impl ApiDto for ReconcileBody {
     const ERROR_MESSAGE: &'static str = "The administrator request is invalid.";
 
     fn is_valid(&self) -> bool {
-        (3..=500).contains(&validator_js_length(&self.reason))
+        self.reason
+            .as_ref()
+            .is_none_or(|reason| validator_js_length(reason) <= 500)
     }
 }
 
@@ -130,7 +132,12 @@ async fn reconcile(
 ) -> Result<(StatusCode, Json<MessageResponse>), ApiError> {
     state
         .service
-        .reconcile(path.id, &body.reason, identity.user_id, identity.role)
+        .reconcile(
+            path.id,
+            body.reason.as_deref().unwrap_or_default(),
+            identity.user_id,
+            identity.role,
+        )
         .await
         .map_err(admin_photo_error)?;
     Ok((

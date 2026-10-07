@@ -27,6 +27,23 @@ impl PgAdministrationStore {
 
 #[allow(clippy::too_many_arguments)]
 impl AdministrationStore for PgAdministrationStore {
+    fn user_names(
+        &self,
+        ids: Vec<Uuid>,
+    ) -> AdministrationStoreFuture<'_, Vec<(Uuid, Option<String>)>> {
+        Box::pin(async move {
+            sqlx::query_as(
+                "SELECT account.user_id, profile.firstname FROM user_account AS account
+                 LEFT JOIN user_profile AS profile USING (user_id)
+                 WHERE account.user_id = ANY($1) AND account.deleted_at IS NULL",
+            )
+            .bind(ids)
+            .fetch_all(self.database.pool())
+            .await
+            .map_err(map_sqlx_error)
+        })
+    }
+
     fn list_users(
         &self,
         status: Option<AdminUserStatus>,
