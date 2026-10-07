@@ -22,7 +22,7 @@
                   },
                   {
                     "key": "Idempotency-Key",
-                    "value": "{{otpIdempotencyKey}}"
+                    "value": "{{$guid}}"
                   },
                   {
                     "key": "Content-Type",
@@ -42,7 +42,7 @@
                     }
                   }
                 },
-                "description": "{ phone_number } + clé d’idempotence → 202 { message }.\n\nConserver la même clé pour rejouer la même intention ; choisir un nouvel UUID v4 pour une nouvelle intention."
+                "description": "{ phone_number } + clé d’idempotence → 202 { message }.\n\nPostman génère un nouvel UUID v4 pour chaque envoi. Une requête répétée avec la même clé est acceptée sans renvoyer de SMS."
               },
               "response": []
             },
@@ -699,7 +699,7 @@
                   },
                   {
                     "key": "Idempotency-Key",
-                    "value": "{{photoIdempotencyKey}}"
+                    "value": "{{$guid}}"
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/photo",
@@ -723,7 +723,7 @@
                     }
                   ]
                 },
-                "description": "Multipart photo + clé d’idempotence → 200 avec URL propriétaire et modération.\n\nConserver la même clé pour rejouer la même intention ; choisir un nouvel UUID v4 pour une nouvelle intention.\n\nChoisir un fichier local pour le champ multipart photo ; taille maximale 500 000 octets."
+                "description": "Multipart photo + clé d’idempotence → 200 avec URL propriétaire et modération.\n\nPostman génère un nouvel UUID v4 pour chaque envoi. Si la réponse est perdue, rejouer le même fichier avec la clé initiale relevée dans la console Postman.\n\nChoisir un fichier local pour le champ multipart photo ; taille maximale 500 000 octets."
               },
               "response": []
             },
@@ -1187,7 +1187,7 @@
                   },
                   {
                     "key": "Idempotency-Key",
-                    "value": "{{messageIdempotencyKey}}"
+                    "value": "{{$guid}}"
                   },
                   {
                     "key": "Content-Type",
@@ -1214,7 +1214,7 @@
                     }
                   }
                 },
-                "description": "{ content } + clé d’idempotence → 201 avec le message stable.\n\nConserver la même clé pour rejouer la même intention ; choisir un nouvel UUID v4 pour une nouvelle intention."
+                "description": "{ content } + clé d’idempotence → 201 avec le message stable.\n\nPostman génère un nouvel UUID v4 pour chaque message. Si la réponse est perdue, rejouer le même contenu avec la clé initiale relevée dans la console Postman."
               },
               "response": []
             },
@@ -1440,7 +1440,7 @@
                   },
                   {
                     "key": "Idempotency-Key",
-                    "value": "{{checkoutIdempotencyKey}}"
+                    "value": "{{$guid}}"
                   },
                   {
                     "key": "Content-Type",
@@ -1467,7 +1467,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ billing_period: monthly ou annual } + clé d’idempotence → 201 { session_id, url, expires_at }.\n\nConserver la même clé pour rejouer la même intention ; choisir un nouvel UUID v4 pour une nouvelle intention."
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ billing_period: monthly ou annual } + clé d’idempotence → 201 { session_id, url, expires_at }.\n\nPostman génère un nouvel UUID v4 pour chaque nouvelle tentative. Si la réponse est perdue ou la création Customer incertaine, rejouer avec la clé initiale relevée dans la console Postman : une nouvelle clé peut être refusée."
               },
               "response": []
             },
@@ -2296,7 +2296,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "1 à 100 UUID séparés par des virgules → 200 { users: [{ user_id, firstname }] }."
+                "description": "Paramètre de requête ids : 1 à 100 UUID séparés par des virgules → 200 { users: [{ user_id, firstname }] }."
               },
               "response": []
             },
@@ -2418,7 +2418,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "UUID utilisateur + reason, limit, cursor (offset déprécié) → 200 { matches, next_cursor }. **Route admin malgré son chemin.**"
+                "description": "UUID utilisateur + reason?, limit, cursor (offset déprécié) → 200 { matches, next_cursor }. Motif requis pour un admin, facultatif pour le superadmin. **Route admin malgré son chemin.**"
               },
               "response": []
             },
@@ -2440,7 +2440,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "UUID match + reason, limit, cursor (offset déprécié) → conversation auditée."
+                "description": "UUID match + reason?, limit, cursor (offset déprécié) → conversation auditée. Motif requis pour un admin, facultatif pour le superadmin."
               },
               "response": []
             },
@@ -2924,7 +2924,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ version, decision, reason, photo_checks? } → 200 { message: \"content moderation decision recorded\" }.\n\nUtiliser la version courante issue du détail. photo_checks est requis pour une photo ; supprimer ce champ pour une bio ou une réponse."
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ version, decision, reason?, photo_checks? } → 200 { message: \"content moderation decision recorded\" }. Motif requis pour un admin, facultatif pour le superadmin.\n\nUtiliser la version courante issue du détail. photo_checks est requis pour une photo ; supprimer ce champ pour une bio ou une réponse."
               },
               "response": []
             }
@@ -3209,26 +3209,6 @@
     {
       "key": "challengeId",
       "value": "",
-      "type": "string"
-    },
-    {
-      "key": "otpIdempotencyKey",
-      "value": "11111111-1111-4111-8111-111111111111",
-      "type": "string"
-    },
-    {
-      "key": "photoIdempotencyKey",
-      "value": "22222222-2222-4222-8222-222222222222",
-      "type": "string"
-    },
-    {
-      "key": "messageIdempotencyKey",
-      "value": "33333333-3333-4333-8333-333333333333",
-      "type": "string"
-    },
-    {
-      "key": "checkoutIdempotencyKey",
-      "value": "44444444-4444-4444-8444-444444444444",
       "type": "string"
     },
     {

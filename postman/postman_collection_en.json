@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection generated from docs/http-contract.md (103 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for local network access, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (full value “name=value”) and adminOrigin; a real WebAuthn proof is required to sign in. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Detailed contract: docs/http-contract.md.",
+    "description": "Collection based on docs/http-contract.md (103 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -9,7 +9,7 @@
       "name": "Public routes and integrations",
       "item": [
         {
-          "name": "Mobile login and catalog",
+          "name": "Mobile authentication and catalog",
           "item": [
             {
               "name": "POST /api/auth/otp/send",
@@ -22,7 +22,7 @@
                   },
                   {
                     "key": "Idempotency-Key",
-                    "value": "{{otpIdempotencyKey}}"
+                    "value": "{{$guid}}"
                   },
                   {
                     "key": "Content-Type",
@@ -42,7 +42,7 @@
                     }
                   }
                 },
-                "description": "{ phone_number } + idempotency key → 202 { message }.\n\nKeep the same key to replay the same intent; choose a new UUID v4 for a new intent."
+                "description": "{ phone_number } + idempotency key → 202 { message }.\n\nPostman generates a new UUID v4 for each request. Repeating a request with the same key is accepted without sending another SMS."
               },
               "response": []
             },
@@ -159,7 +159,7 @@
           ]
         },
         {
-          "name": "Webhook Stripe",
+          "name": "Stripe webhook",
           "item": [
             {
               "name": "POST /api/billing/stripe/webhook",
@@ -192,14 +192,14 @@
                     }
                   }
                 },
-                "description": "Raw JSON body + Stripe-Signature → 200 { received: true }.\n\nThe signature must exactly match the raw body. Use an event signed by Stripe; the placeholder will return 401."
+                "description": "Raw JSON body + Stripe-Signature → 200 { received: true }.\n\nThe signature must match the exact raw body. Use an event signed by Stripe; the placeholder returns 401."
               },
               "response": []
             }
           ]
         },
         {
-          "name": "Webhook Sweego",
+          "name": "Sweego webhook",
           "item": [
             {
               "name": "POST /api/auth/sweego/webhook",
@@ -240,7 +240,7 @@
                     }
                   }
                 },
-                "description": "Raw JSON body + webhook-id, webhook-timestamp, webhook-signature → 200 { received: true }.\n\nHMAC signature over id.timestamp.raw-body. Use a signed Sweego callback; the placeholders will return 401."
+                "description": "Raw JSON body + webhook-id, webhook-timestamp, webhook-signature → 200 { received: true }.\n\nHMAC signature over id.timestamp.raw-body. Use a signed Sweego callback; the placeholders return 401."
               },
               "response": []
             }
@@ -293,7 +293,7 @@
       "name": "Mobile client",
       "item": [
         {
-          "name": "Session and logout",
+          "name": "Sessions and sign-out",
           "item": [
             {
               "name": "GET /api/auth/me",
@@ -316,7 +316,7 @@
                     }
                   ]
                 },
-                "description": "200 { user_id, onboarding_complete }, without admin role."
+                "description": "200 { user_id, onboarding_complete }, without an admin role."
               },
               "response": []
             },
@@ -354,7 +354,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n{ refresh_token, device_id? } → 204."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ refresh_token, device_id? } → 204."
               },
               "response": []
             },
@@ -379,7 +379,7 @@
                     }
                   ]
                 },
-                "description": "limit, cursor → 200 { sessions, next_cursor }. Pas d’offset."
+                "description": "limit, cursor → 200 { sessions, next_cursor }. No offset."
               },
               "response": []
             },
@@ -404,7 +404,7 @@
                     }
                   ]
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\nUUID v4 of an account session family → 204."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\nUUID v4 of a session family belonging to the account → 204."
               },
               "response": []
             },
@@ -442,7 +442,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n{ confirm: true } → 200 { revoked_sessions }."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ confirm: true } → 200 { revoked_sessions }."
               },
               "response": []
             }
@@ -510,7 +510,7 @@
                     }
                   }
                 },
-                "description": "{ consents: [{ consent_type, granted }] } → same enriched state."
+                "description": "{ consents: [{ consent_type, granted }] } → the same enriched state."
               },
               "response": []
             }
@@ -540,7 +540,7 @@
                     }
                   ]
                 },
-                "description": "200 with the owner profile ; 404 profile_not_found if it is not completed."
+                "description": "200 with the account owner’s profile; 404 profile_not_found if it has not been completed."
               },
               "response": []
             },
@@ -571,7 +571,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"firstname\": \"Alice\",\n  \"birthdate\": \"1995-01-01\",\n  \"sex\": \"female\",\n  \"bio\": \"Hello, I’m discovering Histae.\"\n}",
+                  "raw": "{\n  \"firstname\": \"Alice\",\n  \"birthdate\": \"1995-01-01\",\n  \"sex\": \"female\",\n  \"bio\": \"Hello, I am discovering Histae.\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -603,7 +603,7 @@
                     }
                   ]
                 },
-                "description": "200 { min_age, max_age, max_distance_km, looking_for } ; 404 preferences_not_found."
+                "description": "200 { min_age, max_age, max_distance_km, looking_for }; 404 preferences_not_found."
               },
               "response": []
             },
@@ -641,7 +641,7 @@
                     }
                   }
                 },
-                "description": "These four fields are required → 200 { message: \"preferences updated\" }."
+                "description": "All four fields are required → 200 { message: \"preferences updated\" }."
               },
               "response": []
             },
@@ -686,7 +686,7 @@
           ]
         },
         {
-          "name": "Single photo",
+          "name": "Profile photo",
           "item": [
             {
               "name": "PUT /api/users/me/photo",
@@ -699,7 +699,7 @@
                   },
                   {
                     "key": "Idempotency-Key",
-                    "value": "{{photoIdempotencyKey}}"
+                    "value": "{{$guid}}"
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/photo",
@@ -723,7 +723,7 @@
                     }
                   ]
                 },
-                "description": "Multipart photo + idempotency key → 200 with owner URL and moderation.\n\nKeep the same key to replay the same intent; choose a new UUID v4 for a new intent.\n\nChoose a local file for the multipart photo field; maximum size 500,000 bytes."
+                "description": "Multipart photo + idempotency key → 200 with the owner’s photo URL and moderation state.\n\nPostman generates a new UUID v4 for each upload. If the response is lost, resend the same file with the original key shown in the Postman Console.\n\nChoose a local file for the photo multipart field; maximum size: 500,000 bytes."
               },
               "response": []
             },
@@ -748,7 +748,7 @@
                     }
                   ]
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\nNo body → 204 once the removal has been durably accepted."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\nNo body → 204 once photo removal has been durably accepted."
               },
               "response": []
             }
@@ -778,7 +778,7 @@
                     }
                   ]
                 },
-                "description": "200 { traits: [{ id, name }] }, catalogue."
+                "description": "200 { traits: [{ id, name }] }, catalog."
               },
               "response": []
             },
@@ -803,7 +803,7 @@
                     }
                   ]
                 },
-                "description": "Same shape, traits assigned to the requester."
+                "description": "Same response shape, with traits assigned to the current user."
               },
               "response": []
             },
@@ -841,7 +841,7 @@
                     }
                   }
                 },
-                "description": "{ traitId } → 204 ; 404 trait_not_found. The snake_case field trait_id is rejected."
+                "description": "{ traitId } → 204; 404 trait_not_found. The snake_case field trait_id is rejected."
               },
               "response": []
             },
@@ -866,7 +866,7 @@
                     }
                   ]
                 },
-                "description": "UUID → 204, even if not assigned."
+                "description": "UUID → 204, even if the trait was not assigned."
               },
               "response": []
             },
@@ -916,7 +916,7 @@
                     }
                   ]
                 },
-                "description": "200 { answers: [...] }, ordered owner responses."
+                "description": "200 { answers: [...] }, ordered answers belonging to the current user."
               },
               "response": []
             },
@@ -954,14 +954,14 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n{ answers: [{ question_id, answer }] } → same collection replaced."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ answers: [{ question_id, answer }] } → the replacement collection."
               },
               "response": []
             }
           ]
         },
         {
-          "name": "Discovery, matches and messages",
+          "name": "Discovery, matches, and messages",
           "item": [
             {
               "name": "GET /api/users/me/discovery-status",
@@ -1047,7 +1047,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n{ target_user_id, decision: like or pass } → 201 { decision, matched, match? }."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ target_user_id, decision: like or pass } → 201 { decision, matched, match? }."
               },
               "response": []
             },
@@ -1097,7 +1097,7 @@
                     }
                   ]
                 },
-                "description": "200 : effective plan, usage, weekly_limit, remaining for a limited plan."
+                "description": "200: effective plan, usage, weekly_limit, and remaining for a limited plan."
               },
               "response": []
             },
@@ -1187,7 +1187,7 @@
                   },
                   {
                     "key": "Idempotency-Key",
-                    "value": "{{messageIdempotencyKey}}"
+                    "value": "{{$guid}}"
                   },
                   {
                     "key": "Content-Type",
@@ -1207,14 +1207,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"content\": \"Bonjour !\"\n}",
+                  "raw": "{\n  \"content\": \"Hello!\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "{ content } + idempotency key → 201 with the stable message.\n\nKeep the same key to replay the same intent; choose a new UUID v4 for a new intent."
+                "description": "{ content } + idempotency key → 201 with the stable message.\n\nPostman generates a new UUID v4 for each message. If the response is lost, resend the same content with the original key shown in the Postman Console."
               },
               "response": []
             },
@@ -1345,7 +1345,7 @@
                     }
                   }
                 },
-                "description": "{ push_token, platform: ios or android, app_version? } → 201 with the public device."
+                "description": "{ push_token, platform: ios or android, app_version? } → 201 with the public device record."
               },
               "response": []
             },
@@ -1370,7 +1370,7 @@
                     }
                   ]
                 },
-                "description": "UUID of an account device → 204 ; 404 device_not_found."
+                "description": "UUID of a device belonging to the account → 204; 404 device_not_found."
               },
               "response": []
             },
@@ -1395,7 +1395,7 @@
                     }
                   ]
                 },
-                "description": "Authenticated SSE stream text/event-stream.\n\nLong-lived SSE stream: run manually, then stop it in Postman."
+                "description": "Authenticated text/event-stream SSE stream.\n\nLong-lived SSE stream: start it manually, then stop it in Postman."
               },
               "response": []
             }
@@ -1440,7 +1440,7 @@
                   },
                   {
                     "key": "Idempotency-Key",
-                    "value": "{{checkoutIdempotencyKey}}"
+                    "value": "{{$guid}}"
                   },
                   {
                     "key": "Content-Type",
@@ -1467,7 +1467,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n{ billing_period: monthly or annual } + idempotency key → 201 { session_id, url, expires_at }.\n\nKeep the same key to replay the same intent; choose a new UUID v4 for a new intent."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ billing_period: monthly or annual } + idempotency key → 201 { session_id, url, expires_at }.\n\nPostman generates a new UUID v4 for each new attempt. If the response is lost or Customer creation is uncertain, retry with the original key shown in the Postman Console: a new key may be rejected."
               },
               "response": []
             },
@@ -1492,14 +1492,14 @@
                     }
                   ]
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\nNo body → 201 { url }."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\nNo body → 201 { url }."
               },
               "response": []
             }
           ]
         },
         {
-          "name": "Rights, deletion and safety",
+          "name": "Privacy rights, erasure, and safety",
           "item": [
             {
               "name": "POST /api/users/me/deletion-token",
@@ -1522,7 +1522,7 @@
                     }
                   ]
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\nNo body → 201 { confirmation_token, expires_at }."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\nNo body → 201 { confirmation_token, expires_at }."
               },
               "response": [],
               "event": [
@@ -1574,7 +1574,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n{ confirmation_token } → 202 { request_id, status: \"in_progress\" }.\n\nDisables the account; use only a test account and the one-time token from the previous route."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ confirmation_token } → 202 { request_id, status: \"in_progress\" }.\n\nDisables the account; use only a test account and the one-time token from the previous route."
               },
               "response": []
             },
@@ -1687,7 +1687,7 @@
                     }
                   ]
                 },
-                "description": "200 { blocks: [...] }, always photo: null."
+                "description": "200 { blocks: [...] }, always with photo: null."
               },
               "response": []
             },
@@ -1712,7 +1712,7 @@
                     }
                   ]
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\nUUID → 204, closes matches between the accounts and prevents them from being recreated."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\nUUID → 204; closes matches between the accounts and prevents them from matching again."
               },
               "response": []
             },
@@ -1737,7 +1737,7 @@
                     }
                   ]
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\nUUID → 204."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\nUUID → 204."
               },
               "response": []
             },
@@ -1775,7 +1775,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n{ reported_user_id, match_id?, reason, description? } → 201 with the report."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ reported_user_id, match_id?, reason, description? } → 201 with the report."
               },
               "response": []
             }
@@ -1787,7 +1787,7 @@
       "name": "Administration",
       "item": [
         {
-          "name": "WebAuthn entry",
+          "name": "WebAuthn sign-in and enrollment",
           "item": [
             {
               "name": "POST /api/admin/auth/login/options",
@@ -1848,7 +1848,7 @@
                     }
                   }
                 },
-                "description": "{ challenge_id, credential } → 200 with public session and cookie.\n\nReplace credential with a real WebAuthn assertion obtained in the admin browser."
+                "description": "{ challenge_id, credential } → 200 with the public session and cookie.\n\nReplace credential with a real WebAuthn assertion obtained in the admin browser."
               },
               "response": []
             },
@@ -1924,7 +1924,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n{ bootstrap_token, challenge_id, credential, name } → 201 with session and cookie.\n\nReplace credential with a real WebAuthn attestation. Bootstrap only on a test instance."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ bootstrap_token, challenge_id, credential, name } → 201 with the session and cookie.\n\nReplace credential with a real WebAuthn attestation. Bootstrap only on a test instance."
               },
               "response": []
             }
@@ -1973,7 +1973,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "200 { user_id, role }, business alias; prefer the session route."
+                "description": "200 { user_id, role }, a domain alias; prefer the session route."
               },
               "response": []
             },
@@ -1999,7 +1999,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\nNo body → 204, also expires the cookie."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\nNo body → 204; also expires the cookie."
               },
               "response": []
             },
@@ -2021,7 +2021,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "Active passkeys, current-passkey marker, without public key."
+                "description": "Active passkeys and an indicator for the current passkey, without public keys."
               },
               "response": []
             },
@@ -2060,7 +2060,7 @@
                     }
                   }
                 },
-                "description": "**Recent** ; { name } → 200, audited rename."
+                "description": "**Recent authentication required**; { name } → 200, audited rename."
               },
               "response": []
             },
@@ -2086,7 +2086,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "**Recent** ; 201, options for an additional passkey."
+                "description": "**Recent authentication required**; 201, options for an additional passkey."
               },
               "response": []
             },
@@ -2125,7 +2125,7 @@
                     }
                   }
                 },
-                "description": "**Recent** ; { challenge_id, credential, name } → 201.\n\nReplace credential with a real WebAuthn attestation."
+                "description": "**Recent authentication required**; { challenge_id, credential, name } → 201.\n\nReplace credential with a real WebAuthn attestation."
               },
               "response": []
             },
@@ -2151,7 +2151,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n**Recent** ; UUID → 204."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n**Recent authentication required**; UUID → 204."
               },
               "response": []
             },
@@ -2173,7 +2173,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "Active account sessions with passkey, dates and current flag, without token/hash."
+                "description": "Active sessions for the account, including passkey, dates, and current, without tokens or hashes."
               },
               "response": []
             },
@@ -2199,7 +2199,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n**Recent** ; UUID → 204, except the current session."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n**Recent authentication required**; UUID → 204, except for the current session."
               },
               "response": []
             },
@@ -2225,7 +2225,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n**Recent** ; 201 { revoked_sessions }, keeps the current session."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n**Recent authentication required**; 201 { revoked_sessions }; keeps the current session."
               },
               "response": []
             },
@@ -2254,7 +2254,7 @@
           ]
         },
         {
-          "name": "Accounts, reports and permissions",
+          "name": "Accounts, reports, and permissions",
           "item": [
             {
               "name": "GET /api/admin/users",
@@ -2296,7 +2296,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "1 to 100 comma-separated UUIDs → 200 { users: [{ user_id, firstname }] }."
+                "description": "ids query parameter: 1 to 100 comma-separated UUIDs → 200 { users: [{ user_id, firstname }] }."
               },
               "response": []
             },
@@ -2318,7 +2318,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "UUID + optional reason query for the superadmin → audited administrative detail."
+                "description": "User UUID + optional reason query parameter for the superadmin → audited admin detail."
               },
               "response": []
             },
@@ -2350,14 +2350,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"is_banned\": true,\n  \"reason\": \"Confirmed report\"\n}",
+                  "raw": "{\n  \"is_banned\": true,\n  \"reason\": \"Report confirmed\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n{ is_banned, reason? } → ban/unban. Reason required for an admin to ban."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ is_banned, reason? } → ban or unban. An admin must provide a reason to ban."
               },
               "response": []
             },
@@ -2389,14 +2389,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"role\": \"admin\",\n  \"reason\": \"Nomination administrateur\"\n}",
+                  "raw": "{\n  \"role\": \"admin\",\n  \"reason\": \"Administrator appointment\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "⚠️ Reserved for the superadmin. role=admin promotes a user ; role=user removes admin rights and revokes sessions, passkeys, and enrollment tokens. Optional reason of 3 to 500 characters. Cannot create another superadmin."
+                "description": "⚠️ Superadmin only. role=admin promotes a user; role=user removes admin rights and revokes sessions, passkeys, and enrollment tokens. An optional reason must be 3–500 characters. Cannot create another superadmin."
               },
               "response": []
             },
@@ -2418,7 +2418,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "User UUID + reason, limit, cursor (offset deprecated) → 200 { matches, next_cursor }. **Admin route despite its path.**"
+                "description": "User UUID + reason?, limit, cursor (offset deprecated) → 200 { matches, next_cursor }. Reason is required for an admin and optional for the superadmin. **Admin route despite its path.**"
               },
               "response": []
             },
@@ -2440,7 +2440,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "Match UUID + reason, limit, cursor (offset deprecated) → audited conversation."
+                "description": "Match UUID + reason?, limit, cursor (offset deprecated) → audited conversation. Reason is required for an admin and optional for the superadmin."
               },
               "response": []
             },
@@ -2501,7 +2501,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n{ status } → 200 { message: \"report updated\" } ; 404 report_not_found."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ status } → 200 { message: \"report updated\" }; 404 report_not_found."
               },
               "response": []
             },
@@ -2523,7 +2523,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "status?, limit, cursor (offset deprecated) → 200 { requests, next_cursor }, with possible erasure progress."
+                "description": "status?, limit, cursor (offset deprecated) → 200 { requests, next_cursor }, including erasure progress when available."
               },
               "response": []
             },
@@ -2555,14 +2555,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"status\": \"in_progress\",\n  \"notes\": \"Prise en charge.\"\n}",
+                  "raw": "{\n  \"status\": \"in_progress\",\n  \"notes\": \"Processing started.\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n**Recent** ; { status, notes? } → controlled and audited transition."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n**Recent authentication required**; { status, notes? } → controlled, audited transition."
               },
               "response": []
             },
@@ -2682,7 +2682,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"Modified test trait\"\n}",
+                  "raw": "{\n  \"name\": \"Updated test trait\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -2715,7 +2715,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\nUUID → 204, permanent deletion."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\nUUID → 204, permanent deletion."
               },
               "response": []
             },
@@ -2737,7 +2737,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "200 { questions: [...] }, with dates and answer_count."
+                "description": "200 { questions: [...] }, including dates and answer_count."
               },
               "response": []
             },
@@ -2841,7 +2841,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\nUUID → 204, also deletes all its answers."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\nUUID → 204; also deletes all its answers."
               },
               "response": []
             },
@@ -2885,7 +2885,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "UUID + optional reason query for the superadmin → audited content."
+                "description": "Case UUID + optional reason query parameter for the superadmin → audited content."
               },
               "response": []
             },
@@ -2917,14 +2917,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"version\": 1,\n  \"decision\": \"approved\",\n  \"reason\": \"Content manually reviewed\",\n  \"photo_checks\": {\n    \"face_detectable\": true,\n    \"sharp_enough\": true,\n    \"content_allowed\": true\n  }\n}",
+                  "raw": "{\n  \"version\": 1,\n  \"decision\": \"approved\",\n  \"reason\": \"Content reviewed manually\",\n  \"photo_checks\": {\n    \"face_detectable\": true,\n    \"sharp_enough\": true,\n    \"content_allowed\": true\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n{ version, decision, reason, photo_checks? } → 200 { message: \"content moderation decision recorded\" }.\n\nUse the current version from the detail response. photo_checks is required for a photo; omit this field for a bio or an answer."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ version, decision, reason?, photo_checks? } → 200 { message: \"content moderation decision recorded\" }. Reason is required for an admin and optional for the superadmin.\n\nUse the current version from the detail response. photo_checks is required for a photo; omit it for a bio or an answer."
               },
               "response": []
             }
@@ -2951,7 +2951,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "revenue_period? → business and operations summary."
+                "description": "revenue_period? → business summary and operations."
               },
               "response": []
             },
@@ -2995,7 +2995,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "status?, limit, cursor (offset deprecated) → photo processing items to reconcile."
+                "description": "status?, limit, cursor (offset deprecated) → photo jobs requiring reconciliation."
               },
               "response": []
             },
@@ -3034,7 +3034,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\nPhoto UUID + { reason? } → 202 ; optional reason for the superadmin."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\nPhoto UUID + { reason? } → 202; reason optional for the superadmin."
               },
               "response": []
             },
@@ -3056,7 +3056,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "kind?, limit, cursor → dead letters Stripe 200 { events, next_cursor }."
+                "description": "kind?, limit, cursor → Stripe dead letters, 200 { events, next_cursor }."
               },
               "response": []
             },
@@ -3117,7 +3117,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n**Recent** ; { reason? } → 202, audited retry. Optional reason for the superadmin."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n**Recent authentication required**; { reason? } → 202, audited retry. Reason optional for the superadmin."
               },
               "response": []
             },
@@ -3149,14 +3149,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"reason\": \"Manual abandonment after review\"\n}",
+                  "raw": "{\n  \"reason\": \"Manual discard after review\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "⚠️ Modifies or deletes data: run manually on a test instance.\n\n**Recent** ; { reason? } → 204, audited abandonment when allowed. Optional reason for the superadmin."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n**Recent authentication required**; { reason? } → 204, audited discard where allowed. Reason optional for the superadmin."
               },
               "response": []
             }
@@ -3209,26 +3209,6 @@
     {
       "key": "challengeId",
       "value": "",
-      "type": "string"
-    },
-    {
-      "key": "otpIdempotencyKey",
-      "value": "11111111-1111-4111-8111-111111111111",
-      "type": "string"
-    },
-    {
-      "key": "photoIdempotencyKey",
-      "value": "22222222-2222-4222-8222-222222222222",
-      "type": "string"
-    },
-    {
-      "key": "messageIdempotencyKey",
-      "value": "33333333-3333-4333-8333-333333333333",
-      "type": "string"
-    },
-    {
-      "key": "checkoutIdempotencyKey",
-      "value": "44444444-4444-4444-8444-444444444444",
       "type": "string"
     },
     {
@@ -3313,7 +3293,7 @@
     },
     {
       "key": "auditReason",
-      "value": "Vérification manuelle dans Postman",
+      "value": "Manual review in Postman",
       "type": "string"
     },
     {
