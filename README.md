@@ -33,7 +33,7 @@ db/                # Schéma PostgreSQL consolidé, données initiales et script
 docker/            # Configuration des services conteneurisés
 services/          # Service autonome de modération photo
 tools/             # Codec photo et génération de ses fixtures
-scripts/           # Smoke et restauration de développement
+scripts/           # Smoke, restauration et données de charge de développement
   install-debian-13.sh # Prérequis de développement Debian 13
 observability/     # Supervision privée
 docs/              # Architecture, contrat HTTP et exploitation
@@ -65,6 +65,28 @@ Depuis la racine du dépôt, après préparation de `.env` :
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
 bash scripts/smoke-api.sh
 ```
+
+Pour remplir la base de développement avec 5 000 comptes fictifs (ou jusqu'à 10 000), sans OTP :
+
+Le volume dépasse la limite HTTP globale habituelle. Avant le lancement, définissez temporairement `RATE_LIMIT_GLOBAL=20000` et `RATE_LIMIT_GLOBAL_WINDOW=1m` dans `.env`, puis recréez le conteneur API :
+
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --force-recreate api
+```
+
+```bash
+sudo bash scripts/seed-dev-load.sh 5000
+```
+
+Le script accepte un multiple de 100 entre 5 000 et 10 000. Il ne cible que le conteneur PostgreSQL du projet `histae-rust-dev` et la base `histae-dev`. Il place les profils dans une petite zone autour de la position du superadmin, ou autour de Paris si elle est absente. Les comptes sont créés directement en base, car les routes de création exigent un OTP. Le script utilise ensuite les routes `/api/swipes`, `/api/matches/:id/messages`, `/api/matches/:id/continue` et `/api/reports` avec des sessions temporaires réservées aux comptes fictifs. Il crée autant de matchs que de profils (chaque profil participe à deux matchs), un swipe « pass » par profil, 5 à 10 messages par participant et des signalements sur 4 % des matchs. Il avance l'expiration des matchs fictifs après les messages, puis utilise la route de continuation pour les confirmer durablement. Les sessions temporaires sont supprimées à la fin. Une relance reprend les matchs existants et réutilise les clés d'idempotence des messages. Les comptes réels ne sont pas modifiés. Restaurez votre limite HTTP habituelle dans `.env` et recréez l'API après le chargement.
+
+Pour supprimer ensuite tous les comptes sauf le superadmin et leurs données PostgreSQL associées :
+
+```bash
+sudo bash scripts/purge-dev-users.sh
+```
+
+Cette commande agit uniquement sur `histae-dev` et s'annule sans suppression si un compte ciblé possède des photos dans le stockage objet ou une identité Stripe encore présente. Sauvegardez la base avant de l'exécuter si vous souhaitez pouvoir récupérer ces comptes.
 
 Pour exécuter les binaires sur l’hôte, avec les services locaux disponibles et sans API concurrente sur le port :
 
