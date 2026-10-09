@@ -258,13 +258,17 @@ services:
       PORT: "8080"
       MAINTENANCE_MODE: disabled
       METRICS_HOST: 0.0.0.0
+      # Adresses fixes du dashboard et de Nginx dans la pile reverse-proxy.
+      TRUST_PROXY: ${TRUST_PROXY:-172.30.0.3/32,172.30.0.4/32}
     secrets:
       - postgres_ca
     restart: always
     # API et passerelle S3 rejoignent le proxy ; aucun stockage brut n'y est exposé.
     networks:
-      - backend
-      - edge
+      backend:
+      edge:
+        aliases:
+          - histae-api-production
 
   outbox-worker:
     entrypoint: [/app/bin/outbox]

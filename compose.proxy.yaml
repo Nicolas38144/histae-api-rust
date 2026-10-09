@@ -1,0 +1,16 @@
+# Développement derrière le reverse proxy : à combiner avec compose.yaml et
+# compose.dev.yaml. Le réseau est créé par ../reverse-proxy/docker-compose.yml.
+services:
+  api:
+    environment:
+      TRUST_PROXY: "172.30.0.3/32,172.30.0.4/32"
+    networks:
+      backend:
+      edge:
+        aliases:
+          - histae-api-dev
+
+networks:
+  edge:
+    name: ${HISTAE_EDGE_NETWORK:-histae-edge}
+    external: true

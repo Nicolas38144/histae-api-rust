@@ -194,23 +194,35 @@ Ne jamais combiner les deux overrides. Le volume `histae-postgres-production-dat
 La composition de production ne publie aucun port. Elle suppose deux réseaux Docker déjà contrôlés :
 
 - `histae-backend`, partagé uniquement avec les stockages TLS et la supervision ;
-- `histae-edge`, partagé uniquement avec l’API, la passerelle S3 HTTPS et le reverse proxy ou tunnel Cloudflare.
+- `histae-edge`, partagé avec l’API, la passerelle S3 HTTPS, le dashboard, le reverse proxy et le tunnel Cloudflare.
 
 Le réseau `storage`, interne au projet, relie uniquement SeaweedFS à sa passerelle HTTPS. Les ports master,
 volume et filer ne sont accessibles ni à l'API ni au tunnel. Tout s'exécute sur le même serveur ; les réseaux
 Docker assurent la séparation des interfaces.
 
-Les créer une fois si l’orchestrateur du tunnel ne les a pas déjà créés :
+La pile `../reverse-proxy/docker-compose.yml` crée le réseau edge avec les IP
+fixes `172.30.0.3` (dashboard), `172.30.0.4` (Nginx) et `172.30.0.5` (Cloudflare).
+La démarrer avant la pile API ; ne pas créer séparément ce réseau avec un IPAM
+différent. Voir `../reverse-proxy/README.md` pour l'ordre des commandes et le
+choix de la pile API dev ou production. Créer uniquement le réseau backend s'il
+n'existe pas déjà :
 
 ```bash
 docker network create histae-backend
-docker network create histae-edge
 ```
 
 Créer `.env.production` avec `ENV=production`, `HISTAE_ENV_FILE=.env.production`, une image immuable dans
 `HISTAE_API_IMAGE` et toutes les valeurs exigées par `ConfigService`. Les contrôles de production refusent notamment
 PostgreSQL sans TLS, Redis sans TLS/mot de passe, un endpoint S3
 HTTP, Sweego ou Stripe incomplets et un proxy globalement approuvé.
+
+Définir `HISTAE_EDGE_NETWORK=histae-edge` dans les deux piles, ainsi que
+`TRUST_PROXY=172.30.0.3/32,172.30.0.4/32` dans `.env.production`. L'override de
+production utilise cette liste par défaut si la variable est absente. Nginx
+nettoie `X-Forwarded-For` à partir de `CF-Connecting-IP`, uniquement lorsqu'il est
+fourni par le connecteur approuvé. L'API possède l'alias edge distinct
+`histae-api-production` ; le `.env` du reverse proxy doit cibler
+`HISTAE_API_UPSTREAM=http://histae-api-production:8080`.
 
 ### PostgreSQL local et certificats
 
@@ -308,7 +320,7 @@ Compose donne `HISTAE_STORAGE_HOST` comme alias privé à la passerelle et impos
 `OBJECT_STORAGE_ENDPOINT=https://<HISTAE_STORAGE_HOST>` aux clients serveur. Le même nom doit être publié via
 le tunnel/reverse proxy pour les navigateurs et mobiles, en conservant exactement le Host et le chemin des
 requêtes signées. Router ce domaine vers `https://storage-gateway:443`, avec le nom TLS d'origine réglé sur
-`HISTAE_STORAGE_HOST` et vérification du certificat activée. L'API reste routée vers `http://api:8080`.
+`HISTAE_STORAGE_HOST` et vérification du certificat activée. Nginx joint l'API via `http://histae-api-production:8080`.
 Ne publier aucune interface SeaweedFS brute. Les SMS, le push et Stripe restent des fournisseurs externes.
 
 Valider sans afficher la configuration résolue :
@@ -329,9 +341,13 @@ docker compose --env-file .env.production \
   up -d --wait
 ```
 
-Le tunnel doit cibler `http://api:8080` depuis `histae-edge` et la passerelle HTTPS pour le domaine S3. PostgreSQL, Redis, SeaweedFS et le listener
-9091 ne doivent pas rejoindre ce réseau. Un tunnel ne remplace ni WebAuthn, ni les guards, ni la configuration
-précise de `TRUST_PROXY`.
+Le tunnel doit cibler `http://reverse-proxy:80` depuis `histae-edge` pour les
+domaines du site, du dashboard et de l'API ; Nginx joint ensuite
+`http://histae-api-production:8080`. La passerelle HTTPS conserve sa route dédiée
+pour le domaine S3. PostgreSQL, Redis et les interfaces SeaweedFS brutes restent
+sur leurs réseaux privés. Ne pas publier de route vers le listener de métriques
+9091. Un tunnel ne remplace ni WebAuthn, ni les guards, ni la configuration précise
+de `TRUST_PROXY`.
 
 ### Planifier la maintenance sans composant supplémentaire
 
