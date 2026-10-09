@@ -55,6 +55,10 @@ Les variables applicatives de `.env` restent adaptées aux commandes exécutées
 utilisent donc des adresses loopback. `compose.dev.yaml` les remplace uniquement dans les conteneurs par les noms
 de service `postgres` et `redis`.
 
+Le Redis de développement démarre sans authentification ni TLS. Pour les commandes exécutées depuis
+l’hôte, renseigner `REDIS_PASSWORD=` et `REDIS_TLS=false` dans `.env`. Dans les conteneurs,
+`compose.dev.yaml` impose ces deux valeurs, même si `.env` contient un mot de passe.
+
 ### Démarrer
 
 L’exemple publie PostgreSQL Docker sur le port 5433 pour éviter une installation PostgreSQL native qui écoute déjà

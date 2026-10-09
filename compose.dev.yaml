@@ -13,6 +13,8 @@ x-development-environment: &development-environment
   POSTGRES_PORT: "5432"
   POSTGRES_SSLMODE: disable
   REDIS_ADDR: redis:6379
+  # Le Redis de cette pile démarre sans authentification.
+  REDIS_PASSWORD: ""
   REDIS_TLS: "false"
   OBJECT_STORAGE_ENDPOINT: http://storage.histae.localhost:8333
   PHOTO_MODERATION_ENDPOINT: http://photo-moderation:8080
