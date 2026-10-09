@@ -59,7 +59,8 @@ services:
         bind:
           create_host_path: false
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      # Ne pas annoncer healthy pendant le serveur temporaire d'initdb.
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -p 5432 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 5s
       timeout: 5s
       retries: 20
