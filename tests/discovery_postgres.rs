@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use chrono::{TimeDelta, Utc};
 use histae_api_rust::config::{LegalConfig, PostgresConfig, SecretString};
+use histae_api_rust::discovery::cursor::FeedCursorCodec;
 use histae_api_rust::discovery::domain::{SWIPE_RETENTION_DAYS, SwipeDecision};
 use histae_api_rust::discovery::pg::{PgDiscoveryRepository, PgSwipeStore};
 use histae_api_rust::discovery::service::DiscoveryService;
@@ -191,6 +192,10 @@ async fn services(
         Arc::new(swipes.clone()),
         Arc::new(matches),
         legal(),
+        FeedCursorCodec::new(
+            &SecretString::new("test-cursor-secret-0123456789abcdef".to_owned()),
+            Arc::new(SystemClock),
+        )?,
     );
     Ok((database, activity, service, swipes))
 }

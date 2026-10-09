@@ -32,7 +32,7 @@ futures-util = "0.3.31"
 getrandom = "0.3.4"
 hmac = "0.12.1"
 ipnet = "2.11.0"
-jsonwebtoken = { version = "10.2.0", default-features = false, features = ["rust_crypto", "use_pem"] }
+jsonwebtoken = { version = "10.4.0", default-features = false, features = ["aws_lc_rs", "use_pem"] }
 log = "0.4.28"
 openssl = { version = "0.10.75", features = ["vendored"], optional = true }
 regex = "1.11.2"

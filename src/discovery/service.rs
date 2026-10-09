@@ -3,10 +3,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use serde::{Deserialize, Serialize};
-use uuid::{Uuid, Variant};
+use serde::Serialize;
+use uuid::Uuid;
 
+use super::cursor::FeedCursorCodec;
 use super::domain::{
     DiscoveryCursor, DiscoveryRequiredAction, DiscoveryStatus, FeedCandidate, SwipeDecision,
 };
@@ -99,6 +99,7 @@ pub struct DiscoveryService {
     swipes: Arc<dyn SwipeStore>,
     matches: Arc<dyn MatchCreator>,
     legal: LegalConfig,
+    cursors: FeedCursorCodec,
 }
 
 impl DiscoveryService {
@@ -107,12 +108,14 @@ impl DiscoveryService {
         swipes: Arc<dyn SwipeStore>,
         matches: Arc<dyn MatchCreator>,
         legal: LegalConfig,
+        cursors: FeedCursorCodec,
     ) -> Self {
         Self {
             repository,
             swipes,
             matches,
             legal,
+            cursors,
         }
     }
 
@@ -161,7 +164,7 @@ impl DiscoveryService {
             return Err(DiscoveryError::InvalidFeedRequest);
         }
         self.require_ready(user_id).await?;
-        let mut cursor = decode_cursor(raw_cursor)?;
+        let mut cursor = self.cursors.decode(user_id, raw_cursor)?;
         let mut visible = Vec::new();
         let batch_size = 50_u32.max((limit + 1).saturating_mul(4));
         let mut database_exhausted = false;
@@ -217,10 +220,16 @@ impl DiscoveryService {
         let page: Vec<_> = visible.into_iter().take(limit as usize).collect();
         let next_cursor = if has_more {
             if let Some(last) = page.last() {
-                Some(encode_cursor(last.distance_km, last.user_id)?)
+                Some(self.cursors.encode(
+                    user_id,
+                    DiscoveryCursor {
+                        distance_km: last.distance_km,
+                        id: last.user_id,
+                    },
+                )?)
             } else {
                 cursor
-                    .map(|value| encode_cursor(value.distance_km, value.id))
+                    .map(|value| self.cursors.encode(user_id, value))
                     .transpose()?
             }
         } else {
@@ -315,53 +324,6 @@ impl DiscoveryService {
     }
 }
 
-#[derive(Deserialize, Serialize)]
-struct CursorWire {
-    distance_km: f64,
-    id: String,
-}
-
-fn decode_cursor(value: Option<&str>) -> Result<Option<DiscoveryCursor>, DiscoveryError> {
-    let Some(value) = value.filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-    let bytes = URL_SAFE_NO_PAD
-        .decode(value)
-        .map_err(|_| DiscoveryError::InvalidCursor)?;
-    let decoded: CursorWire =
-        serde_json::from_slice(&bytes).map_err(|_| DiscoveryError::InvalidCursor)?;
-    let id = Uuid::parse_str(&decoded.id).map_err(|_| DiscoveryError::InvalidCursor)?;
-    if !decoded.distance_km.is_finite()
-        || decoded.distance_km < 0.0
-        || !canonical_uuid(&decoded.id, id)
-    {
-        return Err(DiscoveryError::InvalidCursor);
-    }
-    Ok(Some(DiscoveryCursor {
-        distance_km: decoded.distance_km,
-        id,
-    }))
-}
-
-fn encode_cursor(distance_km: f64, id: Uuid) -> Result<String, DiscoveryError> {
-    serde_json::to_vec(&CursorWire {
-        distance_km,
-        id: id.hyphenated().to_string(),
-    })
-    .map(|bytes| URL_SAFE_NO_PAD.encode(bytes))
-    .map_err(|_| DiscoveryError::InvalidCursor)
-}
-
-fn canonical_uuid(value: &str, parsed: Uuid) -> bool {
-    value.len() == 36
-        && [8, 13, 18, 23]
-            .iter()
-            .all(|index| value.as_bytes()[*index] == b'-')
-        && parsed.hyphenated().to_string().eq_ignore_ascii_case(value)
-        && (1..=8).contains(&parsed.get_version_num())
-        && parsed.get_variant() == Variant::RFC4122
-}
-
 fn repository_error(error: DiscoveryStoreError) -> DiscoveryError {
     match error {
         DiscoveryStoreError::Database(error) => DiscoveryError::Database(error),
@@ -386,40 +348,6 @@ mod tests {
     use chrono::{TimeZone as _, Utc};
 
     use super::*;
-
-    #[test]
-    fn cursor_keeps_exact_distance_and_generated_uuid() {
-        let id = Uuid::new_v4();
-        let encoded = encode_cursor(1.23456, id).unwrap_or_else(|_| unreachable!());
-        let decoded = decode_cursor(Some(&encoded))
-            .unwrap_or_else(|_| unreachable!())
-            .unwrap_or_else(|| unreachable!());
-        assert_eq!(
-            decoded,
-            DiscoveryCursor {
-                distance_km: 1.23456,
-                id
-            }
-        );
-    }
-
-    #[test]
-    fn rejects_negative_and_malformed_cursors() {
-        assert_eq!(
-            decode_cursor(Some("not-a-cursor")),
-            Err(DiscoveryError::InvalidCursor)
-        );
-        let id = Uuid::new_v4();
-        let bytes = serde_json::to_vec(&CursorWire {
-            distance_km: -1.0,
-            id: id.to_string(),
-        })
-        .unwrap_or_else(|_| unreachable!());
-        assert_eq!(
-            decode_cursor(Some(&URL_SAFE_NO_PAD.encode(bytes))),
-            Err(DiscoveryError::InvalidCursor)
-        );
-    }
 
     #[test]
     fn preserves_required_action_order_and_profile_sex_exclusivity() {

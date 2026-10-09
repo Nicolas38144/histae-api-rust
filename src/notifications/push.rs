@@ -475,6 +475,32 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "webauthn-probe")]
+    #[test]
+    fn rsa_oauth_assertions_are_valid_with_the_selected_crypto_backend() {
+        use jsonwebtoken::{DecodingKey, Validation, decode};
+
+        let rsa = openssl::rsa::Rsa::generate(2048).expect("test RSA key");
+        let key = openssl::pkey::PKey::from_rsa(rsa).expect("test key");
+        let mut config = config(PushProvider::Fcm);
+        config.private_key = SecretString::new(
+            String::from_utf8(key.private_key_to_pem_pkcs8().expect("PEM")).expect("UTF-8"),
+        );
+        let now = Utc::now();
+        let assertion = RsaOAuthAssertionSigner
+            .sign(&config, now)
+            .expect("OAuth signature");
+        let public = DecodingKey::from_rsa_pem(&key.public_key_to_pem().expect("public PEM"))
+            .expect("public key");
+        let mut validation = Validation::new(Algorithm::RS256);
+        validation.set_audience(&[config.token_uri.as_str()]);
+        validation.set_issuer(&[config.client_email.as_str()]);
+        let verified = decode::<Value>(&assertion, &public, &validation).expect("valid assertion");
+        assert_eq!(verified.claims["scope"], OAUTH_SCOPE);
+        assert_eq!(verified.claims["iat"], now.timestamp());
+        assert_eq!(verified.claims["exp"], now.timestamp() + 3_600);
+    }
+
     #[tokio::test]
     async fn disabled_push_performs_no_network_or_storage_operation() {
         let store = Arc::new(Store::default());

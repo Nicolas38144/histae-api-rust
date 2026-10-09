@@ -289,7 +289,10 @@ impl AdminAuthService {
         let idle_millis = i64::try_from(self.config.session_idle_ttl.as_millis())
             .map_err(|_| AdminAuthError::Internal)?;
         self.store
-            .active_session(digest(token.as_bytes()), idle_millis)
+            .active_session(
+                session_token_hash(token, self.config.secure_cookie),
+                idle_millis,
+            )
             .await
             .map_err(internal)
             .map(|row| row.map(authenticated_admin))
@@ -629,7 +632,7 @@ impl AdminAuthService {
         let now = Utc::now();
         Ok(SessionSecrets {
             persisted: NewSession {
-                token_hash: digest(token.as_bytes()),
+                token_hash: session_token_hash(&token, self.config.secure_cookie),
                 idle_expires_at: add_duration(now, self.config.session_idle_ttl)?,
                 absolute_expires_at: add_duration(now, self.config.session_absolute_ttl)?,
             },
@@ -731,6 +734,17 @@ fn event_view(row: AuthEventRow) -> AuthEventView {
     }
 }
 
+fn session_token_hash(token: &str, secure: bool) -> [u8; 32] {
+    if !secure {
+        return digest(token.as_bytes());
+    }
+    // Invalidate pre-hardening sessions, including tokens copied from an HTTP cookie.
+    let mut hasher = Sha256::new();
+    hasher.update(b"histae/admin/https-session/v2\0");
+    hasher.update(token.as_bytes());
+    hasher.finalize().into()
+}
+
 fn digest(value: &[u8]) -> [u8; 32] {
     Sha256::digest(value).into()
 }
@@ -765,6 +779,18 @@ fn probe_payload_error(error: WebauthnError) -> AdminAuthError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn https_session_tokens_cannot_reuse_legacy_or_http_session_hashes() {
+        let token = URL_SAFE_NO_PAD.encode([42_u8; 32]);
+        let legacy_hash = digest(token.as_bytes());
+        assert_eq!(session_token_hash(&token, false), legacy_hash);
+        assert_ne!(session_token_hash(&token, true), legacy_hash);
+        assert_ne!(
+            session_token_hash(&token, true),
+            session_token_hash("other-token", true)
+        );
+    }
 
     #[test]
     fn validates_bootstrap_tokens_without_fixed_uuid_fixtures() {

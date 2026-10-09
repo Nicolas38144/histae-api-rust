@@ -1,3 +1,4 @@
+pub mod cursor;
 pub mod domain;
 pub mod http;
 pub mod pg;

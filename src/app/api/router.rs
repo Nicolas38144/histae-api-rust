@@ -23,6 +23,7 @@ use crate::catalog::http::{CatalogHttpState, routes as catalog_routes};
 use crate::catalog::pg::PgCatalogRepository;
 use crate::catalog::service::CatalogService;
 use crate::config::{AppConfig, RateLimitStore, SmsProvider};
+use crate::discovery::cursor::FeedCursorCodec;
 use crate::discovery::http::{DiscoveryHttpState, routes as discovery_routes};
 use crate::discovery::pg::{PgDiscoveryRepository, PgSwipeStore};
 use crate::discovery::service::DiscoveryService;
@@ -199,6 +200,8 @@ impl ApiResources {
             )),
             Arc::new(matches.clone()),
             config.legal.clone(),
+            FeedCursorCodec::new(&config.jwt.secret, Arc::clone(&clock))
+                .map_err(|_| "discovery_invalid_cursor_configuration")?,
         );
 
         let stripe = Arc::new(

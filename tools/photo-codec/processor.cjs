@@ -3,6 +3,7 @@
 const { extname } = require('node:path');
 const { Worker } = require('node:worker_threads');
 const sharp = require('sharp');
+sharp.block({ operation: ['VipsForeignLoadSvg'] });
 
 const MAX_BYTES = 500_000;
 const MAX_PIXELS = 40_000_000;

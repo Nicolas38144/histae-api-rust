@@ -38,11 +38,35 @@ fn loads_compatible_defaults_without_exposing_secrets() {
         "http://storage.histae.localhost:8333/"
     );
     assert_eq!(config.admin_auth.origin, "http://localhost:5173");
+    assert!(!config.admin_auth.secure_cookie);
+    assert_eq!(config.admin_auth.cookie_name, "histae_admin_session");
     assert_eq!(
         format!("{:?}", config.jwt.secret),
         "SecretString([REDACTED])"
     );
     assert!(!format!("{config:?}").contains("jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"));
+}
+
+#[test]
+fn https_admin_origins_use_host_secure_cookies_in_development_and_test() {
+    for environment in ["development", "test"] {
+        let config = AppConfig::from_source(&base(&[
+            ("ENV", environment),
+            ("ADMIN_WEBAUTHN_ORIGIN", "https://dashboard.histae.test"),
+        ]))
+        .expect("valid HTTPS admin configuration");
+        assert!(config.admin_auth.secure_cookie);
+        assert_eq!(config.admin_auth.cookie_name, "__Host-histae_admin_session");
+        let cookie = crate::identity::admin::http::session_cookie("test-token", &config.admin_auth);
+        assert!(cookie.contains("; Secure"));
+        assert!(cookie.contains("; HttpOnly; SameSite=Strict"));
+        assert!(cookie.contains("; Path=/;"));
+        assert!(!cookie.contains("Domain="));
+        let expired = crate::identity::admin::http::expired_session_cookie(&config.admin_auth);
+        assert!(expired.starts_with("__Host-histae_admin_session="));
+        assert!(expired.contains("Max-Age=0"));
+        assert!(expired.ends_with("; Secure"));
+    }
 }
 
 #[test]

@@ -41,6 +41,8 @@ Les routes mobiles marquées **onboarding incomplet accepté** restent accessibl
 
 Toute mutation authentifiée par session admin exige l’en-tête `Origin` égal à `ADMIN_WEBAUTHN_ORIGIN`. Pour les routes publiques de connexion/enrôlement, l’origine est vérifiée dans la preuve WebAuthn lors de sa validation, pas par ce guard de session. Les actions marquées **récentes** exigent une authentification WebAuthn récente (moins de dix minutes par défaut). Les consultations sensibles sont auditées ; le motif est obligatoire pour un admin et facultatif pour le superadmin. Sans motif fourni, l’API inscrit un libellé automatique dans l’audit.
 
+Lorsque `ADMIN_WEBAUTHN_ORIGIN` est en HTTPS, le cookie s'appelle `__Host-histae_admin_session` et contient `Secure; HttpOnly; SameSite=Strict; Path=/`, sans `Domain`, dans tous les environnements. Seul le développement HTTP sur `localhost` conserve le cookie non sécurisé. Le durcissement invalide les sessions HTTPS antérieures : se reconnecter avec la passkey existante, sans nouvel enrôlement.
+
 ### Erreurs et limites de débit
 
 ```json
@@ -70,7 +72,7 @@ Une limite globale par IP s’ajoute aux limites dédiées indiquées ci-dessous
 
 ### Pagination
 
-Sauf indication contraire, `limit` vaut 20, entre 1 et 100. Les collections paginées exposent `next_cursor` : le réutiliser avec les mêmes filtres, jusqu’à `null`. Ne pas le décoder ni le reconstruire avec les dates ou distances arrondies affichées.
+Sauf indication contraire, `limit` vaut 20, entre 1 et 100. Les collections paginées exposent `next_cursor` : le réutiliser avec les mêmes filtres, jusqu’à `null`. Ne pas le décoder ni le reconstruire avec les dates ou distances arrondies affichées. Le curseur du feed est chiffré, lié à l'utilisateur et expire après 15 minutes ; en cas de `invalid_cursor`, recommencer sans curseur. Les anciens curseurs du feed sont invalidés par le déploiement du format chiffré et par la rotation de la clé JWT active.
 
 `offset` est déprécié ; seules les routes qui le mentionnent l’acceptent. Avec un curseur, il doit être nul. Les curseurs évitent les décalages d’offset, mais **ne figent pas un instantané** : un nouveau message, un changement de statut ou de position peut modifier l’ordre ou l’éligibilité pendant le parcours. Dédupliquer les identifiants côté client et rafraîchir la liste si nécessaire.
 

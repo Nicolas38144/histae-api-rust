@@ -86,6 +86,7 @@ impl AppConfig {
         if recent_authentication_ttl > session_idle_ttl {
             return Err(ConfigError::invalid("ADMIN_RECENT_AUTH_TTL"));
         }
+        let secure_cookie = origin_url.scheme() == "https";
         let admin_auth = AdminAuthConfig {
             rp_id,
             origin: admin_origin,
@@ -95,12 +96,12 @@ impl AppConfig {
             session_idle_ttl,
             session_absolute_ttl,
             recent_authentication_ttl,
-            cookie_name: if environment == Environment::Production {
+            cookie_name: if secure_cookie {
                 "__Host-histae_admin_session"
             } else {
                 "histae_admin_session"
             },
-            secure_cookie: environment == Environment::Production,
+            secure_cookie,
         };
 
         let jwt_raw = source.required("JWT_SECRET")?;

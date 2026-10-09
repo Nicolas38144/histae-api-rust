@@ -9,6 +9,7 @@ use chrono::Utc;
 use histae_api_rust::config::{
     Environment, JwtConfig, LegalConfig, LimitPolicy, SecretString, TrustProxy,
 };
+use histae_api_rust::discovery::cursor::FeedCursorCodec;
 use histae_api_rust::discovery::domain::{
     DiscoveryCandidateRow, DiscoveryCursor, DiscoveryStatusRow, RecordedSwipe, SwipeDecision,
     SwipeRecord,
@@ -35,6 +36,7 @@ use histae_api_rust::infra::postgres::DatabaseError;
 use histae_api_rust::matches::domain::{MatchStatus, PublicMatch};
 use histae_api_rust::matches::service::MatchError;
 use histae_api_rust::profiles::domain::Sex;
+use histae_api_rust::shared::clock::SystemClock;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use url::Url;
@@ -385,6 +387,7 @@ fn app(
         Arc::new(swipes),
         Arc::new(FakeMatches),
         legal(),
+        FeedCursorCodec::new(&jwt_config().secret, Arc::new(SystemClock)).expect("cursor codec"),
     );
     let discovery_state =
         DiscoveryHttpState::new(service, limiter.clone(), policy.clone(), policy.clone());
@@ -477,6 +480,64 @@ async fn exposes_status_feed_and_created_swipe_contracts() {
     assert_eq!(
         json_response(swipe_response).await,
         json!({"decision":"like","matched":false})
+    );
+}
+
+#[tokio::test]
+async fn encrypted_feed_cursors_paginate_without_exposing_precise_distances() {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
+    let first = Uuid::new_v4();
+    let second = Uuid::new_v4();
+    let (app, token) = app(
+        true,
+        vec![candidate(first, 1.23456), candidate(second, 1.23459)],
+        FakeSwipes::default(),
+    );
+    let response = app
+        .clone()
+        .oneshot(authenticated("/api/feed?limit=1", "GET", &token, None))
+        .await
+        .expect("first page");
+    assert_eq!(response.status(), StatusCode::OK);
+    let page = json_response(response).await;
+    assert_eq!(page["profiles"][0]["user_id"], first.to_string());
+    assert_eq!(page["profiles"][0]["distance_km"], 1.2);
+    let cursor = page["next_cursor"].as_str().expect("next cursor");
+    let decoded = URL_SAFE_NO_PAD.decode(cursor).expect("base64");
+    assert!(serde_json::from_slice::<Value>(&decoded).is_err());
+
+    let response = app
+        .clone()
+        .oneshot(authenticated(
+            &format!("/api/feed?limit=1&cursor={cursor}"),
+            "GET",
+            &token,
+            None,
+        ))
+        .await
+        .expect("second page");
+    assert_eq!(response.status(), StatusCode::OK);
+    let next = json_response(response).await;
+    assert_eq!(next["profiles"][0]["user_id"], second.to_string());
+    assert_eq!(next["profiles"][0]["distance_km"], 1.2);
+    assert!(next["next_cursor"].is_null());
+
+    let mut modified = decoded;
+    *modified.last_mut().expect("tag") ^= 1;
+    let response = app
+        .oneshot(authenticated(
+            &format!("/api/feed?cursor={}", URL_SAFE_NO_PAD.encode(modified)),
+            "GET",
+            &token,
+            None,
+        ))
+        .await
+        .expect("tampered cursor");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        json_response(response).await["error"]["code"],
+        "invalid_cursor"
     );
 }
 
@@ -594,6 +655,7 @@ async fn identical_like_replay_recovers_after_match_creation_failure() {
         Arc::new(swipes.clone()),
         Arc::new(matches.clone()),
         legal(),
+        FeedCursorCodec::new(&jwt_config().secret, Arc::new(SystemClock)).expect("cursor codec"),
     );
 
     let first = service.swipe(user_id(), target, SwipeDecision::Like).await;
