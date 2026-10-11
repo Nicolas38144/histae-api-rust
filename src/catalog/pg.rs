@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sqlx::{PgConnection, Row as _};
+use sqlx::{PgConnection, Postgres, QueryBuilder, Row as _};
 use uuid::Uuid;
 
 use super::domain::{
@@ -187,10 +187,12 @@ impl CatalogStore for PgCatalogRepository {
                 r#"
                 SELECT question.id, question.code, question.prompt, question.category,
                     question.display_order, question.created_at, question.updated_at,
-                    count(answer.id)::integer AS answer_count
+                    COALESCE(counts.answer_count, 0)::integer AS answer_count
                 FROM profile_question AS question
-                LEFT JOIN user_profile_answer AS answer ON answer.question_id = question.id
-                GROUP BY question.id
+                LEFT JOIN (
+                    SELECT question_id, count(*)::integer AS answer_count
+                    FROM user_profile_answer GROUP BY question_id
+                ) AS counts ON counts.question_id = question.id
                 ORDER BY question.display_order, question.id
                 "#,
             )
@@ -280,9 +282,7 @@ impl CatalogStore for PgCatalogRepository {
                             .execute(&mut *connection)
                             .await
                             .map_err(map_sqlx_error)?;
-                        for (index, answer) in answers.into_iter().enumerate() {
-                            insert_answer(connection, user_id, index, answer).await?;
-                        }
+                        insert_answers(connection, user_id, answers).await?;
                         Ok(ReplaceAnswersOutcome::Updated)
                     })
                 })
@@ -361,50 +361,57 @@ impl CatalogStore for PgCatalogRepository {
     }
 }
 
-async fn insert_answer(
+async fn insert_answers(
     connection: &mut PgConnection,
     user_id: Uuid,
-    index: usize,
-    answer: PreparedProfileAnswer,
+    answers: Vec<PreparedProfileAnswer>,
 ) -> Result<(), DatabaseError> {
-    let position = i16::try_from(index + 1).map_err(|_| DatabaseError::QueryFailed)?;
-    let answer_id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO user_profile_answer (user_id, question_id, answer, position)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id
-        "#,
-    )
-    .bind(user_id)
-    .bind(answer.question_id)
-    .bind(answer.answer)
-    .bind(position)
-    .fetch_one(&mut *connection)
-    .await
-    .map_err(map_sqlx_error)?;
-    let reasons = answer
-        .moderation
-        .reasons
+    if answers.is_empty() {
+        return Ok(());
+    }
+    let mut query = QueryBuilder::<Postgres>::new(
+        "WITH prepared (id, user_id, question_id, answer, position, status, reason_codes, policy_version) AS (",
+    );
+    let rows = answers
         .into_iter()
-        .map(ModerationReason::as_str)
-        .collect::<Vec<_>>();
-    sqlx::query(
-        r#"
-        INSERT INTO content_moderation_case (
-            user_id, content_type, profile_answer_id, status,
-            reason_codes, policy_version
-        ) VALUES ($1, 'profile_answer', $2, $3, $4, $5)
-        "#,
-    )
-    .bind(user_id)
-    .bind(answer_id)
-    .bind(answer.moderation.status.as_str())
-    .bind(reasons)
-    .bind(answer.moderation.policy_version)
-    .execute(&mut *connection)
-    .await
-    .map(|_| ())
-    .map_err(map_sqlx_error)
+        .enumerate()
+        .map(|(index, answer)| i16::try_from(index + 1).map(|position| (position, answer)))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| DatabaseError::QueryFailed)?;
+    query.push_values(rows, |mut row, (position, answer)| {
+        row.push_bind(Uuid::new_v4())
+            .push_bind(user_id)
+            .push_bind(answer.question_id)
+            .push_bind(answer.answer)
+            .push_bind(position)
+            .push_bind(answer.moderation.status.as_str())
+            .push_bind(
+                answer
+                    .moderation
+                    .reasons
+                    .into_iter()
+                    .map(ModerationReason::as_str)
+                    .collect::<Vec<_>>(),
+            )
+            .push_bind(answer.moderation.policy_version);
+    });
+    // RETURNING establishes the dependency between parent and moderation inserts.
+    query.push(
+        ") , inserted AS (
+        INSERT INTO user_profile_answer (id, user_id, question_id, answer, position)
+        SELECT id, user_id, question_id, answer, position FROM prepared RETURNING id
+      ) INSERT INTO content_moderation_case
+        (user_id, content_type, profile_answer_id, status, reason_codes, policy_version)
+        SELECT prepared.user_id, 'profile_answer', prepared.id, prepared.status,
+          prepared.reason_codes, prepared.policy_version
+        FROM prepared JOIN inserted USING (id)",
+    );
+    query
+        .build()
+        .execute(connection)
+        .await
+        .map(|_| ())
+        .map_err(map_sqlx_error)
 }
 
 fn plan_row(row: sqlx::postgres::PgRow) -> Result<PlanRow, DatabaseError> {

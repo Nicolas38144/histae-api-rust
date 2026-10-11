@@ -139,6 +139,54 @@ async fn admin_metrics_and_revenue_execute_against_the_real_schema()
                 .any(|entry| entry.plan == "premium" && entry.users >= 1)
         );
         assert_eq!(metrics.revenue.period, RevenuePeriod::MonthToDate);
+        let mut connection = database.acquire().await?;
+        let expected_users: (i64, i64, i64) = sqlx::query_as(
+            "SELECT count(*)::bigint, count(*) FILTER (WHERE NOT is_banned)::bigint,
+                    count(*) FILTER (WHERE is_banned)::bigint
+             FROM user_account WHERE deleted_at IS NULL",
+        )
+        .fetch_one(&mut *connection)
+        .await?;
+        assert_eq!(
+            (
+                metrics.users.total,
+                metrics.users.active,
+                metrics.users.banned
+            ),
+            expected_users
+        );
+        for (status, count) in sqlx::query_as::<_, (String, i64)>(
+            "SELECT status, count(*)::bigint FROM match_init GROUP BY status",
+        )
+        .fetch_all(&mut *connection)
+        .await?
+        {
+            let actual = match status.as_str() {
+                "active" => metrics.matches.active,
+                "awaiting_continuation" => metrics.matches.awaiting_continuation,
+                "confirmed" => metrics.matches.confirmed,
+                "expired" => metrics.matches.expired,
+                "ended" => metrics.matches.ended,
+                _ => {
+                    return Err(
+                        Box::new(FixtureError("match_status")) as Box<dyn std::error::Error>
+                    );
+                }
+            };
+            assert_eq!(actual, count);
+        }
+        let expected_premium: i64 = sqlx::query_scalar(
+            "SELECT count(*)::bigint FROM user_subscription WHERE plan='premium'",
+        )
+        .fetch_one(&mut *connection)
+        .await?;
+        drop(connection);
+        let all_time = repository.metrics(RevenuePeriod::AllTime).await?;
+        assert_eq!(all_time.revenue.premium_subscriptions, expected_premium);
+        assert!(all_time.revenue.period_start.is_none());
+        let previous_month = repository.revenue(RevenuePeriod::PreviousMonth).await?;
+        assert!(previous_month.period_start.is_some());
+        assert!(previous_month.period_start < Some(previous_month.period_end));
         Ok(())
     }
     .await;

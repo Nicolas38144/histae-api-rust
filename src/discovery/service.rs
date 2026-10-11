@@ -193,6 +193,8 @@ impl DiscoveryService {
                 .iter()
                 .map(|candidate| candidate.user_id)
                 .collect();
+            // PostgreSQL also excludes swipes before pagination. Recheck here to
+            // catch a decision committed after that query and support other stores.
             let swiped = self
                 .swipes
                 .swiped_target_ids(user_id, ids)

@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sqlx::Row as _;
+use sqlx::{Postgres, QueryBuilder, Row as _};
 use uuid::Uuid;
 
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
@@ -67,8 +67,27 @@ impl DataRightsStore for PgDataRightsStore {
         cursor: Option<PageCursor>,
     ) -> DataRightsFuture<'_, Vec<AdminDataRequestRow>> {
         Box::pin(async move {
-            let rows = sqlx::query(
-                "SELECT request.id, request.user_id, request.type, request.status,
+            let mut query = QueryBuilder::<Postgres>::new(
+                "WITH page AS MATERIALIZED (SELECT * FROM data_subject_request WHERE true",
+            );
+            if let Some(status) = status {
+                query.push(" AND status = ").push_bind(status.as_str());
+            }
+            if let Some(cursor) = cursor {
+                query
+                    .push(" AND (requested_at, id) < (")
+                    .push_bind(cursor.at)
+                    .push(", ")
+                    .push_bind(cursor.id)
+                    .push(")");
+            }
+            query
+                .push(" ORDER BY requested_at DESC, id DESC LIMIT ")
+                .push_bind(i64::from(limit))
+                .push(" OFFSET ")
+                .push_bind(i64::from(offset))
+                .push(
+                    ") SELECT request.id, request.user_id, request.type, request.status,
                         request.requested_at, request.completed_at, request.handled_by,
                         request.notes,
                         to_char(request.requested_at AT TIME ZONE 'UTC',
@@ -78,24 +97,17 @@ impl DataRightsStore for PgDataRightsStore {
                         event.id AS event_id, event.status AS event_status,
                         COALESCE(event.attempts, 0) AS event_attempts,
                         event.last_error_code
-                 FROM data_subject_request AS request
+                 FROM page AS request
                  LEFT JOIN account_erasure AS erasure ON erasure.request_id = request.id
                  LEFT JOIN outbox_event AS event
                    ON event.aggregate_id = request.id AND event.event_type = 'account.erase'
-                 WHERE ($1::text IS NULL OR request.status = $1)
-                   AND ($4::timestamptz IS NULL
-                     OR (request.requested_at, request.id) < ($4::timestamptz, $5::uuid))
-                 ORDER BY request.requested_at DESC, request.id DESC
-                 LIMIT $2 OFFSET $3",
-            )
-            .bind(status.map(DataRequestStatus::as_str))
-            .bind(i64::from(limit))
-            .bind(i64::from(offset))
-            .bind(cursor.as_ref().map(|value| value.at))
-            .bind(cursor.map(|value| value.id))
-            .fetch_all(self.database.pool())
-            .await
-            .map_err(map_sqlx_error)?;
+                 ORDER BY request.requested_at DESC, request.id DESC",
+                );
+            let rows = query
+                .build()
+                .fetch_all(self.database.pool())
+                .await
+                .map_err(map_sqlx_error)?;
             rows.into_iter().map(map_admin_request_row).collect()
         })
     }

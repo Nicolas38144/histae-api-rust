@@ -44,6 +44,8 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 
     if populated {
         upgrade_existing_schema(connection).await?;
+        // Concurrent index builds must run outside the schema transaction.
+        super::query_indexes::apply(connection).await?;
         return Ok(0);
     }
 

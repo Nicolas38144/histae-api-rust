@@ -1,5 +1,5 @@
 -- Consolidated PostgreSQL schema, including discovery and admin WebAuthn state.
--- Apply to an empty schema only; existing complete databases are checked by db-migrate.
+-- Apply to an empty schema only; db-migrate checks and upgrades complete databases.
 -- Reference data and opt-in development fixtures: insert_postgres.sql.
 -- Retention and cross-storage invariants: docs/retention-policy.md and AGENTS.md.
 
@@ -1050,6 +1050,42 @@ CREATE TABLE admin_auth_event (
 CREATE INDEX idx_admin_auth_event_created ON admin_auth_event USING btree (created_at, id);
 
 CREATE INDEX idx_admin_auth_event_user ON admin_auth_event USING btree (user_id, created_at DESC, id DESC);
+
+CREATE INDEX idx_outbox_event_claim ON outbox_event (available_at, created_at, id) WHERE status IN ('pending', 'processing');
+
+CREATE INDEX idx_user_account_role_created ON user_account (role, created_at DESC, user_id DESC) WHERE deleted_at IS NULL;
+
+CREATE INDEX idx_user_account_banned_by ON user_account (banned_by) WHERE banned_by IS NOT NULL;
+
+CREATE INDEX idx_user_trait_trait_id ON user_trait (trait_id, user_id);
+
+CREATE INDEX idx_user_photo_user_id ON user_photo (user_id, id);
+
+CREATE INDEX idx_photo_upload_request_photo_id ON photo_upload_request (photo_id) WHERE photo_id IS NOT NULL;
+
+CREATE INDEX idx_content_moderation_reviewed_by ON content_moderation_case (reviewed_by) WHERE reviewed_by IS NOT NULL;
+
+CREATE INDEX idx_match_init_continuation_initiator ON match_init (continuation_initiator_id) WHERE continuation_initiator_id IS NOT NULL;
+
+CREATE INDEX idx_outbox_event_resolved_by ON outbox_event (resolved_by) WHERE resolved_by IS NOT NULL;
+
+CREATE INDEX idx_dsr_handled_by ON data_subject_request (handled_by) WHERE handled_by IS NOT NULL;
+
+CREATE INDEX idx_admin_credential_owner ON admin_webauthn_credential (user_id);
+
+CREATE INDEX idx_admin_session_owner ON admin_session (user_id);
+
+CREATE INDEX idx_admin_session_credential ON admin_session (credential_id);
+
+CREATE INDEX idx_admin_bootstrap_owner ON admin_webauthn_bootstrap (user_id);
+
+CREATE INDEX idx_admin_challenge_owner ON admin_webauthn_challenge (user_id) WHERE user_id IS NOT NULL;
+
+CREATE INDEX idx_admin_challenge_bootstrap ON admin_webauthn_challenge (bootstrap_id) WHERE bootstrap_id IS NOT NULL;
+
+CREATE INDEX idx_admin_auth_event_credential ON admin_auth_event (credential_id) WHERE credential_id IS NOT NULL;
+
+CREATE INDEX idx_admin_auth_event_session ON admin_auth_event (session_id) WHERE session_id IS NOT NULL;
 
 -- Fonctions métier et guards transactionnels
 

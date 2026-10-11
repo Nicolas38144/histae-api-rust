@@ -88,9 +88,12 @@ async fn claims_are_exclusive_stale_and_owned() -> Result<(), Box<dyn std::error
         // Use the real migrator, never fabricate schema history for a fixture.
         migrations::apply(&config).await?;
         let database = Database::connect(&config).await?;
-        let result = AssertUnwindSafe(assert_claim_protocol(&database))
-            .catch_unwind()
-            .await;
+        let result = AssertUnwindSafe(async {
+            assert_index_upgrade(&config, &database).await?;
+            assert_claim_protocol(&database).await
+        })
+        .catch_unwind()
+        .await;
         database.close().await;
         match result {
             Ok(result) => result,
@@ -110,6 +113,56 @@ async fn claims_are_exclusive_stale_and_owned() -> Result<(), Box<dyn std::error
         Ok(result) => result,
         Err(panic) => std::panic::resume_unwind(panic),
     }
+}
+
+async fn assert_index_upgrade(
+    config: &PostgresConfig,
+    database: &Database,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let users = [Uuid::new_v4(), Uuid::new_v4()];
+    let mut connection = database.acquire().await?;
+    sqlx::query(
+        "INSERT INTO user_account(user_id, phone_number_hash, phone_number_encrypted)
+        SELECT id, id::text, ''::bytea FROM unnest($1::uuid[]) id",
+    )
+    .bind(&users[..])
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query("DROP INDEX idx_user_account_role_created")
+        .execute(&mut *connection)
+        .await?;
+    // A failed concurrent build leaves an invalid index with the expected name.
+    assert!(
+        sqlx::query(
+            "CREATE UNIQUE INDEX CONCURRENTLY idx_user_account_role_created ON user_account(role)"
+        )
+        .execute(&mut *connection)
+        .await
+        .is_err()
+    );
+    let valid: bool = sqlx::query_scalar("SELECT indisvalid FROM pg_index WHERE indexrelid = 'idx_user_account_role_created'::regclass")
+        .fetch_one(&mut *connection).await?;
+    assert!(!valid);
+    assert_eq!(migrations::apply(config).await?, 0);
+    assert_eq!(migrations::apply(config).await?, 0);
+    let repaired: bool = sqlx::query_scalar(
+        "SELECT indisvalid AND NOT indisunique AND indnkeyatts = 3
+        FROM pg_index WHERE indexrelid = 'idx_user_account_role_created'::regclass",
+    )
+    .fetch_one(&mut *connection)
+    .await?;
+    assert!(repaired);
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM user_account WHERE user_id = ANY($1)")
+            .bind(&users[..])
+            .fetch_one(&mut *connection)
+            .await?;
+    assert_eq!(count, 2);
+    sqlx::query("DELETE FROM user_account WHERE user_id = ANY($1)")
+        .bind(&users[..])
+        .execute(&mut *connection)
+        .await?;
+    Ok(())
 }
 
 async fn assert_claim_protocol(database: &Database) -> Result<(), Box<dyn std::error::Error>> {

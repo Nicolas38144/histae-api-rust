@@ -51,13 +51,19 @@ bash scripts/install-debian-13.sh
 source "$HOME/.profile"
 ```
 
-Le script demande `sudo` pour les paquets Debian et Docker, installe Rust 1.88 avec Cargo, rustfmt et Clippy, les outils de compilation d’OpenSSL, Node.js 22.22.1, pnpm 10.28.2, Docker Engine/Compose, `curl`, `jq` et `openssl`. Il vérifie l’archive Node avec le manifeste SHA-256 officiel. Il ne crée aucun secret, ne modifie aucune base/volume et n’ajoute pas l’utilisateur au groupe `docker` (qui donne des privilèges équivalents à root). Préparer d’abord un compte non-root ayant accès à `sudo` ; en cas de paquets Docker incompatibles déjà installés, le script s’arrête avant de les retirer. Pour travailler avec Docker, utiliser `sudo docker …` ou un mode d’accès administré séparément. Le script suit les procédures officielles de [Docker pour Debian](https://docs.docker.com/engine/install/debian/), [Rustup](https://www.rust-lang.org/tools/install) et la [distribution Node.js 22.22.1](https://nodejs.org/download/release/v22.22.1/).
+Le script demande `sudo` pour les paquets Debian et Docker, installe Rust 1.88 avec Cargo, rustfmt, Clippy, rust-src et rust-analyzer, les outils de compilation d’OpenSSL, Node.js 22.22.1, pnpm 10.28.2, Docker Engine/Compose, `curl`, `jq` et `openssl`. Il vérifie l’archive Node avec le manifeste SHA-256 officiel. Il ne crée aucun secret, ne modifie aucune base/volume et n’ajoute pas l’utilisateur au groupe `docker` (qui donne des privilèges équivalents à root). Préparer d’abord un compte non-root ayant accès à `sudo` ; en cas de paquets Docker incompatibles déjà installés, le script s’arrête avant de les retirer. Pour travailler avec Docker, utiliser `sudo docker …` ou un mode d’accès administré séparément. Le script suit les procédures officielles de [Docker pour Debian](https://docs.docker.com/engine/install/debian/), [Rustup](https://www.rust-lang.org/tools/install) et la [distribution Node.js 22.22.1](https://nodejs.org/download/release/v22.22.1/).
+
+`rust-toolchain.toml` fixe Rust 1.88.0 comme dans Docker et demande son composant rust-analyzer. VS Code peut ainsi utiliser l'analyseur compatible avec le compilateur du projet.
+
+WebAuthn est activé par défaut dans Cargo : les commandes habituelles et rust-analyzer incluent l'authentification administrateur. Aucun fichier de configuration VS Code supplémentaire n'est nécessaire.
 
 La machine de production exécute l’image Docker construite par ce dépôt ; l’installation de Rust, Node ou pnpm sur l’hôte n’y est pas nécessaire. Le service de modération Python est également construit en conteneur.
 
 Le fichier `.env` de ce dépôt est chargé automatiquement et reste ignoré. Les variables du terminal ont priorité. Les secrets et les valeurs fournisseurs ne doivent pas apparaître dans les logs. La configuration locale et les ports Docker sont détaillés dans [le guide de déploiement](docs/container-deployment.md).
 
-`db/001_schema_postgres.sql` contient le schéma complet. Le migrateur l'installe sur une base vide et vérifie les objets attendus sur une base déjà initialisée ; il retire l'ancienne table `schema_migrations` si elle existe. `db/drop_postgres.sql` supprime tous les objets du schéma `public` de la base ciblée : sauvegarder les données avant de l'exécuter manuellement.
+`db/001_schema_postgres.sql` contient le schéma complet. Le migrateur l'installe sur une base vide, vérifie les objets attendus et ajoute les index de performance sur une base déjà initialisée ; il retire l'ancienne table `schema_migrations` si elle existe. Les nouveaux index sont construits avec `CONCURRENTLY` sur les bases existantes et une construction interrompue est réparée au prochain lancement. `db/drop_postgres.sql` supprime tous les objets du schéma `public` de la base ciblée : sauvegarder les données avant de l'exécuter manuellement.
+
+Les optimisations SQL, leurs mesures et les commandes de mise à jour d'une base existante sont décrites dans [le rapport de performance SQL](docs/sql-performance-2026-10-10.md).
 
 Depuis la racine du dépôt, après préparation de `.env` :
 
@@ -93,10 +99,10 @@ Pour exécuter les binaires sur l’hôte, avec les services locaux disponibles 
 ```bash
 pnpm --dir tools/photo-codec install --frozen-lockfile
 cargo run --locked --bin db-migrate
-cargo run --locked --features webauthn-probe --bin api
+cargo run --locked --bin api
 ```
 
-Le worker `outbox` et la passe `maintenance` sont des binaires séparés. `admin-bootstrap`, `storage-init` et `contract-compare` sont des outils d’exploitation. `--check-config` vérifie la configuration des binaires applicatifs sans lancer leur activité. Le nom de feature `webauthn-probe` est conservé pour compatibilité ; il active le moteur WebAuthn utilisé par l’API.
+Le worker `outbox` et la passe `maintenance` sont des binaires séparés. `admin-bootstrap`, `storage-init` et `contract-compare` sont des outils d’exploitation. `--check-config` vérifie la configuration des binaires applicatifs sans lancer leur activité. Le nom de feature `webauthn-probe` est conservé pour compatibilité et activé par défaut. `--no-default-features` permet les builds d'outils sans WebAuthn ; l'API complète exige cette fonctionnalité pour démarrer.
 
 ## Validation
 

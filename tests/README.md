@@ -9,7 +9,7 @@ Les UUID de fixtures sont générés ; ne pas introduire d’identifiants person
 | --- | --- | --- |
 | Unitaire | Modules `#[cfg(test)]` dans `src/` | Règles isolées, configuration, codecs de transport et cycle de vie |
 | Contrat | `tests/*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, authentification et autorisation |
-| Inventaire | `route_inventory.rs` | 102 couples méthode/chemin documentés et enregistrements présents dans les sources |
+| Inventaire | `route_inventory.rs` | 103 couples méthode/chemin documentés et enregistrements présents dans les sources |
 | Intégration | `*_postgres.rs`, `postgres_*`, `redis_integration`, `media_integration`, etc. | SQL réel, contraintes, concurrence et dépendances locales |
 | Codec | `photo_codec.rs` et `fixtures/photos/` | JPEG/PNG/WebP/HEIC/HEIF, taille, métadonnées, corruption et arrêt du processus |
 | Comparaison | `contract_harness.rs` et `contract/corpus/` | Comparaison explicite de deux API avec états isolés |
@@ -23,9 +23,14 @@ Contrôles statiques et tests unitaires sans stockages externes :
 
 ```bash
 cargo fmt --all -- --check
+cargo check --locked --all-targets
+cargo check --locked --all-targets --no-default-features
 cargo clippy --locked --all-targets --all-features -- -D warnings
-cargo test --locked --lib --all-features
+cargo test --locked --lib
 ```
+
+WebAuthn est activé par défaut dans Cargo, y compris pour les tests et l'analyse par VS Code. La vérification
+avec `--no-default-features` contrôle également la compilation des outils et des tests sans WebAuthn.
 
 Suite complète après préparation de PostgreSQL, Redis, S3 et du codec :
 
@@ -43,8 +48,9 @@ cargo test --locked --features redis-integration --test redis_integration
 cargo test --locked --test photo_codec
 ```
 
-Les features `postgres-integration` et `redis-integration` activent les suites concernées. WebAuthn exige la feature
-`webauthn-probe` et ses prérequis natifs. Une exécution sans ces features ne valide pas les suites désactivées.
+Les features `postgres-integration` et `redis-integration` activent les suites concernées. WebAuthn est activé
+par défaut via `webauthn-probe` et exige ses prérequis natifs. Une exécution sans les features d'intégration ne
+valide pas les suites PostgreSQL et Redis désactivées.
 
 ## Isolation et infrastructure
 
@@ -73,7 +79,13 @@ corps sur les routes sans extracteur JSON, les conversions numériques des DTO, 
 et du SSE, ainsi que les règles Unicode de modération. Les suites PostgreSQL vérifient le format de l’export
 (date UTC et bigint en chaînes), la conservation du diagnostic de réconciliation Stripe pendant l’effacement
 et l’accès aux mutations de modération avec une session admin valide mais non récente. Les tests des clients
-vérifient l’instrumentation agrégée sans changer les résultats et les durées OAuth hors plage sont refusées.
+vérifient l'instrumentation agrégée sans changer les résultats et les durées OAuth hors plage sont refusées.
+
+Les régressions SQL couvrent les pages administrateur (filtres, UUID sans profil, compteurs, offset et curseur),
+les données optionnelles d'une fiche et son audit, ainsi que l'équivalence des compteurs de files. La suite outbox
+vérifie également une installation neuve, l'ajout d'index sur une base peuplée, l'idempotence du migrateur et la
+réparation d'un index invalide. Les mesures de performance restent séparées de ces assertions fonctionnelles :
+[rapport et plans SQL](../docs/sql-performance-2026-10-10.md).
 
 Les fournisseurs réels, les cérémonies WebAuthn dans le navigateur, la charge et la restauration ne sont pas
 prouvés par des doubles de test. Leurs critères restent dans [le guide de bascule](../docs/migration/s29-cutover.md).

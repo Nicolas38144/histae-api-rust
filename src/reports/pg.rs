@@ -1,4 +1,4 @@
-use sqlx::Row as _;
+use sqlx::{Postgres, QueryBuilder, Row as _};
 use uuid::Uuid;
 
 use super::domain::{CursorReportRow, PageCursor, ReportReason, ReportRecord, ReportStatus};
@@ -81,25 +81,34 @@ impl ReportStore for PgReportStore {
         cursor: Option<PageCursor>,
     ) -> ReportStoreFuture<'_, Vec<CursorReportRow>> {
         Box::pin(async move {
-            let rows = sqlx::query(
+            let mut query = QueryBuilder::<Postgres>::new(
                 "SELECT id, reporter_id, reported_id, match_id, reason, description,
                         status, created_at, resolved_at,
                         to_char(created_at AT TIME ZONE 'UTC',
                           'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS cursor_at
-                 FROM user_report
-                 WHERE ($1::text IS NULL OR status = $1)
-                   AND ($4::timestamptz IS NULL OR
-                        (created_at, id) < ($4::timestamptz, $5::uuid))
-                 ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3",
-            )
-            .bind(status.map(ReportStatus::as_str))
-            .bind(i64::from(limit))
-            .bind(i64::from(offset))
-            .bind(cursor.as_ref().map(|value| value.at))
-            .bind(cursor.as_ref().map(|value| value.id))
-            .fetch_all(self.database.pool())
-            .await
-            .map_err(map_sqlx_error)?;
+                 FROM user_report WHERE true",
+            );
+            if let Some(status) = status {
+                query.push(" AND status = ").push_bind(status.as_str());
+            }
+            if let Some(cursor) = cursor {
+                query
+                    .push(" AND (created_at, id) < (")
+                    .push_bind(cursor.at)
+                    .push(", ")
+                    .push_bind(cursor.id)
+                    .push(")");
+            }
+            query
+                .push(" ORDER BY created_at DESC, id DESC LIMIT ")
+                .push_bind(i64::from(limit))
+                .push(" OFFSET ")
+                .push_bind(i64::from(offset));
+            let rows = query
+                .build()
+                .fetch_all(self.database.pool())
+                .await
+                .map_err(map_sqlx_error)?;
             rows.into_iter().map(map_report_row).collect()
         })
     }

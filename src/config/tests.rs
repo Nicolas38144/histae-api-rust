@@ -57,15 +57,19 @@ fn https_admin_origins_use_host_secure_cookies_in_development_and_test() {
         .expect("valid HTTPS admin configuration");
         assert!(config.admin_auth.secure_cookie);
         assert_eq!(config.admin_auth.cookie_name, "__Host-histae_admin_session");
-        let cookie = crate::identity::admin::http::session_cookie("test-token", &config.admin_auth);
-        assert!(cookie.contains("; Secure"));
-        assert!(cookie.contains("; HttpOnly; SameSite=Strict"));
-        assert!(cookie.contains("; Path=/;"));
-        assert!(!cookie.contains("Domain="));
-        let expired = crate::identity::admin::http::expired_session_cookie(&config.admin_auth);
-        assert!(expired.starts_with("__Host-histae_admin_session="));
-        assert!(expired.contains("Max-Age=0"));
-        assert!(expired.ends_with("; Secure"));
+        #[cfg(feature = "webauthn-probe")]
+        {
+            let cookie =
+                crate::identity::admin::http::session_cookie("test-token", &config.admin_auth);
+            assert!(cookie.contains("; Secure"));
+            assert!(cookie.contains("; HttpOnly; SameSite=Strict"));
+            assert!(cookie.contains("; Path=/;"));
+            assert!(!cookie.contains("Domain="));
+            let expired = crate::identity::admin::http::expired_session_cookie(&config.admin_auth);
+            assert!(expired.starts_with("__Host-histae_admin_session="));
+            assert!(expired.contains("Max-Age=0"));
+            assert!(expired.ends_with("; Secure"));
+        }
     }
 }
 

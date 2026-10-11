@@ -94,7 +94,18 @@ impl DiscoveryRepository for PgDiscoveryRepository {
         let location_version = location_version.to_owned();
         Box::pin(async move {
             let mut connection = self.database.acquire().await?;
-            let rows = sqlx::query(CANDIDATE_BATCH_SQL)
+            let (sets, geography) = if target_id.is_some() {
+                (TARGET_SETS_SQL.to_owned(), GEO_JOIN_SQL)
+            } else {
+                // Scope legal-consent reads to the indexed geographic window.
+                let sets = format!(", nearby AS MATERIALIZED (
+                  SELECT target_presence.user_id, target_presence.latitude, target_presence.longitude
+                  FROM viewer {GEO_JOIN_SQL}){FEED_SETS_SQL}");
+                (sets, " JOIN nearby AS target_presence ON true ")
+            };
+            let query =
+                format!("{VIEWER_SQL}{sets}{CANDIDATE_COLUMNS_SQL}{geography}{CANDIDATE_PAGE_SQL}");
+            let rows = sqlx::query(&query)
                 .bind(user_id)
                 .bind(sensitive_version)
                 .bind(location_version)
@@ -338,7 +349,9 @@ SELECT EXISTS (
 ) AS ready
 "#;
 
-const CANDIDATE_BATCH_SQL: &str = r#"
+// The feed builds exclusion sets once. A targeted swipe checks only its target;
+// existing swipe decisions remain eligible for the idempotency check in the service.
+const VIEWER_SQL: &str = r#"
 WITH viewer AS MATERIALIZED (
   SELECT profile.birthdate, profile.sex,
     date_part('year', age(current_date, profile.birthdate))::integer AS age,
@@ -361,7 +374,47 @@ WITH viewer AS MATERIALIZED (
     AND EXISTS (SELECT 1 FROM user_consent WHERE user_id = account.user_id
       AND consent_type = 'location_consent' AND granted = true
       AND withdrawn_at IS NULL AND document_version = $3)
-), eligible AS (
+)
+"#;
+
+const FEED_SETS_SQL: &str = r#"
+, consented AS MATERIALIZED (
+  SELECT sensitive.user_id FROM nearby
+  JOIN user_consent sensitive ON sensitive.user_id = nearby.user_id
+  JOIN user_consent location ON location.user_id = sensitive.user_id
+  WHERE sensitive.consent_type = 'sensitive_data_consent' AND sensitive.granted
+    AND sensitive.withdrawn_at IS NULL AND sensitive.document_version = $2
+    AND location.consent_type = 'location_consent' AND location.granted
+    AND location.withdrawn_at IS NULL AND location.document_version = $3
+), excluded AS MATERIALIZED (
+  SELECT user2_id AS user_id FROM match_init WHERE user1_id = $1
+  UNION ALL SELECT user1_id FROM match_init WHERE user2_id = $1
+  UNION ALL SELECT blocked_id FROM user_block WHERE blocker_id = $1
+  UNION ALL SELECT blocker_id FROM user_block WHERE blocked_id = $1
+  UNION ALL SELECT target_id FROM swipe_decision
+    WHERE actor_id = $1 AND expires_at > statement_timestamp()
+)
+"#;
+
+const TARGET_SETS_SQL: &str = r#"
+, consented AS MATERIALIZED (
+  SELECT sensitive.user_id FROM user_consent sensitive
+  JOIN user_consent location ON location.user_id = sensitive.user_id
+  WHERE sensitive.user_id = $7
+    AND sensitive.consent_type = 'sensitive_data_consent' AND sensitive.granted
+    AND sensitive.withdrawn_at IS NULL AND sensitive.document_version = $2
+    AND location.consent_type = 'location_consent' AND location.granted
+    AND location.withdrawn_at IS NULL AND location.document_version = $3
+), excluded AS MATERIALIZED (
+  SELECT $7::uuid AS user_id FROM match_init
+    WHERE user1_id = least($1::uuid, $7::uuid) AND user2_id = greatest($1::uuid, $7::uuid)
+  UNION ALL SELECT blocked_id FROM user_block WHERE blocker_id = $1 AND blocked_id = $7
+  UNION ALL SELECT blocker_id FROM user_block WHERE blocker_id = $7 AND blocked_id = $1
+)
+"#;
+
+const CANDIDATE_COLUMNS_SQL: &str = r#"
+, eligible AS (
   SELECT target.user_id, target.firstname,
     date_part('year', age(current_date, target.birthdate))::integer AS age,
     target.sex, target.bio AS unmoderated_bio,
@@ -374,7 +427,10 @@ WITH viewer AS MATERIALIZED (
     viewer.max_distance_km AS viewer_max_distance_km,
     target_preferences.max_distance_km AS target_max_distance_km
   FROM viewer
-  JOIN user_presence AS target_presence
+"#;
+
+const GEO_JOIN_SQL: &str = r#"
+JOIN user_presence AS target_presence
     ON target_presence.user_id <> $1
     AND target_presence.is_location_fresh = true
     AND target_presence.updated_at > statement_timestamp() - INTERVAL '1 hour'
@@ -382,7 +438,10 @@ WITH viewer AS MATERIALIZED (
       AND viewer.latitude + viewer.latitude_delta
     AND (abs(target_presence.longitude - viewer.longitude) <= viewer.longitude_delta
       OR abs(target_presence.longitude - viewer.longitude) >= 360.0 - viewer.longitude_delta)
-  JOIN user_profile AS target ON target.user_id = target_presence.user_id
+"#;
+
+const CANDIDATE_PAGE_SQL: &str = r#"
+JOIN user_profile AS target ON target.user_id = target_presence.user_id
     AND target.sex IS NOT NULL
     AND target.birthdate > (current_date - make_interval(years => viewer.max_age + 1))::date
     AND target.birthdate <= (current_date - make_interval(years => viewer.min_age))::date
@@ -394,18 +453,8 @@ WITH viewer AS MATERIALIZED (
     AND (viewer.looking_for = target.sex OR (viewer.looking_for = 'both' AND target.sex IN ('male', 'female')))
     AND (target_preferences.looking_for = viewer.sex
       OR (target_preferences.looking_for = 'both' AND viewer.sex IN ('male', 'female')))
-    AND EXISTS (SELECT 1 FROM user_consent WHERE user_id = target.user_id
-      AND consent_type = 'sensitive_data_consent' AND granted = true
-      AND withdrawn_at IS NULL AND document_version = $2)
-    AND EXISTS (SELECT 1 FROM user_consent WHERE user_id = target.user_id
-      AND consent_type = 'location_consent' AND granted = true
-      AND withdrawn_at IS NULL AND document_version = $3)
-    AND NOT EXISTS (SELECT 1 FROM user_block
-      WHERE (blocker_id = $1 AND blocked_id = target.user_id)
-         OR (blocker_id = target.user_id AND blocked_id = $1))
-    AND NOT EXISTS (SELECT 1 FROM match_init
-      WHERE (user1_id = $1 AND user2_id = target.user_id)
-         OR (user1_id = target.user_id AND user2_id = $1))
+    AND EXISTS (SELECT 1 FROM consented WHERE consented.user_id=target.user_id)
+    AND NOT EXISTS (SELECT 1 FROM excluded WHERE excluded.user_id = target.user_id)
 ), page AS MATERIALIZED (
   SELECT user_id, firstname, age, sex, unmoderated_bio, distance_km
   FROM eligible

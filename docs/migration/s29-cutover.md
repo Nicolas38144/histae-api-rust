@@ -17,8 +17,8 @@ photos doivent être reprises dans leur état courant.
 
 ## Composition Rust finale
 
-Le binaire `api`, compilé avec `webauthn-probe`, construit désormais explicitement tous les services et routeurs S07
-à S28. Il vérifie PostgreSQL, le pool de verrous d’activité, Redis et la configuration S3 avant d’ouvrir le port. Il
+Le binaire `api`, compilé avec `webauthn-probe` activé par défaut, construit désormais explicitement tous les services
+et routeurs S07 à S28. Il vérifie PostgreSQL, le pool de verrous d’activité, Redis et la configuration S3 avant d’ouvrir le port. Il
 démarre le listener Prometheus privé lorsqu’il est activé, puis draine HTTP pendant au plus trente secondes au
 signal d’arrêt. L’API ne lance aucun worker en arrière-plan : `outbox` et `maintenance` restent des binaires séparés.
 L’image installe explicitement les autorités de certification utilisées par le vérificateur Rustls pour Sweego,
@@ -34,7 +34,7 @@ Depuis la racine du dépôt sur Debian 13 :
 
 ```bash
 docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d postgres redis object-storage photo-moderation
-cargo run --locked --features webauthn-probe --bin db-migrate
+cargo run --locked --bin db-migrate
 ```
 
 Vérifier une vraie sauvegarde et sa restauration dans une base temporaire générée, sans modifier `histae-dev` :

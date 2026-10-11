@@ -15,7 +15,7 @@ use crate::operations::maintenance::{MaintenanceSnapshot, PgMaintenanceStatusRep
 use crate::operations::metrics::{DURATION_BUCKETS_MS, OperationalMetrics};
 use crate::operations::prometheus::resident_memory_bytes;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct QueueSnapshot {
     pub pending: i64,
     pub processing: i64,
@@ -71,47 +71,31 @@ impl PgOperationalStatus {
 impl PersistentStatus for PgOperationalStatus {
     fn snapshot(&self) -> StatusFuture<'_> {
         Box::pin(async move {
-            type Row = (i64, i64, i64, i64, i64, Option<DateTime<Utc>>);
-            let all = sqlx::query_as::<_, Row>(
-                "SELECT count(*) FILTER (WHERE status='pending')::bigint,
-                        count(*) FILTER (WHERE status='processing')::bigint,
-                        count(*) FILTER (WHERE status='completed')::bigint,
-                        count(*) FILTER (WHERE status='dead_letter')::bigint,
-                        count(*) FILTER (WHERE status='discarded')::bigint,
-                        min(available_at) FILTER (WHERE status='pending') FROM outbox_event",
+            let rows = sqlx::query_as::<_, (String, String, i64, Option<DateTime<Utc>>)>(
+                "SELECT event_type, status, count(*)::bigint,
+                  CASE WHEN status = 'pending' THEN min(available_at) END
+                 FROM outbox_event GROUP BY event_type, status",
             )
-            .fetch_one(self.database.pool())
+            .fetch_all(self.database.pool())
             .await
             .map_err(map_sqlx_error)?;
-            let push = sqlx::query_as::<_, Row>(
-                "SELECT count(*) FILTER (WHERE status='pending')::bigint,
-                        count(*) FILTER (WHERE status='processing')::bigint,
-                        count(*) FILTER (WHERE status='completed')::bigint,
-                        count(*) FILTER (WHERE status='dead_letter')::bigint,
-                        count(*) FILTER (WHERE status='discarded')::bigint,
-                        min(available_at) FILTER (WHERE status='pending')
-                 FROM outbox_event WHERE event_type='notification.push'",
-            )
-            .fetch_one(self.database.pool())
-            .await
-            .map_err(map_sqlx_error)?;
-            let billing = sqlx::query_as::<_, Row>(
-                "SELECT count(*) FILTER (WHERE status='pending')::bigint,
-                        count(*) FILTER (WHERE status='processing')::bigint,
-                        count(*) FILTER (WHERE status='completed')::bigint,
-                        count(*) FILTER (WHERE status='dead_letter')::bigint,
-                        count(*) FILTER (WHERE status='discarded')::bigint,
-                        min(available_at) FILTER (WHERE status='pending')
-                 FROM outbox_event WHERE event_type LIKE 'billing.%'",
-            )
-            .fetch_one(self.database.pool())
-            .await
-            .map_err(map_sqlx_error)?;
+            let mut all = QueueSnapshot::default();
+            let mut push = QueueSnapshot::default();
+            let mut billing = QueueSnapshot::default();
+            for (event_type, status, count, oldest_pending) in rows {
+                accumulate_queue(&mut all, &status, count, oldest_pending);
+                if event_type == "notification.push" {
+                    accumulate_queue(&mut push, &status, count, oldest_pending);
+                }
+                if event_type.starts_with("billing.") {
+                    accumulate_queue(&mut billing, &status, count, oldest_pending);
+                }
+            }
             Ok(PersistentSnapshot {
                 postgres_pool: self.database.pool_stats(),
-                outbox: queue(all),
-                notification_push: queue(push),
-                billing_reconciliation: queue(billing),
+                outbox: all,
+                notification_push: push,
+                billing_reconciliation: billing,
                 otp: self.otp.snapshot().await?,
                 webhook_enabled: self.webhook_enabled,
                 callbacks: self.callbacks.snapshot(),
@@ -292,14 +276,28 @@ impl AdminOperationsProvider for OperationalStatusView {
     }
 }
 
-fn queue(row: (i64, i64, i64, i64, i64, Option<DateTime<Utc>>)) -> QueueSnapshot {
-    QueueSnapshot {
-        pending: row.0,
-        processing: row.1,
-        completed: row.2,
-        dead_letter: row.3,
-        discarded: row.4,
-        oldest_pending_at: row.5,
+fn accumulate_queue(
+    queue: &mut QueueSnapshot,
+    status: &str,
+    count: i64,
+    oldest_pending: Option<DateTime<Utc>>,
+) {
+    match status {
+        "pending" => {
+            queue.pending += count;
+            if let Some(at) = oldest_pending {
+                queue.oldest_pending_at = Some(
+                    queue
+                        .oldest_pending_at
+                        .map_or(at, |current| current.min(at)),
+                );
+            }
+        }
+        "processing" => queue.processing += count,
+        "completed" => queue.completed += count,
+        "dead_letter" => queue.dead_letter += count,
+        "discarded" => queue.discarded += count,
+        _ => {}
     }
 }
 

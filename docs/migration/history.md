@@ -315,7 +315,7 @@ consommateurs pendant une bascule.
 Le dépôt fournit un smoke HTTP local et une restauration de sauvegarde dans une base temporaire :
 
 ```bash
-cargo run --locked --features webauthn-probe --bin api
+cargo run --locked --bin api
 bash scripts/smoke-api.sh
 bash scripts/verify-dev-backup-restore.sh
 ```

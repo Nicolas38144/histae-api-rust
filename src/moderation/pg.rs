@@ -1,4 +1,4 @@
-use sqlx::{PgConnection, Row};
+use sqlx::{PgConnection, Postgres, QueryBuilder, Row};
 use uuid::Uuid;
 
 use super::domain::{
@@ -34,13 +34,35 @@ impl ModerationStore for PgModerationRepository {
         cursor: Option<PageCursor>,
     ) -> ModerationStoreFuture<'a, Vec<ModerationRow>> {
         Box::pin(async move {
-            let rows = sqlx::query(LIST_COLUMNS_QUERY)
-                .bind(status.map(|value| value.as_str()))
-                .bind(content_type.map(|value| value.as_str()))
-                .bind(i64::from(limit))
-                .bind(i64::from(offset))
-                .bind(cursor.as_ref().map(|value| value.at))
-                .bind(cursor.as_ref().map(|value| value.id))
+            let mut query = QueryBuilder::<Postgres>::new(
+                "WITH page AS MATERIALIZED (
+                  SELECT * FROM content_moderation_case WHERE true",
+            );
+            if let Some(status) = status {
+                query.push(" AND status = ").push_bind(status.as_str());
+            }
+            if let Some(content_type) = content_type {
+                query
+                    .push(" AND content_type = ")
+                    .push_bind(content_type.as_str());
+            }
+            if let Some(cursor) = cursor {
+                query
+                    .push(" AND (updated_at, id) < (")
+                    .push_bind(cursor.at)
+                    .push(", ")
+                    .push_bind(cursor.id)
+                    .push(")");
+            }
+            query
+                .push(" ORDER BY updated_at DESC, id DESC LIMIT ")
+                .push_bind(i64::from(limit))
+                .push(" OFFSET ")
+                .push_bind(i64::from(offset))
+                .push(") ")
+                .push(LIST_COLUMNS_QUERY);
+            let rows = query
+                .build()
                 .fetch_all(self.database.pool())
                 .await
                 .map_err(map_sqlx_error)?;
@@ -196,14 +218,9 @@ const LIST_COLUMNS_QUERY: &str = concat!(
      to_char(moderation.updated_at AT TIME ZONE 'UTC',
        'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS cursor_at,
      NULL::text AS text_content, NULL::text AS question, NULL::text AS object_key
-     FROM content_moderation_case AS moderation
+     FROM page AS moderation
      LEFT JOIN user_profile AS profile ON profile.user_id = moderation.user_id
-     WHERE ($1::text IS NULL OR moderation.status = $1)
-       AND ($2::text IS NULL OR moderation.content_type = $2)
-       AND ($5::timestamptz IS NULL OR
-         (moderation.updated_at, moderation.id) < ($5::timestamptz, $6::uuid))
-     ORDER BY moderation.updated_at DESC, moderation.id DESC
-     LIMIT $3 OFFSET $4"
+     ORDER BY moderation.updated_at DESC, moderation.id DESC"
 );
 
 const DETAIL_QUERY: &str = concat!(

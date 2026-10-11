@@ -17,7 +17,7 @@ COPY src ./src
 COPY db ./db
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
-    cargo build --locked --release --features webauthn-probe --bins \
+    cargo build --locked --release --bins \
     && mkdir -p /artifacts \
     && cp target/release/api target/release/outbox target/release/maintenance \
           target/release/admin-bootstrap target/release/db-migrate target/release/storage-init \

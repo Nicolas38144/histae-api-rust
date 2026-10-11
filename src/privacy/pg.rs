@@ -49,8 +49,8 @@ impl PrivacyStore for PgPrivacyStore {
                             "UPDATE match_init
                              SET status = 'ended',
                                  purge_after = clock_timestamp() + ($3 * INTERVAL '1 day')
-                             WHERE ((user1_id = $1 AND user2_id = $2)
-                                 OR (user1_id = $2 AND user2_id = $1))
+                             WHERE user1_id = least($1::uuid, $2::uuid)
+                               AND user2_id = greatest($1::uuid, $2::uuid)
                                AND status IN ('active', 'awaiting_continuation', 'confirmed')",
                         )
                         .bind(blocker_id)

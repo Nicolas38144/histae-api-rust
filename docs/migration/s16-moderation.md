@@ -29,9 +29,9 @@ réponse sont des chaînes ISO UTC à la milliseconde, comme la sérialisation d
 | `PhotosService.upload` | `media::service::PhotoService` avec `PhotoModerator` injecté |
 
 Les rôles admin vivent dans `identity::admin_role`, indépendamment de la feature WebAuthn, afin que repositories et
-tests PostgreSQL n’aient pas à compiler le moteur cryptographique. Les handlers HTTP restent conditionnés par
-`webauthn-probe` et réutilisent les extracteurs S10, le cookie opaque, le contrôle d’origine et la réauthentification
-et contrôle d’origine des mutations.
+tests PostgreSQL puissent compiler sans le moteur cryptographique avec `--no-default-features`. Les handlers HTTP
+restent conditionnés par `webauthn-probe`, activé par défaut, et réutilisent les extracteurs S10, le cookie opaque
+et les contrôles d'origine et de réauthentification propres aux mutations.
 
 ## Décision automatique
 

@@ -12,7 +12,7 @@ debug = 1
 incremental = false
 
 [features]
-default = []
+default = ["webauthn-probe"]
 postgres-integration = []
 redis-integration = []
 webauthn-probe = [

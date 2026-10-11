@@ -22,8 +22,8 @@
 | PATCH | `/api/admin/profile-questions/:id` | session admin et Origin | `200` avec la question |
 | DELETE | `/api/admin/profile-questions/:id` | session admin et Origin | `204` |
 
-Les handlers admin sont compilés avec `webauthn-probe`, comme le socle S10 dont ils réutilisent directement
-`AdminIdentity`. Ils ne peuvent donc pas accepter un JWT mobile. Les handlers mobiles utilisent
+Les handlers admin sont compilés avec `webauthn-probe`, activé par défaut, comme le socle S10 dont ils réutilisent
+directement `AdminIdentity`. Ils ne peuvent donc pas accepter un JWT mobile. Les handlers mobiles utilisent
 `OnboardedMobile` et relisent le compte, la famille de session et les versions légales dans PostgreSQL via S08.
 
 ## Mapping NestJS vers Rust
@@ -65,9 +65,9 @@ Validation autonome :
 
 ```bash
 export CARGO_BUILD_JOBS=1
+cargo test --all-targets --no-default-features
 cargo test --all-targets
-cargo test --all-targets --features webauthn-probe
-cargo clippy --all-targets --features webauthn-probe -- -D warnings
+cargo clippy --all-targets -- -D warnings
 ```
 
 Validation PostgreSQL locale, limitée par le test à `ENV=development`, une adresse loopback et la base
@@ -88,4 +88,3 @@ reste prévu dans les lots d’exploitation. Les migrations, seeds et services D
 NestJS pendant la parité. Le dépôt Rust devra recevoir leurs équivalents autonomes avant S29, conformément au
 README racine. La confirmation destructive du dashboard admin reste une responsabilité du client; l’API conserve
 le `DELETE` et sa cascade existants.
-

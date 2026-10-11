@@ -70,18 +70,18 @@ Les corps refusent les champs inconnus. Les UUID de challenge, passkey et sessio
 
 ## Validation
 
-Le build sans WebAuthn reste vérifiable par :
+WebAuthn est désormais activé par défaut. Le build d'outils sans WebAuthn reste vérifiable explicitement par :
 
 ```bash
-cargo check --locked --all-targets
-cargo test --locked
+cargo check --locked --all-targets --no-default-features
+cargo test --locked --no-default-features
 ```
 
 Le module S10 et son binaire exigent OpenSSL/Perl et se valident avec :
 
 ```bash
-cargo test --locked --features webauthn-probe
-cargo clippy --locked --all-targets --features webauthn-probe,postgres-integration -- -D warnings
+cargo test --locked
+cargo clippy --locked --all-targets --features postgres-integration -- -D warnings
 ```
 
 Sur Debian 13, [le script d’installation](../../scripts/install-debian-13.sh) fournit Perl, le compilateur C/C++ et les autres outils nécessaires à la copie vendored d’OpenSSL.

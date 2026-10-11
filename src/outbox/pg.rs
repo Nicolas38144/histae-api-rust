@@ -76,8 +76,9 @@ impl PgOutboxRepository {
             "WITH candidates AS (
                  SELECT id
                  FROM outbox_event
-                 WHERE (status = 'pending' AND available_at <= $2)
-                    OR (status = 'processing' AND locked_at <= $3)
+                 WHERE status IN ('pending', 'processing')
+                   AND ((status = 'pending' AND available_at <= $2)
+                    OR (status = 'processing' AND locked_at <= $3))
                  ORDER BY available_at, created_at, id
                  FOR UPDATE SKIP LOCKED
                  LIMIT $4

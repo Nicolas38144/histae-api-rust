@@ -60,7 +60,8 @@ if ! command -v rustup >/dev/null 2>&1; then
   sh "$rustup_installer" -y --profile minimal --default-toolchain none
 fi
 rustup_cmd=$(command -v rustup)
-"$rustup_cmd" toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+"$rustup_cmd" toolchain install 1.88.0 --profile minimal \
+  --component rustfmt --component clippy --component rust-src --component rust-analyzer
 project_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 (cd "$project_root" && "$rustup_cmd" override set 1.88.0)
 

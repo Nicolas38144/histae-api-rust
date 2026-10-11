@@ -273,16 +273,16 @@ impl OtpRepository {
                count(*) FILTER (WHERE state = 'failed')::int,
                count(*) FILTER (WHERE state = 'unknown')::int,
                count(*) FILTER (WHERE state = 'accepted' AND last_webhook_at IS NULL)::int,
-               max(EXTRACT(EPOCH FROM (clock_timestamp() - created_at)))
+               max(EXTRACT(EPOCH FROM (statement_timestamp() - created_at)))
                  FILTER (WHERE state IN ('pending', 'unknown', 'accepted'))::float8,
                avg(EXTRACT(EPOCH FROM (sent_at - created_at)) * 1000)::float8,
                avg(EXTRACT(EPOCH FROM (provider_sent_at - created_at)) * 1000)::float8,
                avg(EXTRACT(EPOCH FROM (failed_at - created_at)) * 1000)::float8
              FROM (
                SELECT *, CASE
-                 WHEN delivery_status = 'pending' AND settlement_deadline <= clock_timestamp()
+                 WHEN delivery_status = 'pending' AND settlement_deadline <= statement_timestamp()
                  THEN 'unknown' ELSE delivery_status END AS state
-               FROM otp_verification WHERE expires_at > clock_timestamp()
+               FROM otp_verification WHERE expires_at > statement_timestamp()
              ) deliveries",
         )
         .fetch_one(self.database.pool())

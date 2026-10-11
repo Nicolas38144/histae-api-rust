@@ -1,5 +1,5 @@
 use chrono::{DateTime, NaiveDate, Utc};
-use sqlx::Row as _;
+use sqlx::{Postgres, QueryBuilder, Row as _, types::Json};
 use uuid::Uuid;
 
 use super::domain::{
@@ -57,17 +57,64 @@ impl AdministrationStore for PgAdministrationStore {
     ) -> AdministrationStoreFuture<'_, Vec<AdminUserRow>> {
         Box::pin(async move {
             let searched_id = canonical_uuid(&search);
-            let rows = sqlx::query(LIST_USERS_SQL)
-                .bind(status.map(AdminUserStatus::as_str))
-                .bind(role.map(AdminUserRole::as_str))
-                .bind(&search)
-                .bind(i64::from(limit))
-                .bind(i64::from(offset))
-                .bind(cursor.as_ref().map(|value| value.at))
-                .bind(cursor.as_ref().map(|value| value.id))
-                .bind(terms_version)
-                .bind(privacy_version)
-                .bind(searched_id)
+            let mut query = QueryBuilder::<Postgres>::new(
+                "WITH page AS MATERIALIZED (
+                   SELECT account.user_id, account.role, account.is_banned, account.banned_at,
+                     account.created_at, profile.firstname, profile.birthdate, profile.sex
+                   FROM user_account account
+                   LEFT JOIN user_profile profile ON profile.user_id = account.user_id
+                   WHERE account.deleted_at IS NULL",
+            );
+            if let Some(status) = status {
+                query.push(match status {
+                    AdminUserStatus::Active => " AND NOT account.is_banned",
+                    AdminUserStatus::Banned => " AND account.is_banned",
+                });
+            }
+            if let Some(role) = role {
+                query.push(" AND account.role = ").push_bind(role.as_str());
+            }
+            if !search.is_empty() {
+                // Search each indexed source independently instead of an OR across a join.
+                query.push(" AND account.user_id IN (SELECT user_id FROM user_profile WHERE firstname ILIKE ")
+                    .push_bind(format!("%{search}%"));
+                if let Some(id) = searched_id {
+                    query.push(" UNION SELECT ").push_bind(id);
+                }
+                query.push(")");
+            }
+            if let Some(cursor) = cursor {
+                query
+                    .push(" AND (account.created_at, account.user_id) < (")
+                    .push_bind(cursor.at)
+                    .push(", ")
+                    .push_bind(cursor.id)
+                    .push(")");
+            }
+            query.push(" ORDER BY account.created_at DESC, account.user_id DESC LIMIT ")
+                .push_bind(i64::from(limit)).push(" OFFSET ").push_bind(i64::from(offset))
+                .push(") SELECT account.user_id AS id, account.role, account.is_banned, account.banned_at,
+                  account.created_at, account.firstname, account.birthdate, account.sex,
+                  NULL::text AS photo, COALESCE(subscription.plan, 'free') AS plan,
+                  (account.role <> 'user' OR (
+                    EXISTS (SELECT 1 FROM user_consent WHERE user_id = account.user_id
+                      AND consent_type = 'terms_of_service_acceptance' AND granted
+                      AND withdrawn_at IS NULL AND document_version = ")
+                .push_bind(terms_version)
+                .push(") AND EXISTS (SELECT 1 FROM user_consent WHERE user_id = account.user_id
+                      AND consent_type = 'privacy_notice_acknowledgement' AND granted
+                      AND withdrawn_at IS NULL AND document_version = ")
+                .push_bind(privacy_version)
+                .push("))) AS onboarding_complete,
+                  (SELECT count(*)::int FROM user_report WHERE reported_id = account.user_id) AS reports_received,
+                  ((SELECT count(*) FROM match_init WHERE user1_id = account.user_id)
+                    + (SELECT count(*) FROM match_init WHERE user2_id = account.user_id))::int AS matches_count,
+                  to_char(account.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS cursor_at
+                  FROM page account
+                  LEFT JOIN user_subscription subscription ON subscription.user_id = account.user_id
+                  ORDER BY account.created_at DESC, account.user_id DESC");
+            let rows = query
+                .build()
                 .fetch_all(self.database.pool())
                 .await
                 .map_err(map_sqlx_error)?;
@@ -100,67 +147,47 @@ impl AdministrationStore for PgAdministrationStore {
                         };
                         let banned_reason =
                             account.try_get("banned_reason").map_err(map_sqlx_error)?;
+                        let preferences = account
+                            .try_get::<Option<Uuid>, _>("preferences_user_id")
+                            .map_err(map_sqlx_error)?
+                            .map(|_| map_preferences(&account))
+                            .transpose()?;
+                        let traits: Json<Vec<(Uuid, String)>> =
+                            account.try_get("traits").map_err(map_sqlx_error)?;
+                        let traits = traits
+                            .0
+                            .into_iter()
+                            .map(|(id, name)| AdminTrait { id, name })
+                            .collect();
+                        type ConsentTuple = (String, bool, String, DateTime<Utc>);
+                        let consents: Json<Vec<ConsentTuple>> =
+                            account.try_get("consents").map_err(map_sqlx_error)?;
+                        let consents = consents
+                            .0
+                            .into_iter()
+                            .map(|(kind, granted, document_version, updated_at)| {
+                                Ok(AdminConsent {
+                                    consent_type: ConsentType::parse(&kind)
+                                        .ok_or(DatabaseError::QueryFailed)?,
+                                    granted,
+                                    document_version,
+                                    updated_at: super::domain::wire_timestamp(updated_at),
+                                })
+                            })
+                            .collect::<Result<Vec<_>, DatabaseError>>()?;
+                        let presence = account
+                            .try_get::<Option<DateTime<Utc>>, _>("presence_updated_at")
+                            .map_err(map_sqlx_error)?
+                            .map(|updated_at| {
+                                Ok(AdminPresence {
+                                    is_location_fresh: account
+                                        .try_get("is_location_fresh")
+                                        .map_err(map_sqlx_error)?,
+                                    updated_at: super::domain::wire_timestamp(updated_at),
+                                })
+                            })
+                            .transpose()?;
                         let user = map_admin_user(account)?;
-                        let preferences = sqlx::query(
-                            "SELECT min_age, max_age, max_distance_km, looking_for
-                             FROM user_preferences WHERE user_id = $1",
-                        )
-                        .bind(target_id)
-                        .fetch_optional(&mut *connection)
-                        .await
-                        .map_err(map_sqlx_error)?
-                        .map(map_preferences)
-                        .transpose()?;
-                        let traits = sqlx::query(
-                            "SELECT trait.id, trait.name FROM trait
-                             JOIN user_trait ON user_trait.trait_id = trait.id
-                             WHERE user_trait.user_id = $1 ORDER BY trait.name, trait.id",
-                        )
-                        .bind(target_id)
-                        .fetch_all(&mut *connection)
-                        .await
-                        .map_err(map_sqlx_error)?
-                        .into_iter()
-                        .map(|row| {
-                            Ok(AdminTrait {
-                                id: row.try_get("id").map_err(map_sqlx_error)?,
-                                name: row.try_get("name").map_err(map_sqlx_error)?,
-                            })
-                        })
-                        .collect::<Result<Vec<_>, DatabaseError>>()?;
-                        let consents = sqlx::query(
-                            "SELECT DISTINCT ON (consent_type)
-                                    consent_type, granted, document_version,
-                                    granted_at AS updated_at
-                             FROM user_consent WHERE user_id = $1
-                             ORDER BY consent_type, event_sequence DESC",
-                        )
-                        .bind(target_id)
-                        .fetch_all(&mut *connection)
-                        .await
-                        .map_err(map_sqlx_error)?
-                        .into_iter()
-                        .map(map_consent)
-                        .collect::<Result<Vec<_>, _>>()?;
-                        let presence = sqlx::query(
-                            "SELECT is_location_fresh, updated_at
-                             FROM user_presence WHERE user_id = $1",
-                        )
-                        .bind(target_id)
-                        .fetch_optional(&mut *connection)
-                        .await
-                        .map_err(map_sqlx_error)?
-                        .map(|row| {
-                            let updated_at: DateTime<Utc> =
-                                row.try_get("updated_at").map_err(map_sqlx_error)?;
-                            Ok(AdminPresence {
-                                is_location_fresh: row
-                                    .try_get("is_location_fresh")
-                                    .map_err(map_sqlx_error)?,
-                                updated_at: super::domain::wire_timestamp(updated_at),
-                            })
-                        })
-                        .transpose()?;
                         record_audit(
                             connection,
                             target_id,
@@ -479,24 +506,13 @@ fn map_admin_user(row: sqlx::postgres::PgRow) -> Result<AdminUserRow, DatabaseEr
     })
 }
 
-fn map_preferences(row: sqlx::postgres::PgRow) -> Result<AdminPreferences, DatabaseError> {
+fn map_preferences(row: &sqlx::postgres::PgRow) -> Result<AdminPreferences, DatabaseError> {
     let looking_for: String = row.try_get("looking_for").map_err(map_sqlx_error)?;
     Ok(AdminPreferences {
         min_age: row.try_get("min_age").map_err(map_sqlx_error)?,
         max_age: row.try_get("max_age").map_err(map_sqlx_error)?,
         max_distance_km: row.try_get("max_distance_km").map_err(map_sqlx_error)?,
         looking_for: LookingFor::parse(&looking_for).ok_or(DatabaseError::QueryFailed)?,
-    })
-}
-
-fn map_consent(row: sqlx::postgres::PgRow) -> Result<AdminConsent, DatabaseError> {
-    let consent_type: String = row.try_get("consent_type").map_err(map_sqlx_error)?;
-    let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(map_sqlx_error)?;
-    Ok(AdminConsent {
-        consent_type: ConsentType::parse(&consent_type).ok_or(DatabaseError::QueryFailed)?,
-        granted: row.try_get("granted").map_err(map_sqlx_error)?,
-        document_version: row.try_get("document_version").map_err(map_sqlx_error)?,
-        updated_at: super::domain::wire_timestamp(updated_at),
     })
 }
 
@@ -611,38 +627,20 @@ fn canonical_uuid(value: &str) -> Option<Uuid> {
     .then_some(id)
 }
 
-const LIST_USERS_SQL: &str = r#"
-SELECT account.user_id AS id, account.role, account.is_banned, account.banned_at,
-  account.created_at, profile.firstname, profile.birthdate, profile.sex,
-  NULL::text AS photo, COALESCE(subscription.plan, 'free') AS plan,
-  (account.role <> 'user' OR (
-    EXISTS (SELECT 1 FROM user_consent WHERE user_id = account.user_id
-      AND consent_type = 'terms_of_service_acceptance' AND granted = true
-      AND withdrawn_at IS NULL AND document_version = $8)
-    AND EXISTS (SELECT 1 FROM user_consent WHERE user_id = account.user_id
-      AND consent_type = 'privacy_notice_acknowledgement' AND granted = true
-      AND withdrawn_at IS NULL AND document_version = $9)
-  )) AS onboarding_complete,
-  (SELECT count(*)::int FROM user_report WHERE reported_id = account.user_id) AS reports_received,
-  (SELECT count(*)::int FROM match_init WHERE user1_id = account.user_id OR user2_id = account.user_id) AS matches_count,
-  to_char(account.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at
-FROM user_account AS account
-LEFT JOIN user_profile AS profile ON profile.user_id = account.user_id
-LEFT JOIN user_subscription AS subscription ON subscription.user_id = account.user_id
-WHERE account.deleted_at IS NULL
-  AND ($1::text IS NULL OR ($1 = 'banned' AND account.is_banned)
-    OR ($1 = 'active' AND NOT account.is_banned))
-  AND ($2::text IS NULL OR account.role = $2)
-  AND ($3 = '' OR profile.firstname ILIKE '%' || $3 || '%' OR account.user_id = $10::uuid)
-  AND ($6::timestamptz IS NULL OR
-       (account.created_at, account.user_id) < ($6::timestamptz, $7::uuid))
-ORDER BY account.created_at DESC, account.user_id DESC LIMIT $4 OFFSET $5
-"#;
-
 const DETAIL_USER_SQL: &str = r#"
 SELECT account.user_id AS id, account.role, account.is_banned, account.banned_at,
   account.banned_reason, account.created_at, profile.firstname, profile.birthdate,
   profile.sex, photo.object_key AS photo, COALESCE(subscription.plan, 'free') AS plan,
+  preferences.user_id AS preferences_user_id, preferences.min_age, preferences.max_age,
+  preferences.max_distance_km, preferences.looking_for,
+  presence.is_location_fresh, presence.updated_at AS presence_updated_at,
+  COALESCE((SELECT jsonb_agg(jsonb_build_array(trait.id, trait.name) ORDER BY trait.name, trait.id)
+    FROM user_trait JOIN trait ON trait.id = user_trait.trait_id
+    WHERE user_trait.user_id = account.user_id), '[]'::jsonb) AS traits,
+  COALESCE((SELECT jsonb_agg(jsonb_build_array(consent_type, granted, document_version, granted_at) ORDER BY consent_type)
+    FROM (SELECT DISTINCT ON (consent_type) consent_type, granted, document_version, granted_at
+      FROM user_consent WHERE user_id = account.user_id
+      ORDER BY consent_type, event_sequence DESC) latest), '[]'::jsonb) AS consents,
   (account.role <> 'user' OR (
     EXISTS (SELECT 1 FROM user_consent WHERE user_id = account.user_id
       AND consent_type = 'terms_of_service_acceptance' AND granted = true
@@ -652,10 +650,13 @@ SELECT account.user_id AS id, account.role, account.is_banned, account.banned_at
       AND withdrawn_at IS NULL AND document_version = $3)
   )) AS onboarding_complete,
   (SELECT count(*)::int FROM user_report WHERE reported_id = account.user_id) AS reports_received,
-  (SELECT count(*)::int FROM match_init WHERE user1_id = account.user_id OR user2_id = account.user_id) AS matches_count,
+  ((SELECT count(*) FROM match_init WHERE user1_id = account.user_id)
+    + (SELECT count(*) FROM match_init WHERE user2_id = account.user_id))::int AS matches_count,
   to_char(account.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at
 FROM user_account AS account
 LEFT JOIN user_profile AS profile ON profile.user_id = account.user_id
+LEFT JOIN user_preferences AS preferences ON preferences.user_id = account.user_id
+LEFT JOIN user_presence AS presence ON presence.user_id = account.user_id
 LEFT JOIN user_photo AS photo ON photo.user_id = profile.user_id AND photo.status = 'ready'
 LEFT JOIN user_subscription AS subscription ON subscription.user_id = account.user_id
 WHERE account.user_id = $1 AND account.deleted_at IS NULL
