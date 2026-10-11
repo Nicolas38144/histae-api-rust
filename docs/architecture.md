@@ -1,5 +1,7 @@
 # Architecture et conventions Rust
 
+[Index](README.md) · [Contrat HTTP](http-contract.md) · [Tests](../tests/README.md)
+
 ## Organisation par domaine
 
 Le projet reste un seul crate. Les modules métier regroupent leurs règles, leur contrat HTTP et leurs accès aux
@@ -24,6 +26,23 @@ pour tester un service avec un store contrôlé.
 Les services dépendent des contrats, pas des repositories PostgreSQL concrets. Le code HTTP traduit les erreurs
 au bord de l’application avec `http::error::ApiError`. Le SQL reste au plus près du domaine qui possède la
 transaction. `infra/` fournit les mécanismes communs, pas un repository générique universel.
+
+## Carte des modules
+
+| Module | Responsabilité |
+| --- | --- |
+| `app`, `config`, `http`, `infra` | Assemblage, configuration, transport partagé, PostgreSQL/Redis/cryptographie |
+| `identity` | OTP, sessions mobiles, WebAuthn et sessions admin |
+| `profiles`, `catalog`, `discovery` | Profils/préférences, traits/questions/plans, feed et swipes |
+| `matches` | Matchs, continuation, messages et échéances |
+| `media`, `moderation` | Photos privées, codec, stockage et modération de contenus |
+| `billing`, `notifications` | Stripe/réconciliation, notifications durables, push et SSE |
+| `privacy`, `reports`, `administration` | Consentements/droits/effacement, signalements et gestion admin |
+| `outbox`, `operations`, `shared` | Effets durables, suivi/metrics/logs et fonctions partagées |
+
+`tests/` contient contrats et intégrations ; `db/` le schéma ; `docker/` et `services/` les dépendances
+conteneurisées ; `tools/photo-codec/` le processus Node/Sharp autonome. Les procédures de compilation et
+les binaires sont décrits dans [Développement](development.md) et [Exploitation](operations.md).
 
 ## Assemblage et ressources
 
@@ -59,8 +78,8 @@ en mémoire ne remplace jamais un verrou transactionnel distribué. Les futures 
 
 ## Compatibilité et sécurité
 
-Le refactoring conserve les routes, DTO, statuts, messages d’erreur, règles d’autorisation, SQL et ordre des
-transactions. Il ne modifie ni migration SQL, ni durée de rétention, ni nom de variable d’environnement.
+Les changements internes doivent respecter les routes, DTO, autorisations, invariants et règles de rejeu
+du [contrat HTTP](http-contract.md). Toute évolution observable doit mettre à jour contrat, collections et tests.
 Les effets réseau gardent les intentions durables et checkpoints existants ; aucune abstraction de repository
 ne doit les déplacer avant le commit métier.
 
@@ -82,32 +101,12 @@ L’arrêt de l’API ferme explicitement les flux SSE, y compris si la vérific
 de drainer HTTP. Le serveur de métriques annule les rendus en cours ; à l’échéance, sa tâche est arrêtée et
 rejointe au lieu d’être détachée. Les pools sont fermés après le traitement des listeners.
 
-Ces changements concernent l’arrêt et le diagnostic interne. Ils ne changent pas le format des événements SSE
-ni le contrat des requêtes servies pendant le fonctionnement normal.
+Le cycle de vie est couvert par les tests de drain, de sessions SSE bloquées et de scrapes interrompus.
 
 ## Documentation et tests
 
-Le README décrit l’état courant. `docs/migration/` garde les décisions et preuves historiques S03–S29.
+L’[index documentaire](README.md) regroupe les guides courants.
 Les suites de tests sont nommées par domaine, sans numéros de migration. Les tests unitaires restent proches
 des règles ; les contrats HTTP et les intégrations réelles résident dans `tests/`.
 
 Les règles d’exécution et les limites de preuve sont décrites dans [tests/README.md](../tests/README.md).
-
-## Validation du refactoring — 4 octobre 2026
-
-- `cargo fmt --all -- --check` : réussi.
-- `cargo clippy --locked --all-targets --all-features -j 2 -- -D warnings` : réussi.
-- `cargo check --locked --all-targets -j 2` : réussi avec les features par défaut.
-- `cargo test --locked --all-targets --all-features -j 2` : 286 tests réussis, dont 164 unitaires,
-  avec PostgreSQL, Redis, S3 et le codec photo locaux.
-- Inventaire des 102 couples méthode/chemin et smoke du binaire assemblé : réussis.
-- Arrêt local : fermeture HTTP, métriques et ressources observée.
-- Les 383 chaînes SQL recensées dans les sources de production avant le refactoring sont inchangées.
-
-Le test outbox initial partageait la file locale et pouvait réclamer des événements étrangers à sa fixture.
-Il s’exécute désormais dans une base temporaire migrée et nettoyée, y compris après une assertion en échec.
-L’absence de base temporaire restante a été vérifiée après la suite. Cette correction ne change pas le worker
-ni ses requêtes de production.
-
-Les tests ne remplacent pas les validations fournisseurs réels, WebAuthn navigateur, charge et sécurité
-indépendante documentées dans le guide de bascule.

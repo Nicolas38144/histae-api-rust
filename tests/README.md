@@ -1,38 +1,44 @@
 # Validation locale
 
-Exécuter les commandes depuis la racine de `histae-api-rust`. Les tests ne chargent pas le `.env` du dépôt NestJS.
-Les UUID de fixtures sont générés ; ne pas introduire d’identifiants personnels ou de secrets fournisseurs réels.
+[Documentation](../docs/README.md) · [Développement](../docs/development.md) · [Livraison](../docs/production-readiness.md)
 
-## Niveaux de tests
+Exécuter depuis la racine du dépôt. Les tests ne chargent pas le `.env` du projet NestJS.
+Utiliser des fixtures fictives et des secrets de développement, jamais une base de production.
 
-| Niveau | Emplacement | Preuve |
+## Niveaux et limites de preuve
+
+| Niveau | Emplacement | Vérifie |
 | --- | --- | --- |
-| Unitaire | Modules `#[cfg(test)]` dans `src/` | Règles isolées, configuration, codecs de transport et cycle de vie |
-| Contrat | `tests/*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, authentification et autorisation |
-| Inventaire | `route_inventory.rs` | 103 couples méthode/chemin documentés et enregistrements présents dans les sources |
-| Intégration | `*_postgres.rs`, `postgres_*`, `redis_integration`, `media_integration`, etc. | SQL réel, contraintes, concurrence et dépendances locales |
-| Codec | `photo_codec.rs` et `fixtures/photos/` | JPEG/PNG/WebP/HEIC/HEIF, taille, métadonnées, corruption et arrêt du processus |
-| Comparaison | `contract_harness.rs` et `contract/corpus/` | Comparaison explicite de deux API avec états isolés |
+| Unitaire | Modules `#[cfg(test)]` de `src/` | Règles, configuration, transports, mocks et cycles de vie |
+| Contrat | `*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, guards et permissions |
+| Inventaire | `route_inventory.rs` | Les 103 couples méthode/chemin de `docs/http-contract.md` correspondent aux déclarations Axum |
+| PostgreSQL | `*_postgres.rs`, `postgres_compatibility`, `postgres_locks` | SQL, contraintes, verrous, snapshots et concurrence réels |
+| Redis / S3 | `redis_integration`, `media_integration` | Adaptateurs sur services locaux |
+| Codec | `photo_codec.rs`, `fixtures/photos/` | Formats, taille, métadonnées, corruption et arrêt du processus Node |
+| Comparaison | `contract_harness.rs`, `contract/corpus/` | Corpus explicite contre deux API isolées |
+| Smoke | `scripts/smoke-api.sh` | Binaire HTTP assemblé : santé, auth, validation et route inexistante |
 
-L’inventaire analyse les déclarations de routes ; il ne prouve pas à lui seul le montage du routeur final, les
-schémas JSON ou les permissions. Les tests de contrat et le smoke du binaire assemblé complètent cette preuve.
+L’inventaire analyse les sources, pas le montage final du routeur, les schémas JSON ni les autorisations.
+Une intégration désactivée par feature n’est pas une preuve de validation de sa dépendance.
 
-## Commandes
-
-Contrôles statiques et tests unitaires sans stockages externes :
+## Contrôles sans stockages externes
 
 ```bash
 cargo fmt --all -- --check
 cargo check --locked --all-targets
 cargo check --locked --all-targets --no-default-features
 cargo clippy --locked --all-targets --all-features -- -D warnings
-cargo test --locked --lib
+cargo test --locked --lib --test http_contract --test route_inventory
 ```
 
-WebAuthn est activé par défaut dans Cargo, y compris pour les tests et l'analyse par VS Code. La vérification
-avec `--no-default-features` contrôle également la compilation des outils et des tests sans WebAuthn.
+WebAuthn est activé par défaut via `webauthn-probe`, avec ses prérequis natifs.
+`--no-default-features` contrôle la compilation des outils/tests sans WebAuthn ; l’API complète l’exige.
+Les tests de contrat par domaine peuvent également être ciblés avec `--test <nom_du_fichier_sans_rs>`.
 
-Suite complète après préparation de PostgreSQL, Redis, S3 et du codec :
+## Suite complète
+
+Préparer [la pile dev](../docs/container-deployment.md#developpement-local), avec les adresses **hôte**
+dans `.env`, puis installer le codec :
 
 ```bash
 pnpm --dir tools/photo-codec install --frozen-lockfile
@@ -42,50 +48,58 @@ cargo test --locked --all-targets --all-features
 Exemples ciblés :
 
 ```bash
-cargo test --locked --test http_contract --test route_inventory
-cargo test --locked --features postgres-integration --test matches_postgres
+cargo test --locked --features postgres-integration --test matches_postgres --test query_performance_postgres
 cargo test --locked --features redis-integration --test redis_integration
 cargo test --locked --test photo_codec
 ```
 
-Les features `postgres-integration` et `redis-integration` activent les suites concernées. WebAuthn est activé
-par défaut via `webauthn-probe` et exige ses prérequis natifs. Une exécution sans les features d'intégration ne
-valide pas les suites PostgreSQL et Redis désactivées.
+`postgres-integration` et `redis-integration` activent les suites concernées. Les tests codec doivent
+pouvoir lire le store pnpm et lancer Node. Vérifier le résultat de chaque suite, pas seulement la compilation.
 
-## Isolation et infrastructure
+## Isolation
 
-Utiliser uniquement la pile locale décrite dans [le guide Docker](../docs/container-deployment.md).
-Les fixtures PostgreSQL contrôlent la cible de développement et utilisent leurs schémas ou données isolés.
-Le test de claim outbox parcourt une file entière : il crée donc une base `histae_outbox_test_<UUID>` sur le serveur
-local vérifié, applique le véritable migrateur et la supprime après fermeture du pool, même si une assertion échoue.
-Le rôle PostgreSQL local utilisé pour ce test doit pouvoir créer une base. La base de développement partagée et
-ses événements ne sont pas nettoyés par ce test.
-Redis utilise sa base logique de test et des clés isolées ; S3 utilise les objets de test dédiés. Ne pas arrêter
-les conteneurs partagés pour simuler une panne et ne pas remplacer le nettoyage ciblé par un reset global.
+Les fixtures PostgreSQL contrôlent la cible de développement et utilisent des schémas/données isolés.
+Le claim outbox parcourt toute une file : son test crée `histae_outbox_test_<UUID>`, applique le migrateur
+réel et supprime cette base après fermeture, y compris si une assertion échoue. Le rôle local doit pouvoir
+créer une base ; la file de la base de développement partagée n’est pas nettoyée par ce test.
 
-Sur Debian 13, installer les outils de développement avec [le script dédié](../scripts/install-debian-13.sh).
-Les tests du codec doivent pouvoir lire le store pnpm et lancer le processus Node. Vérifier le code de sortie
-de chaque commande et les résultats des suites.
+Redis utilise sa base logique et des clés de test ; S3 des objets dédiés. Ne pas arrêter les dépendances
+partagées pour simuler une panne ni remplacer le nettoyage ciblé par une purge Docker globale.
+Pour les garde-fous précis, consulter les fixtures et le [guide de base de données](../docs/database.md).
 
-Les tests de cycle de vie couvrent le drain après échec d’une tâche, la sortie imprévue du worker, l’annulation
-au drop, la fermeture d’un SSE bloqué sur une lecture de session et l’arrêt d’un scrape de métriques bloqué.
-L’expiration du JWT ferme aussi le SSE pendant une lecture de session bloquée ; un contrôle de révocation
-prêt est traité avant un heartbeat ou un événement prêt simultanément. Ces bornes ont des tests dédiés.
-La configuration a aussi un test empêchant l’exposition des clés et valeurs d’environnement par `Debug`.
+## Régressions couvertes
 
-Les régressions de migration couvrent aussi les JWT signés aux limites temporelles et avec des claims
-absents/mal formés, les IP réelles sur socket TCP malgré un X-Forwarded-For falsifié, la validation des
-corps sur les routes sans extracteur JSON, les conversions numériques des DTO, l’onboarding des appareils
-et du SSE, ainsi que les règles Unicode de modération. Les suites PostgreSQL vérifient le format de l’export
-(date UTC et bigint en chaînes), la conservation du diagnostic de réconciliation Stripe pendant l’effacement
-et l’accès aux mutations de modération avec une session admin valide mais non récente. Les tests des clients
-vérifient l'instrumentation agrégée sans changer les résultats et les durées OAuth hors plage sont refusées.
+| Sujet | Exemples |
+| --- | --- |
+| Auth / transport | JWT aux bornes temporelles, claims invalides, IP socket/X-Forwarded-For falsifié, coercition numérique, corps JSON invalides ou trop grands |
+| Consentements / administration | Onboarding des appareils/SSE, données sensibles, sessions admin, rôles et consultations auditées |
+| Cycle de vie | Drain après échec, worker terminé inopinément, annulation au drop, SSE bloqué, expiration prioritaire du JWT et scrape interrompu |
+| Fournisseurs / exports | Durées OAuth hors plage, diagnostics Stripe préservés pendant effacement, date UTC et bigint exportés sans perte, nettoyage des fichiers temporaires |
+| SQL | Filtres et pages admin, compte sans profil, compteurs, curseurs, fiche/audit et équivalence des agrégats de files |
+| Migrateur | Base neuve/peuplée, idempotence, index concurrents et réparation d’un index invalide |
+| Confidentialité | `Debug` expurgé de configuration, erreurs/labels bornés et absence de valeurs sensibles |
 
-Les régressions SQL couvrent les pages administrateur (filtres, UUID sans profil, compteurs, offset et curseur),
-les données optionnelles d'une fiche et son audit, ainsi que l'équivalence des compteurs de files. La suite outbox
-vérifie également une installation neuve, l'ajout d'index sur une base peuplée, l'idempotence du migrateur et la
-réparation d'un index invalide. Les mesures de performance restent séparées de ces assertions fonctionnelles :
-[rapport et plans SQL](../docs/sql-performance-2026-10-10.md).
+Les mesures de performance restent séparées des assertions fonctionnelles : voir [Performance SQL](../docs/sql-performance.md).
 
-Les fournisseurs réels, les cérémonies WebAuthn dans le navigateur, la charge et la restauration ne sont pas
-prouvés par des doubles de test. Leurs critères restent dans [le guide de bascule](../docs/migration/s29-cutover.md).
+<a id="comparaison-de-deux-api"></a>
+
+## Comparaison de deux API
+
+Le binaire `contract-compare` exige deux URLs et namespaces d’état distincts. Préparer également leurs
+bases, clés Redis et préfixes S3 isolés. Exemple sur deux déploiements locaux déjà disponibles :
+
+```bash
+cargo run --locked --bin contract-compare -- \
+  --corpus tests/contract/corpus/smoke.json \
+  --reference-url http://127.0.0.1:8080/ --reference-state reference-test \
+  --candidate-url http://127.0.0.1:8081/ --candidate-state candidate-test
+```
+
+Sortie : `0` parité, `1` différences, `2` configuration/corpus/transport invalide.
+`--allow-isolated-mutations` autorise les scénarios correspondants mais ne crée pas leur isolation.
+
+## Validations externes
+
+Les tests locaux ne prouvent ni les cérémonies WebAuthn du navigateur, ni la livraison réelle des fournisseurs,
+ni la capacité en charge, ni une restauration complète hors machine. Exécuter et conserver ces preuves selon
+[Mise en production](../docs/production-readiness.md).

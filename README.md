@@ -1,8 +1,11 @@
 # Histae API Rust
 
-Backend Histae organisé par domaines métier, avec Axum, Tokio et SQLx. PostgreSQL conserve l’état transactionnel, Redis les quotas et le relais SSE, et un stockage compatible S3 les photos privées. L’API, l’outbox et les maintenances s’exécutent dans des processus distincts.
+Backend Histae construit avec Axum, Tokio et SQLx. PostgreSQL conserve les données transactionnelles,
+Redis les quotas et le relais SSE, et un stockage compatible S3 les photos privées. L’API, le worker
+outbox et les maintenances sont exécutés séparément.
 
-Le dépôt possède sa configuration, ses migrations, son codec photo et ses manifests Docker. Le codec utilise encore un processus Node/Sharp autonome pour préserver la compatibilité JPEG, PNG, WebP, HEIC et HEIF ; il ne charge aucun fichier du dépôt NestJS.
+Le dépôt contient son schéma PostgreSQL, ses binaires, son image Docker et ses services locaux.
+Le codec photo utilise un processus Node/Sharp autonome ; aucune dépendance au dépôt NestJS n’est nécessaire.
 
 ## Organisation
 
@@ -42,97 +45,49 @@ docs/              # Architecture, contrat HTTP et exploitation
 
 Les responsabilités et règles de dépendance sont décrites dans [docs/architecture.md](docs/architecture.md). Les tests suivent [tests/README.md](tests/README.md).
 
-## Développement
+## Démarrer en développement
 
-Sur **Debian 13 (trixie)**, préparer une machine de développement avec :
+Toutes les commandes s’exécutent depuis la racine du dépôt, sauf indication contraire.
+Sur Debian 13, installer les prérequis puis préparer `.env` selon le
+[guide de développement](docs/development.md) et la [configuration](docs/configuration.md).
 
 ```bash
 bash scripts/install-debian-13.sh
 source "$HOME/.profile"
-```
-
-Le script demande `sudo` pour les paquets Debian et Docker, installe Rust 1.88 avec Cargo, rustfmt, Clippy, rust-src et rust-analyzer, les outils de compilation d’OpenSSL, Node.js 22.22.1, pnpm 10.28.2, Docker Engine/Compose, `curl`, `jq` et `openssl`. Il vérifie l’archive Node avec le manifeste SHA-256 officiel. Il ne crée aucun secret, ne modifie aucune base/volume et n’ajoute pas l’utilisateur au groupe `docker` (qui donne des privilèges équivalents à root). Préparer d’abord un compte non-root ayant accès à `sudo` ; en cas de paquets Docker incompatibles déjà installés, le script s’arrête avant de les retirer. Pour travailler avec Docker, utiliser `sudo docker …` ou un mode d’accès administré séparément. Le script suit les procédures officielles de [Docker pour Debian](https://docs.docker.com/engine/install/debian/), [Rustup](https://www.rust-lang.org/tools/install) et la [distribution Node.js 22.22.1](https://nodejs.org/download/release/v22.22.1/).
-
-`rust-toolchain.toml` fixe Rust 1.88.0 comme dans Docker et demande son composant rust-analyzer. VS Code peut ainsi utiliser l'analyseur compatible avec le compilateur du projet.
-
-WebAuthn est activé par défaut dans Cargo : les commandes habituelles et rust-analyzer incluent l'authentification administrateur. Aucun fichier de configuration VS Code supplémentaire n'est nécessaire.
-
-La machine de production exécute l’image Docker construite par ce dépôt ; l’installation de Rust, Node ou pnpm sur l’hôte n’y est pas nécessaire. Le service de modération Python est également construit en conteneur.
-
-Le fichier `.env` de ce dépôt est chargé automatiquement et reste ignoré. Les variables du terminal ont priorité. Les secrets et les valeurs fournisseurs ne doivent pas apparaître dans les logs. La configuration locale et les ports Docker sont détaillés dans [le guide de déploiement](docs/container-deployment.md).
-
-`db/001_schema_postgres.sql` contient le schéma complet. Le migrateur l'installe sur une base vide, vérifie les objets attendus et ajoute les index de performance sur une base déjà initialisée ; il retire l'ancienne table `schema_migrations` si elle existe. Les nouveaux index sont construits avec `CONCURRENTLY` sur les bases existantes et une construction interrompue est réparée au prochain lancement. `db/drop_postgres.sql` supprime tous les objets du schéma `public` de la base ciblée : sauvegarder les données avant de l'exécuter manuellement.
-
-Les optimisations SQL, leurs mesures et les commandes de mise à jour d'une base existante sont décrites dans [le rapport de performance SQL](docs/sql-performance-2026-10-10.md).
-
-Depuis la racine du dépôt, après préparation de `.env` :
-
-```bash
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
 bash scripts/smoke-api.sh
 ```
 
-Pour remplir la base de développement avec 5 000 comptes fictifs (ou jusqu'à 10 000), sans OTP :
+L’API locale écoute par défaut sur `http://127.0.0.1:8080`. Rust 1.88.0 et son rust-analyzer sont
+fixés par [rust-toolchain.toml](rust-toolchain.toml). WebAuthn est activé par défaut dans Cargo.
 
-Le volume dépasse la limite HTTP globale habituelle. Avant le lancement, définissez temporairement `RATE_LIMIT_GLOBAL=20000` et `RATE_LIMIT_GLOBAL_WINDOW=1m` dans `.env`, puis recréez le conteneur API :
+## Documentation
 
-```bash
-sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --force-recreate api
-```
+L’[index des guides](docs/README.md) permet de choisir une procédure par usage.
 
-```bash
-sudo bash scripts/seed-dev-load.sh 5000
-```
+| Besoin | Guide |
+| --- | --- |
+| Développer, compiler, créer des données fictives | [Développement](docs/development.md) |
+| Comprendre `.env`, les secrets et les overrides | [Configuration](docs/configuration.md) |
+| Déployer localement, sur le LAN ou derrière Cloudflare | [Déploiement Docker](docs/container-deployment.md) |
+| Initialiser et sauvegarder PostgreSQL | [Base de données](docs/database.md) |
+| Enrôler une passkey et gérer les administrateurs | [Administration](docs/administration.md) |
+| Exécuter les workers et planifier la maintenance | [Exploitation](docs/operations.md) |
+| Intégrer les 103 routes et leurs autorisations | [Contrat HTTP](docs/http-contract.md) |
+| Importer les collections française ou anglaise | [Postman](postman/README.md) |
+| Diagnostiquer les alertes et les requêtes lentes | [Supervision](docs/observability.md), [SQL](docs/sql-performance.md) |
+| Valider une livraison | [Tests](tests/README.md), [Mise en production](docs/production-readiness.md) |
+| Comprendre les modules et leurs responsabilités | [Architecture](docs/architecture.md) |
 
-Le script accepte un multiple de 100 entre 5 000 et 10 000. Il ne cible que le conteneur PostgreSQL du projet `histae-rust-dev` et la base `histae-dev`. Il place les profils dans une petite zone autour de la position du superadmin, ou autour de Paris si elle est absente. Les comptes sont créés directement en base, car les routes de création exigent un OTP. Le script utilise ensuite les routes `/api/swipes`, `/api/matches/:id/messages`, `/api/matches/:id/continue` et `/api/reports` avec des sessions temporaires réservées aux comptes fictifs. Il crée autant de matchs que de profils (chaque profil participe à deux matchs), un swipe « pass » par profil, 5 à 10 messages par participant et des signalements sur 4 % des matchs. Il avance l'expiration des matchs fictifs après les messages, puis utilise la route de continuation pour les confirmer durablement. Les sessions temporaires sont supprimées à la fin. Une relance reprend les matchs existants et réutilise les clés d'idempotence des messages. Les comptes réels ne sont pas modifiés. Restaurez votre limite HTTP habituelle dans `.env` et recréez l'API après le chargement.
-
-Pour supprimer ensuite tous les comptes sauf le superadmin et leurs données PostgreSQL associées :
-
-```bash
-sudo bash scripts/purge-dev-users.sh
-```
-
-Cette commande agit uniquement sur `histae-dev` et s'annule sans suppression si un compte ciblé possède des photos dans le stockage objet ou une identité Stripe encore présente. Sauvegardez la base avant de l'exécuter si vous souhaitez pouvoir récupérer ces comptes.
-
-Pour exécuter les binaires sur l’hôte, avec les services locaux disponibles et sans API concurrente sur le port :
-
-```bash
-pnpm --dir tools/photo-codec install --frozen-lockfile
-cargo run --locked --bin db-migrate
-cargo run --locked --bin api
-```
-
-Le worker `outbox` et la passe `maintenance` sont des binaires séparés. `admin-bootstrap`, `storage-init` et `contract-compare` sont des outils d’exploitation. `--check-config` vérifie la configuration des binaires applicatifs sans lancer leur activité. Le nom de feature `webauthn-probe` est conservé pour compatibilité et activé par défaut. `--no-default-features` permet les builds d'outils sans WebAuthn ; l'API complète exige cette fonctionnalité pour démarrer.
-
-## Validation
+## Validation rapide
 
 ```bash
 cargo fmt --all -- --check
+cargo check --locked --all-targets
 cargo clippy --locked --all-targets --all-features -- -D warnings
-cargo test --locked --all-targets --all-features
+cargo test --locked --lib --test http_contract --test route_inventory
 ```
 
-La dernière commande exige les dépendances locales et le codec installés. Les protections d’isolation et les commandes ciblées sont documentées dans [tests/README.md](tests/README.md).
-Le [workflow GitHub Actions](.github/workflows/rust-checks.yml) exécute le formatage, Clippy, la compilation sans feature, les tests unitaires et les contrats HTTP sans démarrer ces dépendances.
-
-## Références
-
-- [Corrections et prérequis de mise en production](docs/production-readiness.md)
-- [Contrat HTTP : 102 couples méthode/chemin](docs/http-contract.md)
-- [Architecture et conventions](docs/architecture.md)
-- [Conteneurisation et déploiement](docs/container-deployment.md)
-- [Observabilité privée](docs/observability.md)
-- [Historique et décisions de migration](docs/migration/history.md)
-- [Bascule et validations externes restantes](docs/migration/s29-cutover.md)
-
-La migration des modules ne remplace pas les validations fournisseurs, les cérémonies WebAuthn réelles, les essais de charge et les contrôles préalables à la production.
-
-## Corrections de parité et espace de compilation
-
-Le suivi des corrections de la revue se trouve dans [production-readiness.md](docs/production-readiness.md).
-Les prérequis fournisseur, juridiques et d’exploitation y sont distingués des validations locales.
-
-Les profils de développement et de test utilisent des symboles réduits (`debug = 1`) et désactivent
-le cache incrémental. Le dossier `target/` contient uniquement des artefacts reconstructibles ;
-`cargo clean` les supprime, puis Cargo recompile au prochain lancement. Cela inclut les dépendances
-natives comme OpenSSL : réserver ce nettoyage complet aux besoins d’espace, pas à chaque test.
+La suite complète exige PostgreSQL, Redis, S3 et le codec installés : voir les
+[niveaux de validation et règles d’isolation](tests/README.md). La réussite des tests locaux ne remplace
+pas les essais des fournisseurs, de WebAuthn dans le navigateur, de charge et de restauration.

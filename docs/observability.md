@@ -1,8 +1,10 @@
 # Supervision et runbooks
 
+[Index](README.md) · [Exploitation](operations.md) · [Performance SQL](sql-performance.md)
+
 Ce guide couvre l’export Prometheus privé de l’API, la pile locale Prometheus/Alertmanager/Grafana, les seuils
-initiaux et la conduite à tenir. Les seuils sont des points de départ à recalibrer avec les mesures de charge de
-R12. Ils ne doivent jamais introduire un label utilisateur, un identifiant métier ou une donnée personnelle.
+initiaux et la conduite à tenir. Les seuils sont des points de départ à recalibrer avec des mesures de charge
+sur la topologie déployée. Ils ne doivent jamais introduire un label utilisateur, un identifiant métier ou une donnée personnelle.
 
 ## Architecture et sécurité
 
@@ -14,7 +16,7 @@ les métriques. Une collecte PostgreSQL en échec laisse disponibles les compteu
 
 Le serveur applicatif principal ne publie donc aucun endpoint Prometheus. Deux raccordements locaux sont pris en
 charge : Prometheus joint une API exécutée directement sur Debian via `host.docker.internal:9091`, ou l’API
-conteneurisée via `api:9091` et le réseau privé `histae-backend`. Dans les deux cas, les trois interfaces de la
+conteneurisée via `api:9091` et le réseau backend choisi par `HISTAE_BACKEND_NETWORK`. Dans les deux cas, les trois interfaces de la
 pile sont liées à `127.0.0.1` :
 
 | Interface | URL locale | Authentification |
@@ -50,23 +52,31 @@ METRICS_PORT=9091
 METRICS_TOKEN=<secret-aléatoire-dédié-de-32-octets-minimum>
 ```
 
-Si l’API s’exécute directement sur l’hôte, la redémarrer puis lancer la pile depuis la racine du dépôt :
+Pour une API native, `METRICS_HOST=0.0.0.0` permet à Prometheus dans Docker de joindre le listener via
+l’hôte ; limiter cet accès au réseau de supervision avec le filtrage de l’hôte. Un listener lié à
+`127.0.0.1` seul n’est pas accessible par le bridge Docker. Redémarrer l’API puis lancer depuis la racine :
 
 ```bash
-docker compose --env-file .env -f docker-compose.observability.yml up -d --wait
-docker compose --env-file .env -f docker-compose.observability.yml ps
+sudo docker compose --env-file .env -f docker-compose.observability.yml up -d --wait
+sudo docker compose --env-file .env -f docker-compose.observability.yml ps
 ```
 
-Si l’API utilise `compose.yaml` et `compose.dev.yaml`, recréer d’abord son conteneur puis appliquer l’override qui
-raccorde Prometheus au réseau backend sans publier le port 9091 :
+Pour une API Docker, définir le même `HISTAE_BACKEND_NETWORK` pour les deux piles, par exemple
+`histae-backend` : le repli dev est `histae-rust-backend`, celui de la supervision `histae-backend`.
+Un changement de réseau sur une pile existante demande de recréer tous ses services concernés avec
+la même sélection Compose. Après cela, recréer l’API et raccorder Prometheus sans publier 9091 :
 
 ```bash
-docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d api
-docker compose --env-file .env \
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --force-recreate api
+sudo docker compose --env-file .env \
   -f docker-compose.observability.yml \
   -f compose.observability-container.yaml \
   up -d --wait
 ```
+
+Si l’API utilise le proxy, ajouter `-f compose.proxy.yaml` à sa commande de recréation. Pour la production,
+utiliser la sélection `.env.production`/`compose.production.yaml` côté API et le même fichier
+d’environnement pour les noms de réseaux de la supervision.
 
 Utiliser les mêmes deux options `-f` dans les commandes `ps`, `exec prometheus` et `down` tant que ce mode est
 actif. Le fichier `prometheus.container.yml` cible `api:9091`; la configuration native cible
@@ -75,12 +85,11 @@ actif. Le fichier `prometheus.container.yml` cible `api:9091`; la configuration 
 Vérifier ensuite la configuration et les règles dans le conteneur épinglé :
 
 ```bash
-docker compose --env-file .env -f docker-compose.observability.yml exec prometheus \
-  promtool check config /etc/prometheus/prometheus.yml
-docker compose --env-file .env -f docker-compose.observability.yml exec prometheus \
-  promtool check rules /etc/prometheus/alerts.yml
-docker compose --env-file .env -f docker-compose.observability.yml exec prometheus \
-  promtool test rules /etc/prometheus/alerts.test.yml
+# Mode API Docker ; retirer le second -f pour une API native.
+OBSERVABILITY=(sudo docker compose --env-file .env -f docker-compose.observability.yml -f compose.observability-container.yaml)
+"${OBSERVABILITY[@]}" exec -T prometheus promtool check config /etc/prometheus/prometheus.yml
+"${OBSERVABILITY[@]}" exec -T prometheus promtool check rules /etc/prometheus/alerts.yml
+"${OBSERVABILITY[@]}" exec -T prometheus promtool test rules /etc/prometheus/alerts.test.yml
 ```
 
 Dans Prometheus, `Status > Target health` doit montrer `histae-api` à `UP`. Un `401` indique presque toujours que
@@ -103,7 +112,6 @@ les fonctions Prometheus `rate` et `increase` savent gérer ces remises à zéro
 | Dernière opération d’une dépendance | échec pendant 5 min après au moins un appel | critique |
 | Erreurs d’une dépendance | plus de 20 %, au moins 5 appels/10 min, pendant 5 min | avertissement |
 | Pool PostgreSQL | attente pendant 2 min ou occupation supérieure à 80 % pendant 5 min | avertissement |
-| Event loop p95 | plus de 100 ms pendant 5 min | avertissement |
 | OTP Sweego non résolu | plus de 80 % de sa durée de vie pendant 2 min | avertissement |
 | Dead letter | au moins une pendant 1 min | critique |
 | Plus ancien événement outbox | 30 min ; push 2 min ; réconciliation Stripe 15 min | critique ou avertissement |
@@ -129,6 +137,7 @@ Le propriétaire nominatif, le calendrier d’astreinte et le canal de notificat
 production. Cette décision opérationnelle ne doit pas être codée sous forme d’adresse personnelle dans le dépôt.
 
 <a id="metrics-unavailable"></a>
+
 ## Cible de métriques indisponible
 
 Vérifier `/health/live`, le processus API, `METRICS_ENABLED`, l’interface/port, puis la cible Prometheus. Si la cible
@@ -137,6 +146,7 @@ conteneur Prometheus ; ne jamais afficher le token. Un échec du seul port 9091 
 public sur le port métier.
 
 <a id="collection-failed"></a>
+
 ## Collecte persistante impossible
 
 `histae_metrics_collection_success=0` signifie que la cible répond mais qu’au moins une lecture PostgreSQL de
@@ -145,6 +155,7 @@ d’erreur sûr. Restaurer la dépendance, puis confirmer que la jauge revient �
 les métriques persistantes.
 
 <a id="http-errors"></a>
+
 ## Erreurs HTTP
 
 Comparer les routes normalisées, le moment du déploiement, la disponibilité des dépendances et les événements de
@@ -152,13 +163,15 @@ logs sûrs. Un pic global avec dépendance en échec appelle d’abord le runboo
 de logs contenant corps, query string, téléphone, token ou stack pour diagnostiquer.
 
 <a id="http-latency"></a>
+
 ## Latence HTTP
 
-Comparer débit, event loop, pool PostgreSQL et histogrammes de dépendance. Identifier une route normalisée, puis
-utiliser les requêtes documentées dans `sql-performance.md`. Ne pas relever les timeouts avant d’avoir vérifié
+Comparer débit, CPU/mémoire du conteneur, pool PostgreSQL et histogrammes de dépendance. Identifier une route normalisée, puis
+suivre le [guide SQL](sql-performance.md). Ne pas relever les timeouts avant d’avoir vérifié
 verrous, plans SQL, saturation CPU/mémoire et taille des lots.
 
 <a id="authentication-failures"></a>
+
 ## Échecs d’authentification et d’autorisation
 
 Séparer `401` (session/credential invalide ou expiré) de `403` (origine, consentement ou droit refusé). Vérifier si
@@ -166,6 +179,7 @@ le trafic est attendu et si un déploiement mobile/admin vient d’avoir lieu. E
 limites, vérifier le proxy de confiance et bloquer en amont sans journaliser les identifiants de victime.
 
 <a id="rate-limit"></a>
+
 ## Limitation de débit
 
 Identifier les routes normalisées concernées et contrôler Redis si le mode distribué est actif. Un `429` attendu
@@ -174,6 +188,7 @@ mesurer le budget, pas de supprimer immédiatement la limite.
 
 <a id="dependency-down"></a>
 <a id="dependency-errors"></a>
+
 ## Dépendance indisponible ou instable
 
 Le label `dependency` appartient à la liste fermée `postgres`, `redis`, `object_storage`, `sweego`,
@@ -182,6 +197,7 @@ préserver les traces PostgreSQL et laisser l’outbox/réconciliation reprendre
 est incertaine. Pour Redis, vérifier les mécanismes de reconnexion avant tout redémarrage partagé.
 
 <a id="postgres-pool"></a>
+
 ## Pool PostgreSQL sous pression
 
 Contrôler connexions actives/attente, transactions longues, verrous, durée des requêtes et processus concurrents.
@@ -189,6 +205,7 @@ Le pool d’activité de compte ajoute jusqu’à quatre sessions par processus.
 concurrence ; augmenter `POSTGRES_POOL_MAX` sans vérifier la capacité serveur peut aggraver la panne.
 
 <a id="sweego"></a>
+
 ## Livraison Sweego en retard
 
 Vérifier les erreurs de dépendance, l’état des callbacks signés et les états `pending/accepted/unknown`. `sent` ne
@@ -196,21 +213,25 @@ prouve pas la réception au téléphone. Ne jamais rejouer automatiquement un PO
 callback ou une nouvelle demande utilisateur selon les règles OTP doit résoudre le parcours.
 
 <a id="dead-letters"></a>
+
 ## Dead letters
 
 Ouvrir la liste protégée `GET /api/admin/outbox/dead-letters`, sans chercher de payload dans les logs. Corriger la
-cause puis utiliser la reprise avec authentification récente, motif et audit. L’abandon de `account.erase` et des
+cause puis utiliser la reprise avec authentification récente et audit ; motif requis pour un admin, facultatif
+pour le superadmin. L’abandon de `account.erase` et des
 événements Stripe est interdit ; `photo.delete` reste non abandonnable tant que la photo existe. Une dead letter
 push peut être abandonnée selon le contrat. Confirmer ensuite consommation et résultat métier.
 
 <a id="outbox-delay"></a>
+
 ## Retard outbox
 
 Vérifier qu’un worker est actif, ses claims/renouvellements, la dépendance visée et `work_remaining`. Lancer une
-passe contrôlée si aucun worker ne tourne ; ne jamais modifier directement le statut ni exécuter l’effet externe
-hors du dispatcher idempotent.
+worker outbox si aucun ne tourne ; ne jamais modifier directement le statut ni exécuter l’effet externe
+hors du dispatcher idempotent. Voir [Exploitation](operations.md#outbox-et-reprises-operateur).
 
 <a id="billing-reconciliation"></a>
+
 ## Réconciliation Stripe en retard
 
 Vérifier maintenance `billing`, worker outbox et erreurs Stripe. Pour une création Customer incertaine, rejouer la
@@ -218,11 +239,13 @@ même clé uniquement dans la fenêtre autorisée ; après 23 heures effectuer u
 Toute ambiguïté reste une dead letter soumise à décision humaine.
 
 <a id="maintenance"></a>
+
 ## Maintenance absente, bloquée ou bornée
 
 Vérifier `MAINTENANCE_MODE`, le planificateur et l’état persistant du job. `work_remaining=1` signifie que la passe
 a atteint son budget : relancer de façon contrôlée et mesurer avant d’augmenter les lots. Un job `running` ancien
-peut être repris par les règles existantes ; ne pas supprimer son état à la main.
+peut être repris par les règles existantes ; ne pas supprimer son état à la main. Vérifier aussi si Stripe est
+désactivé : son job ne s’exécute alors pas. Voir [ordonnancement et statut](operations.md#maintenance-reguliere).
 
 ## Test contrôlé des alertes
 
@@ -240,6 +263,8 @@ Les compteurs sont branchés sur les clients utilisés par l’API : requêtes S
 opérations S3, commandes Redis, acquisition des connexions PostgreSQL, sondes SQL et commandes de transaction (BEGIN/COMMIT/ROLLBACK).
 Les durées incluent les reprises internes du client. PostgreSQL compte des opérations d’accès et
 commandes de transaction, pas chaque instruction SQL individuelle. Les refus métier ne sont pas comptés comme des pannes de stockage.
+Le runtime expose son identité Rust, sa durée de fonctionnement et sa mémoire RSS. Il ne publie pas
+l’ancienne mesure de retard de l’event loop Node.
 Ces compteurs ne doivent donc pas être interprétés comme un nombre de requêtes SQL ni comparés directement
 aux volumes du driver NestJS. Une erreur HTTP conserve aussi ses compteurs et un événement sûr
 `http_request_failed`. Les labels restent bornés et aucun payload, SQL, secret ou identifiant client

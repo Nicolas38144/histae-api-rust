@@ -1,19 +1,31 @@
 # Histae API — contrat HTTP
 
+[Index](README.md) · [Postman](../postman/README.md) · [Configuration](configuration.md)
+
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés.
+par leurs tests de contrat dédiés. L’inventaire courant contient **103 couples méthode/chemin**.
 
 ## Sommaire
 
 - [Conventions communes](#conventions-communes)
 - [Routes publiques et intégrations](#routes-publiques-et-integrations)
+  - [OTP et catalogue](#connexion-mobile-et-catalogue)
+  - [Webhooks Stripe](#webhook-stripe) et [Sweego](#webhook-sweego)
 - [Client mobile](#client-mobile)
+  - [Sessions](#session-et-deconnexion), [consentements](#consentements), [profil](#profil-et-preferences)
+  - [Photo](#photo-unique), [traits et questions](#traits-et-questions-de-profil)
+  - [Découverte, matchs et messages](#decouverte-matchs-et-messages)
+  - [Temps réel](#appareils-et-temps-reel), [abonnement](#abonnement), [droits et effacement](#droits-effacement-et-surete)
 - [Administration](#administration)
+  - [WebAuthn](#entree-webauthn), [sessions et passkeys](#sessions-et-passkeys)
+  - [Comptes et droits](#comptes-signalements-et-droits), [catalogue et modération](#catalogue-et-moderation)
+  - [Exploitation et reprises](#exploitation-et-reprises)
 - [Entretien du contrat](#entretien-du-contrat)
 
 <a id="conventions-communes"></a>
+
 ## Conventions communes
 
 ### Chemins, entrées et réponses
@@ -42,6 +54,8 @@ Les routes mobiles marquées **onboarding incomplet accepté** restent accessibl
 Toute mutation authentifiée par session admin exige l’en-tête `Origin` égal à `ADMIN_WEBAUTHN_ORIGIN`. Pour les routes publiques de connexion/enrôlement, l’origine est vérifiée dans la preuve WebAuthn lors de sa validation, pas par ce guard de session. Les actions marquées **récentes** exigent une authentification WebAuthn récente (moins de dix minutes par défaut). Les consultations sensibles sont auditées ; le motif est obligatoire pour un admin et facultatif pour le superadmin. Sans motif fourni, l’API inscrit un libellé automatique dans l’audit.
 
 Lorsque `ADMIN_WEBAUTHN_ORIGIN` est en HTTPS, le cookie s'appelle `__Host-histae_admin_session` et contient `Secure; HttpOnly; SameSite=Strict; Path=/`, sans `Domain`, dans tous les environnements. Seul le développement HTTP sur `localhost` conserve le cookie non sécurisé. Le durcissement invalide les sessions HTTPS antérieures : se reconnecter avec la passkey existante, sans nouvel enrôlement.
+
+<a id="erreurs-et-limites-de-debit"></a>
 
 ### Erreurs et limites de débit
 
@@ -78,6 +92,8 @@ Sauf indication contraire, `limit` vaut 20, entre 1 et 100. Les collections pagi
 
 Les listes non paginées ne doivent pas recevoir arbitrairement `limit` ou `cursor`.
 
+<a id="idempotence-et-reponses-perdues"></a>
+
 ### Idempotence et réponses perdues
 
 Il n’existe pas de mécanisme de retry universel.
@@ -91,6 +107,7 @@ Il n’existe pas de mécanisme de retry universel.
 | Revue admin | Relire après conflit de version ou d’état ; ne pas écraser automatiquement la décision d’un autre opérateur. |
 
 <a id="routes-publiques-et-integrations"></a>
+
 ## Routes publiques et intégrations
 
 ### Connexion mobile et catalogue
@@ -110,11 +127,11 @@ rejetée renvoie `503 otp_delivery_unavailable`. Un timeout, une réponse inexpl
 le timeout fournisseur augmenté de cinq secondes renvoie `503 otp_delivery_unknown`. Un callback signé peut
 confirmer le code initial, jamais réactiver un code consommé, expiré ou remplacé. Attendre puis rejouer la même clé ;
 un nouvel envoi exige une nouvelle intention explicite, avec les limites OTP habituelles. Une clé réutilisée avec
-un autre numéro renvoie `409 idempotency_key_conflict`. Détails : [suivi Sweego](migration/s09-otp-sweego.md).
+un autre numéro renvoie `409 idempotency_key_conflict`. Configuration : [variables OTP](configuration.md#groupes-de-variables) ; diagnostic : [Exploitation](operations.md#diagnostic-de-demarrage).
 
 **Refresh.** Envoyer le dernier refresh sous la forme opaque reçue `jti:secret`, puis enregistrer atomiquement la nouvelle paire de tokens. Le rejeu d’un ancien token authentique non expiré révoque toute sa famille et renvoie `401 invalid_or_expired_refresh_token`. Il n’y a pas de fenêtre de grâce : deux refresh concurrents ou une réponse perdue peuvent imposer une nouvelle connexion OTP. Limite : 30/15 min/IP.
 
-Erreurs utiles : `authentication_required`, `invalid_or_expired_access_token`, `invalid_or_expired_refresh_token`, `invalid_idempotency_key`, `idempotency_key_conflict`, `otp_delivery_unavailable`, `otp_rate_limit_exceeded`, `refresh_rate_limit_exceeded`. Le format cryptographique, les durées et la rotation des clés sont décrits dans [sessions mobiles](migration/s08-mobile-identity.md).
+Erreurs utiles : `authentication_required`, `invalid_or_expired_access_token`, `invalid_or_expired_refresh_token`, `invalid_idempotency_key`, `idempotency_key_conflict`, `otp_delivery_unavailable`, `otp_delivery_unknown`, `otp_rate_limit_exceeded`, `refresh_rate_limit_exceeded`. Les durées et clés sont décrites dans [Configuration](configuration.md#groupes-de-variables).
 
 **Plans.** Chaque plan expose code, nom, prix mensuel/annuel, devise, jours d’essai, limite hebdomadaire éventuelle et fonctionnalités. Le client ne choisit jamais les identifiants ou prix Stripe.
 
@@ -147,7 +164,7 @@ et demandes déjà purgées sont acquittés sans effet. La corrélation utilise 
 
 Erreurs : `401 invalid_sweego_signature`, `400 invalid_sweego_event`, `409 sweego_delivery_conflict`,
 `429 sms_webhook_rate_limit_exceeded`, `503 sweego_webhook_unavailable` (configuration absente ou stockage indisponible).
-Configuration et limites fournisseur : [suivi OTP Sweego](migration/s09-otp-sweego.md).
+Configuration : [variables OTP](configuration.md#groupes-de-variables).
 
 ### Santé
 
@@ -159,9 +176,12 @@ Configuration et limites fournisseur : [suivi OTP Sweego](migration/s09-otp-swee
 La readiness vérifie PostgreSQL, le bucket objet et Redis lorsqu’il est requis. Ces routes n’exigent pas d’authentification.
 
 <a id="client-mobile"></a>
+
 ## Client mobile
 
 Toutes les routes de cette section exigent le Bearer mobile.
+
+<a id="session-et-deconnexion"></a>
 
 ### Session et déconnexion
 
@@ -191,6 +211,8 @@ Onboarding incomplet accepté.
 Types : `terms_of_service_acceptance`, `privacy_notice_acknowledgement`, `sensitive_data_consent`, `location_consent`. Aucun choix marketing. Chaque type apparaît au plus une fois. Chaque choix retourné indique sa version acceptée éventuelle, `required_document_version` et `document_url` ; le mobile doit présenter ce texte. Aucune preuve technique IP/user-agent n’est exposée et le client ne choisit pas la version.
 
 Les CGU et la notice ne peuvent pas être retirées via cette route : on peut refuser l’onboarding ou supprimer son compte. Retirer le consentement sensible efface sexe/préférences ; retirer la localisation efface la présence. Un rejeu identique est idempotent.
+
+<a id="profil-et-preferences"></a>
 
 ### Profil et préférences
 
@@ -252,6 +274,8 @@ L’attribution d’un trait existant est idempotente. Une question expose `id, 
 
 **Enregistrer les réponses.** Envoyer toute la liste, de zéro à trois questions distinctes ; l’ordre du tableau définit l’ordre d’affichage. Chaque texte est normalisé sur une ligne, sans caractère de contrôle, entre 10 et 300 caractères et au plus 1 000 octets. Un tableau vide efface les réponses. Le remplacement est atomique et relance leur modération. Erreurs : `404 profile_not_found`, `404 profile_question_not_found`. Si une question est supprimée par l’administration, ses réponses sont supprimées aussi : recharger le catalogue et l’état propriétaire.
 
+<a id="decouverte-matchs-et-messages"></a>
+
 ### Découverte, matchs et messages
 
 | Méthode | Route | Entrée → résultat |
@@ -278,6 +302,8 @@ Le match est `active` pendant 24 h, puis `awaiting_continuation` ; les deux acco
 
 **Messages.** Contenu non vide, 2 000 caractères maximum ; limite 60/min/utilisateur. Rejouer clé/match/contenu identiques renvoie le message existant sans nouvelle notification ; réutiliser la clé pour une autre requête renvoie `409 idempotency_key_conflict`. La lecture par borne marque tous les messages reçus jusqu’à la borne incluse. Un expéditeur ne peut pas marquer son propre message comme lu.
 
+<a id="appareils-et-temps-reel"></a>
+
 ### Appareils et temps réel
 
 | Méthode | Route | Entrée → résultat |
@@ -291,7 +317,7 @@ L’appareil expose UUID, `session_id`, plateforme, version et dates d’usage ;
 
 SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created, match.updated, matches.invalidated, message.created, message.read, subscription.updated`. Le flux ferme à expiration du JWT ou après échec/révocation détecté lors du contrôle de session toutes les 25 secondes. Le client SSE doit pouvoir envoyer le Bearer.
 
-**Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les alertes de paiement/essai devenues obsolètes ne sont pas envoyées. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation. Voir [garanties de livraison](migration/s22-sse-push.md).
+**Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les alertes de paiement/essai devenues obsolètes ne sont pas envoyées. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation.
 
 ### Abonnement
 
@@ -306,6 +332,8 @@ L’état expose `plan, provider, status, access_granted, billing_period`, dates
 **Checkout.** Utiliser l’URL retournée (validité 30 minutes). Une seule session peut être créée/ouverte par utilisateur. Le premier abonnement peut bénéficier de l’essai du catalogue ; un essai consommé n’est pas réattribué. Le retour sur l’URL de succès **ne prouve pas à lui seul l’activation Premium** : relire l’abonnement, mis à jour par webhook signé. Ne jamais envoyer Product ID, Price ID, montant, devise, durée d’essai ou Customer ID. Le portail exige un client Stripe déjà lié. Checkout et portail : 10/min/utilisateur. Tant qu’une création Customer reste incertaine, une nouvelle clé est refusée ; seule la clé d’origine peut rejouer le `POST` dans la fenêtre sûre de 23 heures, puis la réconciliation procède uniquement en lecture.
 
 Erreurs : `billing_unavailable`, `stripe_request_failed`, `subscription_already_active`, `checkout_already_in_progress`, `billing_customer_reconciliation_required`, `idempotency_key_reused`, `idempotency_key_consumed`, `billing_customer_not_found`, `billing_rate_limit_exceeded`.
+
+<a id="droits-effacement-et-surete"></a>
 
 ### Droits, effacement et sûreté
 
@@ -332,14 +360,17 @@ Onboarding incomplet accepté pour les jetons/effacement, demandes RGPD et expor
 }
 ```
 
-Le `202` désactive immédiatement le compte ; fermer la session mobile. **Ne pas afficher que toutes les données ont déjà été supprimées.** Le nettoyage continue en arrière-plan malgré une panne externe. Jeton invalide/expiré : `401 invalid_or_expired_deletion_token`. Si la réponse est perdue après acceptation, le Bearer devient invalide : un retry n’est pas une route publique de suivi et ne rend pas forcément le même `202`. Voir [effacement et limites de reprise](migration/s25-account-erasure.md).
+Le `202` désactive immédiatement le compte ; fermer la session mobile. **Ne pas afficher que toutes les données ont déjà été supprimées.** Le nettoyage continue en arrière-plan malgré une panne externe. Jeton invalide/expiré : `401 invalid_or_expired_deletion_token`. Si la réponse est perdue après acceptation, le Bearer devient invalide : un retry n’est pas une route publique de suivi et ne rend pas forcément le même `202`. Voir [suivi et reprises](operations.md#outbox-et-reprises-operateur).
 
 **Droits.** Types de demande : `access | erasure | portability | rectification | restriction | objection` ; une seule demande ouverte par type/utilisateur. L’export contient profil/réponses, abonnement/factures liés, métadonnées des sessions sans secrets et uniquement les décisions de swipe sortantes. Il n’expose jamais les décisions entrantes d’autrui. Le JSON est préparé par pages dans un fichier temporaire privé, transmis comme flux puis supprimé. Toutes ses données PostgreSQL, swipes compris, partagent un instantané `REPEATABLE READ`. Limite 5/h/utilisateur : `429 data_export_rate_limit_exceeded` ; export au-delà de la borne configurée : `413 data_export_too_large` ; toutes les places de préparation occupées : `503 data_export_busy` avec `Retry-After` ; source indisponible avant envoi : `503 data_export_unavailable`. L’accès réussi est journalisé.
 
 **Signalements.** `reason = inappropriate_content | fake_profile | harassment | spam | other` ; description au plus 2 000 octets ; `match_id` et description peuvent être nuls. Auto-signalement interdit, cible existante et match éventuel reliant les deux comptes. Limite 5/h/utilisateur.
 
 <a id="administration"></a>
+
 ## Administration
+
+<a id="entree-webauthn"></a>
 
 ### Entrée WebAuthn
 
@@ -354,7 +385,7 @@ Ces quatre routes d’entrée ne demandent pas de session existante. La preuve W
 
 En développement, ouvrir **`http://localhost:5173`**, RP ID `localhost`, via le proxy même-origine `/api` du dashboard ; pas `127.0.0.1`. En production : origine HTTPS exacte, cookie `Secure` préfixé `__Host-`. Le RP ID doit correspondre au domaine configuré.
 
-Transmettre les options à l’API WebAuthn du navigateur et renvoyer le credential sérialisé. Passkey découvrable et vérification utilisateur obligatoires. Challenge valable cinq minutes, à usage unique. La session publique expose `user_id, role, authenticated_at, expires_at`, jamais son secret. Bootstrap, créé hors bande, expire après quinze minutes par défaut. Procédure d’enrôlement : [README](migration/s10-admin-auth.md).
+Transmettre les options à l’API WebAuthn du navigateur et renvoyer le credential sérialisé. Passkey découvrable et vérification utilisateur obligatoires. Challenge valable cinq minutes, à usage unique. La session publique expose `user_id, role, authenticated_at, expires_at`, jamais son secret. Bootstrap, créé hors bande, expire après quinze minutes par défaut. Procédure d’enrôlement : [Administration](administration.md#enregistrer-la-premiere-passkey).
 
 ### Sessions et passkeys
 
@@ -406,6 +437,8 @@ Pour une demande RGPD, la mutation accepte `in_progress | completed | rejected`.
 
 `erasure` peut être nul ; sinon il expose `step, updated_at, event_id, status, attempts, last_error_code`. Les étapes sont `stripe | photos | swipes | postgres | completed`. Après purge d’un événement résolu, `event_id/status` peuvent être nuls. Aucun payload, identifiant Stripe, clé objet ou URL.
 
+<a id="catalogue-et-moderation"></a>
+
 ### Catalogue et modération
 
 | Méthode | Route | Entrée → résultat |
@@ -443,7 +476,7 @@ La décision est `approved | rejected`, avec la `version` lue au préalable. Une
 
 `revenue_period = last_7_days | last_30_days | month_to_date | previous_month | year_to_date | all_time`, défaut `month_to_date`. Le revenu est une estimation : abonnements Premium mis à jour sur la période × tarif mensuel actuel ; **ni encaissements ni bénéfice comptable**.
 
-`operations` expose latences/compteurs HTTP et `401/403/429/5xx`, mémoire/event loop, résultats des dépendances, pool, outbox et maintenances. Les mesures du processus repartent à zéro au redémarrage ; les états outbox/maintenance sont persistants. Chaque maintenance fournit notamment `processed_count, batch_count, duration_ms, work_remaining` ; ce dernier signale qu’une passe a consommé son budget borné et doit être reprise. `operations.outbox.notification_push` détaille `pending, processing, completed, dead_letter, discarded, oldest_pending_at` ; `operations.outbox.billing_reconciliation` fournit les mêmes états utiles sans `discarded`. `completed` signifie tâche acquittée encore conservée, pas réception par un terminal ni validation d’un paiement. Voir [volumes et exports](migration/s24-dsr-data-export.md).
+`operations` expose latences/compteurs HTTP et `401/403/429/5xx`, mémoire/uptime du processus Rust, résultats des dépendances, pool, outbox et maintenances. Les mesures du processus repartent à zéro au redémarrage ; les états outbox/maintenance sont persistants. Chaque maintenance fournit notamment `processed_count, batch_count, duration_ms, work_remaining` ; ce dernier signale qu’une passe a consommé son budget borné et doit être reprise. `operations.outbox.notification_push` détaille `pending, processing, completed, dead_letter, discarded, oldest_pending_at` ; `operations.outbox.billing_reconciliation` fournit les mêmes états utiles sans `discarded`. `completed` signifie tâche acquittée encore conservée, pas réception par un terminal ni validation d’un paiement. Voir [Exploitation](operations.md) et [bornes de configuration](configuration.md#groupes-de-variables).
 
 L’export Prometheus n’est pas une route de ce contrat : lorsqu’il est activé, il écoute sur un serveur privé
 distinct, authentifié par bearer token. Voir [supervision et runbooks](observability.md).
@@ -456,15 +489,16 @@ portent sur les OTP non expirés, pas sur un historique complet ; les compteurs 
 
 Réconciliation photo : filtre `all | stale_processing | deleting | dead_letter` (défaut `all`). UUID photo/utilisateur, métadonnées techniques, diagnostics et état outbox uniquement ; aucune image ni clé objet. Une photo prête ou un traitement récent refuse la relance : `409 photo_reconciliation_not_allowed` ; worker actif : `409 photo_reconciliation_in_progress` ; photo absente : `404 photo_not_found`.
 
-Réconciliation Stripe : la liste ne contient que les dead letters qui exigent une action humaine ; la file normale reste agrégée dans `operations`. `kind = all | subscription | customer_creation`. Elle expose UUID d’événement/utilisateur, type, tentatives, code d’erreur normalisé et dates ; jamais payload, identifiant fournisseur ou moyen de paiement. Une dead letter peut être relancée par la route outbox commune, après authentification récente et avec audit. La relance effectue une nouvelle lecture et n’ordonne aucun paiement. Voir [protocole Stripe](migration/s21-stripe-webhooks.md).
+Réconciliation Stripe : la liste ne contient que les dead letters qui exigent une action humaine ; la file normale reste agrégée dans `operations`. `kind = all | subscription | customer_creation`. Elle expose UUID d’événement/utilisateur, type, tentatives, code d’erreur normalisé et dates ; jamais payload, identifiant fournisseur ou moyen de paiement. Une dead letter peut être relancée par la route outbox commune, après authentification récente et avec audit. La relance effectue une nouvelle lecture et n’ordonne aucun paiement.
 
 Les dead letters exposent type, tentatives et code normalisé, jamais payload/agrégat/clé objet. Une décision devenue obsolète renvoie `409 outbox_event_not_dead_letter`. L’abandon de `account.erase` et des événements `billing.*` est toujours interdit ; celui de `photo.delete` est interdit tant que sa trace existe : `409 outbox_discard_not_allowed`. `notification.push` peut être abandonné sans effacer la notification. Un `202` de reprise ne garantit pas que la dépendance sera disponible lors du prochain essai.
 
 <a id="entretien-du-contrat"></a>
+
 ## Entretien du contrat
 
 Modifier ce guide avec toute évolution de route, DTO, réponse, autorisation ou règle de rejeu. Garder les chemins complets dans les tableaux, une seule ligne par couple méthode/chemin.
 
 Le test `tests/route_inventory.rs` compare ces lignes aux déclarations de routes présentes dans les sources Axum. Il détecte les couples méthode/chemin absents ou non documentés ; il ne vérifie pas le montage du routeur final ni les doublons éliminés par son ensemble de comparaison. Les alias HEAD automatiques et le preflight CORS généré ne font pas partie de cet inventaire applicatif.
 
-Ce contrôle ne prouve ni les schémas JSON, ni les droits, ni les garanties métier : les autres tests de contrat et intégrations restent nécessaires. Voir [guide de validation](../tests/README.md), [responsabilités internes](architecture.md) et [validations restantes](migration/s29-cutover.md).
+Ce contrôle ne prouve ni les schémas JSON, ni les droits, ni les garanties métier : les autres tests de contrat et intégrations restent nécessaires. Voir [guide de validation](../tests/README.md), [responsabilités internes](architecture.md) et [validations de livraison](production-readiness.md).

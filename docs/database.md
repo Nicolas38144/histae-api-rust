@@ -1,0 +1,126 @@
+# Base de données PostgreSQL
+
+[Index](README.md) · [Déploiement](container-deployment.md) · [Performance SQL](sql-performance.md)
+
+## Fichiers et responsabilité du migrateur
+
+| Fichier | Usage |
+| --- | --- |
+| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 45 tables, contraintes, fonctions, triggers et index |
+| [002_insert_postgres.sql](../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
+| [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
+| [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
+| [query_indexes.rs](../src/infra/query_indexes.rs) | Installation concurrente des 18 index de performance sur une base existante |
+
+Il n’existe plus de ledger `schema_migrations`. Le migrateur retire cette ancienne table si elle est présente.
+
+### Base vide
+
+Le migrateur applique schéma et catalogue dans une transaction, avec `histae.seed_fake_users=off`.
+Il ne crée pas de comptes de démonstration. La pile Docker dev peut aussi initialiser ces deux fichiers
+via l’entrypoint PostgreSQL lors de la création du volume. Cette initialisation ne se rejoue pas sur un volume existant.
+
+### Base existante
+
+Le migrateur vérifie les objets attendus, ajoute les évolutions prises en charge et retire le ledger obsolète.
+Les index de performance sont ensuite construits avec `CONCURRENTLY`, hors de la transaction de schéma.
+Un verrou advisory sérialise les migrateurs. Un index valide est conservé ; un index invalide laissé par une
+interruption est supprimé puis reconstruit au prochain lancement.
+
+Le migrateur ne transforme pas automatiquement une base arbitraire. Modifier le fichier de schéma ne suffit
+pas à modifier une base existante : toute évolution doit aussi avoir son chemin de mise à niveau et ses tests.
+Il peut afficher `processed_count=0` sur une base existante tout en ayant installé des index ; cette valeur
+compte l’installation initiale, pas tous les objets modifiés.
+
+## Exécuter le migrateur
+
+Sur l’hôte, avec la configuration locale et les dépendances prêtes :
+
+```bash
+cargo run --locked --bin db-migrate
+```
+
+Dans Docker dev déjà démarré :
+
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml run --rm --no-deps migrate
+```
+
+Ajouter `-f compose.proxy.yaml` si utilisé. En production, sélectionner `.env.production` et
+`compose.production.yaml`. Le conteneur utilise le SQL **embarqué dans son image** : reconstruire ou
+charger l’image de livraison avant la migration. Voir la [procédure de mise à jour](container-deployment.md#mise-a-jour).
+
+## Connexions et droits
+
+Le pool SQLx est borné par `POSTGRES_POOL_MAX`, avec des timeouts de connexion, requête et transaction inactive.
+L’API utilise aussi un pool de sessions de verrous d’activité pouvant aller jusqu’à quatre connexions.
+Additionner les besoins de tous les processus avant d’ajuster `max_connections` ou de répliquer les workers.
+Les verrous advisory exigent des sessions PostgreSQL stables : un pooler en mode transaction ne peut pas
+remplacer directement cette connexion de session.
+
+La configuration production utilise `verify-full` et une CA PEM. L’utilisateur créé par l’image PostgreSQL
+est administrateur de la base ; une séparation des rôles applicatif et migration demande une configuration
+de droits supplémentaire. Changer les variables d’initialisation sur un volume existant ne change pas ses rôles.
+
+<a id="sauvegarde-et-restauration"></a>
+
+## Sauvegarde et restauration
+
+Un volume protège contre la recréation du conteneur, pas contre la perte du disque ou sa suppression.
+Ne pas copier arbitrairement les fichiers d’un PostgreSQL actif. Utiliser `pg_dump` ou une sauvegarde physique
+PostgreSQL adaptée à la politique de reprise.
+
+### Vérification locale déjà fournie
+
+```bash
+bash scripts/verify-dev-backup-restore.sh
+```
+
+Le script accepte uniquement le conteneur `histae-rust-dev-postgres-1` et la base `histae-dev` par défaut.
+Il effectue un dump au format custom, restaure dans une base temporaire, compare les colonnes du schéma
+public et le nombre de tables, puis supprime base temporaire et archive. Le rôle doit pouvoir créer une base.
+Il choisit Docker direct ou `sudo` selon l’accès disponible.
+
+`Development backup/restore verification passed (45 public tables)` confirme cette restauration technique.
+Le script ne conserve pas de sauvegarde, ne compare pas toutes les données et ne teste pas la reprise du S3,
+des certificats ou des fournisseurs.
+
+### Sauvegarde conservée
+
+Sélectionner la pile ; exemple production depuis la racine du dépôt :
+
+```bash
+COMPOSE=(sudo docker compose --env-file .env.production -f compose.yaml -f compose.production.yaml)
+umask 077
+mkdir -p "$HOME/histae-backups"
+backup_file="$HOME/histae-backups/postgres-$(date -u +%Y%m%dT%H%M%SZ).dump"
+"${COMPOSE[@]}" exec -T postgres sh -c \
+  'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup_file"
+```
+
+Vérifier le code de sortie avant de considérer le fichier comme une sauvegarde. Conserver une copie chiffrée
+hors machine et restaurer périodiquement dans une base isolée avec `pg_restore --exit-on-error`.
+Un dump d’une base n’inclut pas les rôles globaux, les secrets Docker, les certificats ni les objets S3 :
+leur sauvegarde doit être coordonnée. Si la perte admissible exige une reprise à un instant précis,
+prévoir l’archivage WAL/PITR. Tester une montée de version majeure avant de changer l’image PostgreSQL.
+
+## Supprimer les données
+
+Pour les comptes fictifs, préférer [la purge dev](development.md#supprimer-les-comptes-de-test), qui conserve
+le superadmin et possède des gardes d’environnement.
+
+`db/drop_postgres.sql` exécute `DROP SCHEMA public CASCADE`, recrée `public` et ses permissions de base.
+Il supprime les objets de ce schéma et leurs dépendances ; il ne supprime ni la base entière, ni les rôles,
+ni les objets S3. Il ne possède pas les gardes de la purge dev : l’opérateur doit sélectionner la cible et
+posséder une sauvegarde vérifiée.
+
+Exemple **destructif**, exclusivement sur la base dev choisie, après arrêt des processus applicatifs :
+
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml stop api outbox-worker
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec -T postgres sh -c \
+  'exec psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/drop_postgres.sql
+```
+
+Après suppression, réinstaller avec le migrateur et redémarrer les services selon le guide Docker.
+Ne pas relancer un ordonnanceur de maintenance avant la fin de la réinstallation.
