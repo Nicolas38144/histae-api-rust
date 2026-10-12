@@ -55,6 +55,9 @@ PostgreSQL utilise l’image construite depuis `docker/postgres/Dockerfile` : Po
 et PostGIS 3.6.4. Le migrateur installe l’extension et l’index spatial avant la nouvelle API.
 Pour la première mise à jour d’un volume existant, suivre la [procédure PostgreSQL/PostGIS](database.md#postgis-et-mise-a-jour-dune-installation).
 
+Les deux piles préchargent aussi `pg_stat_statements`. Sur un volume neuf, son script d’initialisation
+est automatique ; sur un volume existant, suivre la [procédure d’activation SQL](sql-performance.md#pg-stat-statements).
+
 ### Ports et overrides
 
 | Service | Depuis l’hôte, par défaut | Depuis les conteneurs |

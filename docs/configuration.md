@@ -149,9 +149,21 @@ En production Docker, le certificat est monté à `/run/secrets/postgres_ca`.
 
 ### Variables réservées à Compose
 
-`HISTAE_API_IMAGE`, `HISTAE_POSTGRES_IMAGE`, `HISTAE_PHOTO_MODERATION_IMAGE`, `HISTAE_ENV_FILE`, `HISTAE_API_BIND_IP`,
+`HISTAE_API_IMAGE`, `HISTAE_API_POSTGRES_POOL_MAX`, `HISTAE_POSTGRES_IMAGE`, `HISTAE_PHOTO_MODERATION_IMAGE`, `HISTAE_ENV_FILE`, `HISTAE_API_BIND_IP`,
 `HISTAE_API_HOST_PORT`, `HISTAE_API_DNS_SERVER`, `HISTAE_BACKEND_NETWORK`, `HISTAE_EDGE_NETWORK` et
 `HISTAE_STORAGE_HOST` pilotent l’orchestration. Les overrides sont décrits dans [Déploiement](container-deployment.md).
+
+Pour le réglage actuel des pools Docker :
+
+```dotenv
+POSTGRES_POOL_MAX=20
+HISTAE_API_POSTGRES_POOL_MAX=30
+```
+
+`POSTGRES_POOL_MAX` borne le pool de chaque processus qui le reçoit, notamment outbox et maintenance.
+Compose remplace cette valeur uniquement pour le service API par `HISTAE_API_POSTGRES_POOL_MAX`.
+L’API reçoit donc `POSTGRES_POOL_MAX=30` dans son conteneur. Hors Compose, le binaire Rust lit
+`POSTGRES_POOL_MAX` directement ; il ne lit pas `HISTAE_API_POSTGRES_POOL_MAX`.
 
 ## Vérifier une configuration
 

@@ -11,6 +11,7 @@
 | [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
 | [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
 | [query_indexes.rs](../src/infra/query_indexes.rs) | Installation concurrente des 19 index de performance, dont le GiST géographique, sur une base existante |
+| [pg_stat_statements.sql](../docker/postgres/pg_stat_statements.sql) | Installation idempotente des vues de statistiques SQL, séparée du schéma applicatif |
 
 Il n’existe plus de ledger `schema_migrations`. Le migrateur retire cette ancienne table si elle est présente.
 
@@ -86,6 +87,15 @@ remplacer directement cette connexion de session.
 La configuration production utilise `verify-full` et une CA PEM. L’utilisateur créé par l’image PostgreSQL
 est administrateur de la base ; une séparation des rôles applicatif et migration demande une configuration
 de droits supplémentaire. Changer les variables d’initialisation sur un volume existant ne change pas ses rôles.
+
+## Statistiques SQL
+
+Les piles Docker dev et production préchargent `pg_stat_statements` avec `compute_query_id=auto`.
+Le script d’initialisation installe l’extension dans les nouvelles bases. Sur un volume existant,
+recréer PostgreSQL puis appliquer explicitement le script : l’entrypoint ne rejoue pas l’initialisation.
+La [procédure et les requêtes de profilage](sql-performance.md#pg-stat-statements)
+décrivent cette mise à jour. Les statistiques sont propres au serveur et à la base ; elles ne remplacent
+pas les percentiles HTTP ni les observations de CPU, verrous et I/O sous charge.
 
 <a id="sauvegarde-et-restauration"></a>
 

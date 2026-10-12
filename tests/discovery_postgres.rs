@@ -418,6 +418,56 @@ async fn dense_feed_scans_past_rejections_and_preserves_distance_uuid_pagination
 }
 
 #[tokio::test]
+async fn polar_feed_preserves_exact_radius_and_live_eligibility_checks()
+-> Result<(), Box<dyn std::error::Error>> {
+    let config = postgres_config()?;
+    let database = Database::connect(&config).await?;
+    let repository = PgDiscoveryRepository::new(database.clone());
+    let viewer = Uuid::new_v4();
+    let nearby = Uuid::new_v4();
+    let beyond_target_radius = Uuid::new_v4();
+    let users = [viewer, nearby, beyond_target_radius];
+
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        ready_user(&database, viewer, 1, 89.999).await?;
+        ready_user(&database, nearby, 2, 89.999).await?;
+        ready_user(&database, beyond_target_radius, 4, 89.99).await?;
+        let mut connection = database.acquire().await?;
+        sqlx::query("UPDATE user_presence SET longitude = CASE WHEN user_id = $1 THEN 0 ELSE 90 END WHERE user_id = ANY($2::uuid[])")
+            .bind(viewer).bind(&users[..]).execute(&mut *connection).await?;
+        sqlx::query("UPDATE user_preferences SET max_distance_km = CASE WHEN user_id = $1 THEN 5 ELSE 1 END WHERE user_id = ANY($2::uuid[])")
+            .bind(viewer).bind(&users[..]).execute(&mut *connection).await?;
+        drop(connection);
+
+        let feed = repository.candidate_batch(viewer, "s19-v1", "s19-v1", 8, None, None).await?;
+        assert_eq!(feed.len(), 1);
+        assert_eq!(feed[0].user_id, nearby);
+        assert!(feed[0].distance_km > 0.15 && feed[0].distance_km < 0.16);
+        assert_eq!(repository.candidate_batch(viewer, "s19-v1", "s19-v1", 1, None, Some(nearby)).await?, feed);
+        assert!(repository.candidate_batch(viewer, "s19-v1", "s19-v1", 1, None, Some(beyond_target_radius)).await?.is_empty());
+
+        for (reject, restore) in [
+            ("UPDATE user_account SET is_banned = true WHERE user_id = $1", "UPDATE user_account SET is_banned = false WHERE user_id = $1"),
+            ("UPDATE user_consent SET document_version = 'old' WHERE user_id = $1 AND consent_type = 'sensitive_data_consent'", "UPDATE user_consent SET document_version = 's19-v1' WHERE user_id = $1 AND consent_type = 'sensitive_data_consent'"),
+            ("UPDATE user_consent SET withdrawn_at = clock_timestamp() WHERE user_id = $1 AND consent_type = 'location_consent'", "UPDATE user_consent SET withdrawn_at = NULL WHERE user_id = $1 AND consent_type = 'location_consent'"),
+        ] {
+            let mut connection = database.acquire().await?;
+            sqlx::query(reject).bind(nearby).execute(&mut *connection).await?;
+            drop(connection);
+            assert!(repository.candidate_batch(viewer, "s19-v1", "s19-v1", 8, None, None).await?.is_empty());
+            assert!(repository.candidate_batch(viewer, "s19-v1", "s19-v1", 1, None, Some(nearby)).await?.is_empty());
+            let mut connection = database.acquire().await?;
+            sqlx::query(restore).bind(nearby).execute(&mut *connection).await?;
+        }
+        Ok(())
+    }.await;
+
+    cleanup(&database, &users).await?;
+    database.close().await;
+    result
+}
+
+#[tokio::test]
 async fn simultaneous_mutual_likes_create_one_match_and_keep_decisions_immutable()
 -> Result<(), Box<dyn std::error::Error>> {
     let config = postgres_config()?;

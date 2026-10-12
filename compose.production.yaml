@@ -47,6 +47,12 @@ services:
       # Volume distinct du développement, même si le nom de projet est identique.
       - histae-postgres-production-data:/var/lib/postgresql
       - type: bind
+        source: ./docker/postgres/pg_stat_statements.sql
+        target: /docker-entrypoint-initdb.d/003_pg_stat_statements.sql
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
         source: ./docker/postgres
         target: /etc/postgresql/histae
         read_only: true

@@ -442,6 +442,155 @@ de l’utilisateur. `HISTAE_API_POSTGRES_POOL_MAX=30` dans `.env` et le défaut 
 le conteneur est `healthy`, reçoit `POSTGRES_POOL_MAX=30` et répond `ready`. Les autres pools restent
 à 20. Les résultats ci-dessus décrivent les configurations utilisées pendant les mesures.
 
+### Alignement de l’image et statistiques SQL
+
+L’API, le worker outbox et le migrateur locaux utilisent désormais l’image de benchmark
+**`13d185be5b18`**, sous l’étiquette `histae-api:local`. L’ancienne image API `60443dc2c5a9` est conservée
+sous `histae-api:before-alignment-2026-10-12`. Le pool API reste à 30, celui du worker à 20.
+
+PostgreSQL conserve son image et son volume. `pg_stat_statements` **1.12** est préchargé et installé,
+avec `compute_query_id=auto`, suivi des commandes utilitaires désactivé et suivi de planification désactivé.
+Les premiers relevés confirment l’enregistrement de requêtes et d’appels. Le migrateur termine avec
+le code 0, `/health/ready` répond `200` et le smoke test passe. Les 5 001 comptes, 5 000 matchs confirmés
+et 74 996 messages sont conservés.
+
+Une base temporaire contenant seulement l’extension de statistiques a aussi été initialisée par le
+migrateur de cette image : 46 tables publiques, aucun compte fictif, PostGIS 3.6.4 et statistiques lisibles.
+Cette base a été supprimée. Une sauvegarde privée créée avant l’activation et les preuves de vérification
+sont dans `.load-test/image-stats-2026-10-12/`. Aucun nouveau test de charge n’a été exécuté pendant
+cette mise à jour ; les mesures précédentes n’incluaient pas le préchargement de `pg_stat_statements`.
+
+## Profilage SQL et calculs du feed — 12 octobre 2026
+
+Cette comparaison utilise `pg_stat_statements` activé, un pool API de **30 connexions**,
+`nofile=16384` et **1 000 utilisateurs virtuels**. L’API et PostgreSQL conservent chacun leur limite
+de **deux CPU / un Gio**. Les données, pages de 20, accès loopback et mélange de lectures 60/20/20
+restent identiques. Les deux profils comprennent une minute de montée, **cinq minutes à 300 RPS**,
+puis trente secondes de descente. L’image initiale est `13d185be5b18`, l’image optimisée `e2ba350009c7`.
+Les mêmes sessions, clé JWT et Redis temporaires servent aux deux profils ; les fournisseurs externes
+sont désactivés et les routes OTP ne sont pas appelées.
+
+### Requêtes dominantes
+
+Un rôle PostgreSQL temporaire distingue les requêtes du benchmark des autres services de la base.
+Il ne dispose d’aucun privilège de superutilisateur ou de création d’objets. Deux snapshots de ses
+statistiques isolent chaque maintien, sans remise à zéro des compteurs partagés et sans publication
+du texte SQL ou de paramètres personnels.
+
+Les cinq requêtes les plus coûteuses avant optimisation sont :
+
+| Requête | Appels | Exécution cumulée | Moyenne par appel | Part du temps SQL |
+| --- | --- | --- | --- | --- |
+| Sélection du feed | 53 971 | 409,74 s | 7,592 ms | 93,23 % |
+| Liste des matchs | 17 990 | 11,92 s | 0,662 ms | 2,71 % |
+| Contrôle de compte et session | 89 918 | 7,32 s | 0,081 ms | 1,67 % |
+| Disponibilité du match et verrou | 17 991 | 5,91 s | 0,329 ms | 1,35 % |
+| Lecture des messages | 17 991 | 2,40 s | 0,134 ms | 0,55 % |
+
+Les fenêtres SQL durent respectivement **299,630 s** et **301,188 s** : le déclenchement et la réponse
+des snapshots prennent un peu de temps. Les moyennes par appel sont donc plus comparables que les
+totaux bruts. Les compteurs SQL incluent les appels achevés à leurs propres frontières et ne sont pas
+les compteurs HTTP. Les durées d’exécution incluent les attentes, ne mesurent pas la CPU seule et
+ne fournissent aucun percentile SQL ; le suivi de planification reste désactivé.
+
+Les plans du feed sont examinés avec `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`, y compris le passage
+automatique des plans personnalisés aux plans génériques. La configuration de cache des plans
+de l’application reste inchangée. Le feed concentre le coût : les contrôles de compte/session,
+les exclusions et les verrous n’ont pas été allégés.
+
+### Modification retenue et vérifications de sécurité
+
+Le CTE du lecteur calcule une seule fois les bornes de naissance et le cosinus de sa latitude.
+L’ancien préfiltre numérique latitude/longitude, redondant avec PostGIS pour le feed, est retiré.
+Les coordonnées valides et les présences fraîches restent exigées. `ST_DWithin` et le GiST
+présélectionnent une fenêtre conservatrice ; **la distance Haversine exacte et les préférences
+réciproques décident toujours de l’éligibilité**. La validation ciblée d’un swipe garde également
+ce contrôle exact. Ce changement corrige aussi les omissions de profils proches aux pôles.
+
+Les vérifications de session/révocation, compte actif, versions et retraits des consentements,
+blocages dans les deux sens, swipes, matchs, modération et pagination restent appliquées.
+Aucun cache d’autorisation ou de consentement, relèvement de timeout ou augmentation du pool
+ne contribue au gain. Les détails modérés restent chargés après la sélection des profils éligibles.
+
+Une tentative de regrouper les traits et réponses de toute la page coûtait davantage dans les plans
+mesurés ; elle n’est pas retenue. Un index expérimental sur les consentements actifs n’était pas
+utilisé et n’apportait pas de gain ; il a été supprimé. Aucun nouvel index applicatif n’est ajouté
+par cette étape.
+
+Validation : **18 tests passent** dans `discovery_postgres`, `discovery_contract` et
+`mobile_auth_contract`. La nouvelle régression polaire contrôle le rayon réciproque, puis le
+bannissement, l’ancienne version du consentement sensible et le retrait du consentement de
+localisation, sur le feed et le swipe ciblé. Les régressions existantes couvrent notamment
+concurrence, exclusions, curseurs chiffrés, limites de page et passage de ±180°.
+**32 comparaisons de résultats complets** entre les deux SQL, sur huit comptes fictifs avec trois
+rayons ou une mauvaise version de consentement, sont identiques, distances et contenus compris.
+
+En complément, 24 exécutions de plan par version, intercalées, donnent une médiane de **2,970 ms
+avant** et **2,650 ms après**. Ce diagnostic de requêtes seules confirme une réduction de calculs ;
+il ne remplace pas la comparaison HTTP concurrente ci-dessous.
+
+### Comparaison à 300 RPS
+
+Les latences du tableau portent uniquement sur les maintiens de cinq minutes.
+
+| Mesure | Avant | Après |
+| --- | --- | --- |
+| Débit servi pendant le maintien | 300,00 RPS | 299,91 RPS |
+| p95 HTTP global | 76,184 ms | 26,352 ms |
+| p99 HTTP global | 268,735 ms | 222,679 ms |
+| p95 HTTP du feed | 97,474 ms | 32,436 ms |
+| Maximum HTTP global | 699,167 ms | 1 779,306 ms |
+| Erreurs HTTP / réponses métier invalides | 0 / 0 | 0 / 0 |
+| Itérations perdues | 0 | 0 |
+| Exécution SQL moyenne du feed | 7,592 ms | 5,481 ms |
+
+Chaque profil complet émet exactement **103 533 requêtes HTTP**, dont quatre vérifications initiales.
+Le total est donc **207 066**, sans erreur HTTP, réponse métier invalide ni itération perdue, rampes
+comprises. Le maintien contient 89 999 réponses avant et 89 974 après ; l’écart à 90 000 provient
+des réponses achevées aux frontières de la fenêtre, pas d’itérations que le générateur n’aurait pas
+pu lancer. Les deux exécutions terminent avec le code k6 `0` et respectent les seuils configurés.
+
+Le p95 global baisse d’environ **65 %** et la moyenne SQL du feed d’environ **28 %**. Le feed reste
+responsable de **92 %** du temps SQL après modification. Ses lectures de blocs partagés restent
+autour de 837 par appel ; le gain vient surtout des calculs retirés. Aucun fichier temporaire SQL
+n’est lu ou écrit. Le cache est plus chaud après, avec zéro bloc lu contre 183 avant sur les deux
+requêtes principales ; ce facteur doit être pris en compte dans l’interprétation.
+
+Les ressources suivantes sont échantillonnées sur les profils complets, rampes comprises :
+
+| Mesure | Avant | Après |
+| --- | --- | --- |
+| CPU PostgreSQL moyenne | 107,09 % | 86,15 % |
+| CPU PostgreSQL maximale | 215,11 % | 137,44 % |
+| CPU API moyenne | 42,15 % | 40,00 % |
+| Acquisitions du pool en attente, maximum | 49 | 24 |
+| Descripteurs API, maximum / fin | 1 045 / 44 | 1 045 / 44 |
+
+Les pourcentages Docker expriment un CPU à 100 % et peuvent dépasser ponctuellement la limite
+sur un relevé ; ils ne constituent pas un profilage CPU par requête. Aucun conteneur surveillé
+n’a été arrêté, redémarré, tué par OOM ou déclaré `unhealthy`. Tous les relevés de readiness réussissent,
+sans échantillon manquant ni erreur de collecte SQL.
+
+**300 RPS mixtes sont validés pendant cinq minutes dans les deux conditions.** Il n’y a qu’une
+exécution avant/après sur un ordinateur partagé avec k6 : les écarts de cache, de charge de l’hôte
+et de contention empêchent de garantir exactement ce gain en production. Le p99 reste à environ
+223 ms et le maximum augmente à 1,78 s ; les réponses les plus lentes restent à examiner.
+Les débits supérieurs n’ont pas été retestés. Le test d’endurance de trente minutes et le scénario
+de charge avec écritures sont exclus de cette intervention, à la demande de l’utilisateur.
+
+### Application locale et nettoyage
+
+Les 4 999 sessions temporaires, le rôle SQL et ses droits, les conteneurs de benchmark et leurs
+fichiers secrets sont supprimés. La vérification retrouve **5 001 comptes, 5 000 matchs confirmés,
+74 996 messages et 46 tables publiques** ; l’index expérimental est absent.
+
+L’API, le worker outbox et le migrateur locaux utilisent l’image optimisée **`e2ba350009c7`** sous
+`histae-api:local`. La version précédente reste disponible sous `histae-api:before-sql-profile-2026-10-12`.
+PostgreSQL conserve son image et son volume. Le migrateur termine avec le code `0`, l’API est `healthy`,
+le worker fonctionne et le smoke test passe. Le pool reste à **30 pour l’API**, **20 pour le worker**,
+et le processus API confirme `nofile=16384`. Aucun déploiement distant n’a été effectué.
+Les mesures, plans, résumés et preuves de nettoyage sont dans `.load-test/sql-profile-2026-10-12/`.
+
 ## Nettoyage et traces
 
 Les sessions temporaires sont révoquées et les fichiers de jetons sont supprimés après chaque campagne.
@@ -453,6 +602,7 @@ Les résumés k6, points de mesure, plans SQL et relevés de ressources sont con
 `.load-test/local-2026-10-11/`, `.load-test/feed-optimization-2026-10-12/` et
 `.load-test/spatial-feed-2026-10-12/`, ainsi que `.load-test/high-rps-2026-10-12/`,
 `.load-test/nofile-2026-10-12/`, `.load-test/pool30-2026-10-12/` et
-`.load-test/pool-comparison-2026-10-12/`, dossiers exclus de Git et du contexte de build Docker.
+`.load-test/pool-comparison-2026-10-12/`, `.load-test/image-stats-2026-10-12/` et
+`.load-test/sql-profile-2026-10-12/`, dossiers exclus de Git et du contexte de build Docker.
 L’ACL ajoutée manuellement au socket Docker doit être retirée par l’utilisateur avec la commande fournie
 à la fin de la campagne.

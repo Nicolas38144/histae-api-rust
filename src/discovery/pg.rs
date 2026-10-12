@@ -432,14 +432,13 @@ WITH viewer AS MATERIALIZED (
   SELECT profile.birthdate, profile.sex,
     date_part('year', age(current_date, profile.birthdate))::integer AS age,
     preferences.min_age, preferences.max_age, preferences.max_distance_km, preferences.looking_for,
+    (current_date - make_interval(years => preferences.max_age + 1))::date AS oldest_birthdate,
+    (current_date - make_interval(years => preferences.min_age))::date AS youngest_birthdate,
+    cos(radians(presence.latitude::double precision)) AS latitude_cos,
     presence.latitude, presence.longitude,
     CASE WHEN presence.latitude BETWEEN -90 AND 90 AND presence.longitude BETWEEN -180 AND 180
       THEN public.st_setsrid(public.st_makepoint(presence.longitude::double precision, presence.latitude::double precision), 4326)::public.geography
-      ELSE NULL END AS location,
-    preferences.max_distance_km::numeric / 111.0 AS latitude_delta,
-    (preferences.max_distance_km::double precision
-      / (111.0 * greatest(abs(cos(radians(presence.latitude::double precision))), 0.01)))::numeric
-      AS longitude_delta
+      ELSE NULL END AS location
   FROM user_account AS account
   JOIN user_profile AS profile ON profile.user_id = account.user_id AND profile.sex IS NOT NULL
   JOIN user_preferences AS preferences ON preferences.user_id = account.user_id
@@ -464,7 +463,7 @@ const FEED_GEOGRAPHY_SQL: &str = r#"
   SELECT target_presence.user_id,
     (6371.0088 * 2 * asin(sqrt(least(1.0, greatest(0.0,
       power(sin(radians((target_presence.latitude - viewer.latitude)::double precision / 2)), 2)
-      + cos(radians(viewer.latitude::double precision))
+      + viewer.latitude_cos
       * cos(radians(target_presence.latitude::double precision))
       * power(sin(radians((target_presence.longitude - viewer.longitude)::double precision / 2)), 2)
     )))))::double precision AS distance_km,
@@ -524,8 +523,8 @@ const FEED_PAGE_SQL: &str = r#"
     FROM viewer
     JOIN user_profile AS target ON target.user_id = target_presence.user_id
       AND target.sex IS NOT NULL
-      AND target.birthdate > (current_date - make_interval(years => viewer.max_age + 1))::date
-      AND target.birthdate <= (current_date - make_interval(years => viewer.min_age))::date
+      AND target.birthdate > viewer.oldest_birthdate
+      AND target.birthdate <= viewer.youngest_birthdate
       AND ($7::uuid IS NULL OR target.user_id = $7)
     JOIN user_account AS account ON account.user_id = target.user_id
       AND account.deleted_at IS NULL AND NOT account.is_banned
@@ -573,7 +572,7 @@ const CANDIDATE_COLUMNS_SQL: &str = r#"
     target.sex, target.bio AS unmoderated_bio,
     (6371.0088 * 2 * asin(sqrt(least(1.0, greatest(0.0,
       power(sin(radians((target_presence.latitude - viewer.latitude)::double precision / 2)), 2)
-      + cos(radians(viewer.latitude::double precision))
+      + viewer.latitude_cos
       * cos(radians(target_presence.latitude::double precision))
       * power(sin(radians((target_presence.longitude - viewer.longitude)::double precision / 2)), 2)
     )))))::double precision AS distance_km,
@@ -587,17 +586,15 @@ JOIN user_presence AS target_presence
     ON target_presence.user_id <> $1
     AND target_presence.is_location_fresh = true
     AND target_presence.updated_at > statement_timestamp() - INTERVAL '1 hour'
-    AND target_presence.latitude BETWEEN viewer.latitude - viewer.latitude_delta
-      AND viewer.latitude + viewer.latitude_delta
-    AND (abs(target_presence.longitude - viewer.longitude) <= viewer.longitude_delta
-      OR abs(target_presence.longitude - viewer.longitude) >= 360.0 - viewer.longitude_delta)
+    AND target_presence.latitude BETWEEN -90 AND 90
+    AND target_presence.longitude BETWEEN -180 AND 180
 "#;
 
 const CANDIDATE_PAGE_SQL: &str = r#"
 JOIN user_profile AS target ON target.user_id = target_presence.user_id
     AND target.sex IS NOT NULL
-    AND target.birthdate > (current_date - make_interval(years => viewer.max_age + 1))::date
-    AND target.birthdate <= (current_date - make_interval(years => viewer.min_age))::date
+    AND target.birthdate > viewer.oldest_birthdate
+    AND target.birthdate <= viewer.youngest_birthdate
     AND ($7::uuid IS NULL OR target.user_id = $7)
   JOIN user_account AS target_account ON target_account.user_id = target.user_id
     AND target_account.deleted_at IS NULL AND target_account.is_banned = false

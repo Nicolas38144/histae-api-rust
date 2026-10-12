@@ -35,6 +35,14 @@ les consentements de la bonne version et les exclusions. Son `LIMIT 1` garde cet
 le `LIMIT` de page compte uniquement les candidats éligibles. Le parcours continue après les rejets,
 y compris lorsque les profils proches sont tous exclus.
 
+Le CTE du lecteur calcule une seule fois les bornes de naissance et le cosinus de sa latitude.
+Le préfiltre numérique latitude/longitude antérieur a été supprimé : il ajoutait des calculs après
+la sélection PostGIS et pouvait omettre des profils pourtant proches aux pôles. Les coordonnées
+valides et la fraîcheur des présences restent exigées, dans le feed comme dans la validation ciblée
+d’un swipe. Le préfiltre spatial conserve sa marge ; la même formule Haversine contrôle ensuite
+le rayon exact et les préférences de distance des deux personnes. Cette modification ne met en cache
+aucune décision d’autorisation ou de consentement et ne change pas le chiffrement des curseurs.
+
 Les profils détaillés, traits et réponses modérées sont chargés après la sélection de page.
 Pour une page de 20, le service commence avec 21 candidats et augmente les lots si la revérification
 des swipes concurrents en rejette. Le budget maximal de candidats parcourus est conservé et le curseur
@@ -51,6 +59,8 @@ Sur PostgreSQL 18, le plan mesuré propage l’ordre du CTE géographique au par
 les jointures détaillées après une page complète. Dans une zone peu éligible, le rayon peut atteindre
 la fenêtre entière ; vérifier ce cas et le plan sur les données réellement déployées.
 Voir les [mesures locales](load-testing-results.md) et les régressions de `discovery_postgres`.
+La régression polaire vérifie aussi l’exclusion immédiate après bannissement, ancienne version du
+consentement sensible ou retrait du consentement de localisation, pour le feed et le swipe ciblé.
 
 ## Index et mise à niveau
 
@@ -98,6 +108,63 @@ ORDER BY xact_start NULLS LAST;
 ```
 
 ## Mesurer une modification
+
+<a id="pg-stat-statements"></a>
+
+### Statistiques d’exécution avec `pg_stat_statements`
+
+Les manifests Docker préchargent le module. Les nouvelles bases installent l’extension depuis
+[pg_stat_statements.sql](../docker/postgres/pg_stat_statements.sql). Les commandes utilitaires ne sont
+pas suivies (`track_utility=off`) et le suivi de planification conserve son défaut désactivé.
+Le préchargement nécessite un redémarrage PostgreSQL, selon la
+[documentation PostgreSQL](https://www.postgresql.org/docs/18/pgstatstatements.html).
+
+Pour un volume dev existant, après sauvegarde et depuis la racine du dépôt :
+
+```bash
+COMPOSE=(sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml)
+"${COMPOSE[@]}" config --quiet
+"${COMPOSE[@]}" stop api outbox-worker
+"${COMPOSE[@]}" up -d --no-deps --force-recreate --wait postgres
+"${COMPOSE[@]}" exec -T postgres sh -c \
+  'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /docker-entrypoint-initdb.d/003_pg_stat_statements.sql'
+"${COMPOSE[@]}" run --rm --no-deps migrate
+"${COMPOSE[@]}" up -d --no-deps --force-recreate --wait api outbox-worker
+```
+
+Ajouter `-f compose.proxy.yaml` si utilisé. En production, sélectionner `.env.production` et
+`compose.production.yaml`. Préparer la nouvelle image applicative avant d’arrêter les services,
+selon le [guide de déploiement](container-deployment.md#mise-a-jour).
+
+Vérifier dans `psql` :
+
+```sql
+SHOW shared_preload_libraries;
+SHOW compute_query_id;
+SELECT extversion FROM pg_extension WHERE extname = 'pg_stat_statements';
+SELECT count(*) FROM public.pg_stat_statements;
+```
+
+Identifier les requêtes cumulant le plus de temps, sans afficher leur texte ou leurs paramètres :
+
+```sql
+SELECT queryid, calls, round(total_exec_time::numeric, 2) AS total_ms,
+       round(mean_exec_time::numeric, 2) AS mean_ms,
+       round(max_exec_time::numeric, 2) AS max_ms, rows,
+       shared_blks_hit, shared_blks_read, temp_blks_written
+FROM public.pg_stat_statements
+WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+ORDER BY total_exec_time DESC
+LIMIT 20;
+```
+
+Ces durées comprennent les attentes d’exécution ; elles ne mesurent pas la CPU seule et ne fournissent
+pas de p95/p99. Comparer des snapshots avant/après la charge pour isoler sa contribution. Sur une base
+de test isolée, une remise à zéro explicite est possible ; ne pas effacer les compteurs partagés de
+production pour un benchmark. Le texte SQL reste réservé aux opérateurs autorisés et doit être expurgé
+avant partage : la normalisation ne garantit pas la suppression de toutes les valeurs sensibles.
+
+### Comparer avant et après
 
 1. Créer un jeu de données fictif représentatif dans une base de développement isolée.
 2. Fixer commit/image, version PostgreSQL, réglages, matériel et cardinalités ; conserver les mêmes données
