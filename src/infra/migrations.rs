@@ -36,7 +36,10 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
     let populated: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = current_schema() AND c.relname <> 'schema_migrations'
-         AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f'))",
+         AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+         AND NOT EXISTS (SELECT 1 FROM pg_depend dependency
+           WHERE dependency.classid = 'pg_class'::regclass AND dependency.objid = c.oid
+             AND dependency.deptype = 'e'))",
     )
     .fetch_one(&mut *connection)
     .await
@@ -44,6 +47,10 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 
     if populated {
         upgrade_existing_schema(connection).await?;
+        sqlx::query("CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public")
+            .execute(&mut *connection)
+            .await
+            .map_err(map_sqlx_error)?;
         // Concurrent index builds must run outside the schema transaction.
         super::query_indexes::apply(connection).await?;
         return Ok(0);

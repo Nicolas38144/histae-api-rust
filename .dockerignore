@@ -2,6 +2,7 @@
 .env
 .env.*
 .secrets
+.load-test
 target
 tools/photo-codec/node_modules
 tests

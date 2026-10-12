@@ -5,6 +5,10 @@ use super::postgres::{DatabaseError, map_sqlx_error};
 
 const INDEXES: &[(&str, &str)] = &[
     (
+        "idx_user_presence_geography",
+        "user_presence USING gist ((public.st_setsrid(public.st_makepoint(longitude::double precision, latitude::double precision), 4326)::public.geography)) WHERE is_location_fresh AND latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180",
+    ),
+    (
         "idx_outbox_event_claim",
         "outbox_event (available_at, created_at, id) WHERE status IN ('pending', 'processing')",
     ),

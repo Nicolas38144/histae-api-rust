@@ -1,4 +1,5 @@
 /target
 /.env
 /.secrets/
+/.load-test/
 /tools/photo-codec/node_modules/

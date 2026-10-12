@@ -201,7 +201,24 @@ impl Database {
 
     pub async fn verify_schema_compatibility(&self) -> Result<(), DatabaseError> {
         let mut connection = self.acquire().await?;
-        verify_schema_compatibility_on(&mut connection).await
+        verify_schema_compatibility_on(&mut connection).await?;
+        let spatial_ready: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_extension extension
+               JOIN pg_namespace namespace ON namespace.oid = extension.extnamespace
+               WHERE extension.extname = 'postgis' AND namespace.nspname = 'public')
+             AND EXISTS (SELECT 1 FROM pg_index index
+               JOIN pg_class relation ON relation.oid = index.indexrelid
+               JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+               WHERE namespace.nspname = current_schema()
+                 AND relation.relname = 'idx_user_presence_geography' AND index.indisvalid)",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(map_sqlx_error)?;
+        if !spatial_ready {
+            return Err(DatabaseError::SchemaObjectsMissing);
+        }
+        Ok(())
     }
 
     pub fn pool_stats(&self) -> PoolStats {

@@ -9,10 +9,10 @@ use std::time::Duration;
 use chrono::{TimeDelta, Utc};
 use histae_api_rust::config::{LegalConfig, PostgresConfig, SecretString};
 use histae_api_rust::discovery::cursor::FeedCursorCodec;
-use histae_api_rust::discovery::domain::{SWIPE_RETENTION_DAYS, SwipeDecision};
+use histae_api_rust::discovery::domain::{DiscoveryCursor, SWIPE_RETENTION_DAYS, SwipeDecision};
 use histae_api_rust::discovery::pg::{PgDiscoveryRepository, PgSwipeStore};
 use histae_api_rust::discovery::service::DiscoveryService;
-use histae_api_rust::discovery::store::SwipeStore;
+use histae_api_rust::discovery::store::{DiscoveryRepository, SwipeStore};
 use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use histae_api_rust::infra::postgres_locks::AccountActivityPool;
 use histae_api_rust::matches::pg::{PgMatchMessageRepository, PgMatchRepository};
@@ -313,6 +313,108 @@ async fn feed_excludes_current_swipes_and_expired_decisions_can_be_replaced()
     activity.close().await;
     database.close().await;
     test_result
+}
+
+#[tokio::test]
+async fn dense_feed_scans_past_rejections_and_preserves_distance_uuid_pagination()
+-> Result<(), Box<dyn std::error::Error>> {
+    let config = postgres_config()?;
+    let database = Database::connect(&config).await?;
+    let repository = PgDiscoveryRepository::new(database.clone());
+    let viewer = Uuid::new_v4();
+    let rejected: Vec<_> = (0..128).map(|_| Uuid::new_v4()).collect();
+    let mut eligible: Vec<_> = (0..6).map(|_| Uuid::new_v4()).collect();
+    eligible.sort();
+    let users: Vec<_> = std::iter::once(viewer)
+        .chain(rejected.iter().copied())
+        .chain(eligible.iter().copied())
+        .collect();
+
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        // A separate latitude isolates this fixture from existing Paris seed data.
+        ready_user(&database, viewer, 1, -40.0).await?;
+        let mut connection = database.acquire().await?;
+        sqlx::query("UPDATE user_preferences SET max_distance_km = 10, max_age = 40, looking_for = 'female' WHERE user_id = $1")
+            .bind(viewer).execute(&mut *connection).await?;
+        drop(connection);
+        for (index, &user) in rejected.iter().enumerate() {
+            ready_user(&database, user, 2, -40.0 + (index + 1) as f64 * 0.0001).await?;
+            let mut connection = database.acquire().await?;
+            let statement = match index % 17 {
+                0 => "UPDATE user_consent SET withdrawn_at = now() WHERE user_id = $1 AND consent_type = 'location_consent'",
+                1 => "UPDATE user_consent SET granted = false WHERE user_id = $1 AND consent_type = 'sensitive_data_consent'",
+                2 => "UPDATE user_consent SET document_version = 'old' WHERE user_id = $1 AND consent_type = 'sensitive_data_consent'",
+                3 => "DELETE FROM user_consent WHERE user_id = $1 AND consent_type = 'location_consent'",
+                4 => "UPDATE user_account SET is_banned = true WHERE user_id = $1",
+                5 => "UPDATE user_account SET deleted_at = now() WHERE user_id = $1",
+                6 => "UPDATE user_presence SET is_location_fresh = false WHERE user_id = $1",
+                7 => "UPDATE user_presence SET updated_at = now() - INTERVAL '2 hours' WHERE user_id = $1",
+                8 => "UPDATE user_profile SET birthdate = DATE '1950-01-01' WHERE user_id = $1",
+                9 => "UPDATE user_preferences SET looking_for = 'female' WHERE user_id = $1",
+                10 => {
+                    sqlx::query("UPDATE user_presence SET latitude = -39.975 WHERE user_id = $1")
+                        .bind(user).execute(&mut *connection).await?;
+                    "UPDATE user_preferences SET max_distance_km = 1 WHERE user_id = $1"
+                }
+                11 => "INSERT INTO user_block (blocker_id, blocked_id) VALUES ($2, $1)",
+                12 => "INSERT INTO user_block (blocker_id, blocked_id) VALUES ($1, $2)",
+                13 => "INSERT INTO match_init (user1_id, user2_id, status) VALUES (least($1::uuid, $2::uuid), greatest($1::uuid, $2::uuid), 'ended')",
+                14 => "INSERT INTO swipe_decision (actor_id, target_id, decision, swiped_at, expires_at) VALUES ($2, $1, 'pass', now(), now() + INTERVAL '365 days')",
+                15 => "UPDATE user_profile SET sex = 'male' WHERE user_id = $1",
+                _ => "UPDATE user_preferences SET max_age = 20 WHERE user_id = $1",
+            };
+            let query = sqlx::query(statement).bind(user);
+            let query = if (11..=14).contains(&(index % 17)) { query.bind(viewer) } else { query };
+            query.execute(&mut *connection).await?;
+        }
+        for (index, &user) in eligible.iter().enumerate() {
+            // Identical locations exercise the UUID tie breaker across pages.
+            ready_user(&database, user, 2, if index < 3 { -39.97 } else { -39.96 }).await?;
+        }
+        let mut connection = database.acquire().await?;
+        sqlx::query("INSERT INTO swipe_decision (actor_id, target_id, decision, swiped_at, expires_at) VALUES ($1, $2, 'pass', now() - INTERVAL '366 days', now() - INTERVAL '1 day')")
+            .bind(viewer).bind(eligible[0]).execute(&mut *connection).await?;
+        drop(connection);
+
+        let mut cursor = None;
+        let mut actual = Vec::new();
+        for _ in 0..4 {
+            let page = repository.candidate_batch(viewer, "s19-v1", "s19-v1", 2, cursor, None).await?;
+            if let Some(last) = page.last() {
+                assert_eq!(page.len(), 2);
+                cursor = Some(DiscoveryCursor { distance_km: last.distance_km, id: last.user_id });
+            } else {
+                break;
+            }
+            actual.extend(page.iter().map(|row| row.user_id));
+        }
+        assert_eq!(actual, eligible);
+        assert!(repository.candidate_batch(viewer, "s19-v1", "s19-v1", 2, cursor, None).await?.is_empty());
+        assert!(repository.candidate_batch(viewer, "wrong-version", "s19-v1", 2, None, None).await?.is_empty());
+
+        // The same numeric distance expression must also work across ±180°.
+        let mut connection = database.acquire().await?;
+        sqlx::query("UPDATE user_presence SET latitude = 0, longitude = 179.999 WHERE user_id = $1")
+            .bind(viewer).execute(&mut *connection).await?;
+        sqlx::query("UPDATE user_presence SET latitude = 0, longitude = -179.999 WHERE user_id = ANY($1::uuid[])")
+            .bind(&eligible[..2]).execute(&mut *connection).await?;
+        drop(connection);
+        let dateline = repository.candidate_batch(viewer, "s19-v1", "s19-v1", 2, None, None).await?;
+        assert_eq!(dateline.iter().map(|row| row.user_id).collect::<Vec<_>>(), eligible[..2]);
+        assert!(dateline.iter().all(|row| row.distance_km > 0.2 && row.distance_km < 0.3));
+        let target = repository.candidate_batch(viewer, "s19-v1", "s19-v1", 2, None, Some(eligible[0])).await?;
+        assert_eq!(target, dateline[..1]);
+        let mut connection = database.acquire().await?;
+        sqlx::query("UPDATE user_consent SET withdrawn_at = now() WHERE user_id = $1 AND consent_type = 'location_consent'")
+            .bind(viewer).execute(&mut *connection).await?;
+        drop(connection);
+        assert!(repository.candidate_batch(viewer, "s19-v1", "s19-v1", 2, None, None).await?.is_empty());
+        Ok(())
+    }.await;
+
+    cleanup(&database, &users).await?;
+    database.close().await;
+    result
 }
 
 #[tokio::test]

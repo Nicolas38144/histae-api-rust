@@ -57,6 +57,12 @@ pub struct DiscoveryCandidateRow {
     pub profile_answers: Vec<FeedProfileAnswer>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct DiscoveryBatch {
+    pub ready: bool,
+    pub candidates: Vec<DiscoveryCandidateRow>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct FeedCandidate {
     pub user_id: Uuid,

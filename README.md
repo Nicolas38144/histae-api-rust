@@ -76,6 +76,7 @@ L’[index des guides](docs/README.md) permet de choisir une procédure par usag
 | Intégrer les 103 routes et leurs autorisations | [Contrat HTTP](docs/http-contract.md) |
 | Importer les collections française ou anglaise | [Postman](postman/README.md) |
 | Diagnostiquer les alertes et les requêtes lentes | [Supervision](docs/observability.md), [SQL](docs/sql-performance.md) |
+| Tester la charge et le tunnel Cloudflare | [Test de charge](docs/load-testing.md) |
 | Valider une livraison | [Tests](tests/README.md), [Mise en production](docs/production-readiness.md) |
 | Comprendre les modules et leurs responsabilités | [Architecture](docs/architecture.md) |
 

@@ -6,8 +6,8 @@ use std::pin::Pin;
 use uuid::Uuid;
 
 use super::domain::{
-    DiscoveryCandidateRow, DiscoveryCursor, DiscoveryStatusRow, RecordedSwipe, SwipeDecision,
-    SwipeRecord,
+    DiscoveryBatch, DiscoveryCandidateRow, DiscoveryCursor, DiscoveryStatusRow, RecordedSwipe,
+    SwipeDecision, SwipeRecord,
 };
 use crate::infra::postgres::DatabaseError;
 use crate::infra::postgres_locks::AccountActivityError;
@@ -48,6 +48,37 @@ impl From<AccountActivityError> for DiscoveryStoreError {
 }
 
 pub trait DiscoveryRepository: Send + Sync {
+    fn feed_batch(
+        &self,
+        user_id: Uuid,
+        sensitive_version: &str,
+        location_version: &str,
+        limit: u32,
+        cursor: Option<DiscoveryCursor>,
+    ) -> DiscoveryStoreFuture<'_, DiscoveryBatch> {
+        let sensitive_version = sensitive_version.to_owned();
+        let location_version = location_version.to_owned();
+        Box::pin(async move {
+            let ready = self
+                .is_ready(user_id, &sensitive_version, &location_version)
+                .await?;
+            let candidates = if ready {
+                self.candidate_batch(
+                    user_id,
+                    &sensitive_version,
+                    &location_version,
+                    limit,
+                    cursor,
+                    None,
+                )
+                .await?
+            } else {
+                Vec::new()
+            };
+            Ok(DiscoveryBatch { ready, candidates })
+        })
+    }
+
     fn status(
         &self,
         user_id: Uuid,

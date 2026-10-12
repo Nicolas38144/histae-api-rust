@@ -13,7 +13,7 @@ de capacité RPS garantie : la topologie, les données, le trafic, les verrous e
 | Fiche utilisateur | Regrouper les projections dans une lecture, puis enregistrer l’audit requis |
 | Métriques métier | Regrouper les agrégats dans un snapshot plutôt que multiplier les allers-retours |
 | Files outbox | Agrégations filtrées communes pour les compteurs d’états |
-| Feed | Borner les candidats géographiques avant les consentements et préparer les exclusions ; conserver la vérification de concurrence du swipe |
+| Feed | Préfiltrer par GiST/PostGIS avec un rayon progressif, calculer les distances exactes, vérifier l’éligibilité dans l’ordre distance/UUID et charger des lots adaptatifs ; conserver la vérification des swipes concurrents |
 | Réponses de profil | Insertion et préparation de la modération en lot |
 | OTP opérationnels | Instant SQL stable pour les agrégats d’expiration, compatible avec l’index |
 | Claim outbox | Prédicat explicite d’état actif et index ordonné, avec `SKIP LOCKED`, ownership et retries conservés |
@@ -22,9 +22,39 @@ Le SQL appartient aux modules `pg.rs` ou `pg/` du domaine concerné ; [Architect
 décrit les responsabilités. Une réduction du nombre de requêtes n’autorise pas à retirer l’audit,
 une borne de pagination, un consentement, un verrou ou une règle d’idempotence.
 
+### Feed dans une zone dense
+
+L’index GiST sur les coordonnées existantes préfiltre la fenêtre avec `ST_DWithin` sur la sphère.
+Le rayon commence à 100 mètres, ou après la distance du curseur, puis double jusqu’à obtenir le lot
+ou atteindre la distance maximale du lecteur. Une marge conservatrice du préfiltre évite les omissions
+liées aux différences de calcul ; la formule Haversine existante et le rayon exact décident de l’éligibilité.
+La requête matérialise les candidats de cette fenêtre et leur distance exacte, puis les trie
+selon `(distance_km, user_id)`. Le curseur et la distance maximale du lecteur sont appliqués à cet ordre.
+Une jointure `LATERAL` vérifie pour chaque candidat le compte actif, les préférences réciproques,
+les consentements de la bonne version et les exclusions. Son `LIMIT 1` garde cette vérification locale ;
+le `LIMIT` de page compte uniquement les candidats éligibles. Le parcours continue après les rejets,
+y compris lorsque les profils proches sont tous exclus.
+
+Les profils détaillés, traits et réponses modérées sont chargés après la sélection de page.
+Pour une page de 20, le service commence avec 21 candidats et augmente les lots si la revérification
+des swipes concurrents en rejette. Le budget maximal de candidats parcourus est conservé et le curseur
+avance au-delà des rejets. Les objets retenus sont déplacés sans clonage supplémentaire.
+Les prérequis du feed sont renvoyés par la sélection PostgreSQL, y compris lorsque sa page est vide,
+ce qui supprime la lecture de readiness séparée sur les requêtes valides. L’authentification continue
+à contrôler compte, famille de session, révocation et onboarding dans sa requête existante.
+En cas d’échec de la sélection fusionnée, une vérification des prérequis conserve les catégories
+d’erreur antérieures ; elle ajoute une lecture uniquement sur ce chemin d’échec.
+La validation d’un swipe garde sa requête ciblée et ses règles de replay des décisions.
+La formule de distance et le curseur chiffré restent compatibles avec les pages existantes.
+
+Sur PostgreSQL 18, le plan mesuré propage l’ordre du CTE géographique au parcours de page et arrête
+les jointures détaillées après une page complète. Dans une zone peu éligible, le rayon peut atteindre
+la fenêtre entière ; vérifier ce cas et le plan sur les données réellement déployées.
+Voir les [mesures locales](load-testing-results.md) et les régressions de `discovery_postgres`.
+
 ## Index et mise à niveau
 
-Les 18 index ciblés sont définis dans [query_indexes.rs](../src/infra/query_indexes.rs), avec leurs
+Les 19 index ciblés sont définis dans [query_indexes.rs](../src/infra/query_indexes.rs), avec leurs
 équivalents dans le [schéma neuf](../db/001_schema_postgres.sql). Ils couvrent notamment claim outbox,
 tri/filtre des comptes et références utilisées pour les jointures, audits ou suppressions.
 

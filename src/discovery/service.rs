@@ -163,28 +163,48 @@ impl DiscoveryService {
         if !(1..=100).contains(&limit) {
             return Err(DiscoveryError::InvalidFeedRequest);
         }
-        self.require_ready(user_id).await?;
-        let mut cursor = self.cursors.decode(user_id, raw_cursor)?;
+        let mut cursor = match self.cursors.decode(user_id, raw_cursor) {
+            Ok(cursor) => cursor,
+            Err(error) => {
+                // Preserve prerequisite-error precedence for malformed cursors.
+                self.require_ready(user_id).await?;
+                return Err(error);
+            }
+        };
         let mut visible = Vec::new();
-        let batch_size = 50_u32.max((limit + 1).saturating_mul(4));
+        let maximum_batch = 50_u32.max((limit + 1).saturating_mul(4));
+        let mut remaining_scan = maximum_batch as usize * MAX_FEED_BATCHES;
+        let mut batch_size = limit + 1;
         let mut database_exhausted = false;
 
-        for _ in 0..MAX_FEED_BATCHES {
+        while remaining_scan > 0 {
             if visible.len() > limit as usize {
                 break;
             }
-            let candidates = self
+            let requested = batch_size.min(remaining_scan as u32);
+            let batch = match self
                 .repository
-                .candidate_batch(
+                .feed_batch(
                     user_id,
                     &self.legal.sensitive_data_consent_version,
                     &self.legal.location_consent_version,
-                    batch_size,
+                    requested,
                     cursor,
-                    None,
                 )
                 .await
-                .map_err(|_| DiscoveryError::Unavailable)?;
+            {
+                Ok(batch) => batch,
+                Err(_) => {
+                    // Resolve the former readiness/candidate error distinction
+                    // on failures, keeping the normal path to one selection.
+                    self.require_ready(user_id).await?;
+                    return Err(DiscoveryError::Unavailable);
+                }
+            };
+            if !batch.ready {
+                return Err(DiscoveryError::NotReady);
+            }
+            let candidates = batch.candidates;
             if candidates.is_empty() {
                 database_exhausted = true;
                 break;
@@ -200,22 +220,24 @@ impl DiscoveryService {
                 .swiped_target_ids(user_id, ids)
                 .await
                 .map_err(|_| DiscoveryError::Unavailable)?;
-            visible.extend(
-                candidates
-                    .iter()
-                    .filter(|candidate| !swiped.contains(&candidate.user_id))
-                    .cloned(),
-            );
+            let count = candidates.len();
+            remaining_scan = remaining_scan.saturating_sub(count);
             if let Some(last) = candidates.last() {
                 cursor = Some(DiscoveryCursor {
                     distance_km: last.distance_km,
                     id: last.user_id,
                 });
             }
-            if candidates.len() < batch_size as usize {
+            visible.extend(
+                candidates
+                    .into_iter()
+                    .filter(|candidate| !swiped.contains(&candidate.user_id)),
+            );
+            if count < requested as usize {
                 database_exhausted = true;
                 break;
             }
+            batch_size = batch_size.saturating_mul(2).min(maximum_batch);
         }
 
         let has_more = visible.len() > limit as usize || !database_exhausted;

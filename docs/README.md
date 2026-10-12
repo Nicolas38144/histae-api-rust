@@ -11,6 +11,7 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 | Installer sur un serveur | [Configuration](configuration.md) → [Docker](container-deployment.md) → [Mise en production](production-readiness.md) |
 | Exploiter une installation | [Exploitation](operations.md) → [Supervision](observability.md) → [Base de données](database.md) |
 | Modifier le code | [Architecture](architecture.md) → [Tests](../tests/README.md) → [Performance SQL](sql-performance.md) |
+| Mesurer le débit de l’API et du tunnel | [Test de charge](load-testing.md) → [Supervision](observability.md) → [Performance SQL](sql-performance.md) |
 
 ## Références par sujet
 
@@ -23,6 +24,8 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Postman](../postman/README.md) : import des JSON et parcours de test.
 - [Supervision](observability.md) : Prometheus, Grafana, alertes et runbooks.
 - [Performance SQL](sql-performance.md) : index, plans et protocole de mesure.
+- [Test de charge](load-testing.md) : comptes fictifs, sessions sans OTP, k6, Cloudflare et nettoyage.
+- [Résultats de charge locaux](load-testing-results.md) : mesures du 11–12 octobre 2026 et diagnostic du feed.
 - [Architecture](architecture.md) : responsabilités du code et cycles de vie.
 - [Tests](../tests/README.md) : commandes, infrastructure et limites des preuves.
 - [Modération photo interne](../services/photo-moderation/README.md) : protocole du service Python.

@@ -6,6 +6,7 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;
 
 -- Tables, contraintes et index (parents avant leurs dépendants).
 -- Les auto-références restent dans CREATE TABLE ; aucune clé étrangère n’est différée.
@@ -216,6 +217,10 @@ CREATE TABLE user_presence (
 CREATE INDEX idx_user_presence_location ON user_presence USING btree (latitude, longitude) INCLUDE (user_id, updated_at) WHERE (is_location_fresh = true);
 
 CREATE INDEX idx_user_presence_updated ON user_presence USING btree (updated_at, user_id);
+
+CREATE INDEX idx_user_presence_geography ON user_presence USING gist
+  ((public.st_setsrid(public.st_makepoint(longitude::double precision, latitude::double precision), 4326)::public.geography))
+  WHERE is_location_fresh AND latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180;
 
 CREATE TABLE user_consent (
     id uuid DEFAULT uuid_generate_v4() NOT NULL,

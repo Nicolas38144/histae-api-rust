@@ -36,6 +36,10 @@ bash scripts/smoke-api.sh
 sains. Le worker outbox est un processus permanent sans healthcheck Compose ; vérifier ses logs et sa progression.
 Le contrôle Docker de l’API utilise `/health/live`, et ne remplace pas la vérification `/health/ready`.
 
+PostgreSQL utilise l’image construite depuis `docker/postgres/Dockerfile` : PostgreSQL 18.6 bookworm
+et PostGIS 3.6.4. Le migrateur installe l’extension et l’index spatial avant la nouvelle API.
+Pour la première mise à jour d’un volume existant, suivre la [procédure PostgreSQL/PostGIS](database.md#postgis-et-mise-a-jour-dune-installation).
+
 ### Ports et overrides
 
 | Service | Depuis l’hôte, par défaut | Depuis les conteneurs |
@@ -141,6 +145,7 @@ Préparer `.env.production` à partir des groupes de [Configuration](configurati
 ENV=production
 HISTAE_ENV_FILE=.env.production
 HISTAE_API_IMAGE=histae-api:REPLACE_RELEASE_TAG
+HISTAE_POSTGRES_IMAGE=histae-postgres:18.6-postgis3.6.4
 HISTAE_PHOTO_MODERATION_IMAGE=histae-photo-moderation:REPLACE_RELEASE_TAG
 HISTAE_BACKEND_NETWORK=histae-backend
 HISTAE_EDGE_NETWORK=histae-edge

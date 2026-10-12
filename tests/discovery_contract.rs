@@ -638,6 +638,132 @@ async fn rejects_discovery_when_prerequisites_are_missing() {
 }
 
 #[tokio::test]
+async fn adaptive_feed_refills_after_concurrent_swipes_without_skipping_pages() {
+    let rows: Vec<_> = (0..160)
+        .map(|index| candidate(Uuid::new_v4(), 1.0 + index as f64 * 0.001))
+        .collect();
+    let swipes = FakeSwipes::default();
+    for row in &rows[..100] {
+        swipes
+            .rows
+            .lock()
+            .expect("swipes")
+            .insert((user_id(), row.user_id), SwipeDecision::Pass);
+    }
+    // The repository deliberately returns these rows: they represent decisions
+    // committed after its snapshot and caught by the service's recheck.
+    let service = DiscoveryService::new(
+        Arc::new(FakeRepository {
+            ready: true,
+            candidates: rows.clone(),
+        }),
+        Arc::new(swipes),
+        Arc::new(FakeMatches),
+        legal(),
+        FeedCursorCodec::new(&jwt_config().secret, Arc::new(SystemClock)).expect("cursor"),
+    );
+    let mut cursor = None;
+    let mut actual = Vec::new();
+    for _ in 0..5 {
+        let page = service
+            .feed(user_id(), 20, cursor.as_deref())
+            .await
+            .expect("feed");
+        actual.extend(page.profiles.iter().map(|row| row.user_id));
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(
+        actual,
+        rows[100..]
+            .iter()
+            .map(|row| row.user_id)
+            .collect::<Vec<_>>()
+    );
+    assert!(cursor.is_none());
+}
+
+#[tokio::test]
+async fn unready_feed_keeps_precedence_over_an_invalid_cursor() {
+    let service = DiscoveryService::new(
+        Arc::new(FakeRepository {
+            ready: false,
+            candidates: vec![],
+        }),
+        Arc::new(FakeSwipes::default()),
+        Arc::new(FakeMatches),
+        legal(),
+        FeedCursorCodec::new(&jwt_config().secret, Arc::new(SystemClock)).expect("cursor"),
+    );
+    assert_eq!(
+        service.feed(user_id(), 20, Some("invalid")).await,
+        Err(DiscoveryError::NotReady)
+    );
+}
+
+struct FailedCombinedRepository {
+    readiness_failed: bool,
+}
+
+impl DiscoveryRepository for FailedCombinedRepository {
+    fn feed_batch(
+        &self,
+        _: Uuid,
+        _: &str,
+        _: &str,
+        _: u32,
+        _: Option<DiscoveryCursor>,
+    ) -> DiscoveryStoreFuture<'_, histae_api_rust::discovery::domain::DiscoveryBatch> {
+        Box::pin(async { Err(DatabaseError::QueryFailed.into()) })
+    }
+
+    fn status(&self, _: Uuid, _: &str, _: &str) -> DiscoveryStoreFuture<'_, DiscoveryStatusRow> {
+        Box::pin(async { Err(DatabaseError::QueryFailed.into()) })
+    }
+
+    fn is_ready(&self, _: Uuid, _: &str, _: &str) -> DiscoveryStoreFuture<'_, bool> {
+        Box::pin(async move {
+            if self.readiness_failed {
+                Err(DatabaseError::QueryFailed.into())
+            } else {
+                Ok(true)
+            }
+        })
+    }
+
+    fn candidate_batch(
+        &self,
+        _: Uuid,
+        _: &str,
+        _: &str,
+        _: u32,
+        _: Option<DiscoveryCursor>,
+        _: Option<Uuid>,
+    ) -> DiscoveryStoreFuture<'_, Vec<DiscoveryCandidateRow>> {
+        Box::pin(async { Err(DatabaseError::QueryFailed.into()) })
+    }
+}
+
+#[tokio::test]
+async fn combined_feed_preserves_readiness_and_candidate_failure_categories() {
+    for (readiness_failed, expected) in [
+        (false, DiscoveryError::Unavailable),
+        (true, DiscoveryError::Database(DatabaseError::QueryFailed)),
+    ] {
+        let service = DiscoveryService::new(
+            Arc::new(FailedCombinedRepository { readiness_failed }),
+            Arc::new(FakeSwipes::default()),
+            Arc::new(FakeMatches),
+            legal(),
+            FeedCursorCodec::new(&jwt_config().secret, Arc::new(SystemClock)).expect("cursor"),
+        );
+        assert_eq!(service.feed(user_id(), 20, None).await, Err(expected));
+    }
+}
+
+#[tokio::test]
 async fn identical_like_replay_recovers_after_match_creation_failure() {
     let target = Uuid::new_v4();
     let swipes = FakeSwipes::default();

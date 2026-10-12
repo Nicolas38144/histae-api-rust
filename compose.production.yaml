@@ -34,7 +34,8 @@ x-production-dependencies: &production-dependencies
 services:
   # Instance unique persistante, accessible uniquement sur le réseau backend.
   postgres:
-    image: postgres:18.6-bookworm
+    image: ${HISTAE_POSTGRES_IMAGE:-histae-postgres:18.6-postgis3.6.4}
+    build: ./docker/postgres
     command: [postgres, -c, config_file=/etc/postgresql/histae/postgresql.conf]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?Define POSTGRES_DB in .env.production}

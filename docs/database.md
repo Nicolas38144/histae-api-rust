@@ -6,11 +6,11 @@
 
 | Fichier | Usage |
 | --- | --- |
-| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 45 tables, contraintes, fonctions, triggers et index |
+| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 45 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
 | [002_insert_postgres.sql](../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
 | [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
 | [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
-| [query_indexes.rs](../src/infra/query_indexes.rs) | Installation concurrente des 18 index de performance sur une base existante |
+| [query_indexes.rs](../src/infra/query_indexes.rs) | Installation concurrente des 19 index de performance, dont le GiST géographique, sur une base existante |
 
 Il n’existe plus de ledger `schema_migrations`. Le migrateur retire cette ancienne table si elle est présente.
 
@@ -26,6 +26,29 @@ Le migrateur vérifie les objets attendus, ajoute les évolutions prises en char
 Les index de performance sont ensuite construits avec `CONCURRENTLY`, hors de la transaction de schéma.
 Un verrou advisory sérialise les migrateurs. Un index valide est conservé ; un index invalide laissé par une
 interruption est supprimé puis reconstruit au prochain lancement.
+
+### PostGIS et mise à jour d’une installation
+
+Les piles dev et production construisent [l’image PostgreSQL](../docker/postgres/Dockerfile) à partir
+de PostgreSQL **18.6 / Debian bookworm**, avec PostGIS **3.6.4**. Le volume, `PGDATA`, la version majeure
+et la base Debian sont conservés. `HISTAE_POSTGRES_IMAGE` permet de fournir cette image déjà construite.
+
+Sur une base existante, le migrateur active `postgis` dans `public`, puis construit l’index GiST avec
+`CONCURRENTLY`. Il n’ajoute aucune colonne aux présences : l’index porte sur l’expression géographique
+des coordonnées existantes. Les exports et DTO conservent leurs champs. L’activation de l’extension
+nécessite un rôle PostgreSQL disposant des droits adaptés ; sur une base gérée extérieurement, faire
+installer PostGIS par son administrateur avant de lancer le migrateur.
+
+Après une sauvegarde, mettre à jour une pile locale avec :
+
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
+```
+
+Ajouter l’override proxy s’il est utilisé. En production, employer les fichiers d’environnement et
+Compose de production. La mise à jour de PostgreSQL implique un bref redémarrage ; le migrateur doit
+terminer avant le démarrage de la nouvelle API. Une sauvegarde contenant PostGIS doit être restaurée
+sur un serveur disposant de cette extension. Le test local de restauration compte désormais 46 tables publiques.
 
 Le migrateur ne transforme pas automatiquement une base arbitraire. Modifier le fichier de schéma ne suffit
 pas à modifier une base existante : toute évolution doit aussi avoir son chemin de mise à niveau et ses tests.
@@ -81,7 +104,8 @@ Il effectue un dump au format custom, restaure dans une base temporaire, compare
 public et le nombre de tables, puis supprime base temporaire et archive. Le rôle doit pouvoir créer une base.
 Il choisit Docker direct ou `sudo` selon l’accès disponible.
 
-`Development backup/restore verification passed (45 public tables)` confirme cette restauration technique.
+`Development backup/restore verification passed (46 public tables)` confirme cette restauration technique
+sur le schéma incluant PostGIS.
 Le script ne conserve pas de sauvegarde, ne compare pas toutes les données et ne teste pas la reprise du S3,
 des certificats ou des fournisseurs.
 
