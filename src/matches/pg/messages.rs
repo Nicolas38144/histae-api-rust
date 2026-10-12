@@ -86,6 +86,14 @@ impl MatchMessageStore for PgMatchMessageRepository {
             self.database
                 .transaction(|connection| {
                     Box::pin(async move {
+                        // Replays must obey the same access rules after a match ends.
+                        let available =
+                            match lock_available_match(connection, match_id, sender_id).await? {
+                                MatchCommandResult::Available(record) => record,
+                                MatchCommandResult::Unavailable(reason) => {
+                                    return Ok(MessageCreationResult::Unavailable(reason));
+                                }
+                            };
                         if let Some(replay) =
                             find_idempotent_message(connection, sender_id, idempotency_key).await?
                         {
@@ -99,13 +107,6 @@ impl MatchMessageStore for PgMatchMessageRepository {
                                 ..replay
                             }));
                         }
-                        let available =
-                            match lock_available_match(connection, match_id, sender_id).await? {
-                                MatchCommandResult::Available(record) => record,
-                                MatchCommandResult::Unavailable(reason) => {
-                                    return Ok(MessageCreationResult::Unavailable(reason));
-                                }
-                            };
                         let inserted = sqlx::query(
                             "INSERT INTO chat_message
                                (id, match_id, sender_id, content, idempotency_key, created_at)

@@ -1280,6 +1280,31 @@
                 "description": "Aucun corps → 200 { message: \"message marked as read\" }."
               },
               "response": []
+            },
+            {
+              "name": "PATCH /api/matches/:id/end",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/{{matchId}}/end",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Aucun corps → 200 { message: \"match ended\", status: \"ended\" }. Réservé aux participants ; les rejeux sont idempotents. Clôture le match pour les deux participants sans bloquer le compte. La conversation devient inaccessible ; les messages restent conservés jusqu’à la purge programmée (30 jours par défaut). Une échéance de purge existante et le quota consommé sont conservés. Exécuter après les tests messages/révélation/continuation : leurs appels suivants et les rejeux des messages renvoient 409."
+              },
+              "response": []
             }
           ]
         },

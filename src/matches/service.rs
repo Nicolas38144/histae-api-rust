@@ -24,6 +24,7 @@ pub type MatchEventFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 pub enum MatchUpdate {
     PhotosRevealed(bool),
     MatchConfirmed(bool),
+    Ended,
 }
 
 pub trait MatchEventPublisher: Send + Sync {
@@ -273,6 +274,20 @@ impl MatchService {
                 .await;
         }
         Ok(confirmed)
+    }
+
+    pub async fn end(&self, match_id: Uuid, user_id: Uuid) -> Result<(), MatchError> {
+        let outcome = self
+            .store
+            .record_end(match_id, user_id)
+            .await?
+            .ok_or(MatchError::NotFound)?;
+        if outcome.changed {
+            self.events
+                .updated(match_id, outcome.participant_ids, MatchUpdate::Ended)
+                .await;
+        }
+        Ok(())
     }
 
     pub async fn continuation_quota(&self, user_id: Uuid) -> Result<ContinuationQuota, MatchError> {

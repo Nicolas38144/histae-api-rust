@@ -283,6 +283,12 @@ pub enum MatchCommandResult<T> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MatchEnd {
+    pub participant_ids: [Uuid; 2],
+    pub changed: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContinuationResult {
     Pending,
     Confirmed,

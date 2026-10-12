@@ -247,15 +247,16 @@ impl MatchEventPublisher for MobileDeliveryService {
     ) -> MatchEventFuture<'a> {
         Box::pin(async move {
             let (name, value) = match update {
-                MatchUpdate::PhotosRevealed(value) => ("photos_revealed", value),
-                MatchUpdate::MatchConfirmed(value) => ("match_confirmed", value),
+                MatchUpdate::PhotosRevealed(value) => ("photos_revealed", Value::Bool(value)),
+                MatchUpdate::MatchConfirmed(value) => ("match_confirmed", Value::Bool(value)),
+                MatchUpdate::Ended => ("status", Value::String("ended".to_owned())),
             };
             self.deliver(
                 &participants,
                 MobileEventType::MatchUpdated,
                 serde_json::Map::from_iter([
                     ("match_id".to_owned(), json_value(match_id)),
-                    (name.to_owned(), Value::Bool(value)),
+                    (name.to_owned(), value),
                 ]),
             )
             .await;

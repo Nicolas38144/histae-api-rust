@@ -9,8 +9,8 @@ use chrono::{TimeDelta, Utc};
 use histae_api_rust::config::{PostgresConfig, SecretString};
 use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use histae_api_rust::matches::domain::{
-    ContinuationResult, MatchCommandResult, MatchRecord, MatchStatus, MessageCreationResult,
-    PageCursor,
+    ContinuationResult, MatchAvailabilityFailure, MatchCommandResult, MatchRecord, MatchStatus,
+    MessageCreationResult, PageCursor,
 };
 use histae_api_rust::matches::pg::{PgMatchMessageRepository, PgMatchRepository};
 use histae_api_rust::matches::store::{MatchMessageStore, MatchStore};
@@ -690,6 +690,153 @@ async fn expired_match_transition_commits_while_the_new_message_is_refused()
     }
     .await;
 
+    let cleanup_result = cleanup(&database, &[first, second], &[]).await;
+    test_result?;
+    cleanup_result?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn ending_a_match_is_atomic_idempotent_and_revokes_all_mobile_conversation_access()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&postgres_config()?).await?;
+    let matches = PgMatchRepository::new(database.clone());
+    let messages = PgMatchMessageRepository::new(database.clone());
+    let first = Uuid::new_v4();
+    let second = Uuid::new_v4();
+    account(&database, first, "EndFirst").await?;
+    account(&database, second, "EndSecond").await?;
+    let test_result: Result<(), Box<dyn std::error::Error>> = async {
+        let item = record(first, second, Utc::now() + TimeDelta::hours(24));
+        matches.create(item.clone()).await.map_err(|_| FixtureError("create_end_match"))?;
+        let key = Uuid::new_v4();
+        let created = messages.create_message(Uuid::new_v4(), item.id, first, "Before closure".to_owned(), key)
+            .await.map_err(|_| FixtureError("message_before_end"))?;
+        let MessageCreationResult::Available(created) = created else { panic!("message must be created") };
+        assert_eq!(matches.record_end(item.id, Uuid::new_v4()).await.map_err(|_| FixtureError("foreign_end"))?, None);
+        assert_eq!(matches.record_end(Uuid::new_v4(), first).await.map_err(|_| FixtureError("missing_end"))?, None);
+        let (left, right) = tokio::join!(matches.record_end(item.id, first), matches.record_end(item.id, second));
+        let left = left.map_err(|_| FixtureError("end_first"))?.expect("match");
+        let right = right.map_err(|_| FixtureError("end_second"))?.expect("match");
+        assert_ne!(left.changed, right.changed, "only one concurrent caller changes the match");
+        assert_eq!(left.participant_ids, [item.user1_id, item.user2_id]);
+        assert_eq!(right.participant_ids, left.participant_ids);
+        let deadline: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT purge_after FROM match_init WHERE id = $1")
+            .bind(item.id).fetch_one(database.acquire().await?.as_mut()).await?;
+        assert!((deadline - Utc::now()).num_days() >= 29);
+        for participant in [first, second] {
+            assert!(!matches.record_end(item.id, participant).await.map_err(|_| FixtureError("end_retry"))?.expect("match").changed);
+            assert!(matches.list_for_user(participant, 20, 0, None).await.map_err(|_| FixtureError("ended_list"))?.is_empty());
+            assert_eq!(messages.messages_for_user(item.id, participant, 20, 0, None).await.map_err(|_| FixtureError("ended_messages"))?,
+                MatchCommandResult::Unavailable(MatchAvailabilityFailure::InvalidState));
+            assert_eq!(matches.record_reveal(item.id, participant).await.map_err(|_| FixtureError("ended_reveal"))?,
+                MatchCommandResult::Unavailable(MatchAvailabilityFailure::InvalidState));
+            assert_eq!(matches.record_continuation(item.id, participant).await.map_err(|_| FixtureError("ended_continue"))?, ContinuationResult::InvalidState);
+            assert_eq!(messages.create_message(Uuid::new_v4(), item.id, participant, "After closure".to_owned(), Uuid::new_v4())
+                .await.map_err(|_| FixtureError("ended_send"))?, MessageCreationResult::Unavailable(MatchAvailabilityFailure::InvalidState));
+        }
+        assert_eq!(messages.create_message(Uuid::new_v4(), item.id, first, "Before closure".to_owned(), key)
+            .await.map_err(|_| FixtureError("ended_replay"))?, MessageCreationResult::Unavailable(MatchAvailabilityFailure::InvalidState));
+        assert_eq!(messages.mark_message_read(item.id, created.message.id, second).await.map_err(|_| FixtureError("ended_read"))?,
+            MatchCommandResult::Unavailable(MatchAvailabilityFailure::InvalidState));
+        assert_eq!(messages.mark_messages_read_through(item.id, created.message.id, second).await.map_err(|_| FixtureError("ended_read_through"))?,
+            MatchCommandResult::Unavailable(MatchAvailabilityFailure::InvalidState));
+        let row = sqlx::query("SELECT status, purge_after, (SELECT count(*) FROM chat_message WHERE match_id = $1) AS message_count,
+            (SELECT count(*) FROM user_block WHERE blocker_id = ANY($2) OR blocked_id = ANY($2)) AS block_count FROM match_init WHERE id = $1")
+            .bind(item.id).bind(vec![first, second]).fetch_one(database.acquire().await?.as_mut()).await?;
+        assert_eq!(row.try_get::<String, _>("status")?, "ended");
+        assert_eq!(row.try_get::<chrono::DateTime<Utc>, _>("purge_after")?, deadline);
+        assert_eq!(row.try_get::<i64, _>("message_count")?, 1);
+        assert_eq!(row.try_get::<i64, _>("block_count")?, 0);
+        Ok(())
+    }.await;
+    let cleanup_result = cleanup(&database, &[first, second], &[]).await;
+    test_result?;
+    cleanup_result?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn ending_pending_confirmed_and_expired_matches_preserves_retention_and_usage()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&postgres_config()?).await?;
+    let matches = PgMatchRepository::new(database.clone());
+    let first = Uuid::new_v4();
+    let second = Uuid::new_v4();
+    account(&database, first, "EndStatesFirst").await?;
+    account(&database, second, "EndStatesSecond").await?;
+    let test_result: Result<(), Box<dyn std::error::Error>> = async {
+        sqlx::query("INSERT INTO continuation_usage (user_id, week_start, used_count) VALUES ($1, date_trunc('week', CURRENT_DATE)::date, 1)")
+            .bind(first).execute(database.acquire().await?.as_mut()).await?;
+        for status in [MatchStatus::AwaitingContinuation, MatchStatus::Confirmed, MatchStatus::Expired] {
+            let mut item = record(first, second, Utc::now() - TimeDelta::seconds(1));
+            item.status = status;
+            item.purge_after = (status == MatchStatus::Expired).then(|| Utc::now() + TimeDelta::days(1));
+            matches.create(item.clone()).await.map_err(|_| FixtureError("create_end_state"))?;
+            assert!(matches.record_end(item.id, second).await.map_err(|_| FixtureError("end_state"))?.expect("match").changed);
+            let deadline: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT purge_after FROM match_init WHERE id = $1")
+                .bind(item.id).fetch_one(database.acquire().await?.as_mut()).await?;
+            if let Some(expected) = item.purge_after { assert_eq!(deadline.timestamp_micros(), expected.timestamp_micros()); }
+            let used: i16 = sqlx::query_scalar("SELECT used_count FROM continuation_usage WHERE user_id = $1").bind(first).fetch_one(database.acquire().await?.as_mut()).await?;
+            assert_eq!(used, 1);
+            sqlx::query("DELETE FROM match_init WHERE id = $1").bind(item.id).execute(database.acquire().await?.as_mut()).await?;
+        }
+        Ok(())
+    }.await;
+    let cleanup_result = cleanup(&database, &[first, second], &[]).await;
+    test_result?;
+    cleanup_result?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn messages_waiting_behind_a_closure_cannot_reopen_the_match()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut config = postgres_config()?;
+    config.application_name = "histae-rust-end-race";
+    let database = Database::connect(&config).await?;
+    let matches = PgMatchRepository::new(database.clone());
+    let messages = PgMatchMessageRepository::new(database.clone());
+    let first = Uuid::new_v4();
+    let second = Uuid::new_v4();
+    account(&database, first, "EndRaceFirst").await?;
+    account(&database, second, "EndRaceSecond").await?;
+    let test_result: Result<(), Box<dyn std::error::Error>> = async {
+        let item = record(first, second, Utc::now() + TimeDelta::hours(24));
+        matches.create(item.clone()).await.map_err(|_| FixtureError("create_end_race"))?;
+        let mut connection = database.acquire().await?;
+        let mut transaction = connection.begin().await?;
+        sqlx::query("SELECT id FROM match_init WHERE id = $1 FOR UPDATE").bind(item.id).fetch_one(&mut *transaction).await?;
+        let end = matches.record_end(item.id, first);
+        tokio::pin!(end);
+        // Drive the real closure until it is blocked on our transaction.
+        let wait = async {
+            loop {
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name = 'histae-rust-end-race'
+                    AND wait_event_type = 'Lock' AND query LIKE 'SELECT user1_id, user2_id, status FROM match_init%')")
+                    .fetch_one(database.acquire().await?.as_mut()).await?;
+                if waiting { return Ok::<_, Box<dyn std::error::Error>>(()); }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        tokio::select! {
+            result = &mut end => panic!("closure completed before lock release: {result:?}"),
+            result = tokio::time::timeout(Duration::from_secs(3), wait) => { result??; }
+        }
+        let send = messages.create_message(Uuid::new_v4(), item.id, second, "Queued message".to_owned(), Uuid::new_v4());
+        tokio::pin!(send);
+        tokio::select! {
+            result = &mut send => panic!("message completed before lock release: {result:?}"),
+            _ = tokio::time::sleep(Duration::from_millis(30)) => {}
+        }
+        transaction.commit().await?;
+        let (ended, sent) = tokio::join!(end, send);
+        assert!(ended.map_err(|_| FixtureError("queued_end"))?.expect("match").changed);
+        assert_eq!(sent.map_err(|_| FixtureError("queued_send"))?, MessageCreationResult::Unavailable(MatchAvailabilityFailure::InvalidState));
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_message WHERE match_id = $1").bind(item.id).fetch_one(database.acquire().await?.as_mut()).await?;
+        assert_eq!(count, 0);
+        Ok(())
+    }.await;
     let cleanup_result = cleanup(&database, &[first, second], &[]).await;
     test_result?;
     cleanup_result?;

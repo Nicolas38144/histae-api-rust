@@ -3,7 +3,7 @@ use crate::infra::postgres::Database;
 use crate::infra::postgres::{DatabaseError, map_sqlx_error};
 use crate::matches::domain::{
     ContinuationResult, EffectivePlan, LastMessageRow, MATCH_PURGE_DAYS, MatchAvailabilityFailure,
-    MatchCommandResult, MatchRecord, MatchStatus, PageCursor, UserMatchRow,
+    MatchCommandResult, MatchEnd, MatchRecord, MatchStatus, PageCursor, UserMatchRow,
 };
 use crate::matches::store::MatchStoreError;
 use crate::matches::store::{MatchStore, MatchStoreFuture};
@@ -199,6 +199,58 @@ impl MatchStore for PgMatchRepository {
                             .try_get("revealed")
                             .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
                         Ok(MatchCommandResult::Available(revealed))
+                    })
+                })
+                .await
+        })
+    }
+
+    fn record_end(&self, match_id: Uuid, user_id: Uuid) -> MatchStoreFuture<'_, Option<MatchEnd>> {
+        Box::pin(async move {
+            self.database
+                .transaction(|connection| {
+                    Box::pin(async move {
+                        // Serialize with messages, reveal, continuation and maintenance.
+                        let row = sqlx::query(
+                            "SELECT user1_id, user2_id, status FROM match_init
+                             WHERE id = $1 AND (user1_id = $2 OR user2_id = $2)
+                               AND NOT EXISTS (
+                                 SELECT 1 FROM user_account
+                                 WHERE user_id IN (match_init.user1_id, match_init.user2_id)
+                                   AND deleted_at IS NOT NULL
+                               )
+                             FOR UPDATE",
+                        )
+                        .bind(match_id)
+                        .bind(user_id)
+                        .fetch_optional(&mut *connection)
+                        .await
+                        .map_err(map_sqlx_error)?;
+                        let Some(row) = row else {
+                            return Ok(None);
+                        };
+                        let status = parse_status(row.try_get("status").map_err(map_sqlx_error)?)?;
+                        let changed = status != MatchStatus::Ended;
+                        if changed {
+                            sqlx::query(
+                                "UPDATE match_init SET status = 'ended',
+                                   purge_after = COALESCE(purge_after,
+                                     clock_timestamp() + ($2::bigint * INTERVAL '1 day'))
+                                 WHERE id = $1",
+                            )
+                            .bind(match_id)
+                            .bind(MATCH_PURGE_DAYS)
+                            .execute(connection)
+                            .await
+                            .map_err(map_sqlx_error)?;
+                        }
+                        Ok(Some(MatchEnd {
+                            participant_ids: [
+                                row.try_get("user1_id").map_err(map_sqlx_error)?,
+                                row.try_get("user2_id").map_err(map_sqlx_error)?,
+                            ],
+                            changed,
+                        }))
                     })
                 })
                 .await

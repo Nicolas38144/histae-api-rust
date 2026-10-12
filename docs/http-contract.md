@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **103 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **104 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -287,6 +287,7 @@ L’attribution d’un trait existant est idempotente. Une question expose `id, 
 | GET | `/api/users/me/continuation-quota` | `200` : plan effectif, usage, `weekly_limit, remaining` pour un plan limité. |
 | PATCH | `/api/matches/:id/reveal` | Aucun corps → `200 { message, photos_revealed }`. |
 | PATCH | `/api/matches/:id/continue` | Aucun corps → `200 { message, match_confirmed }`. |
+| PATCH | `/api/matches/:id/end` | Aucun corps → `200 { message: "match ended", status: "ended" }`. |
 | GET | `/api/matches/:id/messages` | `limit, cursor` (offset déprécié) → `200 { messages, next_cursor }`. |
 | POST | `/api/matches/:id/messages` | `{ content }` + clé d’idempotence → `201` avec le message stable. |
 | PATCH | `/api/matches/:id/messages/read` | `{ read_through_message_id }` → `200 { updated_count, read_through_message_id }`. |
@@ -300,7 +301,13 @@ Une décision de swipe est immuable pendant sa rétention. Deux likes réciproqu
 
 Le match est `active` pendant 24 h, puis `awaiting_continuation` ; les deux accords le rendent `confirmed`, sinon il devient `expired` après la seconde fenêtre. Le quota de l’initiateur est débité au second accord, sans double consommation concurrente ; une limite nulle n’accorde aucune continuation. Une attente de verrou ne prolonge pas l’échéance. Erreurs : `404 match_not_found`, `409 continuation_not_available_yet`, `409 invalid_match_state`, `409 messaging_not_available`, `410 match_expired`, `403 continuation_quota_reached`.
 
-**Messages.** Contenu non vide, 2 000 caractères maximum ; limite 60/min/utilisateur. Rejouer clé/match/contenu identiques renvoie le message existant sans nouvelle notification ; réutiliser la clé pour une autre requête renvoie `409 idempotency_key_conflict`. La lecture par borne marque tous les messages reçus jusqu’à la borne incluse. Un expéditeur ne peut pas marquer son propre message comme lu.
+**Mettre fin à un match.** Chaque participant peut clôturer son match, y compris un match expiré, sans accord de l’autre et sans créer de blocage. Le compte doit être authentifié, actif et avoir terminé son onboarding. Un UUID inconnu, un match d’autrui ou un participant supprimé renvoie `404 match_not_found`. Un second appel renvoie le même `200` sans repousser la purge ni répéter l’événement temps réel.
+
+Le match disparaît des listes mobiles des deux participants. Lecture, envoi et marquage des messages, révélation et continuation deviennent indisponibles (`409 messaging_not_available` ou `409 invalid_match_state`), y compris le rejeu d’un ancien envoi. Les messages et états existants sont conservés jusqu’à la purge après 30 jours ; une échéance de purge déjà définie est conservée. Aucun quota de continuation n’est remboursé et les swipes existants restent inchangés.
+
+Après le commit, les deux participants reçoivent `match.updated` avec `{ match_id, status: "ended" }` : retirer la conversation côté client. Une opération déjà validée avant la clôture peut avoir abouti. Après reconnexion, relire les ressources conformément au contrat SSE.
+
+**Messages.** Contenu non vide, 2 000 caractères maximum ; limite 60/min/utilisateur. Tant que le match reste accessible, rejouer clé/match/contenu identiques renvoie le message existant sans nouvelle notification ; réutiliser la clé pour une autre requête renvoie `409 idempotency_key_conflict`. La lecture par borne marque tous les messages reçus jusqu’à la borne incluse. Un expéditeur ne peut pas marquer son propre message comme lu.
 
 <a id="appareils-et-temps-reel"></a>
 

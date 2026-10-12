@@ -5,7 +5,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::domain::{ContinuationQuota, PublicMessage, PublicUserMatch};
+use super::domain::{ContinuationQuota, MatchStatus, PublicMessage, PublicUserMatch};
 use super::service::{MatchError, MatchPage, MatchService, MessagePage};
 use crate::config::LimitPolicy;
 use crate::http::error::ApiError;
@@ -37,6 +37,7 @@ pub fn routes(state: MatchHttpState, auth: MobileAuthState) -> Router<HttpState>
         .route("/api/matches/me", get(list))
         .route("/api/matches/{id}/reveal", patch(reveal))
         .route("/api/matches/{id}/continue", patch(continue_match))
+        .route("/api/matches/{id}/end", patch(end))
         .route(
             "/api/matches/{id}/messages",
             get(list_messages).post(send_message),
@@ -160,6 +161,31 @@ impl ApiDto for MatchPath {
     fn is_valid(&self) -> bool {
         self.id().is_some()
     }
+}
+
+#[derive(Serialize)]
+struct EndResponse {
+    message: &'static str,
+    status: MatchStatus,
+}
+
+async fn end(
+    OnboardedMobile(identity): OnboardedMobile,
+    Extension(state): Extension<MatchHttpState>,
+    ValidatedPath(path): ValidatedPath<MatchPath>,
+) -> Result<Json<EndResponse>, ApiError> {
+    state
+        .service
+        .end(
+            path.id().ok_or_else(invalid_match_id)?,
+            identity.account.user_id,
+        )
+        .await
+        .map_err(match_error)?;
+    Ok(Json(EndResponse {
+        message: "match ended",
+        status: MatchStatus::Ended,
+    }))
 }
 
 #[derive(Serialize)]

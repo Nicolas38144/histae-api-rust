@@ -1,5 +1,5 @@
 use super::domain::{
-    ContinuationResult, CursorMessageRow, EffectivePlan, MatchCommandResult, MatchRecord,
+    ContinuationResult, CursorMessageRow, EffectivePlan, MatchCommandResult, MatchEnd, MatchRecord,
     MessageCreationResult, MessageRead, PageCursor, UserMatchRow,
 };
 use crate::infra::postgres::{ConstraintKind, DatabaseError};
@@ -54,6 +54,8 @@ pub trait MatchStore: Send + Sync {
         match_id: Uuid,
         user_id: Uuid,
     ) -> MatchStoreFuture<'_, MatchCommandResult<bool>>;
+
+    fn record_end(&self, match_id: Uuid, user_id: Uuid) -> MatchStoreFuture<'_, Option<MatchEnd>>;
 
     fn participant_ids(
         &self,

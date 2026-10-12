@@ -20,8 +20,8 @@ use histae_api_rust::identity::mobile::tokens::{NewRefreshToken, TokenService};
 use histae_api_rust::infra::postgres::DatabaseError;
 use histae_api_rust::matches::domain::{
     ContinuationResult, CursorMessageRow, EffectivePlan, LastMessageRow, MatchCommandResult,
-    MatchRecord, MatchStatus, MessageCreation, MessageCreationResult, MessageRead, MessageRecord,
-    PageCursor, UserMatchRow,
+    MatchEnd, MatchRecord, MatchStatus, MessageCreation, MessageCreationResult, MessageRead,
+    MessageRecord, PageCursor, UserMatchRow,
 };
 use histae_api_rust::matches::http::{MatchHttpState, routes};
 use histae_api_rust::matches::service::{MatchService, NoopMatchEventPublisher};
@@ -238,6 +238,28 @@ impl MatchStore for FakeMatchStore {
                 .map_err(|_| MatchStoreError::Database(DatabaseError::QueryFailed))?;
             state.calls += 1;
             Ok(state.reveal.clone())
+        })
+    }
+
+    fn record_end(&self, match_id: Uuid, user_id: Uuid) -> MatchStoreFuture<'_, Option<MatchEnd>> {
+        Box::pin(async move {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| MatchStoreError::Database(DatabaseError::QueryFailed))?;
+            state.calls += 1;
+            let Some(row) = state.rows.iter_mut().find(|row| {
+                row.record.id == match_id
+                    && [row.record.user1_id, row.record.user2_id].contains(&user_id)
+            }) else {
+                return Ok(None);
+            };
+            let changed = row.record.status != MatchStatus::Ended;
+            row.record.status = MatchStatus::Ended;
+            Ok(Some(MatchEnd {
+                participant_ids: [row.record.user1_id, row.record.user2_id],
+                changed,
+            }))
         })
     }
 
@@ -1046,5 +1068,132 @@ async fn maps_message_conflicts_missing_messages_and_unavailable_matches() {
             "code": "messaging_not_available",
             "message": "Messaging is not available for this match."
         }})
+    );
+}
+
+#[tokio::test]
+async fn ending_a_match_is_authenticated_validated_and_idempotent() {
+    let store = FakeMatchStore::new(row());
+    let match_id = store.state.lock().expect("state").rows[0].record.id;
+    let endpoint = format!("/api/matches/{match_id}/end");
+    let (app, token) = app(store.clone(), true);
+
+    for (path, authorization, status, code) in [
+        (
+            endpoint.clone(),
+            None,
+            StatusCode::UNAUTHORIZED,
+            "authentication_required",
+        ),
+        (
+            "/api/matches/not-a-uuid/end".to_owned(),
+            Some(token.as_str()),
+            StatusCode::BAD_REQUEST,
+            "invalid_match_id",
+        ),
+        (
+            format!("/api/matches/{}/end", Uuid::new_v4()),
+            Some(token.as_str()),
+            StatusCode::NOT_FOUND,
+            "match_not_found",
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request("PATCH", &path, authorization))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), status);
+        assert_eq!(json_body(response).await["error"]["code"], code);
+    }
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(request("PATCH", &endpoint, Some(&token)))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            json_body(response).await,
+            json!({"message": "match ended", "status": "ended"})
+        );
+    }
+    assert_eq!(
+        store.state.lock().expect("state").rows[0].record.status,
+        MatchStatus::Ended
+    );
+}
+
+#[tokio::test]
+async fn ending_a_match_preserves_onboarding_and_participant_authorization() {
+    let mut foreign = row();
+    foreign.record.user1_id = Uuid::new_v4();
+    foreign.record.user2_id = Uuid::new_v4();
+    let endpoint = format!("/api/matches/{}/end", foreign.record.id);
+    let store = FakeMatchStore::new(foreign);
+    let (restricted, token) = app(store.clone(), false);
+    let response = restricted
+        .oneshot(request("PATCH", &endpoint, Some(&token)))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        json_body(response).await["error"]["code"],
+        "onboarding_incomplete"
+    );
+    assert_eq!(store.calls(), 0);
+    let (authorized, token) = app(store.clone(), true);
+    let response = authorized
+        .oneshot(request("PATCH", &endpoint, Some(&token)))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        json_body(response).await["error"]["code"],
+        "match_not_found"
+    );
+    assert_eq!(
+        store.state.lock().expect("state").rows[0].record.status,
+        MatchStatus::Active
+    );
+}
+
+#[tokio::test]
+async fn ending_a_match_publishes_only_one_status_event_to_both_participants() {
+    use histae_api_rust::infra::redis::RedisService;
+    use histae_api_rust::notifications::delivery::MobileDeliveryService;
+    use histae_api_rust::notifications::sse::{MobileEventType, RealtimeService};
+    let row = row();
+    let participants = [row.record.user1_id, row.record.user2_id];
+    let match_id = row.record.id;
+    let store = FakeMatchStore::new(row);
+    let realtime = RealtimeService::connect(RedisService::disabled())
+        .await
+        .expect("realtime");
+    let mut events = realtime.subscribe();
+    let service = MatchService::new(
+        Arc::new(store.clone()),
+        Arc::new(store),
+        Arc::new(PhotoUrls),
+        Arc::new(MobileDeliveryService::new(realtime)),
+        Arc::new(FixedClock(Utc::now())),
+    );
+    service.end(match_id, participants[0]).await.expect("end");
+    service
+        .end(match_id, participants[1])
+        .await
+        .expect("repeat end");
+    for participant in participants {
+        let event = events.try_recv().expect("event");
+        assert_eq!(event.kind, MobileEventType::MatchUpdated);
+        assert_eq!(event.user_id, participant.to_string());
+        assert_eq!(
+            serde_json::to_value(event.data).expect("JSON"),
+            json!({"match_id": match_id, "status": "ended"})
+        );
+    }
+    assert!(
+        events.try_recv().is_err(),
+        "retries must not republish the end event"
     );
 }

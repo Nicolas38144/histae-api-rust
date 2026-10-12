@@ -1280,6 +1280,31 @@
                 "description": "No body → 200 { message: \"message marked as read\" }."
               },
               "response": []
+            },
+            {
+              "name": "PATCH /api/matches/:id/end",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/{{matchId}}/end",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "No body → 200 { message: \"match ended\", status: \"ended\" }. Participant only; retries are idempotent. Ends the match for both participants without blocking the user. The conversation becomes inaccessible; messages are retained until the scheduled purge (30 days by default). Existing purge deadlines and continuation usage are preserved. Call this after the message/reveal/continuation tests: subsequent message reads, writes and replays return 409."
+              },
+              "response": []
             }
           ]
         },
