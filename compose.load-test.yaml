@@ -1,0 +1,54 @@
+# Development only: combine compose.yaml + compose.dev.yaml + this file.
+# The private env file contains independent JWT/metrics keys and disabled providers.
+services:
+  load-api:
+    extends:
+      file: compose.yaml
+      service: api
+    env_file: !override
+      - path: ${HISTAE_LOAD_ENV_FILE:-.load-test/runtime.env}
+        required: true
+    environment:
+      ENV: development
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_SSLMODE: disable
+      POSTGRES_POOL_MAX: "30"
+      POSTGRES_ADMIN_PASSWORD: ""
+      POSTGRES_MIGRATE_PASSWORD: ""
+      POSTGRES_APP_PASSWORD: ""
+      HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ""
+      HISTAE_BOOTSTRAP_APP_PASSWORD: ""
+      METRICS_PORT: "9091"
+      REDIS_ADDR: load-redis:6379
+      REDIS_PASSWORD: ""
+      REDIS_TLS: "false"
+      SMS_PROVIDER: disabled
+      BILLING_PROVIDER: disabled
+      PUSH_PROVIDER: disabled
+    depends_on: !override
+      load-redis: { condition: service_healthy }
+    ports:
+      - 127.0.0.1:18081:8080
+      - 127.0.0.1:19091:9091
+    restart: "no"
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  load-redis:
+    image: redis:7.4.2-alpine
+    command: [redis-server, --save, "", --appendonly, "no", --maxmemory, 128mb, --maxmemory-policy, noeviction]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    restart: "no"
+    pids_limit: 128
+    mem_limit: 192m
+    cpus: 0.5
+    networks: [backend]

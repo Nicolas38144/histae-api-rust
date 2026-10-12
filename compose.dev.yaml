@@ -12,6 +12,13 @@ x-development-environment: &development-environment
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"
   POSTGRES_SSLMODE: disable
+  POSTGRES_USER: histae_app
+  POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:?Define POSTGRES_APP_PASSWORD in .env}
+  POSTGRES_ADMIN_PASSWORD: ""
+  POSTGRES_MIGRATE_PASSWORD: ""
+  POSTGRES_APP_PASSWORD: ""
+  HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ""
+  HISTAE_BOOTSTRAP_APP_PASSWORD: ""
   REDIS_ADDR: redis:6379
   # Le Redis de cette pile démarre sans authentification.
   REDIS_PASSWORD: ""
@@ -24,6 +31,8 @@ services:
   migrate:
     environment:
       <<: *development-environment
+      POSTGRES_USER: histae_migrate
+      POSTGRES_PASSWORD: ${POSTGRES_MIGRATE_PASSWORD:?Define POSTGRES_MIGRATE_PASSWORD in .env}
       MAINTENANCE_MODE: disabled
       METRICS_ENABLED: "false"
     depends_on:
@@ -80,17 +89,19 @@ services:
     logging: *infrastructure-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-histae-dev}
-      POSTGRES_USER: ${POSTGRES_USER:-histae}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env}
+      POSTGRES_USER: histae_admin
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Define POSTGRES_ADMIN_PASSWORD in .env}
+      HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ${POSTGRES_MIGRATE_PASSWORD:?Define POSTGRES_MIGRATE_PASSWORD in .env}
+      HISTAE_BOOTSTRAP_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Define POSTGRES_APP_PASSWORD in .env}
       POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
       PGDATA: /var/lib/postgresql/18/docker
     ports:
       - 127.0.0.1:${POSTGRES_PORT:-5433}:5432
     volumes:
       - histae-rust-postgres-data:/var/lib/postgresql
-      - ./db/001_schema_postgres.sql:/docker-entrypoint-initdb.d/001_schema_postgres.sql:ro
-      - ./db/002_insert_postgres.sql:/docker-entrypoint-initdb.d/002_insert_postgres.sql:ro
-      - ./docker/postgres/pg_stat_statements.sql:/docker-entrypoint-initdb.d/003_pg_stat_statements.sql:ro
+      - ./docker/postgres/init-roles.sh:/docker-entrypoint-initdb.d/001_roles.sh:ro
+      - ./docker/postgres:/etc/postgresql/histae:ro
+      - ./db:/etc/histae/db:ro
     healthcheck:
       # Le serveur temporaire d'initdb n'écoute que sur le socket Unix.
       # Attendre le serveur TCP utilisé par migrate et l'API.

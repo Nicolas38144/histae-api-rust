@@ -7,6 +7,15 @@ x-production-database-environment: &production-database-environment
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"
   POSTGRES_SSLMODE: verify-full
+  POSTGRES_USER: histae_app
+  POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:?Define POSTGRES_APP_PASSWORD in .env}
+  # env_file also contains Compose inputs. Clear the three source variables so
+  # runtime containers receive only their own password under POSTGRES_PASSWORD.
+  POSTGRES_ADMIN_PASSWORD: ""
+  POSTGRES_MIGRATE_PASSWORD: ""
+  POSTGRES_APP_PASSWORD: ""
+  HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ""
+  HISTAE_BOOTSTRAP_APP_PASSWORD: ""
   NODE_EXTRA_CA_CERTS: /run/secrets/postgres_ca
   RATE_LIMIT_STORE: redis
   REDIS_ADDR: redis:6379
@@ -38,17 +47,25 @@ services:
     build: ./docker/postgres
     command: [postgres, -c, config_file=/etc/postgresql/histae/postgresql.conf]
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:?Define POSTGRES_DB in .env.production}
-      POSTGRES_USER: ${POSTGRES_USER:?Define POSTGRES_USER in .env.production}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: ${POSTGRES_DB:?Define POSTGRES_DB in .env}
+      POSTGRES_USER: histae_admin
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Define POSTGRES_ADMIN_PASSWORD in .env}
+      HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ${POSTGRES_MIGRATE_PASSWORD:?Define POSTGRES_MIGRATE_PASSWORD in .env}
+      HISTAE_BOOTSTRAP_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Define POSTGRES_APP_PASSWORD in .env}
       POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
       PGDATA: /var/lib/postgresql/18/docker
     volumes:
       # Volume distinct du développement, même si le nom de projet est identique.
       - histae-postgres-production-data:/var/lib/postgresql
       - type: bind
-        source: ./docker/postgres/pg_stat_statements.sql
-        target: /docker-entrypoint-initdb.d/003_pg_stat_statements.sql
+        source: ./docker/postgres/init-roles.sh
+        target: /docker-entrypoint-initdb.d/001_roles.sh
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./db
+        target: /etc/histae/db
         read_only: true
         bind:
           create_host_path: false
@@ -95,8 +112,8 @@ services:
     command:
       - exec /usr/local/bin/docker-entrypoint.sh redis-server /etc/redis/histae.conf --requirepass "$$REDIS_PASSWORD"
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?Define REDIS_PASSWORD in .env.production}
-      REDISCLI_AUTH: ${REDIS_PASSWORD:?Define REDIS_PASSWORD in .env.production}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Define REDIS_PASSWORD in .env}
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?Define REDIS_PASSWORD in .env}
     volumes:
       - ./docker/redis/redis.conf:/etc/redis/histae.conf:ro
       - type: bind
@@ -247,10 +264,13 @@ services:
     networks: [backend]
 
   migrate:
+    env_file: !override ["${HISTAE_ENV_FILE:-.env}"]
     entrypoint: [/app/bin/db-migrate]
     environment:
       <<: *production-database-environment
       ENV: production
+      POSTGRES_USER: histae_migrate
+      POSTGRES_PASSWORD: ${POSTGRES_MIGRATE_PASSWORD:?Define POSTGRES_MIGRATE_PASSWORD in .env}
     secrets:
       - postgres_ca
     depends_on:
@@ -258,6 +278,7 @@ services:
         condition: service_healthy
 
   api:
+    env_file: !override ["${HISTAE_ENV_FILE:-.env}"]
     entrypoint: [/app/bin/api]
     depends_on: *production-dependencies
     environment:
@@ -279,6 +300,7 @@ services:
           - histae-api-production
 
   outbox-worker:
+    env_file: !override ["${HISTAE_ENV_FILE:-.env}"]
     entrypoint: [/app/bin/outbox]
     depends_on: *production-dependencies
     environment:
@@ -291,6 +313,7 @@ services:
     restart: always
 
   maintenance:
+    env_file: !override ["${HISTAE_ENV_FILE:-.env}"]
     entrypoint: [/app/bin/maintenance]
     depends_on: *production-dependencies
     environment:

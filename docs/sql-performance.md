@@ -61,6 +61,11 @@ la fenêtre entière ; vérifier ce cas et le plan sur les données réellement 
 Voir les [mesures locales](load-testing-results.md) et les régressions de `discovery_postgres`.
 La régression polaire vérifie aussi l’exclusion immédiate après bannissement, ancienne version du
 consentement sensible ou retrait du consentement de localisation, pour le feed et le swipe ciblé.
+Les confirmations suivantes valident trois maintiens à 300 RPS, avec un p95 variable de 82 à 195 ms ;
+350 RPS échoue avec une file d’attente SQL importante. La
+[validation approfondie](load-testing-validation.md) couvre aussi les contrôles d’autorisation sous
+charge et les variantes géographiques/pagination. Un gain ponctuel ne constitue pas un percentile
+garanti sur un hôte partagé.
 
 ## Index et mise à niveau
 
@@ -114,7 +119,7 @@ ORDER BY xact_start NULLS LAST;
 ### Statistiques d’exécution avec `pg_stat_statements`
 
 Les manifests Docker préchargent le module. Les nouvelles bases installent l’extension depuis
-[pg_stat_statements.sql](../docker/postgres/pg_stat_statements.sql). Les commandes utilitaires ne sont
+[000_bootstrap_postgres.sql](../db/000_bootstrap_postgres.sql). Les commandes utilitaires ne sont
 pas suivies (`track_utility=off`) et le suivi de planification conserve son défaut désactivé.
 Le préchargement nécessite un redémarrage PostgreSQL, selon la
 [documentation PostgreSQL](https://www.postgresql.org/docs/18/pgstatstatements.html).
@@ -127,12 +132,12 @@ COMPOSE=(sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml
 "${COMPOSE[@]}" stop api outbox-worker
 "${COMPOSE[@]}" up -d --no-deps --force-recreate --wait postgres
 "${COMPOSE[@]}" exec -T postgres sh -c \
-  'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /docker-entrypoint-initdb.d/003_pg_stat_statements.sql'
+  'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public"'
 "${COMPOSE[@]}" run --rm --no-deps migrate
 "${COMPOSE[@]}" up -d --no-deps --force-recreate --wait api outbox-worker
 ```
 
-Ajouter `-f compose.proxy.yaml` si utilisé. En production, sélectionner `.env.production` et
+Ajouter `-f compose.proxy.yaml` si utilisé. En production, sélectionner `.env` et
 `compose.production.yaml`. Préparer la nouvelle image applicative avant d’arrêter les services,
 selon le [guide de déploiement](container-deployment.md#mise-a-jour).
 

@@ -591,6 +591,158 @@ le worker fonctionne et le smoke test passe. Le pool reste à **30 pour l’API*
 et le processus API confirme `nofile=16384`. Aucun déploiement distant n’a été effectué.
 Les mesures, plans, résumés et preuves de nettoyage sont dans `.load-test/sql-profile-2026-10-12/`.
 
+## Confirmation, capacité et sécurité sous charge — 12 octobre 2026
+
+Cette campagne reprend l’image optimisée **`e2ba350009c7`**, le pool de **30**, `nofile=16384`,
+les limites de deux CPU / un Gio pour l’API et PostgreSQL, les 4 999 comptes fictifs actifs et le
+mélange de lectures 60/20/20. Les confirmations et paliers utilisent 1 000 VU préalloués.
+Les objectifs ajoutent **p99 < 1 000 ms**, globalement et par route, au p95 de 750 ms.
+Chaque maintien dure cinq minutes, avec une minute de montée et trente secondes de descente.
+Les seuils restent évalués malgré la poursuite jusqu’au terme du palier ; le watchdog surveille
+les conteneurs toutes les deux secondes et interdit la poursuite après une panne.
+
+### Trois répétitions à 300 RPS et montée conditionnelle
+
+Les mesures suivantes portent uniquement sur les maintiens. Les trois confirmations utilisent
+les mêmes sessions, données et paramètres ; aucun réglage de ressource n’est modifié entre elles.
+
+| Profil | Réponses servies/s | p95 global | p99 global | Maximum du maintien | Erreurs HTTP | Itérations perdues pendant le maintien | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 300 RPS, répétition 1 | 299,98 | 82,186 ms | 200,599 ms | 518,419 ms | 0 | 0 | Validé |
+| 300 RPS, répétition 2 | 300,32 | 194,579 ms | 360,434 ms | 604,945 ms | 0 | 0 | Validé |
+| 300 RPS, répétition 3 | 300,00 | 164,018 ms | 293,358 ms | 632,880 ms | 0 | 0 | Validé |
+| 350 RPS | 347,78 | 2 882,201 ms | 3 418,437 ms | 3 776,002 ms | 0 | 325 | Non validé |
+| 400, 450 et 500 RPS | — | — | — | — | — | — | Non exécutés après l’échec à 350 |
+
+Les maintiens à 300 comptent 89 995, 90 096 et 89 999 réponses. Le débit mesure les réponses
+achevées, avec des entrées/sorties à la frontière de la fenêtre : il ne mesure pas exactement
+l’arrivée des requêtes. Les profils complets comptent chacun 103 533 requêtes, dont quatre
+vérifications initiales, toutes réussies et sans perte. Le palier à 350 compte 120 458 requêtes
+reçues, également toutes `200`, mais k6 ne peut pas lancer 325 requêtes planifiées ; il sort avec
+le code `99`. Un résultat HTTP correct ne suffit donc pas à valider ce débit.
+
+**300 RPS sont confirmés trois fois pendant cinq minutes dans ce scénario local.** La variabilité
+du p95, de 82 à 195 ms, ne confirme pas un p95 stable de 26 ms ou un gain fixe de 65 % : ces valeurs
+appartiennent à la comparaison ponctuelle précédente. Il n’y a pas de nouvelle référence avant
+optimisation dans cette campagne ; aucune attribution causale précise du gain n’est déduite.
+Les débits supérieurs ne sont pas relancés après l’échec du palier intermédiaire, selon le protocole
+conditionnel annoncé. Aucun arrêt, redémarrage, OOM ou état `unhealthy` n’a été observé.
+
+### Relevés SQL et pics de latence
+
+Le rôle SQL temporaire distingue la contribution du benchmark, sans remise à zéro des compteurs
+partagés. Les fenêtres de snapshots durent 300,160, 298,684, 300,188 et 300,731 secondes.
+Les durées ci-dessous sont des moyennes d’exécution incluant les attentes, pas des temps CPU purs.
+
+| Mesure | 300, répétition 1 | 300, répétition 2 | 300, répétition 3 | 350 |
+| --- | --- | --- | --- | --- |
+| SQL moyen du feed | 7,888 ms | 12,629 ms | 12,981 ms | 38,741 ms |
+| Part du feed dans le temps SQL | 92,64 % | 93,15 % | 92,96 % | 92,89 % |
+| CPU PostgreSQL moyenne, profil complet | 108,60 % | 123,79 % | 115,74 % | 145,71 % |
+| Attente du pool, maximum relevé à environ 1 s | 35 | 62 | 57 | 607 |
+
+Les relevés de CPU et mémoire habituels sont conservés, ainsi qu’une collecte plus fine des
+compteurs cgroup, métriques du pool et états d’attente SQL. Lors de la réponse maximale à 350
+(3,776 s), les relevés superposés montrent environ 199 % CPU PostgreSQL, 97 % de périodes CPU
+limitées et jusqu’à 594 acquisitions en attente. Ces observations désignent la capacité CPU et
+la file d’attente SQL comme les contraintes principales de ce profil. Le feed concentre le coût.
+La mémoire et les descripteurs ne montrent pas de saturation de leur budget.
+
+La première répétition compte huit réponses de plus d’une seconde sur le profil complet, avec
+un maximum de **1,705 s pendant la montée**, hors du maintien. Ce pic coïncide avec un PostgreSQL
+proche de 201 % CPU, des périodes CPU limitées et 26 acquisitions en attente ; un échantillon
+contient aussi une attente `WalSync`. Une corrélation échantillonnée ne permet pas d’attribuer
+toute la durée d’une réponse à une seule cause.
+
+Les relevés fins ne sont pas strictement réguliers : à 350, quatre collectes échouent et les
+lectures de métriques ralentissent. Les relevés de readiness à fréquence habituelle, eux,
+réussissent tous sans échantillon manquant. Les snapshots SQL de début/fin sont disponibles.
+La fréquence CPU de l’hôte varie aussi ; la collecte, commencée pendant la deuxième répétition,
+observe ensuite des médianes entre environ 1,18 et 2,99 GHz et une température maximale de 80,75 °C.
+Cela documente un ordinateur partagé aux performances variables, sans prouver une limitation
+thermique particulière. Aucun governor ni réglage de puissance n’a été modifié.
+
+### Contrôles de sécurité sous charge
+
+Une nouvelle série de sessions temporaires est préparée avant cette partie. Les 500 premiers
+comptes sont réservés aux contrôles ; les autres produisent une charge indépendante à **100 RPS**.
+L’API temporaire est recréée avec [compose.load-test.yaml](../compose.load-test.yaml), qui hérite
+du durcissement du service principal : utilisateur `1000:1000`, système de fichiers en lecture seule,
+capacités supprimées et `no-new-privileges`. L’image, les limites et le pool restent identiques.
+
+Les **13 cas passent**, avec **208 requêtes vérifiées**, exécutées par vagues de 16 avec huit workers :
+
+| Contrôle | Résultat attendu et observé |
+| --- | --- |
+| Bearer mobile sur une route admin | `401 admin_session_invalid` |
+| Signature JWT falsifiée | `401 invalid_or_expired_access_token` |
+| Lecture d’une conversation étrangère | `404 match_not_found` |
+| Candidat banni | `200`, candidat absent du feed |
+| Compte banni comme demandeur | `403 account_unavailable` |
+| Retrait du consentement sensible : candidat / demandeur | Candidat absent / `409 discovery_not_ready` |
+| Retrait du consentement de localisation : candidat / demandeur | Candidat absent / `409 discovery_not_ready` |
+| Ancienne version du consentement sensible | Candidat absent |
+| Blocage : deux directions | Les deux personnes disparaissent de leur page initialement réciproque |
+| Session courante révoquée | `401 authentication_required` |
+
+Les retraits, blocs et révocation utilisent les vraies routes HTTP. Le bannissement et l’ancienne
+version sont injectés comme fixtures SQL ; ce test ne prétend pas exercer leur parcours admin.
+Les demandes de vérification commencent après la mutation validée, sans test d’annulation des
+réponses déjà en cours. Les données modifiées sont restaurées et comparées aux snapshots, y compris
+le sexe/préférences et la présence supprimés par les retraits. Seule la famille de session de test
+reste révoquée jusqu’au nettoyage.
+
+Le maintien de lectures indépendant sert **12 000 réponses en deux minutes**, avec p95 **11,426 ms**,
+p99 **17,052 ms**, zéro erreur, réponse métier invalide ou perte. Son profil complet compte
+16 533 requêtes, dont quatre vérifications initiales. Les refus intentionnels des contrôles
+sont comptés séparément. Ces cas vérifient des règles ciblées de l’API assemblée ; ils ne constituent
+pas un audit exhaustif ni une validation des cérémonies WebAuthn du navigateur.
+
+### Variantes du feed à 50 RPS
+
+Chaque variante comprend une minute de charge constante, 100 VU préalloués, 200 lecteurs et des
+pages de 20. Les préférences, positions et bannissements temporaires sont restaurés entre les cas.
+Les valeurs ci-dessous portent sur les requêtes métier de la minute, hors préflight.
+
+| Variante | Requêtes | p95 | p99 | Maximum | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| Zone dense, rayon 1 km | 3 001 | 9,643 ms | 11,297 ms | 15,219 ms | Validé |
+| Rayon 500 km, même population concentrée | 3 000 | 9,587 ms | 11,506 ms | 22,325 ms | Validé |
+| Lecteurs géographiquement espacés, feed vide attendu | 3 001 | 12,702 ms | 16,251 ms | 34,106 ms | Validé |
+| Page 21 après 400 profils | 3 001 | 26,047 ms | 28,984 ms | 52,585 ms | Validé |
+| 4 500 comptes fictifs exclus temporairement | 3 000 | 30,848 ms | 40,643 ms | 82,817 ms | Validé |
+
+Toutes les réponses sont correctes, sans erreur ni perte de requête. La zone vide exige explicitement
+une collection vide et un curseur nul ; elle n’est pas assimilée à un feed dense rapide. La page 21
+ne contient aucun des 400 profils précédents ; sa préparation émet 4 000 lectures supplémentaires,
+hors charge mesurée. Le cas avec exclusions contrôle chaque UUID contre la liste des comptes non
+bannis/non supprimés. Le rayon de 500 km ne simule pas une population répartie sur 500 km : les
+profils fictifs restent proches. Les 3 000/3 001 itérations correspondent au décompte effectif de k6.
+
+### Bilan, périmètre distant et nettoyage
+
+Les dix profils mesurés totalisent **462 613 requêtes HTTP**, dont 40 vérifications initiales,
+sans erreur inattendue ni réponse métier invalide. Les 325 itérations perdues appartiennent
+uniquement au palier non validé à 350. Le préflight séparé, les préparations de fixtures,
+les 208 requêtes ciblées et les collectes de supervision sont hors de ce total.
+
+La comparaison sur le serveur cible, en accès privé puis Cloudflare, est **non exécutée** : aucune
+pile de test distante ni tunnel dédié n’existe, selon la confirmation de l’utilisateur. Le
+[guide initial](load-testing.md) fournit la préparation correspondante. Aucun trafic de charge
+n’a été envoyé vers le tunnel de production. Aucun test de trente minutes ni scénario de charge
+avec écritures massives n’a été ajouté.
+
+Les cinq restaurations de variantes et celles de sécurité passent. Les **9 998 sessions** des
+deux séries, le rôle SQL et ses droits, les conteneurs API/Redis de benchmark et tous leurs fichiers
+secrets sont supprimés. Les vérifications conservent **5 001 comptes, 5 000 matchs confirmés,
+74 996 messages et 46 tables publiques**. L’API habituelle et le worker conservent leur image,
+leurs pools 30/20 ; PostgreSQL conserve son image et son volume. L’API est `healthy`, le smoke
+test passe. Le rafraîchissement intentionnel des présences fictives reste conservé.
+
+Les outils réutilisables et leurs commandes sont dans la
+[validation approfondie](load-testing-validation.md). Les preuves privées sont conservées dans
+`.load-test/validation-2026-10-12/`, exclu de Git et du contexte Docker.
+
 ## Nettoyage et traces
 
 Les sessions temporaires sont révoquées et les fichiers de jetons sont supprimés après chaque campagne.
@@ -603,6 +755,7 @@ Les résumés k6, points de mesure, plans SQL et relevés de ressources sont con
 `.load-test/spatial-feed-2026-10-12/`, ainsi que `.load-test/high-rps-2026-10-12/`,
 `.load-test/nofile-2026-10-12/`, `.load-test/pool30-2026-10-12/` et
 `.load-test/pool-comparison-2026-10-12/`, `.load-test/image-stats-2026-10-12/` et
-`.load-test/sql-profile-2026-10-12/`, dossiers exclus de Git et du contexte de build Docker.
+`.load-test/sql-profile-2026-10-12/` et `.load-test/validation-2026-10-12/`, dossiers exclus de Git
+et du contexte de build Docker.
 L’ACL ajoutée manuellement au socket Docker doit être retirée par l’utilisateur avec la commande fournie
 à la fin de la campagne.

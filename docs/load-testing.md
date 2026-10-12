@@ -8,6 +8,8 @@ Les commandes sont à exécuter manuellement ; aucune charge n’est lancée en 
 
 Une première mesure sur l’ordinateur de développement est disponible dans
 [Résultats du test local](load-testing-results.md), avec les limites et le diagnostic observés.
+La [validation approfondie](load-testing-validation.md) décrit les répétitions à débit constant,
+les paliers conditionnels, les contrôles de sécurité sous charge et les variantes du feed.
 
 ## 1. Choisir les machines et le périmètre
 
@@ -360,7 +362,14 @@ k6_test \
 Le scénario arrête les profils longs si, après 30 secondes, les erreurs HTTP atteignent 1 % ou les
 vérifications échouent trop souvent, ou si des itérations sont perdues. Il s’arrête aussi si le p95
 dépasse l’objectif après une minute. `Ctrl+C` reste disponible pour arrêter immédiatement une dégradation.
-Le seuil p95 initial est 750 ms ; `--env P95_MS=500` permet de choisir un autre objectif explicite.
+Les seuils initiaux sont **p95 < 750 ms** et **p99 < 1 000 ms**, pour l’ensemble et chaque route
+du mélange. `--env P95_MS=500 --env P99_MS=800` permet de choisir d’autres objectifs explicites.
+Les réponses métier invalides doivent être absentes ; les codes d’erreur sont comptés dans
+`histae_error_codes`, avec des labels bornés et sans corps de réponse ni identifiant personnel.
+
+`--env ABORT_ON_THRESHOLD_FAILURE=false` laisse terminer un profil qui dépasse les seuils,
+mais son résultat reste un échec. Réserver cette option à une campagne supervisée avec un watchdog
+indépendant qui arrête la charge en cas de panne de conteneur. Les seuils ne sont pas retirés.
 
 ## 13. Lire les résultats et décider du palier suivant
 

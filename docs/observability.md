@@ -75,7 +75,7 @@ sudo docker compose --env-file .env \
 ```
 
 Si l’API utilise le proxy, ajouter `-f compose.proxy.yaml` à sa commande de recréation. Pour la production,
-utiliser la sélection `.env.production`/`compose.production.yaml` côté API et le même fichier
+utiliser la sélection `.env`/`compose.production.yaml` côté API et le même fichier
 d’environnement pour les noms de réseaux de la supervision.
 
 Utiliser les mêmes deux options `-f` dans les commandes `ps`, `exec prometheus` et `down` tant que ce mode est

@@ -32,7 +32,7 @@ COMPOSE=(sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml
 
 `--profile jobs` sélectionne le service ponctuel, `run` crée un conteneur pour une passe, `--rm` le retire
 après sortie et `--no-deps` suppose les dépendances déjà prêtes. Cette commande ne relance pas la pile.
-En production, remplacer la sélection par `.env.production`, `compose.yaml` et `compose.production.yaml`.
+En production, remplacer la sélection par `.env`, `compose.yaml` et `compose.production.yaml`.
 
 | Traitement | Effet |
 | --- | --- |
@@ -68,7 +68,7 @@ After=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/histae/histae-api-rust
-ExecStart=/usr/bin/docker compose --env-file .env.production -f compose.yaml -f compose.production.yaml --profile jobs run --rm --no-deps maintenance
+ExecStart=/usr/bin/docker compose --env-file .env -f compose.yaml -f compose.production.yaml --profile jobs run --rm --no-deps maintenance
 ```
 
 `/etc/systemd/system/histae-maintenance.timer` :

@@ -10,8 +10,8 @@ pour chaque nouveau commit, changement de secrets ou de serveur.
 | Point | Validation attendue | Référence |
 | --- | --- | --- |
 | Image | Commit identifié, build avec lockfiles, WebAuthn inclus par défaut, étiquettes cohérentes entre services | [Développement](development.md), [Docker](container-deployment.md#production) |
-| Environnement | `.env.production` choisi pour interpolation et injection ; `ENV=production`, secrets distincts | [Configuration](configuration.md) |
-| PostgreSQL | TLS VerifyFull, migrations réussies, index valides et capacité de connexion adaptée | [Base de données](database.md), [SQL](sql-performance.md) |
+| Environnement | `.env` choisi pour interpolation et injection ; `ENV=production`, secrets distincts | [Configuration](configuration.md) |
+| PostgreSQL | TLS VerifyFull, rôles admin/migration/application séparés, migrations réussies, index valides et capacité adaptée | [Rôles](postgres-roles.md), [Base de données](database.md), [SQL](sql-performance.md) |
 | Redis | TLS, mot de passe, quotas distribués et comportement en cas de panne vérifiés | [Configuration](configuration.md) |
 | Photos | Bucket privé persistant, endpoint HTTPS signé accessible aux clients, analyse et revue admin utilisables | [Docker](container-deployment.md#certificats-et-stockage), [Contrat](http-contract.md#photo-unique) |
 | Proxy | Réseaux corrects, liste précise des proxys approuvés et IP visiteur vérifiée de bout en bout | [Docker](container-deployment.md#developpement-derriere-cloudflare-et-le-reverse-proxy) |

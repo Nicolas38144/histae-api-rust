@@ -33,6 +33,10 @@ WebAuthn, mais l’API complète refuse de démarrer ainsi (`webauthn_feature_re
 ## Préparer l’environnement
 
 Créer `.env` avec les valeurs de [configuration locale](configuration.md#configuration-locale-minimale).
+Le préparateur `python3 scripts/prepare-postgres-roles-env.py .env` fournit les mots de passe des
+trois rôles PostgreSQL dans ce fichier unique.
+Pour une base déjà existante, effectuer [la conversion](postgres-roles.md#convertir-la-base-dev-existante-sans-supprimer-ses-donnees)
+avant de recréer les conteneurs.
 Il est ignoré par Git. L’API Rust sur l’hôte le charge automatiquement ; les variables déjà présentes
 dans le terminal ont priorité. Compose applique ses propres overrides aux processus conteneurisés.
 
@@ -68,7 +72,7 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml stop api
 Puis migrer et démarrer l’API native :
 
 ```bash
-cargo run --locked --bin db-migrate
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml run --rm --no-deps migrate
 MAINTENANCE_MODE=disabled cargo run --locked --bin api
 ```
 
@@ -99,6 +103,7 @@ Ouvrir `http://localhost:5173` pour conserver l’origine WebAuthn locale. Le pr
 - [Tests automatisés](../tests/README.md) : choisir les suites selon les dépendances disponibles.
 - [Smoke](../scripts/smoke-api.sh) : santé, guards, validation et route inexistante ; URL loopback uniquement.
 - [Test de charge](load-testing.md) : pile dédiée et scénarios k6, avec ou sans tunnel Cloudflare.
+- [Validation approfondie](load-testing-validation.md) : maintiens répétés, contrôles de sécurité sous charge et fixtures géographiques restaurables.
 
 <a id="charger-des-donnees-fictives"></a>
 

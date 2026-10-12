@@ -11,7 +11,7 @@
 | [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
 | [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
 | [query_indexes.rs](../src/infra/query_indexes.rs) | Installation concurrente des 19 index de performance, dont le GiST géographique, sur une base existante |
-| [pg_stat_statements.sql](../docker/postgres/pg_stat_statements.sql) | Installation idempotente des vues de statistiques SQL, séparée du schéma applicatif |
+| [000_bootstrap_postgres.sql](../db/000_bootstrap_postgres.sql) | Bootstrap administrateur : rôles, extensions, permissions, conversion dev et rétablissement après reset |
 
 Il n’existe plus de ledger `schema_migrations`. Le migrateur retire cette ancienne table si elle est présente.
 
@@ -70,7 +70,7 @@ Dans Docker dev déjà démarré :
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml run --rm --no-deps migrate
 ```
 
-Ajouter `-f compose.proxy.yaml` si utilisé. En production, sélectionner `.env.production` et
+Ajouter `-f compose.proxy.yaml` si utilisé. En production, sélectionner `.env` et
 `compose.production.yaml`. Le conteneur utilise le SQL **embarqué dans son image** : reconstruire ou
 charger l’image de livraison avant la migration. Voir la [procédure de mise à jour](container-deployment.md#mise-a-jour).
 
@@ -84,9 +84,11 @@ Additionner les besoins de tous les processus avant d’ajuster `max_connections
 Les verrous advisory exigent des sessions PostgreSQL stables : un pooler en mode transaction ne peut pas
 remplacer directement cette connexion de session.
 
-La configuration production utilise `verify-full` et une CA PEM. L’utilisateur créé par l’image PostgreSQL
-est administrateur de la base ; une séparation des rôles applicatif et migration demande une configuration
-de droits supplémentaire. Changer les variables d’initialisation sur un volume existant ne change pas ses rôles.
+La configuration production utilise `verify-full` et une CA PEM. Les piles dev et production séparent
+`histae_admin`, `histae_migrate` et `histae_app`. Le bootstrap installe les extensions comme administrateur ;
+le migrateur crée les objets applicatifs et leurs privilèges futurs. Voir [Rôles PostgreSQL](postgres-roles.md)
+pour les trois mots de passe dans `.env`, l'installation neuve et la conversion d'une base dev existante.
+Changer les variables d'initialisation sur un volume existant ne change pas ses rôles.
 
 ## Statistiques SQL
 
@@ -126,7 +128,7 @@ des certificats ou des fournisseurs.
 Sélectionner la pile ; exemple production depuis la racine du dépôt :
 
 ```bash
-COMPOSE=(sudo docker compose --env-file .env.production -f compose.yaml -f compose.production.yaml)
+COMPOSE=(sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml)
 umask 077
 mkdir -p "$HOME/histae-backups"
 backup_file="$HOME/histae-backups/postgres-$(date -u +%Y%m%dT%H%M%SZ).dump"
@@ -159,4 +161,15 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec -T 
 ```
 
 Après suppression, réinstaller avec le migrateur et redémarrer les services selon le guide Docker.
+Avec les rôles séparés, rétablir d'abord les extensions, le propriétaire du schéma et ses permissions
+comme administrateur (les rôles eux-mêmes sont conservés par le `DROP SCHEMA`) :
+
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec -T postgres \
+  psql -X -v ON_ERROR_STOP=1 -v bootstrap_mode=access -U histae_admin -d histae-dev \
+  < db/000_bootstrap_postgres.sql
+```
+
+Puis lancer le service `migrate` avant l'API et les workers. Adapter les manifests et la base pour une
+production sélectionnée. Ce bootstrap d'accès ne recrée aucun rôle et ne change aucun mot de passe.
 Ne pas relancer un ordonnanceur de maintenance avant la fin de la réinstallation.

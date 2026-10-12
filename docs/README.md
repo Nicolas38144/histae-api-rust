@@ -18,6 +18,7 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Configuration](configuration.md) : chargement, priorité des variables, contraintes et secrets.
 - [Déploiement](container-deployment.md) : topologies, réseaux, TLS, démarrage et mise à jour.
 - [Base de données](database.md) : schéma, migrateur, sauvegarde, restauration et suppression.
+- [Rôles PostgreSQL](postgres-roles.md) : comptes séparés, mots de passe dans `.env`, installation et conversion dev.
 - [Administration](administration.md) : premier superadmin, enrôlement, sessions et rôles.
 - [Exploitation](operations.md) : processus, passes de maintenance et incidents de démarrage.
 - [Contrat HTTP](http-contract.md) : routes, entrées, réponses, permissions et idempotence.
@@ -25,6 +26,7 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Supervision](observability.md) : Prometheus, Grafana, alertes et runbooks.
 - [Performance SQL](sql-performance.md) : index, plans et protocole de mesure.
 - [Test de charge](load-testing.md) : comptes fictifs, sessions sans OTP, k6, Cloudflare et nettoyage.
+- [Validation approfondie de la charge](load-testing-validation.md) : répétitions, p99, sécurité concurrente et variantes du feed.
 - [Résultats de charge locaux](load-testing-results.md) : mesures du 11–12 octobre 2026 et diagnostic du feed.
 - [Architecture](architecture.md) : responsabilités du code et cycles de vie.
 - [Tests](../tests/README.md) : commandes, infrastructure et limites des preuves.

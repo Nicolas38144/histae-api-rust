@@ -11,12 +11,16 @@ aucun mode décrit ici ne monte les sources pour les recharger automatiquement.
 | --- | --- | --- | --- |
 | Développement local / LAN | `compose.yaml` + `compose.dev.yaml` | `histae-rust-dev` | `.env`, `ENV=development` imposé |
 | Développement derrière le proxy | Les deux précédents + `compose.proxy.yaml` | `histae-rust-dev` | `.env`, reste du développement |
-| Production | `compose.yaml` + `compose.production.yaml` | `histae-api-production` | `.env.production`, `ENV=production` imposé |
+| Production | `compose.yaml` + `compose.production.yaml` | `histae-api-production` | `.env`, `ENV=production` imposé |
 | Supervision | `docker-compose.observability.yml`, puis override conteneur si nécessaire | `histae-observability` | Secrets fichier et `.env` choisi |
 
 Ne pas combiner `compose.dev.yaml` et `compose.production.yaml`. Le fichier de base seul ne fournit pas
 les services PostgreSQL, Redis, S3 ou de modération. La production n’emploie pas `compose.proxy.yaml` :
 son raccordement au proxy est déjà inclus.
+
+Les deux piles séparent les rôles PostgreSQL. Sur une base dev existante utilisant l'ancien rôle unique,
+suivre [la conversion sans suppression](postgres-roles.md#convertir-la-base-dev-existante-sans-supprimer-ses-donnees)
+avant le premier `up` avec cette configuration. Les balises `!override` demandent Docker Compose 2.24.4 ou ultérieur.
 
 <a id="developpement-local"></a>
 
@@ -25,6 +29,7 @@ son raccordement au proxy est déjà inclus.
 Préparer `.env` selon la [configuration minimale](configuration.md#configuration-locale-minimale), puis :
 
 ```bash
+python3 scripts/prepare-postgres-roles-env.py .env
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml config --quiet
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml ps --all
@@ -155,13 +160,18 @@ le proxy, l’override et les listes de confiance. Voir [Administration](adminis
 
 ## Production
 
+Pour une installation neuve, préparer `.env` selon [Configuration](configuration.md), compléter
+les valeurs de production et préparer les trois mots de passe avec
+`python3 scripts/prepare-postgres-roles-env.py .env`. Les [rôles PostgreSQL](postgres-roles.md)
+sont créés automatiquement sur le volume vide ; aucun identifiant administrateur n'est injecté dans l'API.
+
 ### Environnement et images
 
-Préparer `.env.production` à partir des groupes de [Configuration](configuration.md). Inclure :
+Préparer `.env` à partir des groupes de [Configuration](configuration.md). Inclure :
 
 ```dotenv
 ENV=production
-HISTAE_ENV_FILE=.env.production
+HISTAE_ENV_FILE=.env
 HISTAE_API_IMAGE=histae-api:REPLACE_RELEASE_TAG
 HISTAE_POSTGRES_IMAGE=histae-postgres:18.6-postgis3.6.4
 HISTAE_PHOTO_MODERATION_IMAGE=histae-photo-moderation:REPLACE_RELEASE_TAG
@@ -230,9 +240,9 @@ puis recréer dashboard et Nginx depuis leur dossier. Le backend de production e
 
 ```bash
 sudo docker network inspect histae-backend >/dev/null 2>&1 || sudo docker network create histae-backend
-sudo docker compose --env-file .env.production -f compose.yaml -f compose.production.yaml config --quiet
-sudo docker compose --env-file .env.production -f compose.yaml -f compose.production.yaml up -d --build --wait
-sudo docker compose --env-file .env.production -f compose.yaml -f compose.production.yaml ps --all
+sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml config --quiet
+sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml up -d --build --wait
+sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml ps --all
 sudo docker exec reverse-proxy-container sh -c 'wget -qO- "$HISTAE_API_UPSTREAM/health/ready"'
 ```
 
@@ -267,7 +277,7 @@ COMPOSE=(sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml
 ```
 
 Sans proxy, retirer uniquement `-f compose.proxy.yaml`. En production, sélectionner
-`--env-file .env.production -f compose.yaml -f compose.production.yaml`, avec une nouvelle étiquette d’image.
+`--env-file .env -f compose.yaml -f compose.production.yaml`, avec une nouvelle étiquette d’image.
 Pour des images déjà publiées, utiliser `pull` à la place du build. Attendre la réussite du migrateur avant
 la recréation de l’API ; il installe les index d’une base existante sans rejouer le schéma complet.
 

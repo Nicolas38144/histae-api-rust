@@ -3,3 +3,4 @@
 /.secrets/
 /.load-test/
 /tools/photo-codec/node_modules/
+**/__pycache__/

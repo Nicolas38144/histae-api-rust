@@ -2,7 +2,7 @@ import http from 'k6/http';
 import { check, fail } from 'k6';
 import { SharedArray } from 'k6/data';
 import exec from 'k6/execution';
-import { Rate } from 'k6/metrics';
+import { Counter, Rate } from 'k6/metrics';
 
 // One iteration sends exactly one business request. No automatic retries.
 const baseUrl = (__ENV.BASE_URL || '').replace(/\/$/, '');
@@ -26,6 +26,16 @@ const targetRate = positiveInteger('TARGET_RPS', 100, 1000);
 const preallocated = positiveInteger('PREALLOCATED_VUS', 100, 2000);
 const soakMinutes = positiveInteger('SOAK_MINUTES', 30, 45);
 const p95 = positiveInteger('P95_MS', 750, 60000);
+const p99 = positiveInteger('P99_MS', 1000, 60000);
+const abortSetting = __ENV.ABORT_ON_THRESHOLD_FAILURE || 'true';
+if (!['true', 'false'].includes(abortSetting)) {
+  throw new Error('ABORT_ON_THRESHOLD_FAILURE must be true or false');
+}
+const abortOnFail = abortSetting === 'true';
+const latencyThresholds = () => [
+  { threshold: `p(95)<${p95}`, abortOnFail, delayAbortEval: '60s' },
+  { threshold: `p(99)<${p99}`, abortOnFail, delayAbortEval: '60s' },
+];
 const fixturePath = __ENV.ACCOUNTS_FILE || '../.load-test/accounts.json';
 const accounts = new SharedArray('synthetic mobile sessions', () => {
   const fixture = JSON.parse(open(fixturePath));
@@ -47,6 +57,7 @@ const rateLimited = new Rate('histae_http_429');
 const serverErrors = new Rate('histae_http_5xx');
 const challenged = new Rate('histae_cloudflare_challenge');
 const badPayload = new Rate('histae_invalid_payload');
+const errorCodes = new Counter('histae_error_codes');
 const stages = profile === 'capacity' ? [
   { target: 10, duration: '30s' }, { target: 10, duration: '2m' },
   { target: 25, duration: '30s' }, { target: 25, duration: '2m' },
@@ -76,14 +87,18 @@ export const options = {
   systemTags: ['status', 'method', 'name', 'scenario', 'expected_response'],
   summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'p(99)', 'max'],
   thresholds: {
-    http_req_failed: [{ threshold: 'rate<0.01', abortOnFail: true, delayAbortEval: '30s' }],
-    checks: [{ threshold: 'rate>0.99', abortOnFail: true, delayAbortEval: '30s' }],
-    'http_req_duration{expected_response:true}': [
-      { threshold: `p(95)<${p95}`, abortOnFail: true, delayAbortEval: '60s' },
-    ],
-    dropped_iterations: [{ threshold: 'count==0', abortOnFail: true, delayAbortEval: '30s' }],
+    http_req_failed: [{ threshold: 'rate<0.01', abortOnFail, delayAbortEval: '30s' }],
+    checks: [{ threshold: 'rate>0.99', abortOnFail, delayAbortEval: '30s' }],
+    'http_req_duration{expected_response:true}': latencyThresholds(),
+    'http_req_duration{name:GET /api/feed,expected_response:true}': latencyThresholds(),
+    ...(workload === 'mixed' ? {
+      'http_req_duration{name:GET /api/matches/me,expected_response:true}': latencyThresholds(),
+      'http_req_duration{name:GET /api/matches/:id/messages,expected_response:true}': latencyThresholds(),
+    } : {}),
+    dropped_iterations: [{ threshold: 'count==0', abortOnFail, delayAbortEval: '30s' }],
     histae_http_429: ['rate==0'],
     histae_cloudflare_challenge: ['rate==0'],
+    histae_invalid_payload: ['rate==0'],
   },
 };
 
@@ -104,6 +119,12 @@ function request(account, path, name, field) {
   badPayload.add(!valid);
   check(response, { 'expected status and nonempty API payload': () => valid }, { route: name });
   const code = payload && payload.error && payload.error.code;
+  if (!valid) {
+    errorCodes.add(1, {
+      route: name, status: String(response.status),
+      code: typeof code === 'string' && /^[a-z0-9_]{1,80}$/.test(code) ? code : 'unknown',
+    });
+  }
   return { valid, status: response.status, challenge,
     code: typeof code === 'string' && /^[a-z0-9_]{1,80}$/.test(code) ? code : 'unknown' };
 }

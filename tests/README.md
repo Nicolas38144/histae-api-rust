@@ -67,6 +67,11 @@ Redis utilise sa base logique et des clés de test ; S3 des objets dédiés. Ne 
 partagées pour simuler une panne ni remplacer le nettoyage ciblé par une purge Docker globale.
 Pour les garde-fous précis, consulter les fixtures et le [guide de base de données](../docs/database.md).
 
+Les comptes applicatifs Docker dev et production sont limités. Les fixtures qui créent des schémas ou
+bases nécessitent un compte administrateur de développement ; l'API utilise toujours `histae_app`.
+`sudo bash scripts/verify-postgres-roles.sh` valide l'installation neuve avec le migrateur réel et les
+permissions applicatives dans un conteneur temporaire. Voir [Rôles PostgreSQL](../docs/postgres-roles.md).
+
 ## Régressions couvertes
 
 | Sujet | Exemples |
@@ -80,6 +85,8 @@ Pour les garde-fous précis, consulter les fixtures et le [guide de base de donn
 | Confidentialité | `Debug` expurgé de configuration, erreurs/labels bornés et absence de valeurs sensibles |
 
 Les mesures de performance restent séparées des assertions fonctionnelles : voir [Performance SQL](../docs/sql-performance.md).
+Les [contrôles sous charge](../docs/load-testing-validation.md) testent aussi les refus de l’API
+assemblée et les variantes du feed. Ils utilisent uniquement les comptes fictifs d’une API temporaire dev.
 
 <a id="comparaison-de-deux-api"></a>
 

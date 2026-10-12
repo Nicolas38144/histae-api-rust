@@ -11,8 +11,9 @@ les valeurs et secrets ne sont pas recopiés dans les logs.
 ### Binaires Rust sur l’hôte
 
 `AppConfig::from_env()` charge `.env` avec `dotenvy`, puis lit l’environnement du processus. Une variable
-déjà définie dans le terminal garde la priorité. `.env.production` n’est pas sélectionné automatiquement
-par `ENV=production` : préparer l’environnement du processus explicitement ou utiliser Compose.
+déjà définie dans le terminal garde la priorité. Le fichier `.env` est commun aux deux modes : définir
+`ENV` pour une exécution native, ou choisir
+l'override Compose correspondant.
 Lancer les commandes depuis la racine évite de charger par erreur un `.env` d’un dossier parent.
 
 `ENV` est obligatoire et accepte `development`, `production` et `test`. `ENV=development` derrière
@@ -22,17 +23,20 @@ un domaine HTTPS reste du développement, avec ses règles et fournisseurs confi
 
 | Mécanisme | Effet |
 | --- | --- |
-| `--env-file .env.production` | Fournit les valeurs d’interpolation `${…}` des manifests. |
+| `--env-file .env` | Fournit les valeurs d’interpolation `${…}` des manifests. |
 | `env_file: ${HISTAE_ENV_FILE:-.env}` | Injecte le fichier choisi dans les conteneurs applicatifs. |
 | `environment:` d’un service | Remplace les mêmes variables reçues via `env_file`. |
 
 Les variables exportées du terminal peuvent remplacer les valeurs d’interpolation.
-Pour la production, écrire **`HISTAE_ENV_FILE=.env.production` dans `.env.production`**, puis utiliser
-`--env-file .env.production` dans toutes les commandes. Sans ce réglage, le manifest de base injecte
-encore `.env`. Le dashboard et le reverse proxy ont leurs propres fichiers d’environnement.
+Les deux piles utilisent le fichier **`.env`** : `compose.dev.yaml` impose `ENV=development` et
+`compose.production.yaml` impose `ENV=production`. Les valeurs de chaque machine doivent correspondre à
+son usage (fournisseurs, domaines, certificats et secrets). Le dashboard et le reverse proxy ont leurs
+propres fichiers d'environnement. Utiliser `--env-file .env` dans toutes les commandes de l'API.
 
-Le `.env` local et `.secrets/` sont ignorés par Git. Prévoir aussi une exclusion pour `.env.production`
-avant d’y stocker des secrets : ce nom n’est pas couvert par le `.gitignore` actuel.
+Les fichiers `.env`, `.env.*` et `.secrets/` sont ignorés par Git. Les garder en `0600`.
+Les overrides dev/production sélectionnent le rôle PostgreSQL
+et retirent les mots de passe des autres rôles de l'environnement applicatif.
+Voir [Rôles PostgreSQL](postgres-roles.md).
 
 Après une modification, recréer les conteneurs concernés : `restart` ne recharge pas leur environnement.
 Valider sans afficher les secrets avec `docker compose … config --quiet`.
@@ -41,7 +45,8 @@ Valider sans afficher les secrets avec `docker compose … config --quiet`.
 
 ## Configuration locale minimale
 
-Créer `.env` et remplacer les cinq placeholders de secrets par cinq valeurs distinctes.
+Créer `.env` et remplacer les secrets applicatifs par des valeurs distinctes ; le préparateur génère
+séparément les trois mots de passe PostgreSQL.
 Pour chaque valeur, `openssl rand -hex 32` produit 32 octets encodés en hexadécimal. Les clés téléphone
 acceptent ce format de 64 caractères ; `JWT_SECRET` exige au moins 32 octets.
 
@@ -59,8 +64,11 @@ PHONE_HASH_KEY=REPLACE_64_HEX_CHARACTERS_HASH
 POSTGRES_HOST=127.0.0.1
 POSTGRES_PORT=5433
 POSTGRES_DB=histae-dev
-POSTGRES_USER=histae
-POSTGRES_PASSWORD=REPLACE_POSTGRES_PASSWORD
+POSTGRES_ADMIN_PASSWORD=REPLACE_WITH_64_RANDOM_HEX_CHARACTERS
+POSTGRES_MIGRATE_PASSWORD=REPLACE_WITH_OTHER_64_RANDOM_HEX_CHARACTERS
+POSTGRES_APP_PASSWORD=REPLACE_WITH_ANOTHER_64_RANDOM_HEX_CHARACTERS
+POSTGRES_USER=histae_app
+POSTGRES_PASSWORD=${POSTGRES_APP_PASSWORD}
 POSTGRES_SSLMODE=disable
 
 RATE_LIMIT_STORE=redis
@@ -87,6 +95,8 @@ METRICS_ENABLED=false
 ```
 
 `SMS_PROVIDER=disabled` ne livre aucun SMS. Pour une connexion OTP réelle, configurer Sweego.
+`python3 scripts/prepare-postgres-roles-env.py .env` prépare les trois mots de passe sans les afficher.
+Une base dev existante doit être convertie avant recréation selon [Rôles PostgreSQL](postgres-roles.md).
 Les documents juridiques omis en développement reçoivent une version `development-unversioned` et des
 URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
 
@@ -98,6 +108,7 @@ URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
 | JWT | `JWT_SECRET`, `JWT_ACTIVE_KID`, `JWT_PREVIOUS_KEYS`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` | Clés distinctes des clés téléphone ; anciens `kid` à conserver pendant la durée de validité des tokens concernés. |
 | Téléphone | `PHONE_ENCRYPTION_KEY`, `PHONE_HASH_KEY` | Deux clés de 32 octets distinctes. Leur remplacement exige une migration des données. |
 | PostgreSQL | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_SSLMODE`, `POSTGRES_POOL_MAX` | Pool par processus ; TLS obligatoire en production. |
+| Rôles PostgreSQL Docker | `POSTGRES_ADMIN_PASSWORD`, `POSTGRES_MIGRATE_PASSWORD`, `POSTGRES_APP_PASSWORD` | Trois secrets hexadécimaux de 64 caractères distincts ; Compose fournit le bon rôle et `POSTGRES_PASSWORD` à chaque service. |
 | Pool API Docker | `HISTAE_API_POSTGRES_POOL_MAX` | Défaut : 30. Compose transmet cette valeur à l’API dans `POSTGRES_POOL_MAX` ; les autres services utilisent leur `POSTGRES_POOL_MAX`. |
 | Timeouts SQL | `POSTGRES_CONNECT_TIMEOUT`, `POSTGRES_IDLE_TIMEOUT`, `POSTGRES_STATEMENT_TIMEOUT`, `POSTGRES_IDLE_TRANSACTION_TIMEOUT` | Défauts : `5s`, `30s`, `15s`, `30s`. |
 | Redis | `RATE_LIMIT_STORE`, `REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB`, `REDIS_TLS`, `REDIS_CONNECT_TIMEOUT`, `REDIS_COMMAND_TIMEOUT` | Production : store Redis, TLS et mot de passe. Adresse `hôte:port`, sans schéma. |
