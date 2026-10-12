@@ -76,6 +76,8 @@ charger l’image de livraison avant la migration. Voir la [procédure de mise �
 ## Connexions et droits
 
 Le pool SQLx est borné par `POSTGRES_POOL_MAX`, avec des timeouts de connexion, requête et transaction inactive.
+Dans Compose, le service API reçoit `HISTAE_API_POSTGRES_POOL_MAX` (30 par défaut) comme valeur de
+`POSTGRES_POOL_MAX`. Cette variable permet de régler le pool API indépendamment des autres processus.
 L’API utilise aussi un pool de sessions de verrous d’activité pouvant aller jusqu’à quatre connexions.
 Additionner les besoins de tous les processus avant d’ajuster `max_connections` ou de répliquer les workers.
 Les verrous advisory exigent des sessions PostgreSQL stables : un pooler en mode transaction ne peut pas

@@ -101,6 +101,7 @@ POSTGRES_USER=histae
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 POSTGRES_SSLMODE=disable
 POSTGRES_POOL_MAX=20
+HISTAE_API_POSTGRES_POOL_MAX=20
 
 RATE_LIMIT_STORE=redis
 RATE_LIMIT_GLOBAL=20000
@@ -609,6 +610,12 @@ présences : le profil borne le maintien à 45 minutes et refuse des jetons trop
 Pour tester un débit supérieur à 100, changer `TARGET_RPS`, vérifier la réserve de VU et le quota global
 avant de lancer. Le plafond du scénario est 1 000 RPS ; 20 000 requêtes/minute ne suffisent pas au-delà
 d’environ 333 RPS moyens par IP. Dimensionner la limite avec une marge, sans la modifier en production.
+
+Vérifier également la limite `nofile` effective : le service API commun la fixe à 16 384 pour les limites
+souple et dure. Une configuration modifiée demande une recréation du conteneur, selon le
+[guide Docker](container-deployment.md#developpement-local). Les sockets des utilisateurs virtuels
+et les connexions aux dépendances partagent ce budget. Relever leur pic pendant la charge et leur
+libération à la déconnexion ; le nombre de clients connectés constitue une dimension distincte du RPS.
 
 ## 20. Nettoyer les accès temporaires
 

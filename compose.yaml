@@ -32,7 +32,11 @@ services:
   api:
     <<: *runtime-service
     entrypoint: [/app/bin/api]
-    environment: { PORT: "8080", MAINTENANCE_MODE: disabled, METRICS_HOST: 0.0.0.0 }
+    environment:
+      PORT: "8080"
+      MAINTENANCE_MODE: disabled
+      METRICS_HOST: 0.0.0.0
+      POSTGRES_POOL_MAX: ${HISTAE_API_POSTGRES_POOL_MAX:-30}
     depends_on:
       migrate: { condition: service_completed_successfully }
     restart: unless-stopped
@@ -40,6 +44,10 @@ services:
     pids_limit: 256
     mem_limit: 1g
     cpus: 2.0
+    ulimits:
+      nofile:
+        soft: 16384
+        hard: 16384
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s

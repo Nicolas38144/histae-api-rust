@@ -36,6 +36,21 @@ bash scripts/smoke-api.sh
 sains. Le worker outbox est un processus permanent sans healthcheck Compose ; vérifier ses logs et sa progression.
 Le contrôle Docker de l’API utilise `/health/live`, et ne remplace pas la vérification `/health/ready`.
 
+Le service API définit `ulimits.nofile` à **16 384** pour les limites souple et dure dans
+`compose.yaml`, en développement comme en production. Les sockets HTTP, PostgreSQL et Redis partagent
+ce budget avec les fichiers du processus. Une modification de cette limite nécessite de recréer le
+conteneur ; un simple redémarrage ne suffit pas. Après recréation, vérifier par exemple en développement :
+
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec -T api \
+  sh -c 'printf "soft="; ulimit -Sn; printf "hard="; ulimit -Hn'
+```
+
+Les deux valeurs attendues sont `16384`. Surveiller aussi les descripteurs ouverts du processus API
+pendant la charge et leur libération lorsque les clients se déconnectent.
+Ce budget initial donne une marge pour plusieurs milliers de connexions ; son dimensionnement définitif
+dépend du nombre de clients connectés et des mesures de ressources, distincts du débit en RPS.
+
 PostgreSQL utilise l’image construite depuis `docker/postgres/Dockerfile` : PostgreSQL 18.6 bookworm
 et PostGIS 3.6.4. Le migrateur installe l’extension et l’index spatial avant la nouvelle API.
 Pour la première mise à jour d’un volume existant, suivre la [procédure PostgreSQL/PostGIS](database.md#postgis-et-mise-a-jour-dune-installation).

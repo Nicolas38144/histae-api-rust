@@ -240,19 +240,211 @@ sept Gio au minimum. Sur chaque profil, le client ne fournit pas de snapshot exp
 leur état de readiness reste inconnu. Les snapshots complets enregistrent uniquement des réponses `200`.
 L’état Docker `unhealthy`, lui, est confirmé par l’inspection du conteneur.
 
-Avant de reprendre 500 puis 1 000 RPS, relever explicitement la limite `nofile` des services applicatifs
-dans Compose, puis vérifier les descripteurs, le pool et la CPU PostgreSQL sous la même charge.
-La capacité maximale en RPS reste à établir après cette correction. La comparaison devra aussi distinguer
-le débit demandé du nombre de clients maintenant une connexion ouverte.
+Cette première campagne a conduit à relever `nofile`, puis à vérifier les descripteurs, le pool et la CPU
+PostgreSQL sous la même charge. La reprise correspondante est décrite ci-dessous. Le débit demandé
+et le nombre de clients maintenant une connexion ouverte restent deux dimensions distinctes.
 
 Les deux profils totalisent **171 672 requêtes HTTP**, vérifications initiales comprises.
 Les traces, états de santé, preuve de saturation des descripteurs et résumés sont conservés dans
 `.load-test/high-rps-2026-10-12/`. Les sessions et conteneurs temporaires ont été supprimés ; l’API habituelle
 répond `ready`, avec 5 001 comptes, 5 000 matchs confirmés et 74 996 messages conservés.
 
+## Reprise avec `nofile=16384` — 12 octobre 2026
+
+Le service API de `compose.yaml` fixe désormais les limites souple et dure à **16 384**. La configuration
+est commune au développement et à la production ; les deux compositions ont été validées. L’API locale
+a été recréée avec son image existante. Les limites du shell et celles du processus API dans `/proc`
+confirment `16384`, puis `/health/ready` répond `200`.
+
+L’API temporaire reprend l’image `13d185be5b18` et hérite du même réglage. Les autres conditions de la
+campagne précédente sont conservées : deux CPU / un Gio pour l’API et PostgreSQL, pool de 20 connexions,
+1 000 utilisateurs virtuels, mélange 60/20/20 et mêmes comptes fictifs. La limite `16384` constitue un
+budget initial avec marge, à dimensionner selon les clients connectés et les ressources mesurées.
+
+### Préparation et interruption exclue
+
+Le contrôle préalable a détecté que le `.env` courant indiquait les versions légales `v1`, tandis que
+les 4 999 comptes fictifs avaient accepté `development-unversioned`. Seule la configuration légale de
+l’API temporaire a été alignée sur les fixtures, après vérification de leurs quatre consentements.
+Aucun consentement en base n’a été modifié. Le contrôle préalable incomplet est exclu des mesures.
+
+Une première exécution à 1 000 RPS a subi une interruption de plus de dix heures et ses jetons ont expiré.
+Elle a été arrêtée et ses traces sont conservées séparément comme **invalides**. Les anciennes sessions
+ont été révoquées, puis ce palier seul a été repris avec des sessions neuves. Le superviseur surveille
+également les sauts d’horloge et l’expiration des fixtures, en plus des pannes de conteneurs.
+
+### Mesures valides
+
+Chaque palier ci-dessous comprend **cinq minutes de maintien**, après une montée d’une minute.
+Les chiffres du tableau portent uniquement sur le maintien. Les réponses reçues sont toutes `200`
+avec des résultats métier valides ; les itérations perdues représentent des requêtes planifiées que
+le générateur n’a pas pu démarrer avec ses 1 000 utilisateurs virtuels occupés.
+
+| Cible | Débit servi | p95 global | p99 global | Erreurs HTTP | Itérations perdues pendant le maintien | Résultat |
+| --- | --- | --- | --- | --- | --- | --- |
+| 200 RPS | 200,00 RPS | 10,1 ms | 15,5 ms | 0 | 0 | Validé |
+| 500 RPS | 394,06 RPS | 3 313,7 ms | 3 632,2 ms | 0 | 31 361 | Non validé |
+| 1 000 RPS | 377,13 RPS | 3 493,0 ms | 3 703,5 ms | 0 | 186 859 | Non validé |
+
+Le p95 du feed pendant les maintiens est respectivement de **10,5 ms**, **3 465,1 ms** et **3 589,8 ms**.
+Les profils à 500 et 1 000 RPS terminent avec le code k6 `99` : les seuils de latence et d’itérations
+perdues échouent. Ils ne valident donc pas leurs débits cibles malgré l’absence d’erreurs HTTP.
+
+Les trois profils complets totalisent **354 956 requêtes HTTP**, dont douze vérifications initiales,
+sans erreur HTTP ni réponse métier invalide. Ils comptent **231 643 itérations perdues** hors vérifications,
+en incluant les rampes. Aucun OOM, redémarrage ou passage de conteneur à `unhealthy` n’est observé.
+Tous les snapshots de readiness répondent `200`, sans relevé manquant.
+
+### Descripteurs et goulot restant
+
+Les pics de descripteurs de l’API sont de **1 035 à 200 RPS**, puis **1 036 à 500 et 1 000 RPS**.
+Ils retombent à **34 après chaque profil**. Le processus dépasse donc l’ancienne limite de 1 024,
+dispose maintenant de marge et libère les sockets à la déconnexion.
+
+À 200 RPS, aucun instantané du pool ne montre d’acquisition en attente. Aux deux paliers supérieurs,
+ses 20 connexions sont occupées et les pics échantillonnés atteignent **618**, puis **612 acquisitions
+en attente**. Les maxima CPU PostgreSQL atteignent environ **207–208 % d’un CPU**, près du plafond de
+deux CPU ; ceux de l’API restent autour de **101 %** et **93 %**, sous son plafond de deux CPU.
+
+La correction élimine la saturation des descripteurs rencontrée précédemment. La CPU PostgreSQL et
+les attentes de pool bornent désormais le scénario testé. Les débits observés en saturation, autour
+de 380–400 RPS, ne constituent pas des débits validés avec une latence acceptable. **200 RPS sont validés
+pendant cinq minutes** dans ces conditions locales. La prochaine mesure doit profiler le coût CPU SQL
+et borner les attentes avant une nouvelle hausse de charge ; augmenter le pool doit être évalué avec
+le budget CPU et le total de connexions PostgreSQL.
+
+Les traces valides, limites effectives, relevés de sockets et résultats de nettoyage sont dans
+`.load-test/nofile-2026-10-12/`. Les sessions des deux préparations ont été révoquées et les fichiers secrets
+et conteneurs de benchmark supprimés. L’API locale conserve `nofile=16384` et répond `ready`, avec
+5 001 comptes, 5 000 matchs confirmés et 74 996 messages conservés. Ces mesures restent des lectures
+locales sans Cloudflare ; elles ne déterminent pas le débit de production ni l’endurance sur trente minutes.
+
+## Pool API de 30 connexions — 12 octobre 2026
+
+Cette campagne modifie uniquement `POSTGRES_POOL_MAX=30` sur l’API temporaire. Les métriques
+confirment cette limite sur les trois profils. **L’API habituelle conserve son pool de 20 connexions**,
+comme les workers. L’image de benchmark reste `13d185be5b18`, avec `nofile=16384`, deux CPU / un Gio
+pour l’API et PostgreSQL, 1 000 utilisateurs virtuels et les mêmes données fictives. Le trafic reste
+composé de 60 % de lectures du feed, 20 % de matchs et 20 % de messages, sans Cloudflare.
+
+Les versions légales de l’API temporaire correspondent aux consentements des fixtures ; aucun
+consentement en base n’est modifié. Les sessions sont neuves pour cette campagne. La surveillance
+des pannes de conteneurs, des sauts d’horloge et de l’expiration des jetons reste active.
+
+Chaque profil comprend une montée d’une minute, **cinq minutes de maintien** et trente secondes
+de descente. Le tableau mesure uniquement le maintien ; les itérations perdues sont les requêtes
+planifiées que k6 n’a pas pu démarrer, ses utilisateurs virtuels étant occupés.
+
+| Cible | Débit servi | p95 global | p99 global | Erreurs HTTP | Itérations perdues pendant le maintien | Résultat |
+| --- | --- | --- | --- | --- | --- | --- |
+| 300 RPS | 300,00 RPS | 45,9 ms | 253,4 ms | 0 | 0 | Validé |
+| 400 RPS | 387,58 RPS | 3 150,0 ms | 3 491,4 ms | 0 | 3 126 | Non validé |
+| 500 RPS | 388,96 RPS | 3 289,3 ms | 3 562,9 ms | 0 | 32 330 | Non validé |
+
+Le p95 du feed pendant ces maintiens est respectivement de **60,2 ms**, **3 297,7 ms** et **3 385,7 ms**.
+Le profil à 300 RPS respecte les seuils k6, dont un p95 inférieur à 750 ms et aucune itération perdue.
+Les profils à 400 et 500 RPS terminent avec le code `99` : la latence et les itérations perdues dépassent
+les seuils. Toutes les réponses reçues sont `200` avec des listes métier non vides.
+
+Les profils complets totalisent **378 127 requêtes HTTP**, dont douze vérifications initiales,
+sans erreur HTTP ni réponse métier invalide. Les rampes comprises, **35 972 itérations sont perdues**.
+Aucun arrêt, redémarrage, OOM ou passage à `unhealthy` n’est observé ; tous les snapshots de readiness
+répondent `200`, sans relevé manquant.
+
+### Ressources et comparaison avec le pool de 20
+
+Les pics échantillonnés d’acquisitions en attente sont de **4**, **609** et **605** aux trois paliers.
+Les maxima CPU PostgreSQL atteignent respectivement **159 %**, **208 %** et **204 % d’un CPU**.
+Aux deux derniers paliers, PostgreSQL approche donc son plafond de deux CPU ; le maximum API reste
+autour de 102 %. Les pics de descripteurs sont de **1 045**, **1 046** et **1 046**, puis retombent à
+**44 après chaque profil**, cohérent avec les dix connexions supplémentaires conservées dans le pool.
+
+Le palier à 500 RPS est comparable à celui de la campagne précédente : même image, données,
+mélange de lectures, limites CPU/RAM, durée et nombre d’utilisateurs virtuels.
+
+| Mesure du maintien à 500 RPS | Pool de 20 | Pool de 30 |
+| --- | --- | --- |
+| Débit servi | 394,06 RPS | 388,96 RPS |
+| p95 global | 3 313,7 ms | 3 289,3 ms |
+| Itérations perdues | 31 361 | 32 330 |
+| Erreurs HTTP | 0 | 0 |
+
+Cette comparaison ne montre **aucun gain de débit** avec 30 connexions. La faible différence de latence
+ne suffit pas à conclure à une amélioration : il n’y a qu’une exécution par configuration et les mesures
+ont lieu successivement sur le même ordinateur. Le résultat est cohérent avec la saturation CPU
+PostgreSQL et les longues attentes observées ; augmenter davantage le pool n’est pas justifié par ce test.
+
+**300 RPS sont validés pendant cinq minutes avec le pool de 30.** À ce stade, le palier à 300 RPS
+avec le pool de 20 n’avait pas encore été mesuré ; la comparaison complémentaire figure ci-dessous.
+Une confirmation de trente minutes et un profilage CPU SQL restent nécessaires avant de retenir
+un débit d’exploitation. Ces mesures locales ne déterminent pas la capacité du tunnel ni celle de production.
+
+Les 4 999 sessions temporaires ont été révoquées ; leurs jetons, la configuration secrète et les deux
+conteneurs de benchmark sont supprimés. Les vérifications retrouvent 5 001 comptes, 5 000 matchs
+confirmés et 74 996 messages. L’API habituelle est inchangée, `healthy`, répond `ready` et conserve
+son pool de 20 ainsi que `nofile=16384`. Les traces sont dans `.load-test/pool30-2026-10-12/`.
+
+## Comparaison complétée à 200 et 300 RPS — 12 octobre 2026
+
+Deux nouveaux profils complètent les mesures manquantes : **300 RPS avec 20 connexions**, puis
+**200 RPS avec 30 connexions**. Ils utilisent la même image `13d185be5b18`, les mêmes données,
+limites CPU/RAM, mélange 60/20/20, pages de 20, 1 000 utilisateurs virtuels et `nofile=16384`.
+Chaque profil comprend une minute de montée, cinq minutes de maintien et trente secondes de descente,
+en accès local sans Cloudflare. Seul le pool de l’API temporaire change entre les deux profils.
+
+Un premier démarrage de cette API temporaire a été rejeté pour un format de durée de refresh invalide.
+Le format a été corrigé avant la création des sessions et avant toute charge ; cette préparation est
+exclue des mesures. Les fixtures ont ensuite reçu 4 999 sessions neuves valables une heure, avec les
+consentements existants inchangés. La surveillance des pannes et de l’expiration reste active.
+
+Les chiffres ci-dessous portent uniquement sur les maintiens de cinq minutes. Les lignes « précédente »
+reprennent les campagnes documentées plus haut ; les deux autres correspondent aux nouveaux profils.
+
+| Pool API | Cible | Débit servi | p95 global | p99 global | Erreurs HTTP | Itérations perdues | Mesure |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 20 connexions | 200 RPS | 200,00 RPS | 10,1 ms | 15,5 ms | 0 | 0 | Précédente |
+| 20 connexions | 300 RPS | 299,99 RPS | 67,2 ms | 176,3 ms | 0 | 0 | Nouvelle |
+| 30 connexions | 200 RPS | 200,00 RPS | 11,3 ms | 203,0 ms | 0 | 0 | Nouvelle |
+| 30 connexions | 300 RPS | 300,00 RPS | 45,9 ms | 253,4 ms | 0 | 0 | Précédente |
+
+**Les quatre paliers respectent les seuils configurés**, dont un p95 inférieur à 750 ms et aucune
+itération perdue. Le maintien à 300 RPS avec 20 connexions compte 89 998 réponses ; l’écart de deux
+réponses à la frontière de la fenêtre explique son débit arrondi à 299,99, sans itération perdue.
+Les deux nouveaux profils terminent avec le code k6 `0`, toutes les réponses étant `200` et les listes
+métier non vides. Ils totalisent **172 566 requêtes HTTP**, dont huit vérifications initiales,
+sans erreur HTTP, réponse métier invalide ni itération perdue, rampes comprises.
+
+Le p95 du feed atteint **85,7 ms** à 300 RPS avec 20 connexions et **12,5 ms** à 200 RPS avec 30.
+Les pics de descripteurs sont respectivement de **1 035** et **1 045**, puis retombent à **34** et **44**.
+Les pics échantillonnés d’acquisitions en attente sont de **27** et **2**. PostgreSQL atteint au maximum
+environ **208 %** et **92 % d’un CPU** ; les maxima de l’API sont d’environ **109 %** et **52 %**.
+Aucun arrêt, redémarrage, OOM ou passage à `unhealthy` n’est observé pendant les mesures ; tous les
+snapshots de readiness répondent `200`, sans relevé manquant.
+
+Le pool de **20 connexions valide donc aussi 300 RPS** sur cinq minutes. À 300 RPS, le p95 mesuré est
+plus bas avec 30 connexions, mais le p99 est plus élevé ; à 200 RPS, le pool de 30 n’améliore aucun
+des deux percentiles. Il n’y a qu’une exécution par combinaison, à des moments différents sur un
+ordinateur partagé avec le générateur : ces écarts ne prouvent pas un effet causal du pool.
+Le maximum du nouveau maintien à 200 RPS atteint **2,45 s**, malgré son p95 bas ; les réponses les plus
+lentes restent à examiner. Les résultats ne justifient pas de changer le pool habituel de 20 connexions.
+Une confirmation prolongée et le profilage SQL restent les prochaines mesures utiles.
+
+Les 4 999 sessions temporaires sont révoquées, les secrets et conteneurs de benchmark supprimés.
+La vérification conserve 5 001 comptes, 5 000 matchs confirmés et 74 996 messages. L’API habituelle
+est inchangée, `healthy`, répond `ready`, conserve son pool de 20 et `nofile=16384`.
+Les traces et preuves de nettoyage sont dans `.load-test/pool-comparison-2026-10-12/`.
+
+### Configuration appliquée après les mesures
+
+Après cette comparaison, le pool de l’API habituelle a été réglé à **30 connexions**, à la demande
+de l’utilisateur. `HISTAE_API_POSTGRES_POOL_MAX=30` dans `.env` et le défaut du service API dans
+`compose.yaml` rendent ce réglage persistant. La recréation locale conserve l’image existante ;
+le conteneur est `healthy`, reçoit `POSTGRES_POOL_MAX=30` et répond `ready`. Les autres pools restent
+à 20. Les résultats ci-dessus décrivent les configurations utilisées pendant les mesures.
+
 ## Nettoyage et traces
 
-Les 4 999 sessions temporaires sont révoquées et le fichier de jetons est supprimé après la campagne.
+Les sessions temporaires sont révoquées et les fichiers de jetons sont supprimés après chaque campagne.
 Les conteneurs API/Redis de benchmark et leur fichier d’environnement secret sont retirés.
 Les index installés et le rafraîchissement des présences fictives sont conservés ; les comptes, matchs et messages
 sont conservés. L’API habituelle reste disponible après le test.
@@ -260,6 +452,7 @@ sont conservés. L’API habituelle reste disponible après le test.
 Les résumés k6, points de mesure, plans SQL et relevés de ressources sont conservés localement dans
 `.load-test/local-2026-10-11/`, `.load-test/feed-optimization-2026-10-12/` et
 `.load-test/spatial-feed-2026-10-12/`, ainsi que `.load-test/high-rps-2026-10-12/`,
-dossiers exclus de Git et du contexte de build Docker.
+`.load-test/nofile-2026-10-12/`, `.load-test/pool30-2026-10-12/` et
+`.load-test/pool-comparison-2026-10-12/`, dossiers exclus de Git et du contexte de build Docker.
 L’ACL ajoutée manuellement au socket Docker doit être retirée par l’utilisateur avec la commande fournie
 à la fin de la campagne.

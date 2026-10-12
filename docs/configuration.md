@@ -98,6 +98,7 @@ URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
 | JWT | `JWT_SECRET`, `JWT_ACTIVE_KID`, `JWT_PREVIOUS_KEYS`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` | Clés distinctes des clés téléphone ; anciens `kid` à conserver pendant la durée de validité des tokens concernés. |
 | Téléphone | `PHONE_ENCRYPTION_KEY`, `PHONE_HASH_KEY` | Deux clés de 32 octets distinctes. Leur remplacement exige une migration des données. |
 | PostgreSQL | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_SSLMODE`, `POSTGRES_POOL_MAX` | Pool par processus ; TLS obligatoire en production. |
+| Pool API Docker | `HISTAE_API_POSTGRES_POOL_MAX` | Défaut : 30. Compose transmet cette valeur à l’API dans `POSTGRES_POOL_MAX` ; les autres services utilisent leur `POSTGRES_POOL_MAX`. |
 | Timeouts SQL | `POSTGRES_CONNECT_TIMEOUT`, `POSTGRES_IDLE_TIMEOUT`, `POSTGRES_STATEMENT_TIMEOUT`, `POSTGRES_IDLE_TRANSACTION_TIMEOUT` | Défauts : `5s`, `30s`, `15s`, `30s`. |
 | Redis | `RATE_LIMIT_STORE`, `REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB`, `REDIS_TLS`, `REDIS_CONNECT_TIMEOUT`, `REDIS_COMMAND_TIMEOUT` | Production : store Redis, TLS et mot de passe. Adresse `hôte:port`, sans schéma. |
 | S3 | `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_REGION`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY`, `OBJECT_STORAGE_SECRET_KEY`, `OBJECT_STORAGE_FORCE_PATH_STYLE` | HTTPS et clés explicites en production ; nom accessible aux serveurs et clients pour les URLs signées. |
