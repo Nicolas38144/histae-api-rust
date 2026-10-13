@@ -12,7 +12,8 @@ aucun mode décrit ici ne monte les sources pour les recharger automatiquement.
 | Développement local / LAN | `compose.yaml` + `compose.dev.yaml` | `histae-rust-dev` | `.env`, `ENV=development` imposé |
 | Développement derrière le proxy | Les deux précédents + `compose.proxy.yaml` | `histae-rust-dev` | `.env`, reste du développement |
 | Production | `compose.yaml` + `compose.production.yaml` | `histae-api-production` | `.env`, `ENV=production` imposé |
-| Supervision | `docker-compose.observability.yml`, puis override conteneur si nécessaire | `histae-observability` | Secrets fichier et `.env` choisi |
+| Supervision dev | Incluse dans `compose.dev.yaml`, accès dashboard avec `compose.proxy.yaml` | `histae-rust-dev` | Secrets fichier et `.env` |
+| Supervision autonome | `docker-compose.observability.yml`, puis override conteneur si nécessaire | `histae-observability` | Secrets fichier et `.env` choisi |
 
 Ne pas combiner `compose.dev.yaml` et `compose.production.yaml`. Le fichier de base seul ne fournit pas
 les services PostgreSQL, Redis, S3 ou de modération. La production n’emploie pas `compose.proxy.yaml` :
@@ -22,7 +23,9 @@ et impose les deux IP de proxy approuvées (`172.30.0.3/32`, `172.30.0.4/32`). U
 
 Les deux piles séparent les [rôles PostgreSQL](postgres-roles.md), initialisés automatiquement sur un volume
 neuf. Modifier les variables d'un volume existant ne crée pas les rôles ni ne change leurs mots de passe.
-Les balises `!override` demandent Docker Compose 2.24.4 ou ultérieur.
+Les balises `!override` demandent Docker Compose 2.24.4 ou ultérieur. `healthcheck.start_interval`
+demande Docker Engine 25 ou ultérieur : les contrôles s’exécutent toutes les deux secondes pendant
+la période de démarrage, puis reprennent leur intervalle habituel. Les tests et nombres de tentatives sont conservés.
 
 <a id="developpement-local"></a>
 
@@ -32,6 +35,7 @@ Préparer `.env` selon la [configuration minimale](configuration.md#configuratio
 
 ```bash
 python3 scripts/prepare-postgres-roles-env.py .env
+bash scripts/prepare-observability-secrets.sh
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml config --quiet
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml ps --all
@@ -40,7 +44,7 @@ bash scripts/smoke-api.sh
 ```
 
 `migrate` doit terminer avec le code 0 ; `api` et les dépendances possédant un healthcheck doivent être
-sains. Le worker outbox est un processus permanent sans healthcheck Compose ; vérifier ses logs et sa progression.
+sains, y compris les trois services de supervision. Le worker outbox est un processus permanent ; vérifier ses logs et sa progression.
 Le contrôle Docker de l’API utilise `/health/live`, et ne remplace pas la vérification `/health/ready`.
 
 Le service API définit `ulimits.nofile` à **16 384** pour les limites souple et dure dans
@@ -74,15 +78,18 @@ est automatique ; sur un volume existant, suivre la [procédure d’activation S
 | Redis | `127.0.0.1:6379` | `redis:6379` |
 | S3 | `127.0.0.1:8333` | `storage.histae.localhost:8333` |
 | Modération | `127.0.0.1:8090` | `photo-moderation:8080` |
-| Métriques API | Aucun port hôte publié | `api:9091`, si activées |
+| Métriques API | Aucun port hôte publié | `api:9091`, activées en dev |
+| Prometheus / Grafana / Alertmanager | Aucun port hôte publié | Réseaux privés, accès superadmin via Caddy |
 
 L’override dev impose les adresses internes, PostgreSQL sans TLS, Redis sans TLS ni mot de passe et le S3
 HTTP local. Changer `POSTGRES_HOST` ou `REDIS_PASSWORD` dans `.env` ne remplace donc pas ces valeurs dans
 les conteneurs. Pour PostgreSQL, `POSTGRES_PORT` règle le port **hôte** publié ; il n’existe pas de variable
 `POSTGRES_HOST_PORT` dans ces manifests. L’API utilise `HISTAE_API_HOST_PORT` et `HISTAE_API_BIND_IP`.
 
-Le réseau backend vaut `histae-rust-backend` par défaut en dev. Définir `HISTAE_BACKEND_NETWORK=histae-backend`
-permet de l’aligner sur l’override de supervision. Conserver le même nom entre les piles raccordées.
+Le réseau backend vaut `histae-rust-backend` par défaut en dev. Prometheus y joint directement l’API ;
+le réseau interne `observability` relie les trois outils. `compose.dev.yaml` impose `METRICS_ENABLED=true`
+et le port interne `9091`, même si les métriques sont désactivées pour les processus natifs dans `.env`.
+La pile autonome reste disponible pour une API native ; voir [Supervision](observability.md).
 
 <a id="acces-lan"></a>
 
@@ -132,6 +139,9 @@ Le sous-réseau prévu est `172.30.0.0/24` ; il doit être libre sur le serveur.
 
 Configurer `../reverse-proxy/.env` avec `HISTAE_API_UPSTREAM=http://histae-api-dev:8080` et le même
 `HISTAE_EDGE_NETWORK`. Démarrer cette pile depuis son dossier avant l’API ; ne pas précréer son réseau edge.
+Elle crée aussi `histae-monitoring`, interne, sur `172.29.0.0/24` : ce second sous-réseau doit être libre.
+`compose.proxy.yaml` y raccorde les trois outils sans ajouter de port publié ni de domaine Cloudflare.
+Le [guide de supervision](observability.md#supervision-integree-au-developpement) décrit la préparation et l’accès superadmin.
 Dans `.env` de l’API, définir l’origine réelle du dashboard, par exemple :
 
 ```dotenv

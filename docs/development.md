@@ -16,7 +16,7 @@ pnpm 10.28.2, `curl`, `jq` et `openssl`. Il vérifie le manifeste SHA-256 de Nod
 si des paquets Docker incompatibles sont déjà installés. Il ne crée ni secret ni base de données.
 L’accès Docker reste à administrer ; les exemples emploient `sudo docker`.
 
-Le chargement de données exige aussi Python 3. S’il manque :
+La préparation des secrets et le chargement de données exigent aussi Python 3. S’il manque :
 
 ```bash
 sudo apt-get install python3
@@ -35,6 +35,9 @@ WebAuthn, mais l’API complète refuse de démarrer ainsi (`webauthn_feature_re
 Créer `.env` avec les valeurs de [configuration locale](configuration.md#configuration-locale-minimale).
 Le préparateur `python3 scripts/prepare-postgres-roles-env.py .env` fournit les mots de passe des
 trois rôles PostgreSQL dans ce fichier unique.
+Puis exécuter `bash scripts/prepare-observability-secrets.sh` : il crée le token métriques dans `.env`
+si nécessaire et les deux secrets fichier de supervision, sans afficher leurs valeurs. Il préserve
+le mot de passe Grafana existant. Ne pas committer `.env` ni `.secrets`.
 Le fichier `.env` est ignoré par Git. L’API Rust sur l’hôte le charge automatiquement ; les variables déjà présentes
 dans le terminal ont priorité. Compose applique ses propres overrides aux processus conteneurisés.
 Les [trois rôles PostgreSQL](postgres-roles.md) sont initialisés automatiquement sur un volume neuf ;
@@ -48,12 +51,15 @@ PostgreSQL natif ; les conteneurs se connectent néanmoins à `postgres:5432`.
 ### Tout dans Docker
 
 ```bash
+bash scripts/prepare-observability-secrets.sh
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
 bash scripts/smoke-api.sh
 ```
 
 Le code est compilé dans l’image, sans montage des sources ni rechargement automatique.
 Après une modification Rust, suivre la [procédure de mise à jour](container-deployment.md#mise-a-jour).
+Prometheus, Grafana et Alertmanager démarrent aussi, avec des volumes persistants et aucun port hôte publié.
+Leur accès depuis le dashboard exige la [pile reverse proxy](observability.md#supervision-integree-au-developpement).
 
 ### Rust sur l’hôte, dépendances dans Docker
 
@@ -98,7 +104,7 @@ Ouvrir `http://localhost:5173` pour conserver l’origine WebAuthn locale. Le pr
 
 ## Tester les routes
 
-- [Postman](../postman/README.md) : collections JSON française et anglaise, 108 requêtes chacune.
+- [Postman](../postman/README.md) : collections JSON française et anglaise, 109 requêtes chacune.
 - [Accès LAN](container-deployment.md#acces-lan) : publier uniquement le port API nécessaire.
 - [Tests automatisés](../tests/README.md) : choisir les suites selon les dépendances disponibles.
 - [Smoke](../scripts/smoke-api.sh) : santé, guards, validation et route inexistante ; URL loopback uniquement.

@@ -10,7 +10,40 @@ services:
         aliases:
           - histae-api-dev
 
+  prometheus:
+    networks:
+      observability:
+      backend:
+      monitoring:
+        aliases: [histae-dev-prometheus]
+  alertmanager:
+    networks:
+      observability:
+      monitoring:
+        aliases: [histae-dev-alertmanager]
+  grafana:
+    environment:
+      GF_SERVER_ROOT_URL: ${ADMIN_WEBAUTHN_ORIGIN:-https://dashboard.histae.com}/monitoring/grafana/
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: X-Histae-Monitoring-User
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_WHITELIST: "172.29.0.4"
+      GF_AUTH_PROXY_ENABLE_LOGIN_TOKEN: "false"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+    networks:
+      observability:
+      monitoring:
+        aliases: [histae-dev-grafana]
+
 networks:
+  monitoring:
+    name: ${HISTAE_MONITORING_NETWORK:-histae-monitoring}
+    external: true
   edge:
     name: ${HISTAE_EDGE_NETWORK:-histae-edge}
     external: true

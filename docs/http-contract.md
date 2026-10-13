@@ -424,6 +424,7 @@ Toutes les routes suivantes exigent la session admin. Expiration inactive de 30 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
 | GET | `/api/admin/auth/session` | Session courante après vérification du compte et de la passkey. |
+| GET | `/api/admin/auth/monitoring` | **Superadmin** ; contrôle du proxy → `204` avec `X-Histae-Monitoring-User`. Exige `X-Forwarded-Method` et `X-Forwarded-Uri` sous `/monitoring/grafana/`, `/monitoring/prometheus/` ou `/monitoring/alertmanager/`. Toute Origin fournie doit être exacte ; obligatoire pour une méthode transférée non sûre. |
 | GET | `/api/admin/me` | `200 { user_id, role }`, alias métier ; préférer la route session. |
 | POST | `/api/admin/auth/logout` | Aucun corps → `204`, expire aussi le cookie. |
 | GET | `/api/admin/auth/credentials` | Passkeys actives, marqueur de la passkey courante, sans clé publique. |

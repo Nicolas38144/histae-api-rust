@@ -54,12 +54,15 @@ Sur Debian 13, installer les prérequis puis préparer `.env` selon le
 ```bash
 bash scripts/install-debian-13.sh
 source "$HOME/.profile"
+bash scripts/prepare-observability-secrets.sh
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
 bash scripts/smoke-api.sh
 ```
 
 L’API locale écoute par défaut sur `http://127.0.0.1:8080`. Rust 1.88.0 et son rust-analyzer sont
 fixés par [rust-toolchain.toml](rust-toolchain.toml). WebAuthn est activé par défaut dans Cargo.
+La pile dev inclut Prometheus, Grafana et Alertmanager sans publier leurs ports.
+L’accès superadmin depuis le dashboard est décrit dans le [guide de supervision](docs/observability.md).
 
 ## Documentation
 
@@ -73,7 +76,7 @@ L’[index des guides](docs/README.md) permet de choisir une procédure par usag
 | Initialiser et sauvegarder PostgreSQL | [Base de données](docs/database.md) |
 | Enrôler une passkey et gérer les administrateurs | [Administration](docs/administration.md) |
 | Exécuter les workers et planifier la maintenance | [Exploitation](docs/operations.md) |
-| Intégrer les 103 routes et leurs autorisations | [Contrat HTTP](docs/http-contract.md) |
+| Intégrer les 109 routes et leurs autorisations | [Contrat HTTP](docs/http-contract.md) |
 | Importer les collections française ou anglaise | [Postman](postman/README.md) |
 | Diagnostiquer les alertes et les requêtes lentes | [Supervision](docs/observability.md), [SQL](docs/sql-performance.md) |
 | Tester la charge et le tunnel Cloudflare | [Test de charge](docs/load-testing.md) |

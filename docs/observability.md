@@ -14,91 +14,169 @@ Il ne fait pas partie du contrat `/api`, n’accepte que `GET /metrics` et exige
 les métriques. Une collecte PostgreSQL en échec laisse disponibles les compteurs mémoire et publie
 `histae_metrics_collection_success 0`.
 
-Le serveur applicatif principal ne publie donc aucun endpoint Prometheus. Deux raccordements locaux sont pris en
-charge : Prometheus joint une API exécutée directement sur Debian via `host.docker.internal:9091`, ou l’API
-conteneurisée via `api:9091` et le réseau backend choisi par `HISTAE_BACKEND_NETWORK`. Dans les deux cas, les trois interfaces de la
-pile sont liées à `127.0.0.1` :
+Le serveur applicatif principal ne publie aucun endpoint Prometheus. En développement Docker, les métriques
+sont activées automatiquement sur `api:9091`, sans publication du port sur l’hôte.
+Les outils utilisent des volumes persistants et des réseaux privés. Leurs plafonds mémoire cumulés sont de
+1,5 Gio ; Prometheus conserve au plus 15 jours ou 2 Go de séries. Les logs Docker sont bornés à cinq fichiers de 10 Mo.
+
+Le compose ne configure aucun destinataire de notification : les alertes restent visibles dans Prometheus et
+Alertmanager, ainsi que dans les panneaux de métriques Grafana. Un canal d’astreinte approuvé reste à raccorder
+avant une exploitation en production. Ne jamais publier le port 9091 dans Cloudflare ni sur Internet.
+
+<a id="supervision-integree-au-developpement"></a>
+
+## Supervision intégrée au développement
+
+`compose.dev.yaml` réutilise les trois services de `docker-compose.observability.yml` sans publier les ports
+3000, 9090 et 9093. Il force `METRICS_ENABLED=true`, `METRICS_HOST=0.0.0.0` et `METRICS_PORT=9091` pour l’API ;
+les processus migration, outbox et maintenance gardent leurs métriques désactivées.
+
+### 1. Préparer les secrets
+
+Depuis la racine de l’API, avec `.env` déjà configuré :
+
+```bash
+bash scripts/prepare-observability-secrets.sh
+```
+
+Le script réutilise un `METRICS_TOKEN` littéral existant d’au moins 32 caractères, ou en génère un de 64 caractères
+hexadécimaux dans `.env`. Il synchronise `.secrets/histae_metrics_token` et crée le mot de passe de secours
+`.secrets/histae_grafana_admin_password` uniquement s’il n’existe pas. Il n’affiche aucun secret et conserve
+le propriétaire du `.env`, y compris lors d’un lancement avec `sudo`.
+
+Le dossier `.secrets` est privé (`0700`). Les fichiers de supervision montés par Docker sont lisibles par les UID
+des services (`0444`) : leur protection sur l’hôte repose sur le dossier parent. `.env` et `.secrets` restent
+ignorés par Git. Une rotation du mot de passe fichier ne change pas le compte Grafana d’un volume déjà initialisé.
+
+### 2. Démarrer les services
+
+Pour une API locale :
+
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml ps --all
+```
+
+Pour accéder aux outils depuis `https://dashboard.histae.com`, utiliser aussi `compose.proxy.yaml`.
+Le reverse proxy doit démarrer en premier : il crée `histae-edge` et le réseau interne `histae-monitoring`
+(`172.29.0.0/24`, sous-réseau à réserver). Son `.env` doit sélectionner `HISTAE_API_UPSTREAM=http://histae-api-dev:8080`.
+Dans le `.env` de l’API, définir `ADMIN_WEBAUTHN_ORIGIN=https://dashboard.histae.com`,
+`ADMIN_WEBAUTHN_RP_ID=dashboard.histae.com` et l’origine CORS correspondante.
+
+La procédure complète est automatisée depuis `reverse-proxy` :
+
+```bash
+sudo bash reset-docker-compose.sh
+```
+
+Le reset prépare les secrets, valide les configurations, reconstruit les images et démarre les services modifiés.
+Il affiche la durée de chaque étape. `--full` force la recréation de tous les conteneurs ; la commande normale
+laisse les services inchangés en place. Il exécute aussi une passe de maintenance.
+Après modification de fichiers de configuration montés des outils ou rotation des secrets, utiliser
+`--full` pour que tous les processus rechargent ces fichiers ; Compose ne détecte pas leur contenu.
+
+Pour démarrer manuellement après le proxy :
+
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml -f compose.proxy.yaml \
+  up -d --build --wait
+```
+
+### 3. Ouvrir les outils
+
+Se connecter au dashboard avec la passkey du **superadmin**, puis ouvrir **Supervision**.
+Les trois boutons ouvrent un nouvel onglet :
+
+| Outil | URL | Usage |
+| --- | --- | --- |
+| Grafana | `https://dashboard.histae.com/monitoring/grafana/` | Tableau `Histae / Histae Operations` |
+| Prometheus | `https://dashboard.histae.com/monitoring/prometheus/` | PromQL, règles et santé des cibles |
+| Alertmanager | `https://dashboard.histae.com/monitoring/alertmanager/` | Alertes et silences |
+
+Aucun nouveau domaine ni changement d’ingress Cloudflare n’est nécessaire. Les chemins restent sur l’origine
+du dashboard. Le serveur Vite seul ne fournit pas ces routes : les liens nécessitent Caddy et l’override proxy.
+
+Caddy vérifie **chaque requête** avec `GET /api/admin/auth/monitoring`. L’API revalide la session, la passkey,
+l’état du compte et le rôle courant : absence/expiration/révocation → `401`, rôle admin → `403`.
+Les mutations exigent l’`Origin` exacte du dashboard. Caddy supprime les identités entrantes et le cookie Histae
+avant de transmettre la requête aux outils. Grafana accepte uniquement l’identité fournie par Caddy depuis
+`172.29.0.4` et attribue le rôle d’organisation `Admin`, sans créer de session de connexion indépendante.
+Le superadmin n’a donc pas à saisir un second mot de passe. Le compte de secours Grafana reste inaccessible
+par formulaire dans ce mode. Prometheus conserve ses API d’administration et de rechargement HTTP désactivées.
+
+Une indisponibilité de l’API ferme l’accès aux trois interfaces. Leur collecte continue séparément.
+Les liens du dashboard n’activent pas de services en production : cette intégration appartient à la pile dev.
+
+### 4. Vérifier la collecte
+
+Depuis la racine de l’API ; ajouter `-f compose.proxy.yaml` si ce mode est utilisé :
+
+```bash
+OBSERVABILITY=(sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml)
+"${OBSERVABILITY[@]}" exec -T prometheus promtool check config /etc/prometheus/prometheus.yml
+"${OBSERVABILITY[@]}" exec -T prometheus promtool test rules /etc/prometheus/alerts.test.yml
+```
+
+Dans Prometheus, **Status → Target health** doit montrer `histae-api` à **UP**.
+Un `401` de collecte indique généralement un désaccord entre le token de l’API et le secret fichier.
+Un refus de connexion indique l’API arrêtée, les métriques désactivées, une mauvaise interface ou un réseau absent.
+Après rotation du token, recréer API et Prometheus pour recharger les deux valeurs.
+
+Le tableau `Histae / Histae Operations` affiche disponibilité, alertes, HTTP, dépendances, pool PostgreSQL,
+outbox et maintenance. Les compteurs repartent à zéro après un redémarrage de l’API ; `rate` et `increase`
+savent gérer ces remises à zéro. Les métriques et panneaux ne portent aucun identifiant utilisateur.
+
+## Pile autonome : API native ou supervision distincte
+
+La pile indépendante reste disponible pour une API exécutée directement sur Debian ou un déploiement séparé.
+Elle utilise les mêmes secrets, mais publie les interfaces uniquement sur loopback :
 
 | Interface | URL locale | Authentification |
 | --- | --- | --- |
-| Grafana | `http://localhost:3001` | `histae-admin` et le secret fichier Grafana |
-| Prometheus | `http://localhost:9090` | loopback local, ne pas exposer |
-| Alertmanager | `http://localhost:9093` | loopback local, ne pas exposer |
+| Grafana | `http://localhost:3001` | `histae-admin` et le mot de passe fichier Grafana |
+| Prometheus | `http://localhost:9090` | Accès local uniquement |
+| Alertmanager | `http://localhost:9093` | Accès local uniquement |
 
-Le compose local ne configure aucun destinataire de notification : les alertes restent visibles dans Grafana,
-Prometheus et Alertmanager. Avant la production, placer ces interfaces sur un réseau d’administration authentifié,
-renouveler les secrets et raccorder Alertmanager à un canal d’astreinte approuvé. Ne jamais publier le port 9091
-dans Cloudflare ni sur Internet. Si l’API et Prometheus partagent un réseau privé en production, lier le listener à
-l’adresse de ce réseau plutôt qu’à toutes les interfaces.
-
-## Démarrage local
-
-Créer d’abord les secrets Docker basés sur des fichiers :
-
-```bash
-install -d -m 700 .secrets
-openssl rand -hex 32 | tr -d '\n' > .secrets/histae_metrics_token
-openssl rand -base64 32 | tr -d '\n' > .secrets/histae_grafana_admin_password
-chmod 600 .secrets/histae_metrics_token .secrets/histae_grafana_admin_password
-```
-
-Dans `.env`, définir au minimum `METRICS_TOKEN` avec le contenu exact de
-`.secrets/histae_metrics_token` :
+Préparer les secrets avec le script ci-dessus, puis définir dans `.env` :
 
 ```ini
 METRICS_ENABLED=true
 METRICS_HOST=0.0.0.0
 METRICS_PORT=9091
-METRICS_TOKEN=<secret-aléatoire-dédié-de-32-octets-minimum>
 ```
 
-Pour une API native, `METRICS_HOST=0.0.0.0` permet à Prometheus dans Docker de joindre le listener via
-l’hôte ; limiter cet accès au réseau de supervision avec le filtrage de l’hôte. Un listener lié à
-`127.0.0.1` seul n’est pas accessible par le bridge Docker. Redémarrer l’API puis lancer depuis la racine :
+Un listener natif lié à `127.0.0.1` n’est pas accessible par le bridge Docker : limiter le port 9091
+au réseau de supervision avec le filtrage de l’hôte. Redémarrer l’API native, puis :
 
 ```bash
 sudo docker compose --env-file .env -f docker-compose.observability.yml up -d --wait
-sudo docker compose --env-file .env -f docker-compose.observability.yml ps
 ```
 
-Pour une API Docker, définir le même `HISTAE_BACKEND_NETWORK` pour les deux piles, par exemple
-`histae-backend` : le repli dev est `histae-rust-backend`, celui de la supervision `histae-backend`.
-Un changement de réseau sur une pile existante demande de recréer tous ses services concernés avec
-la même sélection Compose. Après cela, recréer l’API et raccorder Prometheus sans publier 9091 :
+Prometheus cible alors `host.docker.internal:9091`. Pour une API conteneurisée de production, ajouter
+`-f compose.observability-container.yaml` et utiliser le même `HISTAE_BACKEND_NETWORK` que la pile API.
+La configuration `prometheus.container.yml` cible `api:9091`. Activer les métriques de cette API et la recréer.
+Conserver la même sélection de fichiers Compose pour les commandes suivantes.
 
-```bash
-sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --force-recreate api
-sudo docker compose --env-file .env \
-  -f docker-compose.observability.yml \
-  -f compose.observability-container.yaml \
-  up -d --wait
-```
+Cette pile autonome n’est pas raccordée aux routes `/monitoring/*` du dashboard. Prévoir un accès
+administratif authentifié et un canal de notification avant son usage en production. Éviter de lancer une
+seconde collecte autonome sur l’API dev si les trois services intégrés répondent déjà au besoin.
 
-Si l’API utilise le proxy, ajouter `-f compose.proxy.yaml` à sa commande de recréation. Pour la production,
-utiliser la sélection `.env`/`compose.production.yaml` côté API et le même fichier
-d’environnement pour les noms de réseaux de la supervision.
+## Validation locale du 13 octobre 2026
 
-Utiliser les mêmes deux options `-f` dans les commandes `ps`, `exec prometheus` et `down` tant que ce mode est
-actif. Le fichier `prometheus.container.yml` cible `api:9091`; la configuration native cible
-`host.docker.internal:9091`.
+- Configurations Compose dev, dev avec proxy, production, supervision autonome et reverse proxy valides.
+- API reconstruite ; API et trois outils sains, aucun port de supervision publié ; cible `histae-api` à `UP`.
+- 304 tests Rust, Clippy avec avertissements interdits et formatage : réussis.
+- Dashboard : typecheck, lint, build et 53 tests unitaires réussis.
+- Caddy : refus `401`/`403`, remplacement d’une identité forgée, retrait du cookie Histae, corps POST
+  conservé et contrôle d’origine vérifiés dans des conteneurs isolés avec une autorisation fictive.
+- Grafana réel dans cette isolation : identité fournie par le proxy, rôle d’organisation `Admin` et accès
+  anonyme/identité forgée refusés. L’API réelle rejette aussi l’accès anonyme au nouvel endpoint.
+- Tests `promtool` des règles d’alerte : réussis. Préparation des secrets : valeurs vides/commentaires,
+  relance, permissions et refus de l’interpolation ou des liens symboliques vérifiés.
 
-Vérifier ensuite la configuration et les règles dans le conteneur épinglé :
-
-```bash
-# Mode API Docker ; retirer le second -f pour une API native.
-OBSERVABILITY=(sudo docker compose --env-file .env -f docker-compose.observability.yml -f compose.observability-container.yaml)
-"${OBSERVABILITY[@]}" exec -T prometheus promtool check config /etc/prometheus/prometheus.yml
-"${OBSERVABILITY[@]}" exec -T prometheus promtool check rules /etc/prometheus/alerts.yml
-"${OBSERVABILITY[@]}" exec -T prometheus promtool test rules /etc/prometheus/alerts.test.yml
-```
-
-Dans Prometheus, `Status > Target health` doit montrer `histae-api` à `UP`. Un `401` indique presque toujours que
-le token chargé par Compose diffère de celui de l’API ; un refus de connexion indique l’API arrêtée, les métriques
-désactivées, une mauvaise interface d’écoute ou un filtrage réseau sur l’hôte.
-
-Le dashboard provisionné `Histae / Histae Operations` affiche disponibilité, alertes, HTTP, dépendances, pool
-PostgreSQL, outbox et maintenance. Les compteurs HTTP/dépendances repartent à zéro après un redémarrage de l’API ;
-les fonctions Prometheus `rate` et `increase` savent gérer ces remises à zéro.
+Le reset complet, le tunnel du serveur et la connexion avec une vraie passkey sur le domaine public
+restent à vérifier après copie et démarrage sur le serveur. Aucun compte réel ni panne de dépendance
+n’a été utilisé pour simuler une autorisation ou une alerte.
 
 ## Seuils initiaux
 

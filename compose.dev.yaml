@@ -26,6 +26,8 @@ x-development-environment: &development-environment
   OBJECT_STORAGE_ENDPOINT: http://storage.histae.localhost:8333
   PHOTO_MODERATION_ENDPOINT: http://photo-moderation:8080
   METRICS_HOST: 0.0.0.0
+  METRICS_PORT: "9091"
+  METRICS_ENABLED: "true"
 
 services:
   migrate:
@@ -110,6 +112,7 @@ services:
       timeout: 5s
       retries: 20
       start_period: 10s
+      start_interval: 2s
     restart: unless-stopped
     stop_grace_period: 1m
     shm_size: 256m
@@ -141,6 +144,7 @@ services:
       timeout: 3s
       retries: 20
       start_period: 5s
+      start_interval: 2s
     restart: unless-stopped
     pids_limit: 128
     mem_limit: 192m
@@ -166,6 +170,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+      start_interval: 2s
     restart: unless-stopped
     stop_grace_period: 30s
     pids_limit: 256
@@ -190,6 +195,7 @@ services:
       timeout: 5s
       retries: 20
       start_period: 90s
+      start_interval: 2s
     restart: unless-stopped
     stop_grace_period: 30s
     read_only: true
@@ -201,9 +207,64 @@ services:
     networks:
       - backend
 
+  prometheus:
+    extends: { file: docker-compose.observability.yml, service: prometheus }
+    ports: !reset []
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+      - --web.external-url=${ADMIN_WEBAUTHN_ORIGIN:-https://dashboard.histae.com}/monitoring/prometheus/
+      - --web.route-prefix=/monitoring/prometheus
+    volumes:
+      - ./observability/prometheus/prometheus.dev.yml:/etc/prometheus/prometheus.yml:ro
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:9090/monitoring/prometheus/-/ready]
+    networks: [observability, backend]
+
+  alertmanager:
+    extends: { file: docker-compose.observability.yml, service: alertmanager }
+    ports: !reset []
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.external-url=${ADMIN_WEBAUTHN_ORIGIN:-https://dashboard.histae.com}/monitoring/alertmanager/
+      - --web.route-prefix=/monitoring/alertmanager
+      - --cluster.listen-address=
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:9093/monitoring/alertmanager/-/ready]
+    networks: [observability]
+
+  grafana:
+    extends: { file: docker-compose.observability.yml, service: grafana }
+    ports: !reset []
+    environment:
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/monitoring/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_LOG_LEVEL: error
+      GF_SERVER_ROUTER_LOGGING: "false"
+    volumes:
+      - ./observability/grafana/provisioning-dev:/etc/grafana/provisioning:ro
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:3000/monitoring/grafana/api/health]
+    networks: [observability]
+
+secrets:
+  histae-metrics-token:
+    file: ./.secrets/histae_metrics_token
+  histae-grafana-password:
+    file: ./.secrets/histae_grafana_admin_password
+
 volumes:
+  histae-prometheus-data:
+  histae-alertmanager-data:
+  histae-grafana-data:
   histae-rust-postgres-data:
   histae-rust-object-storage-data:
 
 networks:
+  observability:
+    internal: true
   backend:

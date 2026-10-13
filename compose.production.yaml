@@ -89,6 +89,7 @@ services:
       timeout: 5s
       retries: 20
       start_period: 15s
+      start_interval: 2s
     restart: unless-stopped
     stop_grace_period: 1m
     shm_size: 256m
@@ -167,6 +168,7 @@ services:
       timeout: 5s
       retries: 20
       start_period: 30s
+      start_interval: 2s
     restart: unless-stopped
     stop_grace_period: 1m
     mem_limit: 1g
@@ -259,6 +261,7 @@ services:
       timeout: 3s
       retries: 5
       start_period: 45s
+      start_interval: 2s
     restart: unless-stopped
     mem_limit: 384m
     cpus: 1.0

@@ -125,7 +125,7 @@ URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
 | Enrôlement | `ADMIN_WEBAUTHN_CHALLENGE_TTL`, `ADMIN_WEBAUTHN_BOOTSTRAP_TTL` | Défauts : `5m` et `15m`, usage unique. |
 | Maintenance/export | `MAINTENANCE_MODE`, `MATCH_MAINTENANCE_BATCH_SIZE`, `MATCH_MAINTENANCE_MAX_BATCHES`, `OUTBOX_PURGE_BATCH_SIZE`, `OUTBOX_PURGE_MAX_BATCHES`, `DATA_EXPORT_PAGE_SIZE`, `DATA_EXPORT_MAX_BYTES`, `DATA_EXPORT_MAX_CONCURRENCY` | Traitements bornés ; voir [Exploitation](operations.md). |
 | Effacement | `ACCOUNT_DELETION_TOKEN_TTL` | Défaut `10m`, jeton à usage unique ; workflow asynchrone. |
-| Métriques | `METRICS_ENABLED`, `METRICS_HOST`, `METRICS_PORT`, `METRICS_TOKEN` | Listener privé, port `9091` ; token distinct d’au moins 32 octets. |
+| Métriques | `METRICS_ENABLED`, `METRICS_HOST`, `METRICS_PORT`, `METRICS_TOKEN` | Listener privé, port `9091` ; token distinct d’au moins 32 octets. La pile dev active la collecte ; préparer les secrets avec `bash scripts/prepare-observability-secrets.sh`. |
 
 Les limites dédiées `RATE_LIMIT_*` possèdent une variable de fenêtre suffixée `_WINDOW`.
 Le [contrat HTTP](http-contract.md#erreurs-et-limites-de-debit) décrit les quotas et codes publics.

@@ -2008,6 +2008,36 @@
               "response": []
             },
             {
+              "name": "GET /api/admin/auth/monitoring",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "X-Forwarded-Method",
+                    "value": "GET"
+                  },
+                  {
+                    "key": "X-Forwarded-Uri",
+                    "value": "/monitoring/grafana/"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/monitoring",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Superadmin uniquement. Contrôle pour le proxy : 204 avec X-Histae-Monitoring-User, 401 sans session, 403 sans permission. Les mutations transférées exigent Origin exact."
+              },
+              "response": []
+            },
+            {
               "name": "GET /api/admin/me",
               "request": {
                 "method": "GET",

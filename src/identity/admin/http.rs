@@ -54,6 +54,7 @@ pub fn routes(state: AdminAuthHttpState) -> Router<HttpState> {
         .route("/api/admin/auth/bootstrap/options", post(bootstrap_options))
         .route("/api/admin/auth/bootstrap/verify", post(bootstrap_verify))
         .route("/api/admin/auth/session", get(session))
+        .route("/api/admin/auth/monitoring", get(monitoring))
         .route("/api/admin/auth/logout", post(logout))
         .route("/api/admin/auth/credentials", get(credentials))
         .route(
@@ -204,6 +205,71 @@ async fn bootstrap_verify(
 
 async fn session(AdminIdentity(identity): AdminIdentity) -> Json<AdminSessionView> {
     Json(identity_view(&identity))
+}
+
+async fn monitoring(
+    AdminIdentity(identity): AdminIdentity,
+    Extension(state): Extension<AdminAuthHttpState>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    monitoring_policy(&headers, &state.config, identity.role)?;
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    response.headers_mut().insert(
+        "x-histae-monitoring-user",
+        HeaderValue::from_str(&identity.user_id.to_string()).map_err(|_| ApiError::internal())?,
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
+}
+
+fn monitoring_policy(
+    headers: &HeaderMap,
+    config: &AdminAuthConfig,
+    role: super::domain::AdminRole,
+) -> Result<(), ApiError> {
+    if role != super::domain::AdminRole::Superadmin {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "admin_permission_denied",
+            "Superadministrator access is required.",
+        ));
+    }
+    let method = headers
+        .get("x-forwarded-method")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| Method::from_bytes(value.as_bytes()).ok());
+    let uri = headers
+        .get("x-forwarded-uri")
+        .and_then(|value| value.to_str().ok());
+    if method.is_none()
+        || !uri.is_some_and(|value| {
+            value.starts_with("/monitoring/grafana/")
+                || value.starts_with("/monitoring/prometheus/")
+                || value.starts_with("/monitoring/alertmanager/")
+        })
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_monitoring_request",
+            "The monitoring authorization request is invalid.",
+        ));
+    }
+    let origin = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok());
+    if (headers.contains_key(header::ORIGIN)
+        || !matches!(method, Some(Method::GET | Method::HEAD | Method::OPTIONS)))
+        && origin != Some(config.origin.as_str())
+    {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "invalid_admin_request_origin",
+            "The administrator request origin is not allowed.",
+        ));
+    }
+    Ok(())
 }
 
 async fn logout(
@@ -906,6 +972,60 @@ mod tests {
             .into_parts()
             .0;
         assert!(verify_mutation_origin(&get_without_origin, &config(false)).is_ok());
+    }
+
+    #[test]
+    fn monitoring_requires_superadmin_and_checks_the_original_mutation_origin() {
+        use super::super::domain::AdminRole;
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-method", HeaderValue::from_static("GET"));
+        headers.insert(
+            "x-forwarded-uri",
+            HeaderValue::from_static("/monitoring/prometheus/query?g0.expr=up"),
+        );
+        assert!(monitoring_policy(&headers, &config(false), AdminRole::Superadmin).is_ok());
+        assert_eq!(
+            monitoring_policy(&headers, &config(false), AdminRole::Admin)
+                .unwrap_err()
+                .into_response()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        headers.insert("x-forwarded-method", HeaderValue::from_static("POST"));
+        assert_eq!(
+            monitoring_policy(&headers, &config(false), AdminRole::Superadmin)
+                .unwrap_err()
+                .into_response()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://localhost:5173"),
+        );
+        assert!(monitoring_policy(&headers, &config(false), AdminRole::Superadmin).is_ok());
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://evil.invalid"),
+        );
+        assert_eq!(
+            monitoring_policy(&headers, &config(false), AdminRole::Superadmin)
+                .unwrap_err()
+                .into_response()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        headers.insert(
+            "x-forwarded-uri",
+            HeaderValue::from_static("/api/admin/users"),
+        );
+        assert_eq!(
+            monitoring_policy(&headers, &config(false), AdminRole::Superadmin)
+                .unwrap_err()
+                .into_response()
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
     }
 
     #[test]

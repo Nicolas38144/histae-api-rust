@@ -2008,6 +2008,36 @@
               "response": []
             },
             {
+              "name": "GET /api/admin/auth/monitoring",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "X-Forwarded-Method",
+                    "value": "GET"
+                  },
+                  {
+                    "key": "X-Forwarded-Uri",
+                    "value": "/monitoring/grafana/"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/auth/monitoring",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Superadmin only. Proxy authorization: 204 with X-Histae-Monitoring-User, 401 without a session, 403 without permission. Forwarded mutations require the exact Origin."
+              },
+              "response": []
+            },
+            {
               "name": "GET /api/admin/me",
               "request": {
                 "method": "GET",

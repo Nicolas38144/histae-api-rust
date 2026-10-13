@@ -1,11 +1,17 @@
 # Supervision privée, projet indépendant ; 1,5 Gio de plafonds mémoire cumulés.
 # Ajouter compose.observability-container.yaml quand l'API tourne dans Docker.
+# compose.dev.yaml réutilise ces services, sans publier leurs ports sur l'hôte.
 name: histae-observability
+
+x-monitoring-logging: &monitoring-logging
+  driver: json-file
+  options: { max-size: 10m, max-file: "5" }
 
 services:
   # Séries temporelles persistantes ; limiter aussi la rétention sur disque.
   prometheus:
     image: prom/prometheus:v3.14.0
+    logging: *monitoring-logging
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -38,6 +44,7 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+      start_interval: 2s
     depends_on:
       alertmanager:
         condition: service_healthy
@@ -45,6 +52,7 @@ services:
   # Groupe les alertes ; le canal de notification est configuré par l'exploitation.
   alertmanager:
     image: prom/alertmanager:v0.32.1
+    logging: *monitoring-logging
     restart: unless-stopped
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
@@ -68,10 +76,12 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+      start_interval: 2s
 
   # Dashboard privé, authentification obligatoire et mot de passe monté comme secret.
   grafana:
     image: grafana/grafana:13.2.1
+    logging: *monitoring-logging
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: histae-admin
@@ -108,6 +118,7 @@ services:
       timeout: 3s
       retries: 15
       start_period: 20s
+      start_interval: 2s
     depends_on:
       prometheus:
         condition: service_healthy
