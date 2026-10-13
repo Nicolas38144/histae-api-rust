@@ -134,7 +134,15 @@ Les durées utilisent une unité, par exemple `5s`, `1m` ou `8h`.
 ### Tarifs du catalogue et Stripe
 
 Le catalogue initial propose Premium à **5 EUR par mois** ou **48 EUR par an**, avec 30 jours d'essai.
-Le gratuit conserve trois continuations initiées et confirmées par semaine ; Premium n'a pas de limite.
+
+Free reçoit **trois crédits gratuits chaque lundi à 00:00 UTC**, sans accumulation. Il peut aussi
+conserver un stock de **trois crédits publicitaires maximum**, réservations comprises, obtenu par les
+récompenses lorsqu’elles sont activées. Ce stock se conserve entre les semaines. Le plafond est de
+**six continuations confirmées par personne Free et par semaine UTC** : chaque participant Free réserve
+son propre crédit, débité seulement après les deux accords. Un refus ou une expiration libère la
+réservation. Premium permet des continuations illimitées sans débit de crédit. Voir les
+[règles de continuation et de récompenses](continuation-and-rewards.md) pour le détail des réservations.
+
 Le [catalogue SQL](../db/002_insert_postgres.sql) initialise une base neuve. Sur une base existante, le
 migrateur remplace l'ancien prix annuel Premium de 3 000 centimes EUR par 4 800 centimes, sans écraser un
 autre tarif personnalisé. Un second passage ne modifie ni le prix ni sa date de mise à jour.
