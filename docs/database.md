@@ -24,6 +24,8 @@ via l’entrypoint PostgreSQL lors de la création du volume. Cette initialisati
 ### Base existante
 
 Le migrateur vérifie les objets attendus, ajoute les évolutions prises en charge et retire le ledger obsolète.
+Il met aussi à jour l'ancien tarif annuel Premium de 30 EUR à 48 EUR dans le catalogue, sans modifier
+les autres tarifs personnalisés ni les abonnements Stripe existants ; voir [Configuration](configuration.md#tarifs-du-catalogue-et-stripe).
 Les index de performance sont ensuite construits avec `CONCURRENTLY`, hors de la transaction de schéma.
 Un verrou advisory sérialise les migrateurs. Un index valide est conservé ; un index invalide laissé par une
 interruption est supprimé puis reconstruit au prochain lancement.

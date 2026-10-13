@@ -9,7 +9,7 @@ ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO subscription_plan (
   code, display_name, monthly_price_cents, annual_price_cents, currency, weekly_continuation_limit, trial_days
-) VALUES ('premium', 'Premium', 500, 3000, 'EUR', NULL, 30)
+) VALUES ('premium', 'Premium', 500, 4800, 'EUR', NULL, 30)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO subscription_plan_feature (

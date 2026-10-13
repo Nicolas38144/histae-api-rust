@@ -130,6 +130,20 @@ Les limites dédiées `RATE_LIMIT_*` possèdent une variable de fenêtre suffix�
 Le [contrat HTTP](http-contract.md#erreurs-et-limites-de-debit) décrit les quotas et codes publics.
 Les durées utilisent une unité, par exemple `5s`, `1m` ou `8h`.
 
+### Tarifs du catalogue et Stripe
+
+Le catalogue initial propose Premium à **5 EUR par mois** ou **48 EUR par an**, avec 30 jours d'essai.
+Le gratuit conserve trois continuations initiées et confirmées par semaine ; Premium n'a pas de limite.
+Le [catalogue SQL](../db/002_insert_postgres.sql) initialise une base neuve. Sur une base existante, le
+migrateur remplace l'ancien prix annuel Premium de 3 000 centimes EUR par 4 800 centimes, sans écraser un
+autre tarif personnalisé. Un second passage ne modifie ni le prix ni sa date de mise à jour.
+
+Le montant réellement facturé dépend du Price Stripe référencé par `STRIPE_PREMIUM_ANNUAL_PRICE_ID`.
+Créer un Price récurrent annuel à 48 EUR avant d'activer cette offre, puis renseigner son identifiant dans
+le `.env` du serveur. Modifier le catalogue ne modifie pas les Prices Stripe ni les abonnements existants.
+Aligner également le catalogue statique du site (`histae-site/config/site.json`) et le reconstruire.
+Le dashboard lit les prix via `GET /api/plans`.
+
 ### Documents juridiques
 
 En production, les neuf valeurs suivantes sont obligatoires :

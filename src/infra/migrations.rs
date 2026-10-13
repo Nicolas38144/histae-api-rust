@@ -80,6 +80,16 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
+    // Upgrade the former EUR catalogue price without overwriting custom prices.
+    // Stripe Prices and existing subscriptions are managed separately.
+    sqlx::query(
+        "UPDATE subscription_plan
+         SET annual_price_cents = 4800, updated_at = clock_timestamp()
+         WHERE code = 'premium' AND currency = 'EUR' AND annual_price_cents = 3000",
+    )
+    .execute(&mut *transaction)
+    .await
+    .map_err(map_sqlx_error)?;
     sqlx::query(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_account_single_superadmin
          ON user_account (role) WHERE role = 'superadmin'",
