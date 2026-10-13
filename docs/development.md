@@ -35,10 +35,10 @@ WebAuthn, mais l’API complète refuse de démarrer ainsi (`webauthn_feature_re
 Créer `.env` avec les valeurs de [configuration locale](configuration.md#configuration-locale-minimale).
 Le préparateur `python3 scripts/prepare-postgres-roles-env.py .env` fournit les mots de passe des
 trois rôles PostgreSQL dans ce fichier unique.
-Pour une base déjà existante, effectuer [la conversion](postgres-roles.md#convertir-la-base-dev-existante-sans-supprimer-ses-donnees)
-avant de recréer les conteneurs.
-Il est ignoré par Git. L’API Rust sur l’hôte le charge automatiquement ; les variables déjà présentes
+Le fichier `.env` est ignoré par Git. L’API Rust sur l’hôte le charge automatiquement ; les variables déjà présentes
 dans le terminal ont priorité. Compose applique ses propres overrides aux processus conteneurisés.
+Les [trois rôles PostgreSQL](postgres-roles.md) sont initialisés automatiquement sur un volume neuf ;
+modifier le `.env` ne convertit pas une ancienne base ni ne change ses mots de passe.
 
 Les dépendances utilisent des ports hôte liés à loopback. `POSTGRES_PORT=5433` évite de concurrencer un
 PostgreSQL natif ; les conteneurs se connectent néanmoins à `postgres:5432`.

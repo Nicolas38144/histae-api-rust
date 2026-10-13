@@ -20,9 +20,9 @@ son raccordement au proxy est déjà inclus. L’override production réinitiali
 et impose les deux IP de proxy approuvées (`172.30.0.3/32`, `172.30.0.4/32`). Une valeur locale
 `TRUST_PROXY=false` ne désactive donc pas la séparation des visiteurs derrière le tunnel en production.
 
-Les deux piles séparent les rôles PostgreSQL. Sur une base dev existante utilisant l'ancien rôle unique,
-suivre [la conversion sans suppression](postgres-roles.md#convertir-la-base-dev-existante-sans-supprimer-ses-donnees)
-avant le premier `up` avec cette configuration. Les balises `!override` demandent Docker Compose 2.24.4 ou ultérieur.
+Les deux piles séparent les [rôles PostgreSQL](postgres-roles.md), initialisés automatiquement sur un volume
+neuf. Modifier les variables d'un volume existant ne crée pas les rôles ni ne change leurs mots de passe.
+Les balises `!override` demandent Docker Compose 2.24.4 ou ultérieur.
 
 <a id="developpement-local"></a>
 
@@ -126,8 +126,8 @@ Le sous-réseau prévu est `172.30.0.0/24` ; il doit être libre sur le serveur.
 | Service | Adresse edge | Rôle dans la confiance |
 | --- | --- | --- |
 | Dashboard | `172.30.0.3` | Proxy approuvé par l’API |
-| Nginx | `172.30.0.4` | Proxy approuvé par l’API |
-| Cloudflared | `172.30.0.5` | Source approuvée des en-têtes Cloudflare par Nginx |
+| Caddy | `172.30.0.4` | Proxy approuvé par l’API |
+| Cloudflared | `172.30.0.5` | Source approuvée des en-têtes Cloudflare par Caddy |
 | API / passerelle S3 production | Allocation automatique | Aucun ajout à `TRUST_PROXY` nécessaire |
 
 Configurer `../reverse-proxy/.env` avec `HISTAE_API_UPSTREAM=http://histae-api-dev:8080` et le même
@@ -155,7 +155,7 @@ L’API porte l’alias `histae-api-dev`. `compose.proxy.yaml` impose
 `TRUST_PROXY=172.30.0.3/32,172.30.0.4/32`. Ajouter les trois fichiers à **toutes** les commandes de cette pile,
 notamment lors d’une recréation de l’API, pour conserver son réseau edge.
 
-Le tunnel cible `http://reverse-proxy:80` pour les domaines site, dashboard et API. Nginx accepte
+Le tunnel cible `http://reverse-proxy:80` pour les domaines site, dashboard et API. Caddy accepte
 `CF-Connecting-IP` uniquement depuis le connecteur attendu et remplace `X-Forwarded-For`. L’API ne doit
 pas approuver arbitrairement toutes les IP ou toute la plage Docker. Si l’IPAM change, adapter ensemble
 le proxy, l’override et les listes de confiance. Voir [Administration](administration.md) pour WebAuthn.
@@ -238,7 +238,7 @@ effectuer une rotation SQL coordonnée. Voir [Base de données](database.md).
 ### Réseaux et démarrage
 
 La pile reverse proxy crée le réseau edge. Régler son upstream sur `http://histae-api-production:8080`,
-puis recréer dashboard et Nginx depuis leur dossier. Le backend de production est externe et doit exister :
+puis recréer dashboard et Caddy depuis leur dossier. Le backend de production est externe et doit exister :
 
 ```bash
 sudo docker network inspect histae-backend >/dev/null 2>&1 || sudo docker network create histae-backend

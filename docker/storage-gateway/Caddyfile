@@ -1,0 +1,35 @@
+{
+	admin off
+	auto_https off
+	persist_config off
+	# Signed S3 URLs must not appear in request-error logs either.
+	log default {
+		output stderr
+		level ERROR
+		exclude http.log.access http.log.error
+	}
+}
+
+http://:8080 {
+	header -Server
+	handle /health/live {
+		respond 200
+	}
+	handle {
+		respond 404
+	}
+}
+
+https://:443 {
+	tls /etc/caddy/tls/server.crt /etc/caddy/tls/server.key
+	header -Server
+	request_body {
+		max_size 1048576
+	}
+	# No rewrite, no access logging, no body buffering, Host preserved for SigV4.
+	reverse_proxy object-storage:8333 {
+		transport http {
+			compression off
+		}
+	}
+}

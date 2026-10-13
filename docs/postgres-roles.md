@@ -81,8 +81,8 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --
 bash scripts/smoke-api.sh
 ```
 
-Si le volume existe déjà avec l'ancien compte unique,
-suivre la conversion ci-dessous avant de recréer PostgreSQL.
+L'initialisation automatique concerne les volumes neufs. Une ancienne base utilisant encore
+un compte unique nécessite une migration préparée avec sauvegarde et validation des permissions.
 
 ### Production
 
@@ -102,32 +102,6 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml p
 
 Le bootstrap n'est pas une migration automatique d'une ancienne production. Changer les variables d'un
 volume existant ne crée pas les rôles et ne change pas leurs mots de passe.
-
-<a id="convertir-la-base-dev-existante-sans-supprimer-ses-donnees"></a>
-
-## Convertir la base dev existante sans supprimer ses données
-
-La conversion est réservée au conteneur PostgreSQL du projet `histae-rust-dev` et à la base `histae-dev`.
-Elle crée les nouveaux comptes, transfère les objets applicatifs, applique les droits existants et futurs,
-puis désactive la connexion de l'ancien administrateur. Les extensions gardent leur propriétaire initial.
-Elle refuse un rôle déjà configuré ou un autre client encore connecté et s'exécute dans une transaction.
-
-1. Faire une sauvegarde conservée et vérifiée selon [Base de données](database.md#sauvegarde-et-restauration).
-2. Préparer les trois mots de passe dans le `.env` existant.
-3. Arrêter les clients applicatifs, convertir, puis recréer les conteneurs.
-
-```bash
-python3 scripts/prepare-postgres-roles-env.py .env
-sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml stop api outbox-worker migrate
-sudo python3 scripts/configure-dev-postgres-roles.py --env-file .env
-sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --force-recreate --wait
-bash scripts/smoke-api.sh
-```
-
-Ajouter `-f compose.proxy.yaml` aux commandes Compose si la pile utilise le proxy. Arrêter également les
-binaires natifs et l'ordonnanceur de maintenance pendant la conversion. Le script utilise l'ancien rôle
-administrateur déclaré dans le conteneur encore en cours d'exécution : **ne pas recréer PostgreSQL avant
-la conversion**. Aucun utilisateur, message, match ou objet S3 n'est supprimé.
 
 ## Exécution native et tests
 

@@ -23,7 +23,7 @@ $$;
 SELECT :'bootstrap_mode' = 'convert-dev' AS convert_development,
        :'bootstrap_mode' IN ('install', 'convert-dev') AS create_roles \gset
 \if :convert_development
--- Called once by configure-dev-postgres-roles.py, inside its transaction.
+-- Legacy development conversion, covered by isolated role integration tests.
 -- All application clients must be stopped. No row is deleted or rewritten.
 DO $$
 BEGIN

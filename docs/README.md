@@ -33,7 +33,8 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Architecture](architecture.md) : responsabilités du code et cycles de vie.
 - [Tests](../tests/README.md) : commandes, infrastructure et limites des preuves.
 - [Modération photo interne](../services/photo-moderation/README.md) : protocole du service Python.
-- [Durcissement de sécurité](security-hardening.md) : dépendances, logs Nginx, tunnel et vérification AdMob.
+- [Migration Caddy](caddy-migration.md) : serveurs statiques, tunnel, passerelle S3 et validation.
+- [Durcissement de sécurité](security-hardening.md) : dépendances, logs Caddy, tunnel et vérification AdMob.
 - [Mise en production](production-readiness.md) : validations sur la livraison réelle.
 
 ## Conventions et entretien

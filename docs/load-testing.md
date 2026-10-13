@@ -3,7 +3,7 @@
 [Index](README.md) · [Développement](development.md) · [Supervision](observability.md) · [SQL](sql-performance.md)
 
 Ce tutoriel prépare une pile de test, 5 000 comptes fictifs et des sessions temporaires sans OTP.
-Il mesure d’abord l’API par une connexion privée, puis le parcours Cloudflare → tunnel → Nginx → API.
+Il mesure d’abord l’API par une connexion privée, puis le parcours Cloudflare → tunnel → Caddy → API.
 Les commandes sont à exécuter manuellement ; aucune charge n’est lancée en lisant ce guide.
 
 Une première mesure sur l’ordinateur de développement est disponible dans
@@ -431,11 +431,11 @@ La configuration de l’application publiée doit être :
 - Type de service : HTTP.
 - URL du service : `load-proxy:80`.
 
-Ce nom Docker désignera le Nginx de test. Le tunnel, le DNS et le sous-domaine de production restent
+Ce nom Docker désignera le Caddy de test. Le tunnel, le DNS et le sous-domaine de production restent
 associés à leurs services existants. Les libellés du tableau de bord peuvent évoluer : la
 [procédure officielle](https://developers.cloudflare.com/tunnel/get-started/) décrit la création d’un tunnel nommé.
 
-## 16. Ajouter Nginx et le connecteur de test — A
+## 16. Ajouter Caddy et le connecteur de test — A
 
 Créer le fichier du token dans le dossier privé, sans l’inscrire dans l’historique du shell :
 
@@ -453,35 +453,43 @@ en mode 700 sur l’hôte ; le secret est monté uniquement dans ce connecteur, 
 Créer le proxy :
 
 ```bash
-cat > .load-test/nginx.conf <<'NGINX'
-set_real_ip_from 172.31.240.5/32;
-real_ip_header CF-Connecting-IP;
-real_ip_recursive off;
-map "$realip_remote_addr:$http_x_forwarded_proto" $load_forwarded_proto {
-    default $scheme;
-    "172.31.240.5:https" https;
-}
-resolver 127.0.0.11 valid=30s ipv6=off;
-server_tokens off;
-server {
-    listen 80;
-    server_name api-charge.histae.com;
-    location = /healthz { access_log off; return 204; }
-    location / {
-        set $load_api_upstream "http://api:8080";
-        proxy_pass $load_api_upstream;
-        proxy_set_header Host $proxy_host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto $load_forwarded_proto;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_connect_timeout 5s;
-        proxy_read_timeout 60s;
+cat > .load-test/Caddyfile <<'CADDY'
+{
+    admin off
+    auto_https off
+    persist_config off
+    servers {
+        trusted_proxies static 172.31.240.5/32
+        client_ip_headers CF-Connecting-IP
+    }
+    log default {
+        output stderr
+        level ERROR
+        exclude http.log.access http.log.error
     }
 }
-NGINX
+:80 {
+    header -Server
+    map "{remote_host}:{header.X-Forwarded-Proto}" {load_forwarded_proto} {
+        "172.31.240.5:https" https
+        default {scheme}
+    }
+    handle /healthz {
+        respond 204
+    }
+    handle {
+        reverse_proxy api:8080 {
+            header_up Host {upstream_hostport}
+            header_up X-Forwarded-For {client_ip}
+            header_up X-Forwarded-Proto {load_forwarded_proto}
+            transport http {
+                dial_timeout 5s
+                response_header_timeout 60s
+            }
+        }
+    }
+}
+CADDY
 
 cat > .load-test/compose.public.yaml <<'YAML'
 services:
@@ -492,9 +500,9 @@ services:
       backend:
       load-edge:
   load-proxy:
-    image: nginx:1.28-alpine
+    image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
     volumes:
-      - ./.load-test/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./.load-test/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       api: { condition: service_healthy }
     networks:
@@ -532,10 +540,10 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml \
   -f .load-test/compose.public.yaml logs --tail=50 load-cloudflared
 ```
 
-Nginx utilise ici la version de l’image du reverse proxy du projet. Les chemins de montage du troisième
+Caddy utilise ici la version de l’image du reverse proxy du projet. Les chemins de montage du troisième
 manifest sont résolus depuis le premier manifest `compose.yaml`, donc depuis la racine du dossier de test.
 Si Docker signale un chevauchement de sous-réseau, choisir un réseau libre et modifier ensemble son CIDR,
-les deux IP fixes, `set_real_ip_from`, la clé de `map` et `TRUST_PROXY`.
+les deux IP fixes, `trusted_proxies`, la clé de `map` et `TRUST_PROXY`.
 
 Le connecteur doit apparaître connecté dans Cloudflare. `--wait` ne vérifie pas à lui seul la connexion
 du tunnel : les logs et la requête HTTPS suivante sont nécessaires.
@@ -592,7 +600,7 @@ k6_test \
 
 Suivre aussi CPU/RAM de `load-proxy` et `load-cloudflared` avec `docker stats` sur A.
 Comparer les erreurs, le débit atteint, les latences et les métriques API pour le même jeu de données.
-Les différences incluent le réseau, SSH pour le test direct, TLS public, Cloudflare, Nginx et le tunnel :
+Les différences incluent le réseau, SSH pour le test direct, TLS public, Cloudflare, Caddy et le tunnel :
 elles ne mesurent pas uniquement le coût de `cloudflared`.
 
 Cloudflare ne publie pas de plafond RPS universel pour les tunnels nommés dans ses

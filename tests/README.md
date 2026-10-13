@@ -127,19 +127,13 @@ python3 scripts/verify-continuation-postgres.py --sudo-docker
 
 Cargo reste exécuté par l’utilisateur courant ; `sudo` s’applique uniquement aux commandes Docker. Avec un accès Docker déjà disponible, omettre `sudo -v` et `--sudo-docker`. Le lanceur crée un PostgreSQL avec une publication sur une adresse loopback et un port aléatoire, teste le migrateur livré sur base neuve et ancienne, puis exécute les suites avec `histae_app`. Ses fixtures, conteneur, tmpfs et mots de passe temporaires sont supprimés à la fin. Il ne se connecte pas au PostgreSQL de la pile dev.
 
-## Sécurité du tunnel et des logs Nginx
+## Vérifications HTTP derrière Caddy
 
-`python3 scripts/verify-edge-security.py` vérifie les ports et la confiance proxy des manifests, la rotation des
-logs, puis les trois configurations Nginx avec des en-têtes et paramètres privés factices. Les projets voisins
-`histae-dashboard`, `histae-site` et `reverse-proxy` doivent être présents. Les conteneurs de test sont temporaires,
-sans réseau externe ni accès à la base partagée. Les valeurs Compose sont synthétiques ; le `.env` réel n’est pas lu.
+Le [guide Caddy](../docs/caddy-migration.md) décrit les commandes de validation des configurations et les
+contrôles après déploiement : authentification, erreurs HTTP, SSE et photos signées. Les résultats de la
+campagne locale de migration sont conservés dans ce guide.
 
-Si Docker exige sudo :
+## Signature des récompenses publicitaires
 
-```bash
-sudo -v
-python3 scripts/verify-edge-security.py --sudo-docker
-```
-
-Les tests `advertising::ssv::tests` couvrent aussi la signature, le cache périmé, l’actualisation concurrente et
+Les tests `advertising::ssv::tests` couvrent la signature, le cache périmé, l’actualisation concurrente et
 les limites d’admission, avec des clés générées en mémoire et sans appel à Google.

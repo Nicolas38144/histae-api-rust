@@ -177,9 +177,12 @@ services:
 
   # Unique entrée S3 : HTTPS, Host conservé pour les signatures, aucun accès au filer.
   storage-gateway:
-    image: nginx:1.30.4-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c
-    entrypoint: [nginx]
-    command: [-g, 'daemon off;']
+    image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+    entrypoint: [caddy]
+    command: [run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
+    environment:
+      XDG_CONFIG_HOME: /tmp/config
+      XDG_DATA_HOME: /tmp/data
     user: "101:101"
     read_only: true
     tmpfs: [/tmp:size=32m,noexec,nosuid,nodev]
@@ -187,10 +190,10 @@ services:
     cap_add: [NET_BIND_SERVICE]
     security_opt: [no-new-privileges:true]
     volumes:
-      - ./docker/storage-gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/storage-gateway/Caddyfile:/etc/caddy/Caddyfile:ro
       - type: bind
         source: ./.secrets/storage-gateway
-        target: /etc/nginx/tls
+        target: /etc/caddy/tls
         read_only: true
         bind:
           create_host_path: false
@@ -278,7 +281,7 @@ services:
         condition: service_healthy
 
   api:
-    # Cloudflare/Nginx reaches the API on edge; never publish a host port here.
+    # Cloudflare/Caddy reaches the API on edge; never publish a host port here.
     ports: !reset []
     env_file: !override ["${HISTAE_ENV_FILE:-.env}"]
     entrypoint: [/app/bin/api]
