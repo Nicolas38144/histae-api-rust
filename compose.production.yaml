@@ -278,6 +278,8 @@ services:
         condition: service_healthy
 
   api:
+    # Cloudflare/Nginx reaches the API on edge; never publish a host port here.
+    ports: !reset []
     env_file: !override ["${HISTAE_ENV_FILE:-.env}"]
     entrypoint: [/app/bin/api]
     depends_on: *production-dependencies
@@ -287,8 +289,9 @@ services:
       PORT: "8080"
       MAINTENANCE_MODE: disabled
       METRICS_HOST: 0.0.0.0
-      # Adresses fixes du dashboard et de Nginx dans la pile reverse-proxy.
-      TRUST_PROXY: ${TRUST_PROXY:-172.30.0.3/32,172.30.0.4/32}
+      # The fixed proxy addresses match ../reverse-proxy/docker-compose.yml.
+      # A local TRUST_PROXY=false must not collapse all tunnel clients into one IP.
+      TRUST_PROXY: "172.30.0.3/32,172.30.0.4/32"
     secrets:
       - postgres_ca
     restart: always

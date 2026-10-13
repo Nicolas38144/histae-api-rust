@@ -16,7 +16,9 @@ aucun mode décrit ici ne monte les sources pour les recharger automatiquement.
 
 Ne pas combiner `compose.dev.yaml` et `compose.production.yaml`. Le fichier de base seul ne fournit pas
 les services PostgreSQL, Redis, S3 ou de modération. La production n’emploie pas `compose.proxy.yaml` :
-son raccordement au proxy est déjà inclus.
+son raccordement au proxy est déjà inclus. L’override production réinitialise les ports hôte de l’API
+et impose les deux IP de proxy approuvées (`172.30.0.3/32`, `172.30.0.4/32`). Une valeur locale
+`TRUST_PROXY=false` ne désactive donc pas la séparation des visiteurs derrière le tunnel en production.
 
 Les deux piles séparent les rôles PostgreSQL. Sur une base dev existante utilisant l'ancien rôle unique,
 suivre [la conversion sans suppression](postgres-roles.md#convertir-la-base-dev-existante-sans-supprimer-ses-donnees)

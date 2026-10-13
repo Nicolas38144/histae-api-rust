@@ -4,6 +4,7 @@ use base64::{
     engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD},
 };
 use openssl::{
+    ecdsa::EcdsaSig,
     hash::MessageDigest,
     pkey::{PKey, Public},
     sign::Verifier,
@@ -14,7 +15,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
 
 const KEYS_URL: &str = "https://www.gstatic.com/admob/reward/verifier-keys.json";
@@ -23,6 +24,8 @@ const MAX_KEY_DOCUMENT_BYTES: usize = 65_536;
 const KEY_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const KEY_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const KEY_REFRESH_COOLDOWN: Duration = Duration::from_secs(30);
+const MAX_CONCURRENT_VERIFICATIONS: usize = 32;
+const MAX_KEY_REFRESH_WAITERS: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VerificationError {
@@ -64,6 +67,11 @@ fn parse(raw: &str) -> Result<SignedQuery<'_>, VerificationError> {
         .decode(signature)
         .or_else(|_| URL_SAFE.decode(signature))
         .map_err(|_| invalid)?;
+    // P-256 signatures are DER encoded. Reject malformed signatures before any
+    // key refresh so empty or arbitrary bytes cannot initiate a Google request.
+    if !(8..=72).contains(&signature.len()) || EcdsaSig::from_der(&signature).is_err() {
+        return Err(invalid);
+    }
     let key_id = key_id.parse().map_err(|_| invalid)?;
     let mut fields = BTreeMap::new();
     for (key, value) in url::form_urlencoded::parse(content.as_bytes()) {
@@ -138,10 +146,22 @@ struct KeyCache {
     failed_at: Option<Instant>,
     unknown_refresh_at: Option<Instant>,
 }
+
+impl KeyCache {
+    fn fresh_key(&self, id: u64) -> Option<PKey<Public>> {
+        self.fetched_at
+            .filter(|at| at.elapsed() < KEY_CACHE_TTL)
+            .and_then(|_| self.keys.get(&id).cloned())
+    }
+}
+
 #[derive(Clone)]
 pub struct AdMobVerifier {
     client: reqwest::Client,
     cache: Arc<Mutex<KeyCache>>,
+    refresh_gate: Arc<Semaphore>,
+    refresh_waiters: Arc<Semaphore>,
+    verification_slots: Arc<Semaphore>,
 }
 #[derive(Deserialize)]
 struct KeyDocument {
@@ -164,41 +184,76 @@ impl AdMobVerifier {
         Ok(Self {
             client,
             cache: Arc::new(Mutex::new(KeyCache::default())),
+            refresh_gate: Arc::new(Semaphore::new(1)),
+            refresh_waiters: Arc::new(Semaphore::new(MAX_KEY_REFRESH_WAITERS)),
+            verification_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_VERIFICATIONS)),
         })
     }
     pub async fn verify(&self, raw: &str) -> Result<Callback, VerificationError> {
         let signed = parse(raw)?;
-        let mut cache = self.cache.lock().await;
-        let age = cache.fetched_at.map(|at| at.elapsed());
-        let unknown = !cache.keys.contains_key(&signed.key_id);
-        let refresh_unknown = unknown
-            && cache
-                .unknown_refresh_at
-                .is_none_or(|at| at.elapsed() >= KEY_REFRESH_COOLDOWN);
-        if age.is_none_or(|age| age >= KEY_CACHE_TTL) || refresh_unknown {
+        let key = self.key(signed.key_id).await?;
+        let _slot = self
+            .verification_slots
+            .try_acquire()
+            .map_err(|_| VerificationError::Unavailable)?;
+        verify(&key, &signed)?;
+        Ok(signed.callback)
+    }
+
+    async fn key(&self, id: u64) -> Result<PKey<Public>, VerificationError> {
+        if let Some(key) = self.cache.lock().await.fresh_key(id) {
+            return Ok(key);
+        }
+        // Bound cache-miss waiters independently from signature verification:
+        // an unknown-key burst must not consume the fresh-key verification slots.
+        let _waiter = self
+            .refresh_waiters
+            .try_acquire()
+            .map_err(|_| VerificationError::Unavailable)?;
+        let _refresh = tokio::time::timeout(KEY_REQUEST_TIMEOUT, self.refresh_gate.acquire())
+            .await
+            .map_err(|_| VerificationError::Unavailable)?
+            .map_err(|_| VerificationError::Unavailable)?;
+        {
+            let mut cache = self.cache.lock().await;
+            if let Some(key) = cache.fresh_key(id) {
+                return Ok(key);
+            }
             if cache
                 .failed_at
                 .is_some_and(|at| at.elapsed() < KEY_REFRESH_COOLDOWN)
             {
                 return Err(VerificationError::Unavailable);
             }
-            // Bound retries when Google is unavailable, without accepting stale keys.
+            let fresh = cache
+                .fetched_at
+                .is_some_and(|at| at.elapsed() < KEY_CACHE_TTL);
+            let unknown = !cache.keys.contains_key(&id);
+            if fresh
+                && unknown
+                && cache
+                    .unknown_refresh_at
+                    .is_some_and(|at| at.elapsed() < KEY_REFRESH_COOLDOWN)
+            {
+                return Err(VerificationError::Invalid);
+            }
+            // Set this before awaiting: failure or cancellation also observes
+            // the cooldown. Expired keys are never accepted as a fallback.
             cache.failed_at = Some(Instant::now());
             if unknown {
                 cache.unknown_refresh_at = Some(Instant::now());
             }
-            cache.keys = self.fetch_keys().await?;
-            cache.fetched_at = Some(Instant::now());
-            cache.failed_at = None;
         }
-        let key = cache
+        let keys = self.fetch_keys().await?;
+        let mut cache = self.cache.lock().await;
+        cache.keys = keys;
+        cache.fetched_at = Some(Instant::now());
+        cache.failed_at = None;
+        cache
             .keys
-            .get(&signed.key_id)
+            .get(&id)
             .cloned()
-            .ok_or(VerificationError::Invalid)?;
-        drop(cache);
-        verify(&key, &signed)?;
-        Ok(signed.callback)
+            .ok_or(VerificationError::Invalid)
     }
     async fn fetch_keys(&self) -> Result<BTreeMap<u64, PKey<Public>>, VerificationError> {
         let mut response = self
@@ -309,5 +364,142 @@ mod tests {
                 .await,
             Err(VerificationError::Invalid)
         ));
+    }
+
+    #[tokio::test]
+    async fn fresh_keys_remain_available_during_refresh_and_after_refresh_failure() {
+        let (key, raw) = signed_query();
+        let verifier = AdMobVerifier::new().unwrap();
+        {
+            let mut cache = verifier.cache.lock().await;
+            cache.keys.insert(42, key);
+            cache.fetched_at = Some(Instant::now());
+            cache.failed_at = Some(Instant::now());
+        }
+        let refresh = verifier.refresh_gate.try_acquire().unwrap();
+        let waiting_verifier = verifier.clone();
+        let unknown = raw.replace("key_id=42", "key_id=43");
+        let waiting = tokio::spawn(async move { waiting_verifier.verify(&unknown).await });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        let result = tokio::time::timeout(Duration::from_millis(100), verifier.verify(&raw))
+            .await
+            .expect("a fresh key must not wait for the downloader");
+        assert!(result.is_ok());
+        drop(refresh);
+        assert!(matches!(
+            waiting.await.unwrap(),
+            Err(VerificationError::Unavailable)
+        ));
+        assert!(verifier.verify(&raw).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn expired_keys_are_rejected_during_refresh_and_failure_cooldown() {
+        let (key, raw) = signed_query();
+        let verifier = AdMobVerifier::new().unwrap();
+        {
+            let mut cache = verifier.cache.lock().await;
+            cache.keys.insert(42, key);
+            cache.fetched_at = Some(Instant::now() - KEY_CACHE_TTL);
+            cache.failed_at = Some(Instant::now());
+        }
+        let refresh = verifier.refresh_gate.try_acquire().unwrap();
+        let waiting_verifier = verifier.clone();
+        let waiting_raw = raw.clone();
+        let waiting = tokio::spawn(async move { waiting_verifier.verify(&waiting_raw).await });
+        tokio::task::yield_now().await;
+        assert!(
+            !waiting.is_finished(),
+            "expired keys cannot satisfy a cache miss"
+        );
+        drop(refresh);
+        assert!(matches!(
+            waiting.await.unwrap(),
+            Err(VerificationError::Unavailable)
+        ));
+        assert!(matches!(
+            verifier.verify(&raw).await,
+            Err(VerificationError::Unavailable)
+        ));
+    }
+
+    #[tokio::test]
+    async fn verification_capacity_is_bounded_without_a_waiting_queue() {
+        let (key, raw) = signed_query();
+        let verifier = AdMobVerifier::new().unwrap();
+        {
+            let mut cache = verifier.cache.lock().await;
+            cache.keys.insert(42, key);
+            cache.fetched_at = Some(Instant::now());
+        }
+        let slots = verifier
+            .verification_slots
+            .try_acquire_many(MAX_CONCURRENT_VERIFICATIONS as u32)
+            .unwrap();
+        let result = tokio::time::timeout(Duration::from_millis(100), verifier.verify(&raw))
+            .await
+            .expect("capacity exhaustion must not enqueue a request");
+        assert!(matches!(result, Err(VerificationError::Unavailable)));
+        drop(slots);
+        assert!(verifier.verify(&raw).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn refresh_waiters_are_bounded_and_share_the_downloaded_keys() {
+        let (key, raw) = signed_query();
+        let verifier = AdMobVerifier::new().unwrap();
+        {
+            let mut cache = verifier.cache.lock().await;
+            cache.keys.insert(42, key.clone());
+            cache.fetched_at = Some(Instant::now());
+        }
+        let waiters = verifier
+            .refresh_waiters
+            .try_acquire_many(MAX_KEY_REFRESH_WAITERS as u32)
+            .unwrap();
+        let unknown = raw.replace("key_id=42", "key_id=43");
+        assert!(matches!(
+            verifier.verify(&unknown).await,
+            Err(VerificationError::Unavailable)
+        ));
+        assert!(
+            verifier.verify(&raw).await.is_ok(),
+            "refresh saturation must not block a fresh key"
+        );
+        drop(waiters);
+
+        let refresh = verifier.refresh_gate.try_acquire().unwrap();
+        let waiting_verifier = verifier.clone();
+        let waiting = tokio::spawn(async move { waiting_verifier.verify(&unknown).await });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        {
+            let mut cache = verifier.cache.lock().await;
+            cache.keys.insert(43, key);
+            cache.fetched_at = Some(Instant::now());
+        }
+        drop(refresh);
+        assert!(waiting.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn malformed_signatures_are_rejected_before_key_fetch_or_admission() {
+        let (_, raw) = signed_query();
+        let (content, _) = raw.rsplit_once("&signature=").unwrap();
+        let verifier = AdMobVerifier::new().unwrap();
+        let _slots = verifier
+            .verification_slots
+            .try_acquire_many(MAX_CONCURRENT_VERIFICATIONS as u32)
+            .unwrap();
+        for signature in ["", "AA", &URL_SAFE_NO_PAD.encode([0_u8; 73])] {
+            assert!(matches!(
+                verifier
+                    .verify(&format!("{content}&signature={signature}&key_id=42"))
+                    .await,
+                Err(VerificationError::Invalid)
+            ));
+        }
+        assert!(verifier.cache.lock().await.failed_at.is_none());
     }
 }

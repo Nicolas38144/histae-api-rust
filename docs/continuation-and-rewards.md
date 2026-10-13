@@ -150,3 +150,17 @@ Voir [Tests](../tests/README.md) pour les commandes et [Résultats de validation
 - [Google — choix de confidentialité UMP](https://developers.google.com/admob/flutter/privacy)
 - [Google — règles applicables aux unités récompensées](https://support.google.com/admob/answer/7313578?hl=fr)
 - [CNIL — recommandations pour les applications mobiles](https://www.cnil.fr/fr/recommandations-applications-mobiles)
+
+### Disponibilité des clés de vérification
+
+Le cache reste limité à 24 heures, la requête HTTPS à 5 secondes et le document à 64 Kio. Les signatures
+DER P-256 malformées sont rejetées avant tout téléchargement. Un seul téléchargement est autorisé à la fois,
+avec au plus 32 demandes attendant une clé et une attente de 5 secondes maximum. Ces attentes n’occupent pas
+les 32 places de vérification cryptographique : une clé encore valide peut servir pendant une actualisation.
+Une clé expirée n’est jamais utilisée comme repli. Échec ou annulation du téléchargement conservent le cooldown
+existant de 30 secondes.
+
+La saturation ou l’indisponibilité renvoie `503 admob_verification_unavailable`, sans octroi de crédit. Google
+annonce jusqu’à cinq retries espacés d’une seconde : la grâce applicative de 24 heures accepte une preuve tardive,
+mais ne garantit pas une nouvelle livraison pendant 24 heures. Vérifier ce parcours avec AdMob avant activation.
+Voir le [guide officiel SSV](https://developers.google.com/admob/android/ssv#faq).
