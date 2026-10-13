@@ -92,3 +92,7 @@ cargo test --locked --lib --test http_contract --test route_inventory
 La suite complète exige PostgreSQL, Redis, S3 et le codec installés : voir les
 [niveaux de validation et règles d’isolation](tests/README.md). La réussite des tests locaux ne remplace
 pas les essais des fournisseurs, de WebAuthn dans le navigateur, de charge et de restauration.
+
+## Continuations et récompenses
+
+Le [guide des crédits](docs/continuation-and-rewards.md) décrit la pause de la messagerie, les décisions privées, les réservations des deux participants et la vérification serveur AdMob. Le fournisseur publicitaire est désactivé par défaut ; les interfaces mobiles et les callbacks réels doivent être validés avant son activation. [Résultats des tests](docs/continuation-validation.md).

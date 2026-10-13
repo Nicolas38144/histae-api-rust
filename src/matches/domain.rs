@@ -6,6 +6,10 @@ use uuid::Uuid;
 use crate::identity::mobile::domain::wire_timestamp;
 use crate::profiles::domain::Sex;
 
+pub const ADVERTISING_STOCK_LIMIT: i32 = 3;
+pub const FREE_WEEKLY_CREDITS: i32 = 3;
+pub const FREE_WEEKLY_CONTINUATION_LIMIT: i32 = 6;
+
 pub const MATCH_WINDOW_HOURS: i64 = 24;
 pub const MATCH_PURGE_DAYS: i64 = 30;
 
@@ -256,7 +260,8 @@ impl UserMatchRow {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectivePlan {
     pub plan: String,
-    pub weekly_limit: Option<i16>,
+    /// Included weekly credits; `None` means unlimited continuations.
+    pub weekly_credits: Option<i16>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -267,6 +272,12 @@ pub struct ContinuationQuota {
     pub weekly_limit: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remaining: Option<i32>,
+    pub weekly_credits: i32,
+    pub free_remaining: i32,
+    pub advertising_balance: i32,
+    pub advertising_remaining: i32,
+    pub reserved: i32,
+    pub advertising_stock_limit: i32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -292,12 +303,14 @@ pub struct MatchEnd {
 pub enum ContinuationResult {
     Pending,
     Confirmed,
+    AlreadyConfirmed,
     AlreadyRecorded,
     NotAvailableYet,
     NotFound,
     InvalidState,
     Expired,
     QuotaReached,
+    PlanChanged,
 }
 
 pub fn start_of_utc_week(now: DateTime<Utc>) -> NaiveDate {

@@ -152,7 +152,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "200 { plans: [...] }."
+                "description": "Catalogue avec weekly_included_credits, weekly_continuation_limit, advertising_credit_stock_limit, ads_removed et rewarded_advertising_enabled."
               },
               "response": []
             }
@@ -1097,9 +1097,23 @@
                     }
                   ]
                 },
-                "description": "200 : plan effectif, usage, weekly_limit, remaining pour un plan limité."
+                "description": "200 : plan effectif, usage confirmé, crédits gratuits/publicitaires, réservations et plafond. Free : 3 crédits par semaine, stock publicitaire de 3, 6 continuations confirmées/semaine. Premium omet weekly_limit et remaining."
               },
-              "response": []
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "  const quota = pm.response.json();",
+                      "  pm.collectionVariables.set(\"continuationCreditCost\", quota.weekly_limit === undefined ? \"0\" : \"1\");",
+                      "}"
+                    ]
+                  }
+                }
+              ]
             },
             {
               "name": "PATCH /api/matches/:id/reveal",
@@ -1134,6 +1148,10 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
                   }
                 ],
                 "url": "{{baseUrl}}/api/matches/{{matchId}}/continue",
@@ -1147,7 +1165,16 @@
                     }
                   ]
                 },
-                "description": "Aucun corps → 200 { message, match_confirmed }."
+                "description": "Coût maximal explicite : 1 pour Free, 0 pour Premium. Chaque participant Free réserve son propre crédit. Les deux sont débités après les deux accords. Envoi suspendu pendant la décision ; choix privés. Lire le quota avant de choisir.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"credit_cost\": {{continuationCreditCost}}\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
               },
               "response": []
             },
@@ -3188,6 +3215,130 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Récompenses publicitaires",
+      "item": [
+        {
+          "name": "POST /api/users/me/advertising-rewards",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/advertising-rewards",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Préparer/reprendre une intention Free propriétaire. Une vidéo vérifiée donne 1 crédit ; stock maximum 3. Fournisseur désactivé : 503 advertising_disabled. Transmettre uniquement custom_data dans SSV, jamais l’UUID du compte Histae.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"platform\": \"{{rewardPlatform}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set(\"rewardId\", pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/users/me/advertising-rewards/:id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/advertising-rewards/{{rewardId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Lire sa propre intention : pending, credited, expired ou cancelled. Relire le quota après credited."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/users/me/advertising-rewards/:id",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/advertising-rewards/{{rewardId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Annuler une intention abandonnée, non créditée : 204. Ne pas annuler une vidéo terminée en attente de callback ; les preuves ultérieures seraient invalidées."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/auth/admob/webhook?{{admobSignedQuery}}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/admob/webhook?{{admobSignedQuery}}",
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Utiliser la query exacte d’un callback AdMob signé réel, sans ? initial. Ne pas changer ordre ou encodage. Aucun watched=true accepté. Fournisseur désactivé : 503 ; preuve invalide : 400 ; crédit/rejeu vérifié : 200. Ne pas inclure de user_id personnel."
+          },
+          "response": []
+        }
+      ]
     }
   ],
   "variable": [
@@ -3343,6 +3494,26 @@
     },
     {
       "key": "sweegoWebhookSignature",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "continuationCreditCost",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "rewardPlatform",
+      "value": "android",
+      "type": "string"
+    },
+    {
+      "key": "rewardId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admobSignedQuery",
       "value": "",
       "type": "string"
     }

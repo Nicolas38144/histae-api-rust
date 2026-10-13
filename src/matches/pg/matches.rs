@@ -9,8 +9,7 @@ use crate::matches::store::MatchStoreError;
 use crate::matches::store::{MatchStore, MatchStoreFuture};
 use crate::notifications::{domain::NotificationIntent, enqueue_notification};
 use crate::profiles::domain::Sex;
-use chrono::NaiveDate;
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
@@ -18,11 +17,22 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct PgMatchRepository {
     database: Database,
+    legal: Option<crate::config::LegalConfig>,
 }
 
 impl PgMatchRepository {
     pub fn new(database: Database) -> Self {
-        Self { database }
+        Self {
+            database,
+            legal: None,
+        }
+    }
+}
+
+impl PgMatchRepository {
+    pub fn with_legal(mut self, legal: crate::config::LegalConfig) -> Self {
+        self.legal = Some(legal);
+        self
     }
 }
 
@@ -240,9 +250,14 @@ impl MatchStore for PgMatchRepository {
                             )
                             .bind(match_id)
                             .bind(MATCH_PURGE_DAYS)
-                            .execute(connection)
+                            .execute(&mut *connection)
                             .await
                             .map_err(map_sqlx_error)?;
+                            sqlx::query("DELETE FROM continuation_reservation WHERE match_id=$1")
+                                .bind(match_id)
+                                .execute(connection)
+                                .await
+                                .map_err(map_sqlx_error)?;
                         }
                         Ok(Some(MatchEnd {
                             participant_ids: [
@@ -284,35 +299,14 @@ impl MatchStore for PgMatchRepository {
         })
     }
 
-    fn effective_plan(
+    fn quota_snapshot(
         &self,
         user_id: Uuid,
         now: DateTime<Utc>,
-    ) -> MatchStoreFuture<'_, EffectivePlan> {
+    ) -> MatchStoreFuture<'_, super::super::domain::ContinuationQuota> {
         Box::pin(async move {
             let mut connection = self.database.acquire().await?;
-            effective_plan_on(&mut connection, user_id, now).await
-        })
-    }
-
-    fn continuation_usage(
-        &self,
-        user_id: Uuid,
-        week_start: NaiveDate,
-    ) -> MatchStoreFuture<'_, i32> {
-        Box::pin(async move {
-            let mut connection = self.database.acquire().await?;
-            let used = sqlx::query_scalar::<_, i16>(
-                "SELECT used_count FROM continuation_usage
-                 WHERE user_id = $1 AND week_start = $2",
-            )
-            .bind(user_id)
-            .bind(week_start)
-            .fetch_optional(&mut *connection)
-            .await
-            .map_err(map_sqlx_error)?
-            .unwrap_or(0);
-            Ok(i32::from(used))
+            super::credits::quota_on(&mut connection, user_id, now).await
         })
     }
 
@@ -320,178 +314,22 @@ impl MatchStore for PgMatchRepository {
         &self,
         match_id: Uuid,
         user_id: Uuid,
+        cost: i32,
     ) -> MatchStoreFuture<'_, ContinuationResult> {
+        let legal = self.legal.clone();
         Box::pin(async move {
             self.database
                 .transaction(|connection| {
-                    Box::pin(async move {
-                        let header = sqlx::query(
-                            "WITH locked AS MATERIALIZED (
-                               SELECT status, expires_at, continuation_initiator_id
-                               FROM match_init
-                               WHERE id = $1 AND (user1_id = $2 OR user2_id = $2)
-                               FOR UPDATE
-                             )
-                             SELECT locked.*, clock_timestamp() AS database_now FROM locked",
-                        )
-                        .bind(match_id)
-                        .bind(user_id)
-                        .fetch_optional(&mut *connection)
-                        .await
-                        .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                        let Some(header) = header else {
-                            return Ok(ContinuationResult::NotFound);
-                        };
-                        let now: DateTime<Utc> = header
-                            .try_get("database_now")
-                            .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                        let mut status = parse_status(
-                            header
-                                .try_get("status")
-                                .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?,
-                        )?;
-                        let mut expires_at: DateTime<Utc> = header
-                            .try_get("expires_at")
-                            .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                        let mut initiator: Option<Uuid> = header
-                            .try_get("continuation_initiator_id")
-                            .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-
-                        if status == MatchStatus::Active {
-                            if expires_at > now {
-                                return Ok(ContinuationResult::NotAvailableYet);
-                            }
-                            let opened = sqlx::query(
-                                "UPDATE match_init
-                                 SET status = 'awaiting_continuation',
-                                     expires_at = $2 + INTERVAL '24 hours'
-                                 WHERE id = $1
-                                 RETURNING status, expires_at, continuation_initiator_id",
-                            )
-                            .bind(match_id)
-                            .bind(now)
-                            .fetch_one(&mut *connection)
-                            .await
-                            .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                            status = parse_status(
-                                opened.try_get("status").map_err(|error| {
-                                    MatchStoreError::Database(map_sqlx_error(error))
-                                })?,
-                            )?;
-                            expires_at = opened.try_get("expires_at").map_err(|error| {
-                                MatchStoreError::Database(map_sqlx_error(error))
-                            })?;
-                            initiator = opened.try_get("continuation_initiator_id").map_err(
-                                |error| MatchStoreError::Database(map_sqlx_error(error)),
-                            )?;
-                        }
-                        if status != MatchStatus::AwaitingContinuation {
-                            return Ok(ContinuationResult::InvalidState);
-                        }
-                        if expires_at <= now {
-                            sqlx::query(
-                                "UPDATE match_init
-                                 SET status = 'expired', purge_after = $2
-                                 WHERE id = $1",
-                            )
-                            .bind(match_id)
-                            .bind(now + TimeDelta::days(MATCH_PURGE_DAYS))
-                            .execute(&mut *connection)
-                            .await
-                            .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                            return Ok(ContinuationResult::Expired);
-                        }
-                        let continued = sqlx::query_scalar::<_, bool>(
-                            "SELECT continued FROM match_state
-                             WHERE match_id = $1 AND user_id = $2 FOR UPDATE",
-                        )
-                        .bind(match_id)
-                        .bind(user_id)
-                        .fetch_optional(&mut *connection)
-                        .await
-                        .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                        let Some(continued) = continued else {
-                            return Ok(ContinuationResult::NotFound);
-                        };
-                        if continued {
-                            return Ok(ContinuationResult::AlreadyRecorded);
-                        }
-                        let Some(initiator) = initiator else {
-                            sqlx::query(
-                                "UPDATE match_state SET continued = true
-                                 WHERE match_id = $1 AND user_id = $2",
-                            )
-                            .bind(match_id)
-                            .bind(user_id)
-                            .execute(&mut *connection)
-                            .await
-                            .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                            sqlx::query(
-                                "UPDATE match_init SET continuation_initiator_id = $2 WHERE id = $1",
-                            )
-                            .bind(match_id)
-                            .bind(user_id)
-                            .execute(&mut *connection)
-                            .await
-                            .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                            return Ok(ContinuationResult::Pending);
-                        };
-
-                        let plan = effective_plan_on(connection, initiator, now).await?;
-                        if let Some(limit) = plan.weekly_limit {
-                            let usage = sqlx::query_scalar::<_, i16>(
-                                "INSERT INTO continuation_usage (user_id, week_start, used_count)
-                                 SELECT $1, date_trunc('week', $2 AT TIME ZONE 'UTC')::date, 1
-                                 WHERE $3 > 0
-                                 ON CONFLICT (user_id, week_start) DO UPDATE
-                                   SET used_count = continuation_usage.used_count + 1
-                                 WHERE continuation_usage.used_count < $3
-                                 RETURNING used_count",
-                            )
-                            .bind(initiator)
-                            .bind(now)
-                            .bind(limit)
-                            .fetch_optional(&mut *connection)
-                            .await
-                            .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                            if usage.is_none() {
-                                return Ok(ContinuationResult::QuotaReached);
-                            }
-                        }
-                        sqlx::query(
-                            "UPDATE match_state SET continued = true
-                             WHERE match_id = $1 AND user_id = $2",
-                        )
-                        .bind(match_id)
-                        .bind(user_id)
-                        .execute(&mut *connection)
-                        .await
-                        .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                        let confirmed = sqlx::query(
-                            "UPDATE match_init SET status = 'confirmed', purge_after = NULL
-                             WHERE id = $1 AND status = 'awaiting_continuation'
-                               AND expires_at > $2
-                               AND (SELECT count(*) FROM match_state
-                                    WHERE match_id = $1 AND continued = true) = 2",
-                        )
-                        .bind(match_id)
-                        .bind(now)
-                        .execute(&mut *connection)
-                        .await
-                        .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                        Ok(if confirmed.rows_affected() == 1 {
-                            ContinuationResult::Confirmed
-                        } else {
-                            ContinuationResult::InvalidState
-                        })
-                    })
+                    Box::pin(super::continuation::record(
+                        connection, match_id, user_id, legal, cost,
+                    ))
                 })
                 .await
         })
     }
 }
 
-async fn effective_plan_on(
+pub(super) async fn effective_plan_on(
     connection: &mut PgConnection,
     user_id: Uuid,
     now: DateTime<Utc>,
@@ -524,7 +362,7 @@ async fn effective_plan_on(
         plan: row
             .try_get("code")
             .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?,
-        weekly_limit: row
+        weekly_credits: row
             .try_get("weekly_continuation_limit")
             .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?,
     })

@@ -39,6 +39,7 @@ impl From<DatabaseError> for CatalogError {
 pub struct CatalogService {
     store: Arc<dyn CatalogStore>,
     moderator: TextModerator,
+    advertising_enabled: bool,
 }
 
 impl CatalogService {
@@ -46,7 +47,13 @@ impl CatalogService {
         Self {
             store,
             moderator: TextModerator,
+            advertising_enabled: false,
         }
+    }
+
+    pub fn with_advertising(mut self, enabled: bool) -> Self {
+        self.advertising_enabled = enabled;
+        self
     }
 
     pub async fn plans(&self) -> Result<Vec<SubscriptionPlan>, CatalogError> {
@@ -62,7 +69,16 @@ impl CatalogService {
                     annual_price_cents: row.annual_price_cents,
                     currency: row.currency,
                     trial_days: row.trial_days,
-                    weekly_continuation_limit: row.weekly_continuation_limit,
+                    weekly_continuation_limit: row
+                        .weekly_continuation_limit
+                        .map(|_| crate::matches::domain::FREE_WEEKLY_CONTINUATION_LIMIT),
+                    weekly_included_credits: row
+                        .weekly_continuation_limit
+                        .map(|value| value.min(crate::matches::domain::FREE_WEEKLY_CREDITS)),
+                    advertising_credit_stock_limit: crate::matches::domain::ADVERTISING_STOCK_LIMIT,
+                    ads_removed: row.weekly_continuation_limit.is_none(),
+                    rewarded_advertising_enabled: self.advertising_enabled
+                        && row.weekly_continuation_limit.is_some(),
                     features: Vec::new(),
                 });
             }

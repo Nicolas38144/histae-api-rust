@@ -94,6 +94,13 @@ impl MatchMessageStore for PgMatchMessageRepository {
                                     return Ok(MessageCreationResult::Unavailable(reason));
                                 }
                             };
+                        if available.status
+                            == crate::matches::domain::MatchStatus::AwaitingContinuation
+                        {
+                            return Ok(MessageCreationResult::Unavailable(
+                                crate::matches::domain::MatchAvailabilityFailure::InvalidState,
+                            ));
+                        }
                         if let Some(replay) =
                             find_idempotent_message(connection, sender_id, idempotency_key).await?
                         {

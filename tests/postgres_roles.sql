@@ -11,7 +11,7 @@ BEGIN
     RAISE EXCEPTION 'unexpected privileged role';
   END IF;
   IF (SELECT count(*) FROM pg_tables WHERE schemaname = 'public'
-    AND tableowner = 'histae_migrate') <> 46 THEN
+    AND tableowner = 'histae_migrate') <> 49 THEN
     RAISE EXCEPTION 'application schema or future table missing';
   END IF;
   IF pg_has_role(current_user, 'histae_migrate', 'MEMBER')

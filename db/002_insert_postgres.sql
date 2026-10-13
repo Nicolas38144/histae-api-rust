@@ -12,16 +12,22 @@ INSERT INTO subscription_plan (
 ) VALUES ('premium', 'Premium', 500, 4800, 'EUR', NULL, 30)
 ON CONFLICT (code) DO NOTHING;
 
+-- BEGIN subscription plan features
 INSERT INTO subscription_plan_feature (
   plan_code, feature_code, display_name, description, feature_value, sort_order
 ) VALUES
-  ('free', 'messages', 'Messaging', 'Message participants while the match remains open.', '{"included":true}'::jsonb, 0),
+  ('free', 'messages', 'Messaging', 'Send messages during the initial window and after mutual continuation.', '{"included":true}'::jsonb, 0),
   ('free', 'photo_reveal', 'Mutual photo reveal', 'Reveal profile photos after both participants agree.', '{"included":true}'::jsonb, 1),
-  ('free', 'continuations', '3 continuations per week', 'Three successful match continuations each week.', '{"limit":3}'::jsonb, 2),
-  ('premium', 'messages', 'Messaging', 'Message participants while the match remains open.', '{"included":true}'::jsonb, 0),
+  ('free', 'continuations', '3 free credits each week', 'Each Free participant reserves their own credit. Both are charged after mutual agreement; at most six confirmed continuations per week.', '{"weekly_credits":3,"limit":6}'::jsonb, 2),
+  ('free', 'advertising_credits', 'Optional rewarded videos', 'One verified video earns one credit. Up to three advertising credits are retained across weeks.', '{"reward_credits":1,"stock_limit":3}'::jsonb, 3),
+  ('premium', 'messages', 'Messaging', 'Send messages during the initial window and after mutual continuation.', '{"included":true}'::jsonb, 0),
   ('premium', 'photo_reveal', 'Mutual photo reveal', 'Reveal profile photos after both participants agree.', '{"included":true}'::jsonb, 1),
-  ('premium', 'continuations', 'Unlimited continuations', 'Continue matches without a weekly limit.', '{"limit":"unlimited"}'::jsonb, 2)
-ON CONFLICT (plan_code, feature_code) DO NOTHING;
+  ('premium', 'continuations', 'Unlimited continuations', 'No weekly limit or credit charge. Both participants must still agree.', '{"limit":"unlimited"}'::jsonb, 2),
+  ('premium', 'no_ads', 'No advertising', 'Premium does not request rewarded videos.', '{"included":true}'::jsonb, 3)
+ON CONFLICT (plan_code, feature_code) DO UPDATE SET
+  display_name = EXCLUDED.display_name, description = EXCLUDED.description,
+  feature_value = EXCLUDED.feature_value, sort_order = EXCLUDED.sort_order;
+-- END subscription plan features
 
 -- =========================================
 -- INITIAL PERSONALITY TRAIT CATALOG
@@ -76,7 +82,7 @@ INSERT INTO profile_question(id, code, prompt, category, display_order) VALUES
 -- mobile OTP flow. Fake profiles intentionally have no stored photo.
 --
 -- All four current legal choices are recorded. There is deliberately no
--- marketing consent because Histae performs no marketing processing.
+-- advertising consent: fixture profiles do not request or view advertisements.
 
 WITH fake_users AS (
   SELECT

@@ -232,9 +232,9 @@ def seed_continuations(client, database_user, matches):
         first = user_id(number)
         second = user_id(partner(number))
         path = f'/api/matches/{match}/continue'
-        result = client.request('PATCH', path, first, None, {200})
+        result = client.request('PATCH', path, first, {'credit_cost': 1}, {200})
         if not result.get('match_confirmed'):
-            result = client.request('PATCH', path, second, None, {200})
+            result = client.request('PATCH', path, second, {'credit_cost': 1}, {200})
         if not result.get('match_confirmed'):
             raise RuntimeError(f'Match {match} was not confirmed')
 

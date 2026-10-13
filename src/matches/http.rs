@@ -221,15 +221,30 @@ struct ContinueResponse {
     match_confirmed: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContinueBody {
+    credit_cost: i32,
+}
+impl ApiDto for ContinueBody {
+    const ERROR_CODE: &'static str = "invalid_continuation_request";
+    const ERROR_MESSAGE: &'static str =
+        "Confirm the displayed credit cost (0 for Premium, 1 for Free).";
+    fn is_valid(&self) -> bool {
+        (0..=1).contains(&self.credit_cost)
+    }
+}
+
 async fn continue_match(
     OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<MatchHttpState>,
     ValidatedPath(path): ValidatedPath<MatchPath>,
+    crate::http::extract::ValidatedJson(body): crate::http::extract::ValidatedJson<ContinueBody>,
 ) -> Result<Json<ContinueResponse>, ApiError> {
     let match_id = path.id().ok_or_else(invalid_match_id)?;
     let match_confirmed = state
         .service
-        .continue_match(match_id, identity.account.user_id)
+        .continue_match(match_id, identity.account.user_id, body.credit_cost)
         .await
         .map_err(match_error)?;
     Ok(Json(ContinueResponse {
@@ -515,10 +530,15 @@ fn match_error(error: MatchError) -> ApiError {
         MatchError::Expired => {
             ApiError::new(StatusCode::GONE, "match_expired", "This match has expired.")
         }
+        MatchError::PlanChanged => ApiError::new(
+            StatusCode::CONFLICT,
+            "continuation_plan_changed",
+            "Your plan changed. Review the credit cost and accept again.",
+        ),
         MatchError::QuotaReached => ApiError::new(
             StatusCode::FORBIDDEN,
             "continuation_quota_reached",
-            "The weekly continuation quota has been reached. Upgrade to Premium for unlimited continuations.",
+            "No continuation credit is available, or the weekly limit has been reached.",
         ),
         MatchError::MessagingUnavailable => ApiError::new(
             StatusCode::CONFLICT,

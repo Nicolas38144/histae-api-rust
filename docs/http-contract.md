@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **104 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **108 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -82,7 +82,7 @@ Le client doit interpréter `error.code`, pas le texte de `message`. Aucune stac
 | 429 | Limite de débit dépassée ; respecter `Retry-After` lorsqu’il est fourni. |
 | 503 | Dépendance ou protection temporairement indisponible. |
 
-Une limite globale par IP s’ajoute aux limites dédiées indiquées ci-dessous ; leurs valeurs sont les valeurs par défaut configurables. Dépassement global : `rate_limit_exceeded` ; protection Redis indisponible : `rate_limit_unavailable`, sans laisser passer la requête. Les webhooks Stripe et Sweego ont chacun leur propre limite à la place de la limite globale.
+Une limite globale par IP s’ajoute aux limites dédiées indiquées ci-dessous ; leurs valeurs sont les valeurs par défaut configurables. Dépassement global : `rate_limit_exceeded` ; protection Redis indisponible : `rate_limit_unavailable`, sans laisser passer la requête. Les webhooks Stripe, Sweego et AdMob ont chacun leur propre limite à la place de la limite globale.
 
 ### Pagination
 
@@ -117,7 +117,7 @@ Il n’existe pas de mécanisme de retry universel.
 | POST | `/api/auth/otp/send` | `{ phone_number }` + clé d’idempotence → `202 { message }`. |
 | POST | `/api/auth/otp/verify` | `{ phone_number, otp }` → `200 { access_token, refresh_token }`. |
 | POST | `/api/auth/refresh` | `{ refresh_token }` → `200 { access_token, refresh_token }`. |
-| GET | `/api/plans` | `200 { plans: [...] }`. |
+| GET | `/api/plans` | `200 { plans: [...] }` ; inclut `weekly_included_credits`, `weekly_continuation_limit`, `advertising_credit_stock_limit`, `ads_removed`, `rewarded_advertising_enabled`. |
 
 **OTP.** Seuls les téléphones français E.164 `+33…` sont acceptés. La vérification consomme le code une seule fois et crée un compte utilisateur si nécessaire. Envoi et vérification : 5/h par IP et numéro pseudonymisé. La validité du code suit `OTP_TTL`.
 
@@ -284,9 +284,9 @@ L’attribution d’un trait existant est idempotente. Une question expose `id, 
 | GET | `/api/feed` | `limit, cursor` → `200 { profiles, next_cursor }`. |
 | POST | `/api/swipes` | `{ target_user_id, decision: like ou pass }` → `201 { decision, matched, match? }`. |
 | GET | `/api/matches/me` | `limit, cursor` (offset déprécié) → `200 { matches, next_cursor }`. |
-| GET | `/api/users/me/continuation-quota` | `200` : plan effectif, usage, `weekly_limit, remaining` pour un plan limité. |
+| GET | `/api/users/me/continuation-quota` | `200` : plan effectif, `used, weekly_credits, free_remaining, advertising_balance, advertising_remaining, reserved, advertising_stock_limit`, `weekly_limit, remaining` pour Free. |
 | PATCH | `/api/matches/:id/reveal` | Aucun corps → `200 { message, photos_revealed }`. |
-| PATCH | `/api/matches/:id/continue` | Aucun corps → `200 { message, match_confirmed }`. |
+| PATCH | `/api/matches/:id/continue` | `{ credit_cost: 0 ou 1 }` : coût maximal accepté → `200 { message, match_confirmed }`. |
 | PATCH | `/api/matches/:id/end` | Aucun corps → `200 { message: "match ended", status: "ended" }`. |
 | GET | `/api/matches/:id/messages` | `limit, cursor` (offset déprécié) → `200 { messages, next_cursor }`. |
 | POST | `/api/matches/:id/messages` | `{ content }` + clé d’idempotence → `201` avec le message stable. |
@@ -299,7 +299,11 @@ Une décision de swipe est immuable pendant sa rétention. Deux likes réciproqu
 
 **Matchs.** La liste est triée par activité. Chaque résumé contient l’autre utilisateur (prénom, âge, sexe, bio, traits, `profile_answers`, photo conditionnelle), `my_revealed, photos_revealed, my_continued, unread_count, last_message`. La photo reste `null` avant révélation mutuelle, même approuvée. Les routes mobiles d’un match exigent d’en être participant.
 
-Le match est `active` pendant 24 h, puis `awaiting_continuation` ; les deux accords le rendent `confirmed`, sinon il devient `expired` après la seconde fenêtre. Le quota de l’initiateur est débité au second accord, sans double consommation concurrente ; une limite nulle n’accorde aucune continuation. Une attente de verrou ne prolonge pas l’échéance. Erreurs : `404 match_not_found`, `409 continuation_not_available_yet`, `409 invalid_match_state`, `409 messaging_not_available`, `410 match_expired`, `403 continuation_quota_reached`.
+Le match est `active` pendant 24 h, puis `awaiting_continuation` pendant les 24 heures suivantes. **L’envoi est suspendu pendant la décision ; l’historique et les accusés de lecture restent accessibles.** Deux accords valides le rendent `confirmed`, sinon il expire. Les délais partent de l’échéance d’origine, même lorsque la maintenance est tardive. La liste expose l’état calculé selon l’horloge.
+
+Chaque personne Free réserve son propre crédit après acceptation explicite du coût `credit_cost: 1`. Les débits sont atomiques après deux accords ; Premium annonce `credit_cost: 0` et ne consomme aucun crédit. Trois crédits gratuits sont renouvelés chaque lundi à 00:00 UTC, sans cumul ; les crédits publicitaires sont conservés avec un stock maximum de trois. Free est limité à six continuations confirmées par semaine. `remaining` tient compte du stock, des réservations et du plafond ; `weekly_limit` et `remaining` sont omis pour Premium.
+
+Le premier accord reste privé et ne publie aucun événement au partenaire. Seul `my_continued` expose le choix du demandeur. Refus, expiration ou clôture libèrent les réservations ; l’événement terminal ne nomme pas l’auteur. Un rejeu d’un match déjà confirmé renvoie `match_confirmed: true` sans nouveau débit ni événement. Erreurs : `400 invalid_continuation_request`, `404 match_not_found`, `409 continuation_not_available_yet`, `409 continuation_plan_changed`, `409 invalid_match_state`, `409 messaging_not_available`, `410 match_expired`, `403 continuation_quota_reached`. Le client doit relire le quota avant de représenter le coût après un changement de plan. Voir [Parcours et crédits](continuation-and-rewards.md) pour les changements de semaine et la migration.
 
 **Mettre fin à un match.** Chaque participant peut clôturer son match, y compris un match expiré, sans accord de l’autre et sans créer de blocage. Le compte doit être authentifié, actif et avoir terminé son onboarding. Un UUID inconnu, un match d’autrui ou un participant supprimé renvoie `404 match_not_found`. Un second appel renvoie le même `200` sans repousser la purge ni répéter l’événement temps réel.
 
@@ -308,6 +312,25 @@ Le match disparaît des listes mobiles des deux participants. Lecture, envoi et 
 Après le commit, les deux participants reçoivent `match.updated` avec `{ match_id, status: "ended" }` : retirer la conversation côté client. Une opération déjà validée avant la clôture peut avoir abouti. Après reconnexion, relire les ressources conformément au contrat SSE.
 
 **Messages.** Contenu non vide, 2 000 caractères maximum ; limite 60/min/utilisateur. Tant que le match reste accessible, rejouer clé/match/contenu identiques renvoie le message existant sans nouvelle notification ; réutiliser la clé pour une autre requête renvoie `409 idempotency_key_conflict`. La lecture par borne marque tous les messages reçus jusqu’à la borne incluse. Un expéditeur ne peut pas marquer son propre message comme lu.
+
+<a id="recompenses-publicitaires"></a>
+
+### Récompenses publicitaires
+
+Les routes propriétaires exigent Bearer, compte actif et onboarding courant. Elles sont destinées aux vidéos volontairement demandées par un compte Free ; elles ne représentent pas un consentement au suivi publicitaire.
+
+| Méthode | Route | Entrée → résultat |
+| --- | --- | --- |
+| POST | `/api/users/me/advertising-rewards` | `{ platform: android ou ios }` → `200 { id, ad_unit, custom_data, expires_at, status, reward_credits }`, intention préparée/reprise. |
+| GET | `/api/users/me/advertising-rewards/:id` | Même projection propriétaire ; `status: pending ou credited ou expired ou cancelled`. |
+| DELETE | `/api/users/me/advertising-rewards/:id` | Aucun corps → `204`, annulation d’une intention non créditée, idempotente. |
+| GET | `/api/auth/admob/webhook` | Public ; query AdMob signée inchangée → `200` vide après validation et crédit/déduplication. |
+
+Une intention est opaque, limitée à 15 minutes et à une récompense d’un crédit. Une seule intention en attente occupe une place ; une preuve gagnée avant l’échéance peut arriver dans les 24 heures suivantes. Annuler une intention abandonnée libère cette place mais invalide les preuves ultérieures. L’API crédite uniquement après vérification serveur ECDSA ; le callback client du SDK ne donne aucun crédit. Le rejeu d’une transaction liée à une autre intention est refusé.
+
+Erreurs : `400 invalid_reward_request`, `400 invalid_reward_id`, `400 invalid_admob_signature`, `400 invalid_admob_reward`, `404 reward_not_found`, `409 advertising_stock_full`, `409 advertising_not_eligible`, `429 advertising_rate_limit_exceeded`, `429 admob_webhook_rate_limit_exceeded`, `503 advertising_disabled`, `503 admob_verification_unavailable`. Les créations reprennent `RATE_LIMIT_BILLING`, les callbacks `RATE_LIMIT_BILLING_WEBHOOK` ; espaces de clés distincts. Comme les autres webhooks de fournisseur, AdMob est exclu de la limite globale IP et dispose de sa limite dédiée. Tant que le fournisseur est désactivé, le webhook renvoie `503 advertising_disabled` avant toute récupération de clés.
+
+[Configuration et vérification AdMob](continuation-and-rewards.md#4-configuration-admob-et-tunnel-cloudflare).
 
 <a id="appareils-et-temps-reel"></a>
 
@@ -509,3 +532,7 @@ Modifier ce guide avec toute évolution de route, DTO, réponse, autorisation ou
 Le test `tests/route_inventory.rs` compare ces lignes aux déclarations de routes présentes dans les sources Axum. Il détecte les couples méthode/chemin absents ou non documentés ; il ne vérifie pas le montage du routeur final ni les doublons éliminés par son ensemble de comparaison. Les alias HEAD automatiques et le preflight CORS généré ne font pas partie de cet inventaire applicatif.
 
 Ce contrôle ne prouve ni les schémas JSON, ni les droits, ni les garanties métier : les autres tests de contrat et intégrations restent nécessaires. Voir [guide de validation](../tests/README.md), [responsabilités internes](architecture.md) et [validations de livraison](production-readiness.md).
+
+### Données de crédits dans la fiche administrateur
+
+`GET /api/admin/users/:userId` conserve ses guards, motif/audit et données existants, avec `continuation_quota` supplémentaire. Cet objet présente les compteurs du compte ciblé et aucune décision individuelle de son partenaire. Le dashboard affiche ses soldes et réservations depuis cette projection. `GET /api/plans` indique si les récompenses publicitaires sont activées ; il décrit les règles sans démarrer de publicité.

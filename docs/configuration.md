@@ -119,6 +119,7 @@ URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
 | Redirections Stripe | `STRIPE_CHECKOUT_SUCCESS_URL`, `STRIPE_CHECKOUT_CANCEL_URL`, `STRIPE_PORTAL_RETURN_URL` | HTTPS ; succès contient `{CHECKOUT_SESSION_ID}`. |
 | Réconciliation Stripe | `STRIPE_RECONCILIATION_INTERVAL`, `STRIPE_RECONCILIATION_FRESHNESS`, `STRIPE_RECONCILIATION_BATCH_SIZE`, `STRIPE_TIMEOUT` | Défauts : `5m`, `1h`, 25 éléments, `10s` ; maintenance pour programmer, outbox pour exécuter. |
 | Options Stripe | `STRIPE_AUTOMATIC_TAX`, `STRIPE_ALLOW_PROMOTION_CODES`, `STRIPE_MAX_NETWORK_RETRIES` | Défauts : `false`, `false`, `2` ; respecter les fenêtres d’idempotence du contrat. |
+| AdMob | `ADVERTISING_PROVIDER`, `ADMOB_ANDROID_REWARDED_AD_UNIT`, `ADMOB_IOS_REWARDED_AD_UNIT`, `ADMOB_REWARD_ITEM` | `disabled` par défaut ou `admob` ; deux unités rewarded obligatoires si activé, unités Google de test refusées en production ; récompense 1 crédit, libellé `continuation_credit` par défaut. [Guide](continuation-and-rewards.md). |
 | Push | `PUSH_PROVIDER`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `FIREBASE_TOKEN_URI`, `PUSH_TIMEOUT` | `disabled` ou `fcm` ; compte de service complet pour FCM. |
 | Admin | `ADMIN_WEBAUTHN_ORIGIN`, `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_RP_NAME`, `ADMIN_SESSION_IDLE_TTL`, `ADMIN_SESSION_ABSOLUTE_TTL`, `ADMIN_RECENT_AUTH_TTL` | Voir [Administration](administration.md) ; HTTPS en production. |
 | Enrôlement | `ADMIN_WEBAUTHN_CHALLENGE_TTL`, `ADMIN_WEBAUTHN_BOOTSTRAP_TTL` | Défauts : `5m` et `15m`, usage unique. |
@@ -203,3 +204,9 @@ MAINTENANCE_MODE=worker cargo run --locked --bin maintenance -- --check-config
 Ces contrôles valident les valeurs, sans prouver la connectivité ni les fournisseurs. Les outils
 `admin-bootstrap`, `db-migrate`, `storage-init` et `contract-compare` ont leurs propres arguments ; ne pas
 leur ajouter arbitrairement `--check-config`.
+
+### Crédits Free et publicités
+
+Le fournisseur est laissé désactivé dans le `.env` local. Les identifiants de test Android/iOS y sont présents pour préparer une intégration, avec le libellé `continuation_credit`. Les publicités nécessitent la configuration AdMob SSV, les choix UMP et le parcours mobile décrits dans le [guide](continuation-and-rewards.md). Aucun secret AdMob partagé n’est requis. Les clés ECDSA sont téléchargées uniquement depuis l’URL HTTPS officielle Google, qui n’est pas configurable.
+
+Le catalogue SQL utilise encore `subscription_plan.weekly_continuation_limit` comme allocation de crédits gratuits (3 pour Free, `NULL` pour Premium). La projection HTTP distingue cette allocation dans `weekly_included_credits` du plafond `weekly_continuation_limit` de 6 continuations Free confirmées. Le wallet et les verrous font autorité pour les réservations et débits. Les paramètres de pool PostgreSQL restent inchangés.

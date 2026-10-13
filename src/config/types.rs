@@ -254,6 +254,14 @@ pub struct RateLimitConfig {
 }
 
 #[derive(Clone, Debug)]
+pub struct AdvertisingConfig {
+    pub enabled: bool,
+    pub android_ad_unit: String,
+    pub ios_ad_unit: String,
+    pub reward_item: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct AppConfig {
     pub environment: Environment,
     pub port: u16,
@@ -265,6 +273,7 @@ pub struct AppConfig {
     pub redis: RedisConfig,
     pub push: PushConfig,
     pub billing: BillingConfig,
+    pub advertising: AdvertisingConfig,
     pub object_storage: ObjectStorageConfig,
     pub photo_moderation: PhotoModerationConfig,
     pub admin_auth: AdminAuthConfig,

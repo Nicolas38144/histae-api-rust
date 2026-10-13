@@ -10,7 +10,7 @@ use uuid::{Uuid, Variant, Version};
 use super::domain::{
     ContinuationQuota, ContinuationResult, MATCH_WINDOW_HOURS, MatchAvailabilityFailure,
     MatchCommandResult, MatchRecord, MatchStatus, MessageCreationResult, MessageRead, PageCursor,
-    PublicMatch, PublicMessage, PublicUserMatch, start_of_utc_week,
+    PublicMatch, PublicMessage, PublicUserMatch,
 };
 use super::store::{MatchMessageStore, MatchStore, MatchStoreError};
 use crate::infra::postgres::DatabaseError;
@@ -101,6 +101,7 @@ pub enum MatchError {
     ContinuationNotAvailableYet,
     Expired,
     QuotaReached,
+    PlanChanged,
     MessagingUnavailable,
     MessageNotFound,
     IdempotencyConflict,
@@ -113,6 +114,7 @@ impl From<MatchStoreError> for MatchError {
         match error {
             MatchStoreError::Blocked => Self::Blocked,
             MatchStoreError::ParticipantUnavailable => Self::CandidateNotFound,
+            MatchStoreError::ContinuationExpired => Self::Expired,
             MatchStoreError::Database(error) => Self::Database(error),
         }
     }
@@ -224,7 +226,17 @@ impl MatchService {
             None
         };
         let mut items = Vec::with_capacity(limit.min(rows.len() as u32) as usize);
-        for row in rows.into_iter().take(limit as usize) {
+        for mut row in rows.into_iter().take(limit as usize) {
+            let now = self.clock.now();
+            if row.record.status == MatchStatus::Active && row.record.expires_at <= now {
+                row.record.status = MatchStatus::AwaitingContinuation;
+                row.record.expires_at += TimeDelta::hours(MATCH_WINDOW_HOURS);
+            }
+            if row.record.status == MatchStatus::AwaitingContinuation
+                && row.record.expires_at <= now
+            {
+                row.record.status = MatchStatus::Expired;
+            }
             let photo = self
                 .photo_urls
                 .url_for_key(row.other_photo.clone())
@@ -252,25 +264,36 @@ impl MatchService {
         Ok(revealed)
     }
 
-    pub async fn continue_match(&self, match_id: Uuid, user_id: Uuid) -> Result<bool, MatchError> {
-        let confirmed = match self.store.record_continuation(match_id, user_id).await? {
-            ContinuationResult::Confirmed => true,
+    pub async fn continue_match(
+        &self,
+        match_id: Uuid,
+        user_id: Uuid,
+        credit_cost: i32,
+    ) -> Result<bool, MatchError> {
+        if !(0..=1).contains(&credit_cost) {
+            return Err(MatchError::InvalidRequest);
+        }
+        let outcome = self
+            .store
+            .record_continuation(match_id, user_id, credit_cost)
+            .await?;
+        let confirmed = match outcome {
+            ContinuationResult::Confirmed | ContinuationResult::AlreadyConfirmed => true,
             ContinuationResult::Pending | ContinuationResult::AlreadyRecorded => false,
             ContinuationResult::NotAvailableYet => {
                 return Err(MatchError::ContinuationNotAvailableYet);
             }
             ContinuationResult::QuotaReached => return Err(MatchError::QuotaReached),
+            ContinuationResult::PlanChanged => return Err(MatchError::PlanChanged),
             ContinuationResult::Expired => return Err(MatchError::Expired),
             ContinuationResult::NotFound => return Err(MatchError::NotFound),
             ContinuationResult::InvalidState => return Err(MatchError::InvalidState),
         };
-        if let Some(participants) = self.store.participant_ids(match_id, user_id).await? {
+        if outcome == ContinuationResult::Confirmed
+            && let Some(participants) = self.store.participant_ids(match_id, user_id).await?
+        {
             self.events
-                .updated(
-                    match_id,
-                    participants,
-                    MatchUpdate::MatchConfirmed(confirmed),
-                )
+                .updated(match_id, participants, MatchUpdate::MatchConfirmed(true))
                 .await;
         }
         Ok(confirmed)
@@ -291,26 +314,10 @@ impl MatchService {
     }
 
     pub async fn continuation_quota(&self, user_id: Uuid) -> Result<ContinuationQuota, MatchError> {
-        let plan = self.store.effective_plan(user_id, self.clock.now()).await?;
-        let Some(limit) = plan.weekly_limit else {
-            return Ok(ContinuationQuota {
-                plan: plan.plan,
-                used: 0,
-                weekly_limit: None,
-                remaining: None,
-            });
-        };
-        let limit = i32::from(limit);
-        let used = self
-            .store
-            .continuation_usage(user_id, start_of_utc_week(self.clock.now()))
-            .await?;
-        Ok(ContinuationQuota {
-            plan: plan.plan,
-            used,
-            weekly_limit: Some(limit),
-            remaining: Some((limit - used).max(0)),
-        })
+        self.store
+            .quota_snapshot(user_id, self.clock.now())
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn messages(

@@ -27,6 +27,9 @@ pub struct PrivacyMaintenanceResult {
     pub expired_admin_auth_events: u64,
     pub expired_outbox_operator_actions: u64,
     pub expired_mobile_sessions: u64,
+    pub expired_reward_intents: u64,
+    pub expired_continuation_reservations: u64,
+    pub expired_continuation_usage: u64,
 }
 
 impl PrivacyMaintenanceResult {
@@ -80,12 +83,21 @@ impl PrivacyMaintenanceResult {
         self.expired_outbox_operator_actions = self
             .expired_outbox_operator_actions
             .saturating_add(next.expired_outbox_operator_actions);
+        self.expired_reward_intents = self
+            .expired_reward_intents
+            .saturating_add(next.expired_reward_intents);
+        self.expired_continuation_reservations = self
+            .expired_continuation_reservations
+            .saturating_add(next.expired_continuation_reservations);
+        self.expired_continuation_usage = self
+            .expired_continuation_usage
+            .saturating_add(next.expired_continuation_usage);
         self.expired_mobile_sessions = self
             .expired_mobile_sessions
             .saturating_add(next.expired_mobile_sessions);
     }
 
-    fn counts(self) -> [u64; 18] {
+    fn counts(self) -> [u64; 21] {
         [
             self.stale_presences,
             self.expired_presences,
@@ -105,6 +117,9 @@ impl PrivacyMaintenanceResult {
             self.expired_admin_auth_events,
             self.expired_outbox_operator_actions,
             self.expired_mobile_sessions,
+            self.expired_reward_intents,
+            self.expired_continuation_reservations,
+            self.expired_continuation_usage,
         ]
     }
 }
@@ -136,7 +151,7 @@ impl PrivacyMaintenanceRepository {
                         return Ok(None);
                     }
                     let limit = i64::from(batch_size);
-                    let mut counts = [0_u64; 18];
+                    let mut counts = [0_u64; 21];
                     for (index, statement) in RETENTION_QUERIES.iter().enumerate() {
                         counts[index] = sqlx::query(statement)
                             .bind(now)
@@ -165,6 +180,9 @@ impl PrivacyMaintenanceRepository {
                         expired_admin_auth_events: counts[15],
                         expired_outbox_operator_actions: counts[16],
                         expired_mobile_sessions: counts[17],
+                        expired_reward_intents: counts[18],
+                        expired_continuation_reservations: counts[19],
+                        expired_continuation_usage: counts[20],
                     }))
                 })
             })
@@ -172,7 +190,7 @@ impl PrivacyMaintenanceRepository {
     }
 }
 
-const RETENTION_QUERIES: [&str; 18] = [
+const RETENTION_QUERIES: [&str; 21] = [
     "WITH stale AS (
        SELECT user_id FROM user_presence
        WHERE is_location_fresh = true AND updated_at <= $1 - INTERVAL '1 hour'
@@ -252,6 +270,9 @@ const RETENTION_QUERIES: [&str; 18] = [
        WHERE family.expires_at <= $1
          AND NOT EXISTS (SELECT 1 FROM refresh_tokens WHERE family_id = family.id)
        ORDER BY family.expires_at, family.id LIMIT $2)",
+    "DELETE FROM advertising_reward_intent WHERE id IN (SELECT id FROM advertising_reward_intent WHERE created_at <= $1 - INTERVAL '90 days' ORDER BY created_at,id LIMIT $2)",
+    "DELETE FROM continuation_reservation WHERE (match_id,user_id) IN (SELECT r.match_id,r.user_id FROM continuation_reservation r JOIN match_init m ON m.id=r.match_id WHERE m.status<>'awaiting_continuation' OR m.expires_at<=$1 ORDER BY m.expires_at,r.match_id,r.user_id LIMIT $2 FOR UPDATE OF m SKIP LOCKED)",
+    "DELETE FROM continuation_usage WHERE (user_id,week_start) IN (SELECT u.user_id,u.week_start FROM continuation_usage u WHERE u.week_start < ($1 AT TIME ZONE 'UTC')::date - 90 AND NOT EXISTS(SELECT 1 FROM continuation_reservation r WHERE r.user_id=u.user_id AND r.week_start=u.week_start) ORDER BY u.week_start,u.user_id LIMIT $2)",
 ];
 
 #[derive(Clone)]
@@ -342,6 +363,6 @@ mod tests {
         };
         assert_eq!(result.processed(), 6);
         assert_eq!(result.maximum(), 3);
-        assert_eq!(RETENTION_QUERIES.len(), 18);
+        assert_eq!(RETENTION_QUERIES.len(), 21);
     }
 }

@@ -134,7 +134,7 @@ async fn run_batch(
            ORDER BY expires_at, id LIMIT $2 FOR UPDATE SKIP LOCKED
          )
          UPDATE match_init AS match_record
-         SET status = 'awaiting_continuation', expires_at = $1 + INTERVAL '24 hours'
+         SET status = 'awaiting_continuation', expires_at = match_record.expires_at + INTERVAL '24 hours'
          FROM candidates WHERE match_record.id = candidates.id",
     )
     .bind(now)

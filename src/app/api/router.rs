@@ -1,3 +1,8 @@
+use crate::advertising::{
+    http::{AdvertisingHttpState, routes as advertising_routes},
+    pg::RewardRepository,
+    ssv::AdMobVerifier,
+};
 use std::sync::Arc;
 
 use axum::Router;
@@ -181,12 +186,15 @@ impl ApiResources {
             Arc::clone(&photo_urls),
         );
         let catalog =
-            CatalogService::new(Arc::new(PgCatalogRepository::new(self.database.clone())));
+            CatalogService::new(Arc::new(PgCatalogRepository::new(self.database.clone())))
+                .with_advertising(config.advertising.enabled);
 
         let delivery = Arc::new(MobileDeliveryService::new(self.realtime.clone()));
         let match_events: Arc<dyn MatchEventPublisher> = delivery.clone();
         let matches = MatchService::new(
-            Arc::new(PgMatchRepository::new(self.database.clone())),
+            Arc::new(
+                PgMatchRepository::new(self.database.clone()).with_legal(config.legal.clone()),
+            ),
             Arc::new(PgMatchMessageRepository::new(self.database.clone())),
             Arc::clone(&photo_urls),
             match_events,
@@ -289,7 +297,19 @@ impl ApiResources {
             config.legal.privacy_version.clone(),
         );
 
+        let advertising = AdvertisingHttpState::new(
+            Arc::new(RewardRepository::new(
+                self.database.clone(),
+                config.advertising.clone(),
+                config.legal.clone(),
+            )),
+            AdMobVerifier::new().map_err(|_| "admob_configuration_invalid")?,
+            limiter.clone(),
+            config.rate_limit.billing.clone(),
+            config.rate_limit.billing_webhook.clone(),
+        );
         let routes = health_routes()
+            .merge(advertising_routes(advertising, mobile_auth.clone()))
             .merge(mobile_auth_routes(mobile_auth.clone()))
             .merge(otp_routes(OtpHttpState::new(
                 otp,

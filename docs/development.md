@@ -98,7 +98,7 @@ Ouvrir `http://localhost:5173` pour conserver l’origine WebAuthn locale. Le pr
 
 ## Tester les routes
 
-- [Postman](../postman/README.md) : collections JSON française et anglaise, 104 requêtes chacune.
+- [Postman](../postman/README.md) : collections JSON française et anglaise, 108 requêtes chacune.
 - [Accès LAN](container-deployment.md#acces-lan) : publier uniquement le port API nécessaire.
 - [Tests automatisés](../tests/README.md) : choisir les suites selon les dépendances disponibles.
 - [Smoke](../scripts/smoke-api.sh) : santé, guards, validation et route inexistante ; URL loopback uniquement.
@@ -152,3 +152,20 @@ Voir [Base de données](database.md) pour la sauvegarde et le test de restaurati
 Les profils de développement/test utilisent `debug = 1` et `incremental = false`. `target/` ne contient que
 des artefacts reconstructibles. `cargo clean` libère cet espace, puis impose une recompilation, y compris
 d’OpenSSL ; le réserver aux besoins d’espace plutôt qu’à chaque validation.
+
+## Conventions de contribution
+
+- Rust : `cargo fmt --all -- --check` et `cargo clippy --locked --all-targets --all-features -- -D warnings`.
+  Les états fermés utilisent des enums ; les DTO Serde gardent leurs noms HTTP. Les verrous, débits et écritures
+  associés restent dans la transaction PostgreSQL propriétaire.
+- Dashboard : composants React avec props TypeScript explicites ; la page charge les données, les composants
+  présentent les DTO. Les réponses API sont l’autorité pour les plans et soldes. Exécuter `pnpm run check` et
+  `pnpm run test:unit`. Les tests unitaires et de composants utilisent `*.spec.ts` ou `*.spec.tsx` dans `tests/unit`
+  et `tests/components`, conformément au filtre Vitest.
+- Site : garder les composants serveur Next.js lorsque l’interactivité n’est pas nécessaire. Le catalogue JSON
+  fournit les chiffres, next-intl les textes, et les clés React utilisent les identifiants stables. Exécuter
+  `pnpm run typecheck`, `pnpm run lint` et `pnpm run build` dans `histae-site`.
+
+`cargo test --locked --all-targets` exécute les tests Rust par défaut. Les tests PostgreSQL nécessitent une
+instance isolée : utiliser `python3 scripts/verify-continuation-postgres.py` pour les suites de continuation et
+les domaines associés. Ne pas activer `postgres-integration` contre la base de développement utilisée par les workers.

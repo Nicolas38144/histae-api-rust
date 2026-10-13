@@ -12,6 +12,7 @@ responsabilités doivent être séparées.
 | --- | --- |
 | `mod.rs` | Déclaration des modules et façade publique, sans assemblage global |
 | `domain.rs` | Types, états fermés, représentations métier et règles locales |
+| `error.rs`, lorsque partagé | Erreurs métier utilisées par plusieurs ports ou adaptateurs |
 | `store.rs` | Contrats de persistance nécessaires aux services |
 | `service.rs` | Cas d’usage, invariants, coordination et erreurs métier |
 | `pg.rs` ou `pg/` | SQL, transactions, verrous et mapping des lignes |
@@ -36,7 +37,7 @@ transaction. `infra/` fournit les mécanismes communs, pas un repository génér
 | `profiles`, `catalog`, `discovery` | Profils/préférences, traits/questions/plans, feed et swipes |
 | `matches` | Matchs, continuation, messages et échéances |
 | `media`, `moderation` | Photos privées, codec, stockage et modération de contenus |
-| `billing`, `notifications` | Stripe/réconciliation, notifications durables, push et SSE |
+| `billing`, `advertising`, `notifications` | Stripe/réconciliation, récompenses AdMob, notifications durables, push et SSE |
 | `privacy`, `reports`, `administration` | Consentements/droits/effacement, signalements et gestion admin |
 | `outbox`, `operations`, `shared` | Effets durables, suivi/metrics/logs et fonctions partagées |
 
@@ -66,15 +67,22 @@ en mémoire ne remplace jamais un verrou transactionnel distribué. Les futures 
 ## Sous-domaines structurés
 
 - `identity/mobile/otp/` sépare états de livraison, port, service et transactions OTP.
+- `advertising/{domain,error,store,http,pg,ssv}.rs` sépare les types métier, le port de persistance, les requêtes propriétaires, l’octroi transactionnel et la vérification AdMob sur les octets signés ; le mobile ne décide jamais du solde.
+- `identity/pg_guards.rs` porte les verrous de compte et de consentement réutilisés par les transactions de matchs et de récompenses.
 - `identity/admin/webauthn.rs` encapsule la vérification cryptographique.
 - `billing/reconcile/` sépare modèles, ports, service, fournisseur Stripe, PostgreSQL, HTTP et worker.
 - `billing/webhook/pg.rs` isole la projection transactionnelle des événements signés.
-- `matches/pg/{matches,messages,access}.rs` sépare les repositories et les helpers de verrouillage qui reçoivent
+- `matches/pg/{matches,messages,access,continuation,credits}.rs` sépare les repositories et les helpers de verrouillage qui reçoivent
   la connexion de l’appelant.
 - `administration/{photos,metrics}/` sépare règles, contrats et SQL de chaque fonctionnalité.
 - `privacy/{rights,export,erasure}/` regroupe les workflows indépendants avec leur transport et leur persistance.
 - `outbox/admin/` sépare les décisions opérateur de leur audit transactionnel.
 - `media/codec.rs` contient l’adaptateur du codec autonome dans `tools/photo-codec/`.
+
+Les plateformes et états publicitaires utilisent des enums Serde, tout en conservant les chaînes du contrat HTTP.
+`EffectivePlan.weekly_credits` désigne les crédits inclus ; `ContinuationQuota.weekly_limit` reste le plafond public de continuations.
+Le nom historique de la colonne SQL `subscription_plan.weekly_continuation_limit` est conservé pour les installations existantes.
+Les plafonds applicatifs sont définis dans le domaine et les valeurs SQL variables utilisent des paramètres liés.
 
 ## Compatibilité et sécurité
 
@@ -110,3 +118,7 @@ Les suites de tests sont nommées par domaine, sans numéros de migration. Les t
 des règles ; les contrats HTTP et les intégrations réelles résident dans `tests/`.
 
 Les règles d’exécution et les limites de preuve sont décrites dans [tests/README.md](../tests/README.md).
+
+## Confirmation et récompenses
+
+Les règles sont centralisées dans le [guide des continuations](continuation-and-rewards.md). Le match est verrouillé avant les comptes/consentements, abonnements et wallets ordonnés. Une décision Free réserve un crédit ; les deux débits et la confirmation forment une seule transaction. Le trigger d’abonnement partage les verrous du wallet pour sérialiser les changements Premium. Une récompense publicitaire vérifiée suit l’ordre compte → wallet → intention. Les projections et exports ne publient pas le choix individuel de l’autre personne.

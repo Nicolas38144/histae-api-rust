@@ -38,6 +38,10 @@ request() {
 request GET /health/live 200 status:ok
 request GET /health/ready 200 status:ready
 request GET /api/users/me 401 authentication_required
+request GET /api/users/me/continuation-quota 401 authentication_required
+reward_id=$(cat /proc/sys/kernel/random/uuid)
+request POST /api/users/me/advertising-rewards 401 authentication_required '{"platform":"android"}'
+request GET "/api/users/me/advertising-rewards/$reward_id" 401 authentication_required
 admin_id=$(cat /proc/sys/kernel/random/uuid)
 request GET "/api/admin/users/$admin_id" 401 admin_session_invalid
 request POST /api/auth/otp/send 400 invalid_request_body '{}'

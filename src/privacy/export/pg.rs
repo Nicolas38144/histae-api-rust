@@ -109,6 +109,7 @@ impl PgDataExportStore {
                     )
                     .await?;
 
+                    self.write_continuation_data(&mut transaction, writer, user_id, page_size).await?;
                     self.write_traits(&mut transaction, writer, user_id, page_size)
                         .await?;
                     self.write_profile_answers(&mut transaction, writer, user_id)
@@ -152,6 +153,77 @@ impl PgDataExportStore {
                 Err(error)
             }
         }
+    }
+
+    async fn write_continuation_data(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        writer: &mut JsonExportWriter,
+        user_id: Uuid,
+        page_size: u32,
+    ) -> Result<(), ExportBuildError> {
+        let wallet=optional_json(connection,"SELECT jsonb_build_object('advertising_credits',advertising_credits) FROM continuation_wallet WHERE user_id=$1",user_id).await?;
+        writer.property("continuation_wallet", &wallet).await?;
+        for (name, table, column, cast) in [
+            (
+                "continuation_usage",
+                "continuation_usage",
+                "week_start",
+                "date",
+            ),
+            (
+                "continuation_reservations",
+                "continuation_reservation",
+                "match_id",
+                "uuid",
+            ),
+        ] {
+            writer.start_array(name).await?;
+            let mut cursor: Option<String> = None;
+            loop {
+                // Identifiers are fixed above, never supplied by a request.
+                let statement = format!(
+                    "SELECT to_jsonb(t)-'user_id' AS value, {column}::text AS cursor
+                     FROM {table} t WHERE user_id=$1
+                       AND ($2::text IS NULL OR {column}>$2::{cast})
+                     ORDER BY {column} LIMIT $3"
+                );
+                let rows = sqlx::query(&statement)
+                    .bind(user_id)
+                    .bind(cursor.as_deref())
+                    .bind(i64::from(page_size))
+                    .fetch_all(&mut *connection)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                for row in &rows {
+                    writer
+                        .item(
+                            &row.try_get::<Json<Value>, _>("value")
+                                .map_err(map_sqlx_error)?
+                                .0,
+                        )
+                        .await?;
+                }
+                if rows.len() < page_size as usize {
+                    break;
+                }
+                cursor = Some(
+                    rows.last()
+                        .ok_or(DatabaseError::QueryFailed)?
+                        .try_get("cursor")
+                        .map_err(map_sqlx_error)?,
+                );
+            }
+            writer.end_array().await?;
+        }
+        self.write_uuid_timestamp_pages(connection,writer,"advertising_rewards",user_id,page_size,
+            "SELECT to_jsonb(intent)-'user_id'-'transaction_hash' AS value,
+               to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS cursor_at,
+               id AS cursor_id
+             FROM advertising_reward_intent intent WHERE user_id=$1
+               AND ($2::timestamptz IS NULL OR (created_at,id)>($2::timestamptz,$3::uuid))
+             ORDER BY created_at,id LIMIT $4").await?;
+        Ok(())
     }
 
     async fn write_traits(

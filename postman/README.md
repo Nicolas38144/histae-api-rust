@@ -9,7 +9,7 @@ Importer l’un des fichiers JSON avec **Import → Files** :
 - [Collection française](postman_collection_fr.json).
 - [Collection anglaise](postman_collection_en.json).
 
-Chaque collection contient 104 requêtes correspondant au contrat HTTP. Aucun script Python ou générateur
+Chaque collection contient 108 requêtes correspondant au contrat HTTP. Aucun script Python ou générateur
 n’est nécessaire pour l’import. Les collections incluent déjà quelques actions après réponse pour stocker
 les tokens et challenges ; elles ne fabriquent ni preuve WebAuthn ni signature de fournisseur.
 
@@ -31,6 +31,9 @@ Configurer l’onglet **Variables** de la collection importée :
 | `bootstrapToken`, `challengeId` | Jeton émis par le serveur et challenge à usage unique ; ne sont pas des credentials WebAuthn |
 | `targetUserId`, `matchId`, `photoId`, etc. | UUID réels du jeu de données testé ; remplir uniquement ceux requis par la requête |
 | `auditReason` | Motif de consultation/action ; facultatif pour le superadmin selon le contrat |
+| `continuationCreditCost` | Coût maximal accepté : `1` pour Free, `0` pour Premium ; lire le quota avant le clic |
+| `rewardPlatform`, `rewardId` | `android` ou `ios`, puis UUID de l’intention publicitaire préparée ; aucun UUID de compte transmis à AdMob |
+| `admobSignedQuery` | Query complète du callback SSV réel, sans `?`, ordre et encodage inchangés ; une chaîne fabriquée ne donne aucun crédit |
 | `pageSize` | Taille de page ; ne s’applique qu’aux routes paginées |
 | Variables de webhook | En-têtes/signatures valides obtenus du fournisseur ou d’une fixture de test |
 
@@ -80,3 +83,9 @@ Une réponse `401` sur les traits admin doit être diagnostiquée avec le cookie
 
 En cas de timeout LAN, vérifier d’abord IP active, port publié et readiness depuis le serveur.
 Les codes API doivent être interprétés par `error.code`, pas par le texte du message.
+
+## Continuations et crédits
+
+Lire le quota, puis utiliser `PATCH /api/matches/:id/continue` avec le coût explicite configuré. Deux comptes Free consomment chacun un crédit après leurs deux accords ; la première acceptation réserve sans débit. Les messages sont suspendus dans la seconde fenêtre de 24 heures, avec historique accessible. Un refus ou une expiration libère les réservations. Le stock publicitaire persiste entre les semaines, avec un plafond de trois ; Free confirme au plus six continuations par semaine UTC.
+
+Le dossier de récompenses prépare, lit et annule une intention propriétaire. La requête webhook nécessite une vraie preuve AdMob ; les collections ne génèrent aucune signature. Le fournisseur désactivé renvoie `503 advertising_disabled`, comme le `.env` local par défaut. Voir [Activation et tests](../docs/continuation-and-rewards.md).

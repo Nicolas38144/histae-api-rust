@@ -23,6 +23,11 @@ pub struct SubscriptionPlan {
     pub trial_days: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub weekly_continuation_limit: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weekly_included_credits: Option<i32>,
+    pub advertising_credit_stock_limit: i32,
+    pub ads_removed: bool,
+    pub rewarded_advertising_enabled: bool,
     pub features: Vec<PlanFeature>,
 }
 

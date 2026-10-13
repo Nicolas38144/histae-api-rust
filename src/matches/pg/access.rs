@@ -44,13 +44,12 @@ pub(super) async fn lock_available_match(
     if record.status == MatchStatus::Active && record.expires_at <= now {
         let opened = sqlx::query(
             "UPDATE match_init
-             SET status = 'awaiting_continuation', expires_at = $2 + INTERVAL '24 hours'
+             SET status = 'awaiting_continuation', expires_at = expires_at + INTERVAL '24 hours'
              WHERE id = $1
              RETURNING id, user1_id, user2_id, status, expires_at, purge_after,
                        continuation_initiator_id, created_at, last_message_at",
         )
         .bind(match_id)
-        .bind(now)
         .fetch_one(&mut *connection)
         .await
         .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
@@ -60,9 +59,14 @@ pub(super) async fn lock_available_match(
         sqlx::query("UPDATE match_init SET status = 'expired', purge_after = $2 WHERE id = $1")
             .bind(match_id)
             .bind(now + TimeDelta::days(MATCH_PURGE_DAYS))
-            .execute(connection)
+            .execute(&mut *connection)
             .await
             .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
+        sqlx::query("DELETE FROM continuation_reservation WHERE match_id=$1")
+            .bind(match_id)
+            .execute(connection)
+            .await
+            .map_err(map_sqlx_error)?;
         return Ok(MatchCommandResult::Unavailable(
             MatchAvailabilityFailure::Expired,
         ));

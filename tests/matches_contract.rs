@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
-use chrono::{DateTime, NaiveDate, TimeZone as _, Utc};
+use chrono::{DateTime, TimeZone as _, Utc};
 use histae_api_rust::config::{Environment, JwtConfig, LimitPolicy, SecretString, TrustProxy};
 use histae_api_rust::http::health::{DependencyProbe, ProbeFuture, Readiness};
 use histae_api_rust::http::rate_limit::RateLimiter;
@@ -162,7 +162,7 @@ impl FakeMatchStore {
                 continuation: ContinuationResult::Pending,
                 plan: EffectivePlan {
                     plan: "free".to_owned(),
-                    weekly_limit: Some(2),
+                    weekly_credits: Some(2),
                 },
                 usage: 1,
                 message_rows: vec![CursorMessageRow {
@@ -265,38 +265,52 @@ impl MatchStore for FakeMatchStore {
 
     fn participant_ids(
         &self,
-        _match_id: Uuid,
-        _user_id: Uuid,
+        match_id: Uuid,
+        user_id: Uuid,
     ) -> MatchStoreFuture<'_, Option<[Uuid; 2]>> {
-        Box::pin(async { Ok(None) })
-    }
-
-    fn effective_plan(
-        &self,
-        _user_id: Uuid,
-        _now: DateTime<Utc>,
-    ) -> MatchStoreFuture<'_, EffectivePlan> {
-        Box::pin(async move {
-            let mut state = self
-                .state
-                .lock()
-                .map_err(|_| MatchStoreError::Database(DatabaseError::QueryFailed))?;
-            state.calls += 1;
-            Ok(state.plan.clone())
-        })
-    }
-
-    fn continuation_usage(
-        &self,
-        _user_id: Uuid,
-        _week_start: NaiveDate,
-    ) -> MatchStoreFuture<'_, i32> {
         Box::pin(async move {
             let state = self
                 .state
                 .lock()
                 .map_err(|_| MatchStoreError::Database(DatabaseError::QueryFailed))?;
-            Ok(state.usage)
+            Ok(state
+                .rows
+                .iter()
+                .find(|row| {
+                    row.record.id == match_id
+                        && [row.record.user1_id, row.record.user2_id].contains(&user_id)
+                })
+                .map(|row| [row.record.user1_id, row.record.user2_id]))
+        })
+    }
+
+    fn quota_snapshot(
+        &self,
+        _user_id: Uuid,
+        _now: DateTime<Utc>,
+    ) -> MatchStoreFuture<'_, histae_api_rust::matches::domain::ContinuationQuota> {
+        Box::pin(async move {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| MatchStoreError::Database(DatabaseError::QueryFailed))?;
+            let free = state
+                .plan
+                .weekly_credits
+                .map(|limit| (i32::from(limit) - state.usage).max(0))
+                .unwrap_or(0);
+            Ok(histae_api_rust::matches::domain::ContinuationQuota {
+                plan: state.plan.plan.clone(),
+                used: state.usage,
+                weekly_limit: state.plan.weekly_credits.map(|_| 6),
+                remaining: state.plan.weekly_credits.map(|_| free),
+                weekly_credits: i32::from(state.plan.weekly_credits.unwrap_or(0)),
+                free_remaining: free,
+                advertising_balance: 0,
+                advertising_remaining: 0,
+                reserved: 0,
+                advertising_stock_limit: 3,
+            })
         })
     }
 
@@ -304,6 +318,7 @@ impl MatchStore for FakeMatchStore {
         &self,
         _match_id: Uuid,
         _user_id: Uuid,
+        _credit_cost: i32,
     ) -> MatchStoreFuture<'_, ContinuationResult> {
         Box::pin(async move {
             let mut state = self
@@ -521,7 +536,7 @@ fn app_with_message_limit(
         .access_token(user_id(), session_id())
         .expect("access token");
     let clock = Utc
-        .with_ymd_and_hms(2030, 1, 6, 23, 59, 59)
+        .with_ymd_and_hms(2030, 1, 1, 12, 0, 0)
         .single()
         .expect("date");
     let service = MatchService::new(
@@ -555,7 +570,14 @@ fn request(method: &str, uri: &str, token: Option<&str>) -> Request<Body> {
     if let Some(token) = token {
         builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
     }
-    builder.body(Body::empty()).expect("request")
+    if uri.ends_with("/continue") {
+        builder
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"credit_cost":1}"#))
+            .expect("request")
+    } else {
+        builder.body(Body::empty()).expect("request")
+    }
 }
 
 fn json_request(
@@ -687,7 +709,7 @@ async fn preserves_reveal_continuation_and_quota_responses() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         json_body(response).await,
-        json!({"plan": "free", "used": 1, "weekly_limit": 2, "remaining": 1})
+        json!({"plan":"free","used":1,"weekly_limit":6,"remaining":1,"weekly_credits":2,"free_remaining":1,"advertising_balance":0,"advertising_remaining":0,"reserved":0,"advertising_stock_limit":3})
     );
 }
 
@@ -777,7 +799,7 @@ async fn maps_expiration_and_quota_failures_to_the_nest_contract() {
         json_body(quota).await,
         json!({"error": {
             "code": "continuation_quota_reached",
-            "message": "The weekly continuation quota has been reached. Upgrade to Premium for unlimited continuations."
+            "message": "No continuation credit is available, or the weekly limit has been reached."
         }})
     );
 }
@@ -1196,4 +1218,121 @@ async fn ending_a_match_publishes_only_one_status_event_to_both_participants() {
         events.try_recv().is_err(),
         "retries must not republish the end event"
     );
+}
+
+#[tokio::test]
+async fn continuation_choices_stay_private_and_confirmed_retries_do_not_repeat_events() {
+    use histae_api_rust::{
+        infra::redis::RedisService,
+        notifications::{delivery::MobileDeliveryService, sse::RealtimeService},
+    };
+    let row = row();
+    let match_id = row.record.id;
+    let participants = [row.record.user1_id, row.record.user2_id];
+    let store = FakeMatchStore::new(row);
+    let realtime = RealtimeService::connect(RedisService::disabled())
+        .await
+        .expect("realtime");
+    let mut events = realtime.subscribe();
+    let service = MatchService::new(
+        Arc::new(store.clone()),
+        Arc::new(store.clone()),
+        Arc::new(PhotoUrls),
+        Arc::new(MobileDeliveryService::new(realtime)),
+        Arc::new(FixedClock(Utc::now())),
+    );
+    store.state.lock().expect("state").continuation = ContinuationResult::Pending;
+    assert!(
+        !service
+            .continue_match(match_id, participants[0], 1)
+            .await
+            .expect("pending")
+    );
+    assert!(
+        events.try_recv().is_err(),
+        "the first choice must not notify the partner"
+    );
+    store.state.lock().expect("state").continuation = ContinuationResult::Confirmed;
+    assert!(
+        service
+            .continue_match(match_id, participants[1], 1)
+            .await
+            .expect("confirmed")
+    );
+    for participant in participants {
+        let event = events.try_recv().expect("confirmation");
+        assert_eq!(event.user_id, participant.to_string());
+        assert_eq!(
+            serde_json::to_value(event.data).expect("JSON"),
+            json!({"match_id":match_id,"match_confirmed":true})
+        );
+    }
+    store.state.lock().expect("state").continuation = ContinuationResult::AlreadyConfirmed;
+    assert!(
+        service
+            .continue_match(match_id, participants[0], 1)
+            .await
+            .expect("retry")
+    );
+    assert!(
+        events.try_recv().is_err(),
+        "retries must not republish confirmation"
+    );
+}
+
+#[tokio::test]
+async fn continuation_requires_an_explicit_bounded_credit_cost_before_storage() {
+    let row = row();
+    let endpoint = format!("/api/matches/{}/continue", row.record.id);
+    let store = FakeMatchStore::new(row);
+    let (app, token) = app(store.clone(), true);
+    for body in [
+        "{}",
+        r#"{"credit_cost":2}"#,
+        r#"{"credit_cost":-1}"#,
+        r#"{"credit_cost":"1"}"#,
+        r#"{"credit_cost":1,"watched":true}"#,
+    ] {
+        let response = app
+            .clone()
+            .oneshot(json_request("PATCH", &endpoint, Some(&token), None, body))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    assert_eq!(store.calls(), 0);
+}
+
+#[tokio::test]
+async fn list_projects_elapsed_windows_before_maintenance_runs() {
+    let row = row();
+    let id = row.record.id;
+    let initial_deadline = row.record.expires_at;
+    let store = FakeMatchStore::new(row);
+    for (now, status) in [
+        (
+            initial_deadline + chrono::TimeDelta::hours(1),
+            MatchStatus::AwaitingContinuation,
+        ),
+        (
+            initial_deadline + chrono::TimeDelta::hours(25),
+            MatchStatus::Expired,
+        ),
+    ] {
+        let service = MatchService::new(
+            Arc::new(store.clone()),
+            Arc::new(store.clone()),
+            Arc::new(PhotoUrls),
+            Arc::new(NoopMatchEventPublisher),
+            Arc::new(FixedClock(now)),
+        );
+        let page = service.list(user_id(), 20, 0, None).await.expect("list");
+        assert_eq!(page.items[0].id, id);
+        assert_eq!(page.items[0].status, status);
+        assert_eq!(
+            page.items[0].expires_at,
+            (initial_deadline + chrono::TimeDelta::hours(24))
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        );
+    }
 }

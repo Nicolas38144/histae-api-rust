@@ -202,6 +202,15 @@ impl Database {
     pub async fn verify_schema_compatibility(&self) -> Result<(), DatabaseError> {
         let mut connection = self.acquire().await?;
         verify_schema_compatibility_on(&mut connection).await?;
+        let credits_ready: bool = sqlx::query_scalar(
+            "SELECT to_regclass(current_schema() || '.continuation_wallet') IS NOT NULL
+                AND to_regclass(current_schema() || '.continuation_reservation') IS NOT NULL
+                AND to_regclass(current_schema() || '.advertising_reward_intent') IS NOT NULL
+                AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.continuation_usage') AND attname='free_used_count' AND NOT attisdropped)",
+        ).fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
+        if !credits_ready {
+            return Err(DatabaseError::SchemaObjectsMissing);
+        }
         let spatial_ready: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM pg_extension extension
                JOIN pg_namespace namespace ON namespace.oid = extension.extnamespace

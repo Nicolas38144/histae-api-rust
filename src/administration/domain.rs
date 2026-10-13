@@ -139,6 +139,7 @@ pub struct AdminUserDetailRow {
     pub traits: Vec<AdminTrait>,
     pub consents: Vec<AdminConsent>,
     pub presence: Option<AdminPresence>,
+    pub continuation_quota: Option<crate::matches::domain::ContinuationQuota>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -150,6 +151,7 @@ pub struct AdminUserDetail {
     pub traits: Vec<AdminTrait>,
     pub consents: Vec<AdminConsent>,
     pub presence: Option<AdminPresence>,
+    pub continuation_quota: Option<crate::matches::domain::ContinuationQuota>,
 }
 
 #[derive(Clone, Debug)]

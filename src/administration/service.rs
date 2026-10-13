@@ -154,6 +154,7 @@ impl AdministrationService {
             traits: row.traits,
             consents: row.consents,
             presence: row.presence,
+            continuation_quota: row.continuation_quota,
         })
     }
 
@@ -435,6 +436,7 @@ mod tests {
                     traits: Vec::new(),
                     consents: Vec::new(),
                     presence: None,
+                    continuation_quota: None,
                 }))
             })
         }

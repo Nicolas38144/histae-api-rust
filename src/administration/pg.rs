@@ -197,6 +197,19 @@ impl AdministrationStore for PgAdministrationStore {
                             &reason,
                         )
                         .await?;
+                        let now = sqlx::query_scalar("SELECT clock_timestamp()")
+                            .fetch_one(&mut *connection)
+                            .await
+                            .map_err(map_sqlx_error)?;
+                        let quota =
+                            crate::matches::pg::credits::quota_on(connection, target_id, now)
+                                .await
+                                .map_err(|error| match error {
+                                    crate::matches::store::MatchStoreError::Database(error) => {
+                                        error
+                                    }
+                                    _ => DatabaseError::QueryFailed,
+                                })?;
                         Ok(Some(AdminUserDetailRow {
                             user,
                             banned_reason,
@@ -204,6 +217,7 @@ impl AdministrationStore for PgAdministrationStore {
                             traits,
                             consents,
                             presence,
+                            continuation_quota: Some(quota),
                         }))
                     })
                 })

@@ -2,6 +2,7 @@
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod administration;
+pub mod advertising;
 pub mod app;
 pub mod billing;
 pub mod catalog;

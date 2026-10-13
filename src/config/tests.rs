@@ -232,3 +232,28 @@ fn accepts_explicit_proxy_networks_and_cors_origins() {
     assert!(matches!(config.trust_proxy, TrustProxy::Networks(ref entries) if entries.len() == 3));
     assert_eq!(config.cors_origins.len(), 2);
 }
+
+#[test]
+fn advertising_defaults_to_disabled_and_requires_well_formed_ad_units() {
+    assert!(
+        !AppConfig::from_source(&base(&[]))
+            .unwrap()
+            .advertising
+            .enabled
+    );
+    assert!(AppConfig::from_source(&base(&[("ADVERTISING_PROVIDER", "admob")])).is_err());
+    let config = AppConfig::from_source(&base(&[
+        ("ADVERTISING_PROVIDER", "admob"),
+        (
+            "ADMOB_ANDROID_REWARDED_AD_UNIT",
+            "ca-app-pub-3940256099942544/5224354917",
+        ),
+        (
+            "ADMOB_IOS_REWARDED_AD_UNIT",
+            "ca-app-pub-3940256099942544/1712485313",
+        ),
+    ]))
+    .unwrap();
+    assert!(config.advertising.enabled);
+    assert_eq!(config.advertising.reward_item, "continuation_credit");
+}

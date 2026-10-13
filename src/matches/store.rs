@@ -1,9 +1,9 @@
 use super::domain::{
-    ContinuationResult, CursorMessageRow, EffectivePlan, MatchCommandResult, MatchEnd, MatchRecord,
+    ContinuationResult, CursorMessageRow, MatchCommandResult, MatchEnd, MatchRecord,
     MessageCreationResult, MessageRead, PageCursor, UserMatchRow,
 };
 use crate::infra::postgres::{ConstraintKind, DatabaseError};
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use std::{future::Future, pin::Pin};
 use uuid::Uuid;
 
@@ -14,6 +14,7 @@ pub type MatchStoreFuture<'a, T> =
 pub enum MatchStoreError {
     Blocked,
     ParticipantUnavailable,
+    ContinuationExpired,
     Database(DatabaseError),
 }
 
@@ -63,19 +64,17 @@ pub trait MatchStore: Send + Sync {
         user_id: Uuid,
     ) -> MatchStoreFuture<'_, Option<[Uuid; 2]>>;
 
-    fn effective_plan(
+    fn quota_snapshot(
         &self,
         user_id: Uuid,
         now: DateTime<Utc>,
-    ) -> MatchStoreFuture<'_, EffectivePlan>;
-
-    fn continuation_usage(&self, user_id: Uuid, week_start: NaiveDate)
-    -> MatchStoreFuture<'_, i32>;
+    ) -> MatchStoreFuture<'_, super::domain::ContinuationQuota>;
 
     fn record_continuation(
         &self,
         match_id: Uuid,
         user_id: Uuid,
+        acknowledged_cost: i32,
     ) -> MatchStoreFuture<'_, ContinuationResult>;
 }
 
@@ -112,3 +111,15 @@ pub trait MatchMessageStore: Send + Sync {
         user_id: Uuid,
     ) -> MatchStoreFuture<'_, MatchCommandResult<Option<MessageRead>>>;
 }
+
+impl std::fmt::Display for MatchStoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Blocked => "match_blocked",
+            Self::ParticipantUnavailable => "participant_unavailable",
+            Self::ContinuationExpired => "match_expired",
+            Self::Database(error) => error.safe_code(),
+        })
+    }
+}
+impl std::error::Error for MatchStoreError {}

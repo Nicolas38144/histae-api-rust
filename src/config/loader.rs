@@ -573,6 +573,42 @@ impl AppConfig {
         };
 
         let billing = billing_config(source, environment)?;
+        let advertising_provider = source.or("ADVERTISING_PROVIDER", "disabled")?;
+        let advertising_enabled = match advertising_provider.as_str() {
+            "disabled" => false,
+            "admob" => true,
+            _ => return Err(ConfigError::invalid("ADVERTISING_PROVIDER")),
+        };
+        let android_ad_unit = source.or("ADMOB_ANDROID_REWARDED_AD_UNIT", "")?;
+        let ios_ad_unit = source.or("ADMOB_IOS_REWARDED_AD_UNIT", "")?;
+        let reward_item = source.or("ADMOB_REWARD_ITEM", "continuation_credit")?;
+        if advertising_enabled {
+            let format = Regex::new(r"^ca-app-pub-[0-9]{16}/[0-9]{10}$")
+                .map_err(|_| ConfigError::invalid("ADMOB_AD_UNITS"))?;
+            if !format.is_match(&android_ad_unit)
+                || !format.is_match(&ios_ad_unit)
+                || (environment == Environment::Production
+                    && [&android_ad_unit, &ios_ad_unit]
+                        .iter()
+                        .any(|unit| unit.contains("3940256099942544")))
+            {
+                return Err(ConfigError::invalid("ADMOB_AD_UNITS"));
+            }
+            if reward_item.is_empty()
+                || reward_item.len() > 64
+                || !reward_item
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            {
+                return Err(ConfigError::invalid("ADMOB_REWARD_ITEM"));
+            }
+        }
+        let advertising = AdvertisingConfig {
+            enabled: advertising_enabled,
+            android_ad_unit,
+            ios_ad_unit,
+            reward_item,
+        };
         let rate_limit = RateLimitConfig {
             store: rate_store,
             global: limit(source, "RATE_LIMIT_GLOBAL", 100, "1m")?,
@@ -601,6 +637,7 @@ impl AppConfig {
             redis,
             push,
             billing,
+            advertising,
             object_storage,
             photo_moderation,
             admin_auth,

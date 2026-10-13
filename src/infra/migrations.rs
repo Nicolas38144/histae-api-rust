@@ -80,6 +80,50 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
+    let legacy_quota: bool = sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'continuation_usage' AND column_name = 'free_used_count')")
+        .fetch_one(&mut *transaction).await.map_err(map_sqlx_error)?;
+    sqlx::query("ALTER TABLE continuation_usage ADD COLUMN IF NOT EXISTS free_used_count smallint NOT NULL DEFAULT 0 CHECK (free_used_count >= 0)")
+        .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
+    // Backfill only when upgrading the legacy quota schema. New advertising debits
+    // must never become free debits on a repeated migration.
+    if legacy_quota {
+        sqlx::query("UPDATE continuation_usage SET free_used_count = used_count")
+            .execute(&mut *transaction)
+            .await
+            .map_err(map_sqlx_error)?;
+        // Legacy pending choices had no reservation and disclosed an initiator-only
+        // cost. Ask for fresh agreement under the new per-participant contract.
+        sqlx::query("UPDATE match_init SET continuation_initiator_id=NULL WHERE status='awaiting_continuation'")
+            .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
+        sqlx::query("UPDATE match_state SET continued = false WHERE match_id IN (SELECT id FROM match_init WHERE status = 'awaiting_continuation')")
+            .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
+    }
+    for (source, name) in [
+        (SCHEMA, "continuation credits"),
+        (SCHEMA, "continuation guards"),
+        (SCHEMA, "account anonymization"),
+        (SEED, "subscription plan features"),
+    ] {
+        transaction
+            .execute(sqlx::raw_sql(schema_section(source, name)?))
+            .await
+            .map_err(map_sqlx_error)?;
+    }
+    let reward_index: Option<String> = sqlx::query_scalar(
+        "SELECT pg_get_indexdef(to_regclass(current_schema() || '.idx_advertising_reward_owner'))",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(map_sqlx_error)?;
+    if reward_index
+        .is_some_and(|definition| !definition.contains("(user_id, created_at DESC, id DESC)"))
+    {
+        sqlx::query("DROP INDEX idx_advertising_reward_owner")
+            .execute(&mut *transaction)
+            .await
+            .map_err(map_sqlx_error)?;
+        sqlx::query("CREATE INDEX idx_advertising_reward_owner ON advertising_reward_intent(user_id,created_at DESC,id DESC)").execute(&mut *transaction).await.map_err(map_sqlx_error)?;
+    }
     // Upgrade the former EUR catalogue price without overwriting custom prices.
     // Stripe Prices and existing subscriptions are managed separately.
     sqlx::query(
@@ -130,4 +174,12 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         .await
         .map_err(map_sqlx_error)?;
     transaction.commit().await.map_err(map_sqlx_error)
+}
+
+fn schema_section<'a>(source: &'a str, name: &str) -> Result<&'a str, DatabaseError> {
+    source
+        .split(&format!("-- BEGIN {name}"))
+        .nth(1)
+        .and_then(|section| section.split(&format!("-- END {name}")).next())
+        .ok_or(DatabaseError::SchemaObjectsMissing)
 }

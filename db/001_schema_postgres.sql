@@ -664,10 +664,43 @@ CREATE TABLE continuation_usage (
     user_id uuid NOT NULL,
     week_start date NOT NULL,
     used_count smallint DEFAULT 0 NOT NULL,
+    free_used_count smallint DEFAULT 0 NOT NULL CHECK (free_used_count >= 0),
     CONSTRAINT continuation_usage_used_count_check CHECK ((used_count >= 0)),
     CONSTRAINT continuation_usage_pkey PRIMARY KEY (user_id, week_start),
     CONSTRAINT continuation_usage_user_id_fkey FOREIGN KEY (user_id) REFERENCES user_account(user_id) ON DELETE CASCADE
 );
+
+-- BEGIN continuation credits
+CREATE TABLE IF NOT EXISTS continuation_wallet (
+    user_id uuid PRIMARY KEY REFERENCES user_account(user_id) ON DELETE CASCADE,
+    advertising_credits smallint NOT NULL DEFAULT 0 CHECK (advertising_credits BETWEEN 0 AND 3)
+);
+
+CREATE TABLE IF NOT EXISTS continuation_reservation (
+    match_id uuid NOT NULL REFERENCES match_init(id) ON DELETE CASCADE,
+    user_id uuid NOT NULL REFERENCES user_account(user_id) ON DELETE CASCADE,
+    source text NOT NULL CHECK (source IN ('free', 'advertising', 'premium')),
+    week_start date NOT NULL,
+    PRIMARY KEY (match_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_continuation_reservation_user ON continuation_reservation(user_id);
+
+CREATE TABLE IF NOT EXISTS advertising_reward_intent (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id uuid NOT NULL REFERENCES user_account(user_id) ON DELETE CASCADE,
+    ad_unit text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    expires_at timestamptz NOT NULL DEFAULT clock_timestamp() + INTERVAL '15 minutes',
+    completed_at timestamptz,
+    cancelled_at timestamptz,
+    transaction_hash text UNIQUE,
+    CHECK (expires_at > created_at),
+    CHECK (cancelled_at IS NULL OR completed_at IS NULL),
+    CHECK ((completed_at IS NULL) = (transaction_hash IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_advertising_reward_owner ON advertising_reward_intent(user_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_advertising_reward_retention ON advertising_reward_intent(created_at);
+-- END continuation credits
 
 CREATE TABLE user_block (
     blocker_id uuid NOT NULL,
@@ -1094,7 +1127,8 @@ CREATE INDEX idx_admin_auth_event_session ON admin_auth_event (session_id) WHERE
 
 -- Fonctions métier et guards transactionnels
 
-CREATE FUNCTION fct_anonymize_user(p_user_id uuid) RETURNS void
+-- BEGIN account anonymization
+CREATE OR REPLACE FUNCTION fct_anonymize_user(p_user_id uuid) RETURNS void
     LANGUAGE plpgsql
     AS $$
 BEGIN
@@ -1125,6 +1159,10 @@ BEGIN
   DELETE FROM notification WHERE user_id = p_user_id;
   DELETE FROM user_block WHERE blocker_id = p_user_id OR blocked_id = p_user_id;
   DELETE FROM user_subscription WHERE user_id = p_user_id;
+  DELETE FROM continuation_reservation WHERE user_id = p_user_id
+    OR match_id IN (SELECT id FROM match_init WHERE user1_id = p_user_id OR user2_id = p_user_id);
+  DELETE FROM advertising_reward_intent WHERE user_id = p_user_id;
+  DELETE FROM continuation_wallet WHERE user_id = p_user_id;
   DELETE FROM continuation_usage WHERE user_id = p_user_id;
   DELETE FROM match_state WHERE user_id = p_user_id;
 
@@ -1146,6 +1184,7 @@ BEGIN
   WHERE user_id = p_user_id;
 END;
 $$;
+-- END account anonymization
 
 CREATE FUNCTION fct_check_user_age() RETURNS trigger
     LANGUAGE plpgsql
@@ -1282,3 +1321,26 @@ CREATE TRIGGER trg_live_subscription BEFORE INSERT OR UPDATE ON user_subscriptio
 CREATE TRIGGER trg_live_trait BEFORE INSERT OR UPDATE ON user_trait FOR EACH ROW EXECUTE FUNCTION fct_require_live_account('user_id');
 
 CREATE TRIGGER trg_live_swipe BEFORE INSERT OR UPDATE ON swipe_decision FOR EACH ROW EXECUTE FUNCTION fct_require_live_account('actor_id', 'target_id');
+
+-- BEGIN continuation guards
+CREATE OR REPLACE FUNCTION fct_lock_continuation_subscription() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE owner_id uuid;
+BEGIN
+  owner_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.user_id ELSE NEW.user_id END;
+  PERFORM pg_advisory_xact_lock(hashtextextended(owner_id::text, 86302004));
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END;
+$$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_live_continuation_wallet' AND tgrelid = 'continuation_wallet'::regclass) THEN
+    CREATE TRIGGER trg_live_continuation_wallet BEFORE INSERT OR UPDATE ON continuation_wallet FOR EACH ROW EXECUTE FUNCTION fct_require_live_account('user_id');
+    CREATE TRIGGER trg_live_continuation_reservation BEFORE INSERT OR UPDATE ON continuation_reservation FOR EACH ROW EXECUTE FUNCTION fct_require_live_match();
+    CREATE TRIGGER trg_live_advertising_reward BEFORE INSERT OR UPDATE ON advertising_reward_intent FOR EACH ROW EXECUTE FUNCTION fct_require_live_account('user_id');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_continuation_subscription' AND tgrelid = 'user_subscription'::regclass) THEN
+    CREATE TRIGGER trg_continuation_subscription BEFORE INSERT OR UPDATE OR DELETE ON user_subscription FOR EACH ROW EXECUTE FUNCTION fct_lock_continuation_subscription();
+  END IF;
+END $$;
+-- END continuation guards
