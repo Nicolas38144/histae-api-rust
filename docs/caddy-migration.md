@@ -11,7 +11,7 @@ figée par digest. L’API Rust reste servie par Axum. Les routes et contrats JS
 | --- | --- | --- |
 | Site | `../histae-site/Caddyfile` | Export statique Next.js, langues, redirections juridiques, cache et CSP |
 | Dashboard | `../histae-dashboard/Caddyfile` | SPA React, `/api/*`, absence de cache et protections navigateur |
-| Reverse proxy | `../reverse-proxy/Caddyfile` | Domaines publics, confiance du connecteur et routage Docker |
+| Reverse proxy | `../histae-reverse-proxy/Caddyfile` | Domaines publics, confiance du connecteur et routage Docker |
 | Passerelle S3 production | `docker/storage-gateway/Caddyfile` | TLS interne et transmission des requêtes S3 signées |
 
 Le site, le dashboard et le proxy ont chacun une copie identique de `caddy-common.caddy` parce que
@@ -69,11 +69,11 @@ Host, chemin encodé, query et corps ne sont pas réécrits. Le backend SeaweedF
 
 ## Appliquer sur le serveur
 
-Copier les Dockerfiles, les `Caddyfile`, les trois `caddy-common.caddy`, le Compose du proxy, son script reset,
+Copier les Dockerfiles, les `Caddyfile`, les trois `caddy-common.caddy`, le Compose du proxy, les scripts du dépôt `histae-scripts`,
 ainsi que `compose.production.yaml` et le Caddyfile S3 de l’API. Les fichiers `.env` et certificats existants
 continuent de fournir la configuration. La reconstruction et la recréation des conteneurs sont nécessaires.
 
-Depuis `reverse-proxy`, pour les trois serveurs HTTP :
+Depuis `histae-reverse-proxy`, pour les trois serveurs HTTP :
 
 ```bash
 sudo docker compose --env-file .env -f docker-compose.yml config --quiet
@@ -99,8 +99,9 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml \
 ```
 
 La pile API dev n’a pas cette passerelle. Ne pas changer de mode pour cette migration : les volumes dev et
-production diffèrent. `sudo bash reset-docker-compose.sh` reste le redémarrage complet **dev derrière le tunnel**,
-avec validation des trois Caddyfiles avant recréation et passe de maintenance après démarrage de l’API.
+production diffèrent. Depuis `histae-scripts`, `bash reset-docker-compose.sh --dev` redémarre la pile dev
+et `--production` sélectionne explicitement la production avec supervision. Les deux modes valident les
+Caddyfiles avant recréation et exécutent une passe de maintenance ; le mode production valide aussi le Caddyfile S3.
 
 Après déploiement, vérifier aussi connexion passkey sur le domaine réel, chargement d’une fiche administrateur,
 réponse 401 sans session, réception SSE et affichage d’une photo signée. L’enrôlement réel d’une passkey nécessite

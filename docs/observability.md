@@ -43,6 +43,10 @@ Le script réutilise un `METRICS_TOKEN` littéral existant d’au moins 32 carac
 hexadécimaux dans `.env`. Il synchronise `.secrets/histae_metrics_token` et crée le mot de passe de secours
 `.secrets/histae_grafana_admin_password` uniquement s’il n’existe pas. Il n’affiche aucun secret et conserve
 le propriétaire du `.env`, y compris lors d’un lancement avec `sudo`.
+Un second argument optionnel fixe le dossier des secrets :
+`bash scripts/prepare-observability-secrets.sh /chemin/api.env "$PWD/.secrets"`.
+La procédure centralisée utilise toujours le dossier `.secrets` de l’API, même lorsque son fichier
+d’environnement est placé ailleurs ; les sources des secrets Compose restent ainsi cohérentes.
 
 Le dossier `.secrets` est privé (`0700`). Les fichiers de supervision montés par Docker sont lisibles par les UID
 des services (`0444`) : leur protection sur l’hôte repose sur le dossier parent. `.env` et `.secrets` restent
@@ -63,10 +67,10 @@ Le reverse proxy doit démarrer en premier : il crée `histae-edge` et le résea
 Dans le `.env` de l’API, définir `ADMIN_WEBAUTHN_ORIGIN=https://dashboard.histae.com`,
 `ADMIN_WEBAUTHN_RP_ID=dashboard.histae.com` et l’origine CORS correspondante.
 
-La procédure complète est automatisée depuis `reverse-proxy` :
+La procédure complète est automatisée depuis `histae-scripts` :
 
 ```bash
-sudo bash reset-docker-compose.sh
+bash reset-docker-compose.sh --dev
 ```
 
 Le reset prépare les secrets, valide les configurations, reconstruit les images et démarre les services modifiés.
@@ -105,7 +109,7 @@ Le superadmin n’a donc pas à saisir un second mot de passe. Le compte de seco
 par formulaire dans ce mode. Prometheus conserve ses API d’administration et de rechargement HTTP désactivées.
 
 Une indisponibilité de l’API ferme l’accès aux trois interfaces. Leur collecte continue séparément.
-Les liens du dashboard n’activent pas de services en production : cette intégration appartient à la pile dev.
+Les liens du dashboard ne démarrent aucun service. L’intégration production se configure avec l’override décrit ci-dessous.
 
 ### 4. Vérifier la collecte
 
@@ -125,6 +129,44 @@ Après rotation du token, recréer API et Prometheus pour recharger les deux val
 Le tableau `Histae / Histae Operations` affiche disponibilité, alertes, HTTP, dépendances, pool PostgreSQL,
 outbox et maintenance. Les compteurs repartent à zéro après un redémarrage de l’API ; `rate` et `increase`
 savent gérer ces remises à zéro. Les métriques et panneaux ne portent aucun identifiant utilisateur.
+
+<a id="supervision-integree-a-la-production"></a>
+
+## Supervision intégrée à la production
+
+`compose.production-observability.yaml` s’ajoute à `compose.yaml` et `compose.production.yaml`.
+Il active le listener privé `api:9091`, réutilise les trois services de supervision, leurs secrets
+et volumes, puis les raccorde aux alias `histae-production-*` sur le réseau privé monitoring.
+La configuration Prometheus porte `environment: production`. Aucun port de supervision n’est publié.
+Les volumes restent dans le projet production et ne reprennent pas ceux du projet dev.
+
+Le proxy doit sélectionner les destinations production du modèle `.env.example`, et les deux
+environnements doivent partager le nom `HISTAE_MONITORING_NETWORK`.
+Le script centralisé impose les bonnes destinations avec son choix de mode :
+
+```bash
+# Depuis histae-scripts, après préparation de l’environnement API et des certificats :
+bash reset-docker-compose.sh --production
+```
+
+Pour démarrer manuellement depuis la racine API, après démarrage du proxy et création du backend :
+
+```bash
+bash scripts/prepare-observability-secrets.sh
+sudo docker compose --env-file .env \
+  -f compose.yaml -f compose.production.yaml -f compose.production-observability.yaml \
+  up -d --build --wait
+```
+
+L’accès reprend le contrôle WebAuthn du superadmin pour chaque requête, la suppression du cookie
+avant transmission aux outils et l’identité Grafana fournie uniquement par l’API via Caddy.
+Les contrôles de collecte et les tests `promtool` ci-dessus s’appliquent en gardant ces trois manifests.
+Le provisioning nommé `provisioning-dev` est réutilisé pour son URL Prometheus avec sous-chemin ;
+les données, les services et les labels de cette pile sont bien ceux de la production.
+
+Le receiver Alertmanager fourni reste sans canal de notification. Un destinataire réel et une
+validation de réception/résolution doivent être configurés avant ouverture. Ne pas lancer en parallèle
+la pile autonome sur cette même API si l’intégration répond au besoin.
 
 ## Pile autonome : API native ou supervision distincte
 

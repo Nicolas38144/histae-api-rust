@@ -221,7 +221,7 @@ services:
 
   # Initialise seulement le bucket privé via S3 ; aucune permission publique ajoutée.
   storage-init:
-    image: ${HISTAE_API_IMAGE:-histae-api:local}
+    image: ${HISTAE_API_IMAGE:-histae-api-rust:local}
     env_file: ["${HISTAE_ENV_FILE:-.env}"]
     entrypoint: [/app/bin/storage-init]
     environment:
@@ -295,7 +295,7 @@ services:
       PORT: "8080"
       MAINTENANCE_MODE: disabled
       METRICS_HOST: 0.0.0.0
-      # The fixed proxy addresses match ../reverse-proxy/docker-compose.yml.
+      # The fixed proxy addresses match ../histae-reverse-proxy/docker-compose.yml.
       # A local TRUST_PROXY=false must not collapse all tunnel clients into one IP.
       TRUST_PROXY: "172.30.0.3/32,172.30.0.4/32"
     secrets:

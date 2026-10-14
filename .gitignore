@@ -2,5 +2,6 @@
 /.env
 /.secrets/
 /.load-test/
+/.maintenance-*.lock
 /tools/photo-codec/node_modules/
 **/__pycache__/

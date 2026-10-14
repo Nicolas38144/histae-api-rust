@@ -53,48 +53,27 @@ Vérifier `status`, `last_error_code`, progression et travail restant après une
 
 ### Timer systemd sur Debian
 
-Créer les deux unités suivantes sur le serveur. Remplacer `/opt/histae/histae-api-rust` par le chemin réel.
-L’exemple cible la production, avec des dépendances démarrées ; pour dev/proxy, adapter les options Compose.
-Le service système s’exécute avec les droits d’accès Docker et peut être lancé manuellement pour validation.
-
-`/etc/systemd/system/histae-maintenance.service` :
-
-```ini
-[Unit]
-Description=Histae bounded maintenance
-Requires=docker.service
-After=docker.service
-
-[Service]
-Type=oneshot
-WorkingDirectory=/opt/histae/histae-api-rust
-ExecStart=/usr/bin/docker compose --env-file .env -f compose.yaml -f compose.production.yaml --profile jobs run --rm --no-deps maintenance
-```
-
-`/etc/systemd/system/histae-maintenance.timer` :
-
-```ini
-[Unit]
-Description=Run Histae maintenance every five minutes
-
-[Timer]
-OnCalendar=*:0/5
-Persistent=true
-Unit=histae-maintenance.service
-
-[Install]
-WantedBy=timers.target
-```
-
-Après création des fichiers :
+Les unités et leur installateur sont fournis dans le
+[dépôt des scripts](../../histae-scripts/README.md#maintenance-planifiee).
+Depuis `histae-scripts` :
 
 ```bash
-sudo systemctl daemon-reload
+sudo bash systemd/install-maintenance.sh
+sudoedit /etc/histae/maintenance.env
 sudo systemctl start histae-maintenance.service
 sudo journalctl -u histae-maintenance.service -n 50 --no-pager
 sudo systemctl enable --now histae-maintenance.timer
-sudo systemctl list-timers histae-maintenance.timer
+sudo systemctl list-timers --all histae-maintenance.timer
 ```
+
+Le fichier d’environnement conserve `HISTAE_ROOT` (par défaut `/opt/histae`), le mode
+`HISTAE_DEPLOYMENT_MODE=production` et, si nécessaire, `HISTAE_ENV_FILE`.
+Choisir explicitement `dev` pour les manifests dev/proxy. Les dépendances doivent déjà être prêtes.
+L’installateur conserve le fichier d’environnement existant et n’active pas le timer automatiquement.
+
+Le service appelle `run-maintenance.sh`, qui sélectionne les mêmes manifests API que le reset,
+utilise `-T` pour le lancement sans terminal et prend un verrou par pile. Le reset utilise aussi
+ce script, ce qui évite le chevauchement avec une passe planifiée sur le même hôte.
 
 Une même unité active ne démarre pas une seconde instance à chaque tick. `Persistent=true` permet de
 rattraper une activation manquée après arrêt ; ce n’est pas un rejeu de toutes les passes manquées.

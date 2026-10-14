@@ -1,5 +1,5 @@
 # Développement derrière le reverse proxy : à combiner avec compose.yaml et
-# compose.dev.yaml. Le réseau est créé par ../reverse-proxy/docker-compose.yml.
+# compose.dev.yaml. Le réseau est créé par ../histae-reverse-proxy/docker-compose.yml.
 services:
   api:
     environment:

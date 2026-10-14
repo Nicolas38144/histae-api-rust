@@ -127,7 +127,7 @@ utiliser l’origine HTTPS du proxy décrite ci-dessous.
 
 ## Développement derrière Cloudflare et le reverse proxy
 
-La pile voisine [reverse-proxy](../../reverse-proxy/README.md) crée `histae-edge` avec son IPAM.
+La pile voisine [reverse-proxy](../../histae-reverse-proxy/README.md) crée `histae-edge` avec son IPAM.
 Le sous-réseau prévu est `172.30.0.0/24` ; il doit être libre sur le serveur. Cette pile réserve :
 
 | Service | Adresse edge | Rôle dans la confiance |
@@ -137,7 +137,7 @@ Le sous-réseau prévu est `172.30.0.0/24` ; il doit être libre sur le serveur.
 | Cloudflared | `172.30.0.5` | Source approuvée des en-têtes Cloudflare par Caddy |
 | API / passerelle S3 production | Allocation automatique | Aucun ajout à `TRUST_PROXY` nécessaire |
 
-Configurer `../reverse-proxy/.env` avec `HISTAE_API_UPSTREAM=http://histae-api-dev:8080` et le même
+Configurer `../histae-reverse-proxy/.env` avec `HISTAE_API_UPSTREAM=http://histae-api-dev:8080` et le même
 `HISTAE_EDGE_NETWORK`. Démarrer cette pile depuis son dossier avant l’API ; ne pas précréer son réseau edge.
 Elle crée aussi `histae-monitoring`, interne, sur `172.29.0.0/24` : ce second sous-réseau doit être libre.
 `compose.proxy.yaml` y raccorde les trois outils sans ajouter de port publié ni de domaine Cloudflare.
@@ -194,7 +194,7 @@ TRUST_PROXY=172.30.0.3/32,172.30.0.4/32
 ```
 
 Choisir une étiquette propre à la livraison. Définir explicitement `HISTAE_API_IMAGE` garantit que les
-services applicatifs et `storage-init` utilisent la même image malgré leurs valeurs de repli différentes.
+services applicatifs et `storage-init` utilisent la même image pour une livraison identifiée. Les valeurs de repli des processus applicatifs sont également alignées.
 Le serveur exécute Docker ; Rust, Node et pnpm ne sont pas nécessaires sur son hôte.
 
 La configuration impose TLS PostgreSQL/Redis, authentification Redis, S3 HTTPS, Sweego, Stripe live,
@@ -261,6 +261,18 @@ sudo docker exec reverse-proxy-container sh -c 'wget -qO- "$HISTAE_API_UPSTREAM/
 Adapter le nom si `HISTAE_BACKEND_NETWORK` est personnalisé. Si dev et production coexistent, leur donner
 chacun un backend distinct. Aucun port hôte API, PostgreSQL, Redis ou S3 brut n’est publié en production.
 Le listener métriques reste privé ; voir [Supervision](observability.md).
+
+La procédure centralisée se lance depuis `../histae-scripts` :
+
+```bash
+bash reset-docker-compose.sh --production
+```
+
+Elle sélectionne les manifests production et ajoute `compose.production-observability.yaml`
+pour les interfaces protégées du dashboard. Elle prépare les secrets de supervision, vérifie les
+montages/réseaux, construit avant redémarrage et contrôle Caddy, Cloudflare, S3, readiness et règles
+Prometheus. `--check` utilise les fichiers et images existants sans redémarrer les services.
+Voir le [guide des scripts](../../histae-scripts/README.md) pour les modes et la maintenance systemd.
 
 ### Ressources
 

@@ -1,0 +1,92 @@
+# Add to compose.yaml + compose.production.yaml for supervision through the dashboard.
+# The reverse proxy creates histae-monitoring first. No monitoring host ports are published.
+services:
+  api:
+    environment:
+      METRICS_ENABLED: "true"
+      METRICS_HOST: 0.0.0.0
+      METRICS_PORT: "9091"
+
+  prometheus:
+    extends: { file: docker-compose.observability.yml, service: prometheus }
+    ports: !reset []
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+      - --web.external-url=${ADMIN_WEBAUTHN_ORIGIN:?Define ADMIN_WEBAUTHN_ORIGIN}/monitoring/prometheus/
+      - --web.route-prefix=/monitoring/prometheus
+    volumes:
+      - ./observability/prometheus/prometheus.production.yml:/etc/prometheus/prometheus.yml:ro
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:9090/monitoring/prometheus/-/ready]
+    networks:
+      observability:
+      backend:
+      monitoring:
+        aliases: [histae-production-prometheus]
+
+  alertmanager:
+    extends: { file: docker-compose.observability.yml, service: alertmanager }
+    ports: !reset []
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.external-url=${ADMIN_WEBAUTHN_ORIGIN:?Define ADMIN_WEBAUTHN_ORIGIN}/monitoring/alertmanager/
+      - --web.route-prefix=/monitoring/alertmanager
+      - --cluster.listen-address=
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:9093/monitoring/alertmanager/-/ready]
+    networks:
+      observability:
+      monitoring:
+        aliases: [histae-production-alertmanager]
+
+  grafana:
+    extends: { file: docker-compose.observability.yml, service: grafana }
+    ports: !reset []
+    environment:
+      GF_SERVER_ROOT_URL: ${ADMIN_WEBAUTHN_ORIGIN:?Define ADMIN_WEBAUTHN_ORIGIN}/monitoring/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_LOG_LEVEL: error
+      GF_SERVER_ROUTER_LOGGING: "false"
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: X-Histae-Monitoring-User
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_WHITELIST: "172.29.0.4"
+      GF_AUTH_PROXY_ENABLE_LOGIN_TOKEN: "false"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+    volumes:
+      # Reuse the existing provisioning for the /monitoring/prometheus subpath.
+      - ./observability/grafana/provisioning-dev:/etc/grafana/provisioning:ro
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:3000/monitoring/grafana/api/health]
+    networks:
+      observability:
+      monitoring:
+        aliases: [histae-production-grafana]
+
+volumes:
+  histae-prometheus-data:
+  histae-alertmanager-data:
+  histae-grafana-data:
+
+secrets:
+  histae-metrics-token:
+    file: ./.secrets/histae_metrics_token
+  histae-grafana-password:
+    file: ./.secrets/histae_grafana_admin_password
+
+networks:
+  observability:
+    internal: true
+  monitoring:
+    name: ${HISTAE_MONITORING_NETWORK:-histae-monitoring}
+    external: true

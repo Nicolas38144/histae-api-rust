@@ -3,7 +3,7 @@ global:
   evaluation_interval: 15s
   external_labels:
     service: histae-api
-    environment: development
+    environment: production
 
 rule_files:
   - /etc/prometheus/alerts.yml

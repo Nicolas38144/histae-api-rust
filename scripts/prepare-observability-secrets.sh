@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if (( $# > 1 )); then
-  printf 'Usage: %s [env-file]\n' "$0" >&2
+if (( $# > 2 )); then
+  printf 'Usage: %s [env-file] [secrets-directory]\n' "$0" >&2
   exit 2
 fi
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-python3 - "${1:-${SCRIPT_DIR}/../.env}" <<'PYSECRETS'
+python3 - "${1:-${SCRIPT_DIR}/../.env}" "${2:-}" <<'PYSECRETS'
 from pathlib import Path
 import os
 import re
@@ -56,7 +56,7 @@ def write_private(path, contents, mode):
         if os.path.exists(temporary):
             os.unlink(temporary)
 
-directory = env.parent / '.secrets'
+directory = Path(sys.argv[2]).absolute() if sys.argv[2] else env.parent / '.secrets'
 if directory.is_symlink():
     raise SystemExit('The secrets directory must not be a symbolic link.')
 directory.mkdir(exist_ok=True)

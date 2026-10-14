@@ -17,6 +17,7 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 
 - [Configuration](configuration.md) : chargement, priorité des variables, contraintes et secrets.
 - [Déploiement](container-deployment.md) : topologies, réseaux, TLS, démarrage et mise à jour.
+- [Scripts serveur](../../histae-scripts/README.md) : procédures dev/production, vérifications et timer de maintenance.
 - [Base de données](database.md) : schéma, migrateur, sauvegarde, restauration et suppression.
 - [Rôles PostgreSQL](postgres-roles.md) : comptes séparés, mots de passe dans `.env`, installation et conversion dev.
 - [Administration](administration.md) : premier superadmin, enrôlement, sessions et rôles.
@@ -36,6 +37,7 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Migration Caddy](caddy-migration.md) : serveurs statiques, tunnel, passerelle S3 et validation.
 - [Durcissement de sécurité](security-hardening.md) : dépendances, logs Caddy, tunnel et vérification AdMob.
 - [Mise en production](production-readiness.md) : validations sur la livraison réelle.
+- [Feuille de route production](../roadmap-production.md) : blocages, dépendances et critères de clôture avant ouverture.
 
 ## Conventions et entretien
 
