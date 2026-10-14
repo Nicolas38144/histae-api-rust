@@ -491,15 +491,6 @@ pub fn map_subscription(
         .get("price")
         .filter(|value| value.is_object())
         .ok_or(StripeWebhookError::InvalidEvent)?;
-    let product = object_id(
-        price
-            .get("product")
-            .ok_or(StripeWebhookError::InvalidEvent)?,
-        "prod_",
-    )?;
-    if product != config.premium_product_id {
-        return Err(StripeWebhookError::InvalidEvent);
-    }
     let stripe_price_id = required_provider_id(price, "id", "price_")?.to_owned();
     let billing_period = if stripe_price_id == config.premium_monthly_price_id {
         BillingPeriod::Monthly
@@ -722,12 +713,11 @@ mod tests {
     }
 
     #[test]
-    fn maps_only_the_configured_single_premium_price() {
+    fn maps_only_the_two_configured_premium_prices_without_a_product_filter() {
         let config = BillingConfig {
             provider: BillingProvider::Stripe,
             stripe_secret_key: SecretString::new("sk_test_value".to_owned()),
             stripe_webhook_secret: SecretString::new("whsec_value".to_owned()),
-            premium_product_id: "prod_Premium".to_owned(),
             premium_monthly_price_id: "price_Monthly".to_owned(),
             premium_annual_price_id: "price_Annual".to_owned(),
             checkout_success_url: None,
@@ -742,7 +732,7 @@ mod tests {
             reconciliation_batch_size: 10,
         };
         let user_id = Uuid::new_v4();
-        let value = serde_json::json!({
+        let mut value = serde_json::json!({
             "id":"sub_Test", "customer":"cus_Test", "status":"active",
             "cancel_at_period_end":false,
             "metadata":{"histae_user_id":user_id},
@@ -750,15 +740,33 @@ mod tests {
                 "current_period_start":1_900_000_000_i64,"current_period_end":1_900_086_400_i64}]},
             "trial_start":null,"trial_end":null,"canceled_at":null
         });
-        let projection =
-            map_subscription(&value, Utc::now(), &config).unwrap_or_else(|_| unreachable!());
-        assert_eq!(projection.metadata_user_id, Some(user_id));
-        assert_eq!(projection.billing_period, BillingPeriod::Monthly);
+        for (price_id, product, expected_period) in [
+            ("price_Monthly", "prod_Monthly", BillingPeriod::Monthly),
+            ("price_Annual", "prod_Annual", BillingPeriod::Annual),
+        ] {
+            value["items"]["data"][0]["price"] =
+                serde_json::json!({"id": price_id, "product": product});
+            let projection =
+                map_subscription(&value, Utc::now(), &config).unwrap_or_else(|_| unreachable!());
+            assert_eq!(projection.metadata_user_id, Some(user_id));
+            assert_eq!(projection.billing_period, expected_period);
+        }
 
-        let mut invalid = value;
-        invalid["items"]["data"][0]["price"]["product"] = Value::String("prod_Other".to_owned());
+        value["items"]["data"][0]["price"] = serde_json::json!({"id": "price_Monthly"});
+        assert!(map_subscription(&value, Utc::now(), &config).is_ok());
+
+        let mut invalid = value.clone();
+        invalid["items"]["data"][0]["price"] =
+            serde_json::json!({"id": "price_Other", "product": "prod_Premium"});
         assert_eq!(
             map_subscription(&invalid, Utc::now(), &config),
+            Err(StripeWebhookError::InvalidEvent)
+        );
+
+        let item = value["items"]["data"][0].clone();
+        value["items"]["data"] = serde_json::json!([item.clone(), item]);
+        assert_eq!(
+            map_subscription(&value, Utc::now(), &config),
             Err(StripeWebhookError::InvalidEvent)
         );
     }

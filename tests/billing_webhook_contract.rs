@@ -73,7 +73,6 @@ fn config() -> BillingConfig {
         provider: BillingProvider::Stripe,
         stripe_secret_key: SecretString::new("sk_test_contract".to_owned()),
         stripe_webhook_secret: SecretString::new("whsec_contract".to_owned()),
-        premium_product_id: "prod_Contract".to_owned(),
         premium_monthly_price_id: "price_Monthly".to_owned(),
         premium_annual_price_id: "price_Annual".to_owned(),
         checkout_success_url: None,

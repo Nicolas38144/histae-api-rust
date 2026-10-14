@@ -2,7 +2,7 @@
 
 [Index](README.md) · [Déploiement](container-deployment.md#certificats-et-stockage) · [Roadmap](../roadmap-production.md)
 
-Dernière mise à jour : **14 octobre 2026**. Ce guide rassemble la préparation des secrets,
+Dernière mise à jour : **15 octobre 2026**. Ce guide rassemble la préparation des secrets,
 les choix de domaines Cloudflare, les certificats, leur renouvellement et la procédure de lancement.
 
 Ces commandes répondent aux fichiers et valeurs manquants signalés par `prepare-production.sh`.
@@ -642,26 +642,31 @@ Stripe a été volontairement reporté à la suite de la préparation. Les secre
 les permissions et les certificats peuvent être préparés dès maintenant. En revanche, l'API actuelle
 ne propose pas de mode production sans Stripe : ce report laisse un blocage de démarrage ouvert.
 
-Ces cinq valeurs ne se génèrent pas avec OpenSSL :
+Ces quatre valeurs ne se génèrent pas avec OpenSSL :
 
 | Variable | Origine |
 | --- | --- |
 | `STRIPE_SECRET_KEY` | Clé API secrète live `sk_live_…` du compte Stripe |
 | `STRIPE_WEBHOOK_SECRET` | Secret de signature `whsec_…` du webhook `/api/billing/stripe/webhook` |
-| `STRIPE_PREMIUM_PRODUCT_ID` | Produit Premium réel `prod_…` |
 | `STRIPE_PREMIUM_MONTHLY_PRICE_ID` | Price récurrent mensuel réel `price_…` |
 | `STRIPE_PREMIUM_ANNUAL_PRICE_ID` | Price récurrent annuel réel `price_…` distinct |
 
-Les exemples `sk_live_…`, `whsec_…`, `prod_…` et `price_…` ne donnent aucun accès. L'API exige des
+Les exemples `sk_live_…`, `whsec_…` et `price_…` ne donnent aucun accès. L'API exige des
 identifiants live en production ; garder les essais Stripe dans l'environnement de développement.
 Références : [clés API](https://docs.stripe.com/keys),
 [secrets des endpoints webhook](https://docs.stripe.com/api/webhook_endpoints).
 
-Configurer les cinq valeurs **dans le même environnement live** : le produit doit être celui
-des deux prix, et les prix mensuel et annuel doivent être distincts. Le secret du webhook doit
+Configurer les quatre valeurs **dans le même environnement live** : les prix mensuel et annuel
+doivent être récurrents, actifs et distincts. Le secret du webhook doit
 être celui de l'endpoint réel du serveur, pas un secret d'écoute locale. Conserver aussi les
 URL de retour Stripe HTTPS déjà présentes dans le `.env`, dont `STRIPE_CHECKOUT_SUCCESS_URL`
 avec son paramètre `{CHECKOUT_SESSION_ID}`.
+
+Les variables `STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID` contiennent des
+identifiants de **prix** `price_…`. Elles ne contiennent
+pas les identifiants `sub_…` des abonnements clients. Aucun identifiant produit n'est nécessaire
+dans le `.env` : les webhooks et la réconciliation reconnaissent Premium par les deux prix autorisés.
+Chez Stripe, le produit Histae Premium reste associé à ses tarifs mensuel et annuel.
 
 `BILLING_PROVIDER=stripe` est requis par la configuration Rust en production. Si une ancienne
 valeur de développement le désactive explicitement, la corriger. Ajouter des chaînes fictives
@@ -753,12 +758,14 @@ proche de l'expiration reste à renouveler.
 - Le JSON S3, le token des métriques et le mot de passe initial Grafana sont cohérents.
 - Les trois paires certificat/clé et leurs contrôles de chaîne / nom DNS sont indiqués `OK`.
 - **Quatre erreurs de permissions** subsistent : deux pour PostgreSQL, deux pour Redis.
-- **Cinq valeurs Stripe** restent à renseigner ; le bilan total est donc de **neuf points**.
+- Le bilan partagé avant la simplification Stripe comportait **cinq valeurs Stripe** manquantes,
+  soit **neuf points** avec les erreurs de permissions.
 
 Les commandes de correction des permissions ont été fournies, mais aucun nouveau bilan ne
-confirme encore leur résolution. Si elles réussissent et qu'aucun autre point n'apparaît,
-il devrait rester seulement les cinq valeurs Stripe. Cela décrit les sorties partagées,
-pas un audit indépendant du serveur ni de tous les fournisseurs.
+confirme encore leur résolution. La configuration actuelle ne demande plus l'identifiant produit :
+elle attend les quatre valeurs Stripe décrites en section 5. Conserver les deux entrées de prix dans
+le `.env` du serveur avec leurs valeurs `price_…`, puis relancer le contrôle pour obtenir le bilan
+actuel. Les sorties précédentes ne constituent pas un audit indépendant du serveur ni des fournisseurs.
 
 ## 7. Lancer la pile de production et comprendre `docker-nuke`
 
@@ -908,6 +915,5 @@ Il ne configure pas les fournisseurs, les routes Cloudflare, les sauvegardes ou 
 Les tâches détaillées restent dans la [roadmap production](../roadmap-production.md).
 
 Ce document a été rapproché des scripts et manifests du projet et des sorties que tu as partagées.
-Aucune commande de déploiement, de renouvellement ou de suppression n'a été exécutée sur ton serveur
-pendant sa mise à jour. Aucun secret réel n'a été ajouté au guide ; aucun test automatisé n'a été
-ajouté ni lancé et aucune commande Git n'a été exécutée pour cette modification.
+Il ne constitue pas une preuve de déploiement ou de renouvellement réussi sur ton serveur.
+Les vérifications sur la cible restent à consigner dans la roadmap, sans secrets ni données personnelles.

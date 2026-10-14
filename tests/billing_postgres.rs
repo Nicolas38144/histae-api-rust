@@ -164,7 +164,6 @@ fn billing_config() -> BillingConfig {
         provider: BillingProvider::Stripe,
         stripe_secret_key: SecretString::new("test-secret".to_owned()),
         stripe_webhook_secret: SecretString::new("test-webhook-secret".to_owned()),
-        premium_product_id: "prod_contract".to_owned(),
         premium_monthly_price_id: "price_monthly_contract".to_owned(),
         premium_annual_price_id: "price_annual_contract".to_owned(),
         checkout_success_url: Some("https://app.histae.test/success".to_owned()),

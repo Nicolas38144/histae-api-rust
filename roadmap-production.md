@@ -1,7 +1,8 @@
 # Histae API — feuille de route de production
 
-Dernière mise à jour : **14 octobre 2026**, après intégration des dépôts `histae-scripts` et
-`histae-reverse-proxy`, correction des procédures de déploiement et ajout du préparateur production.
+Dernière mise à jour : **15 octobre 2026**, après intégration des dépôts `histae-scripts` et
+`histae-reverse-proxy`, correction des procédures de déploiement, ajout du préparateur production
+et simplification de la configuration Stripe aux deux identifiants de prix Premium.
 
 Cette feuille de route suit les raccordements, décisions et preuves qui restent nécessaires avant le
 déploiement final de Histae et son ouverture aux utilisateurs. Les guides liés décrivent les procédures ;
@@ -237,8 +238,10 @@ Références : [Configuration OTP](docs/configuration.md#groupes-de-variables),
 Le validateur actuel impose `BILLING_PROVIDER=stripe` et une clé live en production. Un lancement avec
 la facturation désactivée nécessiterait une évolution explicite de cette règle et de ses tests.
 
-- [ ] Configurer le compte Stripe, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, le produit Premium
-  et les Prices mensuel/annuel correspondant au catalogue : 5 EUR/mois, 48 EUR/an, essai de 30 jours.
+- [ ] Configurer le compte Stripe, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+  `STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID` avec les identifiants `price_…`
+  correspondant au catalogue : 5 EUR/mois, 48 EUR/an, essai de 30 jours. Le produit reste chez Stripe ;
+  son identifiant n'est plus requis dans le `.env`.
 - [ ] Vérifier l'accord entre catalogue PostgreSQL, catalogue du site, dashboard et paramètres Stripe.
 - [ ] Configurer Checkout et le portail client, les retours HTTPS succès/annulation/portail et leur
   traitement dans le client ; le retour de succès contient `{CHECKOUT_SESSION_ID}`.

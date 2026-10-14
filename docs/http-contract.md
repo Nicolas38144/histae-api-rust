@@ -143,6 +143,10 @@ Erreurs utiles : `authentication_required`, `invalid_or_expired_access_token`, `
 
 La signature est obligatoire, ainsi que la cohérence test/live. Les Event IDs sont dédupliqués ; les événements non pris en charge mais valides sont acquittés sans effet. Limite dédiée : 300/min/IP.
 
+Les abonnements Premium sont reconnus par les prix `price_…` configurés dans
+`STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID`. Un abonnement traité doit contenir
+un seul article portant l'un de ces deux prix ; aucun identifiant produit n'est configuré.
+
 Événements traités : `checkout.session.completed`, `checkout.session.expired`, `customer.subscription.created|updated|deleted|paused|resumed|trial_will_end`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.finalization_failed`, `customer.deleted`. Les événements de facture/abonnement plus anciens que l’état connu sont ignorés. Erreurs : `invalid_stripe_signature`, `stripe_mode_mismatch`, `invalid_stripe_event`, `billing_webhook_rate_limit_exceeded`.
 
 ### Webhook Sweego

@@ -441,7 +441,6 @@ pub(super) fn billing_config(
     }
     let secret = source.or("STRIPE_SECRET_KEY", "")?;
     let webhook = source.or("STRIPE_WEBHOOK_SECRET", "")?;
-    let product = source.or("STRIPE_PREMIUM_PRODUCT_ID", "")?;
     let monthly = source.or("STRIPE_PREMIUM_MONTHLY_PRICE_ID", "")?;
     let annual = source.or("STRIPE_PREMIUM_ANNUAL_PRICE_ID", "")?;
     let id_suffix = |value: &str, prefix: &str| {
@@ -461,9 +460,6 @@ pub(super) fn billing_config(
         }
         if !id_suffix(&webhook, "whsec_") {
             return Err(ConfigError::invalid("STRIPE_WEBHOOK_SECRET"));
-        }
-        if !id_suffix(&product, "prod_") {
-            return Err(ConfigError::invalid("STRIPE_PREMIUM_PRODUCT_ID"));
         }
         if !id_suffix(&monthly, "price_") || !id_suffix(&annual, "price_") || monthly == annual {
             return Err(ConfigError::invalid("STRIPE_PRICE_IDS"));
@@ -511,7 +507,6 @@ pub(super) fn billing_config(
         provider,
         stripe_secret_key: SecretString::new(secret),
         stripe_webhook_secret: SecretString::new(webhook),
-        premium_product_id: product,
         premium_monthly_price_id: monthly,
         premium_annual_price_id: annual,
         checkout_success_url: success,

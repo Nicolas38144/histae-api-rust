@@ -209,16 +209,11 @@ impl BillingReconciliationService {
             .items
             .into_iter()
             .filter(|subscription| {
-                subscription
-                    .pointer("/items/data")
-                    .and_then(Value::as_array)
-                    .is_some_and(|items| {
-                        items.iter().any(|item| {
-                            item.pointer("/price/product")
-                                .and_then(object_id)
-                                .is_some_and(|id| id == self.config.premium_product_id)
-                        })
-                    })
+                has_premium_price(
+                    subscription,
+                    &self.config.premium_monthly_price_id,
+                    &self.config.premium_annual_price_id,
+                )
             })
             .collect::<Vec<_>>();
         let current = premium
@@ -423,10 +418,17 @@ fn customer_creation_resolved(context: &CustomerCreationContext) -> bool {
             && context.created_customer_id == context.mapped_customer_id
 }
 
-fn object_id(value: &Value) -> Option<&str> {
-    value
-        .as_str()
-        .or_else(|| value.get("id").and_then(Value::as_str))
+fn has_premium_price(subscription: &Value, monthly_id: &str, annual_id: &str) -> bool {
+    subscription
+        .pointer("/items/data")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                item.pointer("/price/id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| id == monthly_id || id == annual_id)
+            })
+        })
 }
 
 fn map_store_failure(error: ReconciliationStoreError) -> BillingReconciliationError {
@@ -536,6 +538,29 @@ impl BillingReconciliationListing for BillingReconciliationService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognizes_premium_by_the_two_prices_without_a_product_filter() {
+        for (price_id, product, expected) in [
+            ("price_Monthly", "prod_Monthly", true),
+            ("price_Annual", "prod_Annual", true),
+            ("price_Other", "prod_Monthly", false),
+        ] {
+            let subscription = serde_json::json!({
+                "items": {"data": [{"price": {"id": price_id, "product": product}}]}
+            });
+            assert_eq!(
+                has_premium_price(&subscription, "price_Monthly", "price_Annual"),
+                expected
+            );
+        }
+        assert!(!has_premium_price(
+            &serde_json::json!({"items": {"data": []}}),
+            "price_Monthly",
+            "price_Annual"
+        ));
+    }
+
     #[test]
     fn cursor_round_trip_preserves_microseconds_and_generated_ids() {
         let id = Uuid::new_v4();

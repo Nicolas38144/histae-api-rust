@@ -172,7 +172,6 @@ fn accepts_the_complete_production_provider_configuration() {
         ("BILLING_PROVIDER", "stripe"),
         ("STRIPE_SECRET_KEY", "sk_live_histaeSecret"),
         ("STRIPE_WEBHOOK_SECRET", "whsec_histaeWebhookSecret"),
-        ("STRIPE_PREMIUM_PRODUCT_ID", "prod_histaePremium"),
         ("STRIPE_PREMIUM_MONTHLY_PRICE_ID", "price_histaeMonthly"),
         ("STRIPE_PREMIUM_ANNUAL_PRICE_ID", "price_histaeAnnual"),
         (
@@ -194,8 +193,40 @@ fn accepts_the_complete_production_provider_configuration() {
     assert!(config.postgres.tls);
     assert_eq!(config.sms.provider, SmsProvider::Sweego);
     assert_eq!(config.billing.provider, BillingProvider::Stripe);
+    assert_eq!(config.billing.premium_monthly_price_id, "price_histaeMonthly");
+    assert_eq!(config.billing.premium_annual_price_id, "price_histaeAnnual");
     assert_eq!(config.rate_limit.store, RateLimitStore::Redis);
     assert_eq!(config.admin_auth.cookie_name, "__Host-histae_admin_session");
+}
+
+#[test]
+fn stripe_requires_two_distinct_price_ids() {
+    let billing = [
+        ("BILLING_PROVIDER", "stripe"),
+        ("STRIPE_SECRET_KEY", "sk_test_histaeSecret"),
+        ("STRIPE_WEBHOOK_SECRET", "whsec_histaeWebhookSecret"),
+        ("STRIPE_PREMIUM_MONTHLY_PRICE_ID", "price_histaeMonthly"),
+        ("STRIPE_PREMIUM_ANNUAL_PRICE_ID", "price_histaeAnnual"),
+        (
+            "STRIPE_CHECKOUT_SUCCESS_URL",
+            "https://app.histae.test/billing/success?session_id={CHECKOUT_SESSION_ID}",
+        ),
+        (
+            "STRIPE_CHECKOUT_CANCEL_URL",
+            "https://app.histae.test/billing/cancel",
+        ),
+        (
+            "STRIPE_PORTAL_RETURN_URL",
+            "https://app.histae.test/settings/subscription",
+        ),
+    ];
+    for invalid_annual_id in ["", "sub_histaeAnnual", "price_histaeMonthly"] {
+        let mut values = billing.to_vec();
+        values.push(("STRIPE_PREMIUM_ANNUAL_PRICE_ID", invalid_annual_id));
+        let error = AppConfig::from_source(&base(&values))
+            .expect_err("Stripe requires a distinct recurring price for each billing period");
+        assert_eq!(error.variable, "STRIPE_PRICE_IDS");
+    }
 }
 
 #[test]

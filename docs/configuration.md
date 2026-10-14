@@ -115,7 +115,7 @@ URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
 | S3 | `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_REGION`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY`, `OBJECT_STORAGE_SECRET_KEY`, `OBJECT_STORAGE_FORCE_PATH_STYLE` | HTTPS et clés explicites en production ; nom accessible aux serveurs et clients pour les URLs signées. |
 | Photos | `PHOTO_MODERATION_PROVIDER`, `PHOTO_MODERATION_ENDPOINT`, `PHOTO_MODERATION_TOKEN`, `PHOTO_MODERATION_TIMEOUT`, `PHOTO_MODERATION_MIN_SHARPNESS`, `PHOTO_MODERATION_NSFW_REVIEW_THRESHOLD` | `disabled` ou `local_http` ; token d’au moins 32 octets avec `local_http`. |
 | OTP | `SMS_PROVIDER`, `SWEEGO_API_KEY`, `SWEEGO_SMS_SENDER_ID`, `SWEEGO_SMS_REGION`, `SWEEGO_API_URL`, `SWEEGO_TIMEOUT`, `OTP_TTL`, `SWEEGO_WEBHOOK_SECRET` | Sweego obligatoire en production ; région `FR`. Secret de webhook fourni par Sweego, distinct de la clé API. |
-| Stripe | `BILLING_PROVIDER`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PREMIUM_PRODUCT_ID`, `STRIPE_PREMIUM_MONTHLY_PRICE_ID`, `STRIPE_PREMIUM_ANNUAL_PRICE_ID` | Identifiants complets ; clés `sk_test_…` en développement, `sk_live_…` en production. |
+| Stripe | `BILLING_PROVIDER`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PREMIUM_MONTHLY_PRICE_ID`, `STRIPE_PREMIUM_ANNUAL_PRICE_ID` | Clés `sk_test_…` en développement, `sk_live_…` en production ; deux identifiants de prix `price_…` distincts. |
 | Redirections Stripe | `STRIPE_CHECKOUT_SUCCESS_URL`, `STRIPE_CHECKOUT_CANCEL_URL`, `STRIPE_PORTAL_RETURN_URL` | HTTPS ; succès contient `{CHECKOUT_SESSION_ID}`. |
 | Réconciliation Stripe | `STRIPE_RECONCILIATION_INTERVAL`, `STRIPE_RECONCILIATION_FRESHNESS`, `STRIPE_RECONCILIATION_BATCH_SIZE`, `STRIPE_TIMEOUT` | Défauts : `5m`, `1h`, 25 éléments, `10s` ; maintenance pour programmer, outbox pour exécuter. |
 | Options Stripe | `STRIPE_AUTOMATIC_TAX`, `STRIPE_ALLOW_PROMOTION_CODES`, `STRIPE_MAX_NETWORK_RETRIES` | Défauts : `false`, `false`, `2` ; respecter les fenêtres d’idempotence du contrat. |
@@ -152,6 +152,12 @@ Créer un Price récurrent annuel à 48 EUR avant d'activer cette offre, puis re
 le `.env` du serveur. Modifier le catalogue ne modifie pas les Prices Stripe ni les abonnements existants.
 Aligner également le catalogue statique du site (`histae-site/config/site.json`) et le reconstruire.
 Le dashboard lit les prix via `GET /api/plans`.
+
+`STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID` contiennent les identifiants des **prix**
+Stripe (`price_…`), pas les identifiants des abonnements clients (`sub_…`). Aucun identifiant de
+produit n'est demandé dans le `.env`. Les webhooks et la réconciliation reconnaissent Premium
+à partir de ces deux prix autorisés ; les autres prix ne sont pas reconnus comme Premium.
+Les contrôles de signature, de mode test/live et d'unicité de l'abonnement restent appliqués.
 
 ### Documents juridiques
 

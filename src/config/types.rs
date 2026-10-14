@@ -148,7 +148,6 @@ pub struct BillingConfig {
     pub provider: BillingProvider,
     pub stripe_secret_key: SecretString,
     pub stripe_webhook_secret: SecretString,
-    pub premium_product_id: String,
     pub premium_monthly_price_id: String,
     pub premium_annual_price_id: String,
     pub checkout_success_url: Option<String>,

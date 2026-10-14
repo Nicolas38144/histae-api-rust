@@ -32,10 +32,6 @@ impl StripeReconciliationGateway for StripeClient {
                         ("customer".to_owned(), customer_id),
                         ("status".to_owned(), "all".to_owned()),
                         ("limit".to_owned(), "100".to_owned()),
-                        (
-                            "expand[]".to_owned(),
-                            "data.items.data.price.product".to_owned(),
-                        ),
                     ],
                     None,
                 )
