@@ -203,6 +203,20 @@ avant de lancer les conteneurs : une configuration dev ne doit pas être présen
 
 ### Certificats et stockage
 
+Le préparateur centralisé contrôle le `.env` existant, les fichiers requis et leurs permissions,
+et crée seulement les secrets S3/supervision manquants, sans remplacer les fichiers existants :
+
+```bash
+bash ../histae-scripts/prepare-production.sh
+bash ../histae-scripts/prepare-production.sh --check
+```
+
+Le bilan indique les variables et fichiers à corriger sans afficher les secrets. Les certificats
+restent à fournir selon le tableau ci-dessous ; le script vérifie leur correspondance avec les clés,
+les SAN, la CA commune PostgreSQL/Redis et la confiance publique du S3 sur l'hôte.
+Voir [les options et limites du préparateur](../../histae-scripts/README.md#préparer-la-production).
+La confiance TLS depuis les images clientes doit encore être validée sur la cible.
+
 Préparer les fichiers hors Git, avec les permissions nécessaires aux utilisateurs des images :
 
 | Emplacement hôte | Contenu / contraintes |
