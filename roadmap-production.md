@@ -75,6 +75,10 @@ Références : [Scripts et vérifications](../histae-scripts/README.md),
 
 ## PROD-01 — Configuration, secrets et images
 
+- [x] Fournir le [guide de génération et d'installation des secrets](docs/production-secrets.md)
+  et une structure locale `.secrets/` avec modèle S3 fictif. Les certificats sont à générer/installer
+  avec les commandes documentées ; aucune clé de CA ni faux certificat de production n'est fourni.
+  Ces fichiers d'exemple ne clôturent pas la configuration réelle. Aucun test n'a été ajouté ou lancé.
 - [x] Fournir `histae-scripts/prepare-production.sh` pour contrôler le `.env` existant et les
   manifests, préparer uniquement les fichiers S3/supervision manquants, vérifier les certificats
   et permissions, puis lister les corrections requises sans afficher de secret ni remplacer de fichier.

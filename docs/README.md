@@ -17,6 +17,7 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 
 - [Configuration](configuration.md) : chargement, priorité des variables, contraintes et secrets.
 - [Déploiement](container-deployment.md) : topologies, réseaux, TLS, démarrage et mise à jour.
+- [Secrets de production](production-secrets.md) : génération S3, CA PostgreSQL/Redis, certificat public S3 et identifiants Stripe.
 - [Scripts serveur](../../histae-scripts/README.md) : procédures dev/production, vérifications et timer de maintenance.
 - [Base de données](database.md) : schéma, migrateur, sauvegarde, restauration et suppression.
 - [Rôles PostgreSQL](postgres-roles.md) : comptes séparés, mots de passe dans `.env`, installation et conversion dev.

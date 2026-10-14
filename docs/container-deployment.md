@@ -219,6 +219,9 @@ La confiance TLS depuis les images clientes doit encore être validée sur la ci
 
 Préparer les fichiers hors Git, avec les permissions nécessaires aux utilisateurs des images :
 
+Les commandes pour générer les clés S3, signer les certificats PostgreSQL/Redis, obtenir le
+certificat public S3 et installer les fichiers sont dans [Secrets de production](production-secrets.md).
+
 | Emplacement hôte | Contenu / contraintes |
 | --- | --- |
 | `.secrets/postgres/server.crt` | Certificat PEM, SAN `DNS:postgres`, avec intermédiaires éventuels |
