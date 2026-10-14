@@ -1,7 +1,7 @@
 # Histae API — feuille de route de production
 
 Dernière mise à jour : **14 octobre 2026**, après intégration des dépôts `histae-scripts` et
-`histae-reverse-proxy` et correction des procédures de déploiement.
+`histae-reverse-proxy`, correction des procédures de déploiement et ajout du préparateur production.
 
 Cette feuille de route suit les raccordements, décisions et preuves qui restent nécessaires avant le
 déploiement final de Histae et son ouverture aux utilisateurs. Les guides liés décrivent les procédures ;
@@ -75,6 +75,13 @@ Références : [Scripts et vérifications](../histae-scripts/README.md),
 
 ## PROD-01 — Configuration, secrets et images
 
+- [x] Fournir `histae-scripts/prepare-production.sh` pour contrôler le `.env` existant et les
+  manifests, préparer uniquement les fichiers S3/supervision manquants, vérifier les certificats
+  et permissions, puis lister les corrections requises sans afficher de secret ni remplacer de fichier.
+  Le mode `--check` ne réalise aucune écriture. Preuves locales du 14 octobre 2026 : 23 tests réussis
+  (dont certificats fictifs avec OpenSSL et lecture réelle du `.env` avec Compose 2.40.3), syntaxe
+  Bash/Python vérifiée. Le test de création réelle d'un lien symbolique est ignoré sur cet hôte Windows ;
+  le refus est aussi vérifié par simulation. La validation Linux et fournisseurs reste à effectuer.
 - [ ] Préparer l'environnement de production avec `ENV=production`, des valeurs adaptées à la cible
   et des secrets distincts pour JWT, téléphone, Redis, S3, SMS, Stripe et supervision.
 - [ ] Préserver les clés téléphone si des comptes existants sont repris ; documenter toute migration
