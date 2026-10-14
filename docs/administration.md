@@ -28,6 +28,21 @@ une authentification récente, dix minutes par défaut.
 Créer d’abord un compte par le parcours mobile OTP. Le rôle `superadmin` n’est attribuable par aucune route.
 Un index unique PostgreSQL impose **un seul superadmin**, y compris si plusieurs opérateurs agissent simultanément.
 
+Pour automatiser la promotion de l’unique compte et l’émission du jeton, depuis `histae-scripts` :
+
+```bash
+bash bootstrap-superadmin.sh --dev
+# Ou, pour un compte dans la pile production :
+bash bootstrap-superadmin.sh --production
+```
+
+Le [script](../../histae-scripts/bootstrap-superadmin.sh) exige un seul compte non supprimé,
+non banni et aucun autre superadmin. Il vérifie d’abord la configuration de l’API démarrée,
+attribue le rôle dans une transaction verrouillée, puis affiche le jeton et l’origine du dashboard.
+L’enregistrement de la passkey nécessite ensuite le navigateur et l’authentificateur.
+Une relance pour ce même compte déjà superadmin émet un nouveau jeton ; les anciens jetons non consommés
+sont invalidés. Les commandes manuelles ci-dessous restent disponibles.
+
 Choisir la pile et lire les comptes. Exemple dev derrière le proxy :
 
 ```bash

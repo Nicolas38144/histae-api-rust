@@ -247,6 +247,10 @@ Références : [Tarifs et Stripe](docs/configuration.md#tarifs-du-catalogue-et-s
 
 ## PROD-09 — Administration WebAuthn
 
+- [x] Fournir `histae-scripts/bootstrap-superadmin.sh` pour promouvoir l’unique compte admissible,
+  émettre le jeton temporaire et guider l’enregistrement de la passkey dans le navigateur.
+  Validation locale : huit tests d’orchestration avec Docker simulé et syntaxe Bash/Python réussis ;
+  la transaction SQL a été relue. L’exécution PostgreSQL et la cérémonie réelle restent à vérifier.
 - [ ] Vérifier `ADMIN_WEBAUTHN_ORIGIN` et `ADMIN_WEBAUTHN_RP_ID` sur le domaine HTTPS réel.
 - [ ] Initialiser le superadmin identifié, émettre le jeton avec `admin-bootstrap` et terminer
   l'enrôlement dans le dashboard depuis cette origine.
