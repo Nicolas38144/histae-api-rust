@@ -213,6 +213,27 @@ un port HTTP sur le serveur. Le plugin demande un token DNS `Zone:DNS:Edit` limi
 distinct des identifiants du tunnel. Voir le
 [plugin DNS Cloudflare](https://certbot-dns-cloudflare.readthedocs.io/en/stable/).
 
+### Obtenir `dns_cloudflare_api_token`
+
+Créer ce token dans le compte Cloudflare qui gère les DNS du domaine :
+
+1. Ouvrir [Mon profil → API Tokens](https://dash.cloudflare.com/profile/api-tokens).
+2. Cliquer sur **Create Token**, puis utiliser le modèle **Edit zone DNS**.
+3. Nommer le token, par exemple `histae-certbot-s3`.
+4. Garder la permission **Zone → DNS → Edit**.
+5. Dans le formulaire du token, descendre sous **Permissions** jusqu'à **Zone Resources**
+   (ressources de zone). Configurer les menus sur **Include → Specific zone → histae.com**
+   pour un certificat couvrant `storage.histae.com`. Le dernier menu propose le domaine racine
+   géré dans Cloudflare. Adapter ce domaine à la zone réelle de `HISTAE_STORAGE_HOST`.
+6. Valider le récapitulatif, créer le token et copier sa valeur, affichée une seule fois.
+
+Cette valeur remplace `REPLACE_WITH_SCOPED_CLOUDFLARE_DNS_TOKEN` dans le fichier INI ci-dessous.
+Il s'agit du secret du token, distinct du Zone ID, de l'Account ID et du token de tunnel Cloudflared.
+Procédure officielle : [créer un token Cloudflare](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/).
+
+Si le token a déjà été créé, rouvrir sa configuration en modification depuis la liste
+[API Tokens](https://dash.cloudflare.com/profile/api-tokens) pour ajuster ses ressources de zone.
+
 Exemple sur Debian, après installation de Certbot et de son plugin :
 
 ```bash
@@ -314,6 +335,21 @@ sudo bash prepare-production.sh --check
 Le contrôle s'exécute ici avec root pour lire les clés privées installées en `root:groupe-service`.
 Les chemins par défaut utilisent les `.env` des deux dépôts ; avec un fichier externe, passer
 explicitement `--env-file` et `--proxy-env-file` avec leurs chemins.
+
+Si le contrôle ne peut pas détecter les UID/GID PostgreSQL/Redis, distinguer l'accès au moteur
+Docker de la présence des images. `docker compose config` peut réussir sans accès au moteur.
+Avec le préparateur mis à jour, le message indique lequel de ces prérequis manque. Au besoin,
+depuis la racine API, construire PostgreSQL et télécharger Redis sans démarrer les services :
+
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml build postgres
+sudo docker pull redis:7.4.2-alpine
+```
+
+Puis relancer `sudo bash prepare-production.sh --check` depuis `histae-scripts`.
+Les identifiants Stripe peuvent être renseignés après cette préparation ; ils resteront signalés
+une seule fois par variable manquante. Le validateur Rust exige toujours Stripe live au démarrage
+de l'API avec `ENV=production`.
 
 Les commandes de ce guide n'ont pas été exécutées sur le serveur. Les exemples locaux ne clôturent
 aucune validation de production. Aucun test automatisé n'a été ajouté ni lancé pour ce guide.
