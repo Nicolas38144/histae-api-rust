@@ -186,8 +186,9 @@ async fn admin_pages_and_detail_preserve_filters_counts_and_optional_data()
             .bind(&users[..]).bind(admin).fetch_one(&mut *connection).await?;
         assert_eq!(logs,2);
         drop(connection);
-        // The same migration path upgrades a populated database, preserving its rows.
-        assert_eq!(histae_api_rust::infra::migrations::apply(&config).await?,0);
+        // Query checks use the limited runtime role. Schema upgrades are tested
+        // separately with the migrator by verify-continuation-postgres.py.
+        database.verify_schema_compatibility().await?;
         Ok(())
     }.await;
     let cleanup_result = cleanup(&database, &users).await;

@@ -1,7 +1,7 @@
 -- Consolidated PostgreSQL schema, including discovery and admin WebAuthn state.
 -- Apply to an empty schema only; db-migrate checks and upgrades complete databases.
 -- Reference data and opt-in development fixtures: insert_postgres.sql.
--- Retention and cross-storage invariants: docs/retention-policy.md and AGENTS.md.
+-- Retention and cross-storage invariants: docs/database.md and docs/operations.md.
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

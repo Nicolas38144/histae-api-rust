@@ -68,7 +68,7 @@ en mémoire ne remplace jamais un verrou transactionnel distribué. Les futures 
 
 - `identity/mobile/otp/` sépare états de livraison, port, service et transactions OTP.
 - `advertising/{domain,error,store,http,pg,ssv}.rs` sépare les types métier, le port de persistance, les requêtes propriétaires, l’octroi transactionnel et la vérification AdMob sur les octets signés ; le mobile ne décide jamais du solde.
-- `identity/pg_guards.rs` porte les verrous de compte et de consentement réutilisés par les transactions de matchs et de récompenses.
+- `identity/pg_guards.rs` porte les verrous de compte/consentement des transactions de matchs et de récompenses, ainsi que le verrou ordonné par paire partagé entre création de match et blocage.
 - `identity/admin/webauthn.rs` encapsule la vérification cryptographique.
 - `billing/reconcile/` sépare modèles, ports, service, fournisseur Stripe, PostgreSQL, HTTP et worker.
 - `billing/webhook/pg.rs` isole la projection transactionnelle des événements signés.
@@ -122,3 +122,8 @@ Les règles d’exécution et les limites de preuve sont décrites dans [tests/R
 ## Confirmation et récompenses
 
 Les règles sont centralisées dans le [guide des continuations](continuation-and-rewards.md). Le match est verrouillé avant les comptes/consentements, abonnements et wallets ordonnés. Une décision Free réserve un crédit ; les deux débits et la confirmation forment une seule transaction. Le trigger d’abonnement partage les verrous du wallet pour sérialiser les changements Premium. Une récompense publicitaire vérifiée suit l’ordre compte → wallet → intention. Les projections et exports ne publient pas le choix individuel de l’autre personne.
+
+La création d’un match et le blocage partagent un verrou transactionnel sur la même paire d’UUID triés,
+avant les verrous de ligne. Un blocage attend ainsi le commit d’un match en cours de création avant de le
+clôturer. Les opérations mobiles vérifient également le blocage à l’accès : un ancien match incohérent
+ne permet ni lecture, ni message, ni révélation ou continuation.

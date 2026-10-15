@@ -383,9 +383,7 @@ Les compteurs sont branchés sur les clients utilisés par l’API : requêtes S
 opérations S3, commandes Redis, acquisition des connexions PostgreSQL, sondes SQL et commandes de transaction (BEGIN/COMMIT/ROLLBACK).
 Les durées incluent les reprises internes du client. PostgreSQL compte des opérations d’accès et
 commandes de transaction, pas chaque instruction SQL individuelle. Les refus métier ne sont pas comptés comme des pannes de stockage.
-Le runtime expose son identité Rust, sa durée de fonctionnement et sa mémoire RSS. Il ne publie pas
-l’ancienne mesure de retard de l’event loop Node.
-Ces compteurs ne doivent donc pas être interprétés comme un nombre de requêtes SQL ni comparés directement
-aux volumes du driver NestJS. Une erreur HTTP conserve aussi ses compteurs et un événement sûr
+Le runtime expose son identité Rust, sa durée de fonctionnement et sa mémoire RSS.
+Ces compteurs ne doivent pas être interprétés comme un nombre de requêtes SQL. Une erreur HTTP conserve aussi ses compteurs et un événement sûr
 `http_request_failed`. Les labels restent bornés et aucun payload, SQL, secret ou identifiant client
 n’est enregistré dans les métriques des dépendances.

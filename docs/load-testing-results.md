@@ -2,6 +2,10 @@
 
 [Guide de test](load-testing.md) · [Performance SQL](sql-performance.md)
 
+Les sections ci-dessous conservent les configurations de chaque mesure historique. Le pool API Docker
+actuel vaut **30 connexions** par défaut ; les mentions de 20 connexions décrivent les essais correspondants.
+Les résultats ne constituent pas une mesure de la livraison actuelle après chaque correction fonctionnelle.
+
 ## Conditions de mesure
 
 Campagne du **11 au 12 octobre 2026**, sur l’ordinateur de développement :

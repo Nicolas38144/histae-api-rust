@@ -201,6 +201,86 @@ async fn services(
 }
 
 #[tokio::test]
+async fn a_like_replay_returns_the_existing_live_match_without_reopening_an_ended_one()
+-> Result<(), Box<dyn std::error::Error>> {
+    use histae_api_rust::discovery::service::DiscoveryError;
+    use histae_api_rust::matches::store::MatchStore;
+
+    let (database, activity, service, _) = services(&postgres_config()?).await?;
+    let users = [Uuid::new_v4(), Uuid::new_v4()];
+    ready_user(&database, users[0], 1, 48.8566).await?;
+    ready_user(&database, users[1], 2, 48.8576).await?;
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        assert!(
+            !service
+                .swipe(users[0], users[1], SwipeDecision::Like)
+                .await?
+                .matched
+        );
+        let accepted = service
+            .swipe(users[1], users[0], SwipeDecision::Like)
+            .await?;
+        let match_id = accepted.r#match.ok_or(FixtureError("mutual_match"))?.id;
+        let replay = service
+            .swipe(users[1], users[0], SwipeDecision::Like)
+            .await?;
+        assert!(replay.matched);
+        assert_eq!(
+            replay.r#match.ok_or(FixtureError("replayed_match"))?.id,
+            match_id
+        );
+        assert_eq!(
+            service
+                .swipe(users[1], users[0], SwipeDecision::Pass)
+                .await
+                .unwrap_err(),
+            DiscoveryError::SwipeAlreadyRecorded
+        );
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM notification WHERE payload->>'match_id'=$1")
+                .bind(match_id.to_string())
+                .fetch_one(database.acquire().await?.as_mut())
+                .await?;
+        assert_eq!(count, 2, "replays must not duplicate notifications");
+        assert!(service.feed(users[0], 100, None).await?.profiles.is_empty());
+        // A replay does not bypass the current discovery filters.
+        sqlx::query("UPDATE user_presence SET latitude=-48.8566 WHERE user_id=$1")
+            .bind(users[0])
+            .execute(database.acquire().await?.as_mut())
+            .await?;
+        assert_eq!(
+            service
+                .swipe(users[1], users[0], SwipeDecision::Like)
+                .await
+                .unwrap_err(),
+            DiscoveryError::CandidateNotFound
+        );
+        sqlx::query("UPDATE user_presence SET latitude=48.8566 WHERE user_id=$1")
+            .bind(users[0])
+            .execute(database.acquire().await?.as_mut())
+            .await?;
+        PgMatchRepository::new(database.clone())
+            .record_end(match_id, users[0])
+            .await?;
+        assert_eq!(
+            service
+                .swipe(users[1], users[0], SwipeDecision::Like)
+                .await
+                .unwrap_err(),
+            DiscoveryError::CandidateNotFound
+        );
+        Ok(())
+    }
+    .await;
+    let cleaned = cleanup(&database, &users).await;
+    activity.close().await;
+    database.close().await;
+    result?;
+    cleaned?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn feed_excludes_current_swipes_and_expired_decisions_can_be_replaced()
 -> Result<(), Box<dyn std::error::Error>> {
     let config = postgres_config()?;

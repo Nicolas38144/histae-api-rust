@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection based on docs/http-contract.md (103 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/http-contract.md.",
+    "description": "Collection based on docs/http-contract.md (109 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -1047,7 +1047,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ target_user_id, decision: like or pass } → 201 { decision, matched, match? }."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ target_user_id, decision: like or pass } → 201 { decision, matched, match? }.\n\nReplaying the same retained like returns the existing open match without duplicates or new notifications. Discovery filters still apply; ended or expired matches are never reopened."
               },
               "response": []
             },
@@ -1764,7 +1764,7 @@
                     }
                   ]
                 },
-                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\nUUID → 204; closes matches between the accounts and prevents them from matching again."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\nUUID → 204; closes matches between the accounts and prevents them from matching again.\n\nBlocking is serialized with concurrent match creation. Any legacy inconsistent matches remain inaccessible while the block is active."
               },
               "response": []
             },

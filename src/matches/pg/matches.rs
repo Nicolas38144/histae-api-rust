@@ -42,6 +42,12 @@ impl MatchStore for PgMatchRepository {
             self.database
                 .transaction(|connection| {
                     Box::pin(async move {
+                        crate::identity::pg_guards::lock_user_pair(
+                            connection,
+                            record.user1_id,
+                            record.user2_id,
+                        )
+                        .await?;
                         let inserted = sqlx::query(
                             "INSERT INTO match_init
                              (id, user1_id, user2_id, status, expires_at, purge_after,

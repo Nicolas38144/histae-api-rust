@@ -213,7 +213,7 @@ Références : [Service photo](services/photo-moderation/README.md),
 protections et la confiance proxy attendues.
 
 Références : [Reverse proxy](../histae-reverse-proxy/README.md), [Caddy](docs/caddy-migration.md),
-[Durcissement](docs/security-hardening.md).
+[Mise en production](docs/production-readiness.md).
 
 ## PROD-07 — Sweego et connexion mobile
 
@@ -426,7 +426,7 @@ Références : [Configuration](docs/configuration.md#groupes-de-variables),
 retenu avec une interface sans publicité active. L'allocation gratuite reste utilisable sans publicité.
 
 Références : [Continuations et récompenses](docs/continuation-and-rewards.md),
-[Validation](docs/continuation-validation.md).
+[Validation](docs/feature-audit.md).
 
 ## Ordre de réalisation et décision d'ouverture
 

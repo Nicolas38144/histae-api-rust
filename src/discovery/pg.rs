@@ -560,6 +560,14 @@ const TARGET_SETS_SQL: &str = r#"
 ), excluded AS MATERIALIZED (
   SELECT $7::uuid AS user_id FROM match_init
     WHERE user1_id = least($1::uuid, $7::uuid) AND user2_id = greatest($1::uuid, $7::uuid)
+      AND NOT (
+        (status = 'confirmed'
+          OR (status = 'active' AND expires_at + INTERVAL '24 hours' > statement_timestamp())
+          OR (status = 'awaiting_continuation' AND expires_at > statement_timestamp()))
+        AND EXISTS (SELECT 1 FROM swipe_decision
+          WHERE actor_id = $1 AND target_id = $7 AND decision = 'like'
+            AND expires_at > statement_timestamp())
+      )
   UNION ALL SELECT blocked_id FROM user_block WHERE blocker_id = $1 AND blocked_id = $7
   UNION ALL SELECT blocker_id FROM user_block WHERE blocker_id = $7 AND blocked_id = $1
 )

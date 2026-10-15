@@ -5,7 +5,7 @@ use url::Url;
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, ConfigError> {
-        // Nest's dotenv load is best effort; required variables below still fail closed.
+        // Loading dotenv is best effort; required variables below still fail closed.
         let _ = dotenvy::dotenv();
         Self::from_source(&EnvironmentSource::from_pairs(std::env::vars_os()))
     }

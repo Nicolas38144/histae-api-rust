@@ -2,7 +2,7 @@
 
 [Documentation](../docs/README.md) · [Développement](../docs/development.md) · [Livraison](../docs/production-readiness.md)
 
-Exécuter depuis la racine du dépôt. Les tests ne chargent pas le `.env` du projet NestJS.
+Exécuter depuis la racine du dépôt. Les suites isolées injectent leur configuration sans utiliser les secrets du `.env` local.
 Utiliser des fixtures fictives et des secrets de développement, jamais une base de production.
 
 ## Niveaux et limites de preuve
@@ -11,7 +11,7 @@ Utiliser des fixtures fictives et des secrets de développement, jamais une base
 | --- | --- | --- |
 | Unitaire | Modules `#[cfg(test)]` de `src/` | Règles, configuration, transports, mocks et cycles de vie |
 | Contrat | `*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, guards et permissions |
-| Inventaire | `route_inventory.rs` | Les 109 couples méthode/chemin de `docs/http-contract.md` correspondent aux déclarations Axum |
+| Inventaire | `route_inventory.rs` | Les 109 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
 | PostgreSQL | `*_postgres.rs`, `postgres_compatibility`, `postgres_locks` | SQL, contraintes, verrous, snapshots et concurrence réels |
 | Redis / S3 | `redis_integration`, `media_integration` | Adaptateurs sur services locaux |
 | Codec | `photo_codec.rs`, `fixtures/photos/` | Formats, taille, métadonnées, corruption et arrêt du processus Node |
@@ -82,6 +82,7 @@ permissions applicatives dans un conteneur temporaire. Voir [Rôles PostgreSQL](
 | Abonnements Stripe / revenus | Requêtes Checkout figées, reprises bornées, concurrence, abonnement distant sans webhook, prix historiques, projections dépassées et montants des factures payées |
 | Fournisseurs / exports | Durées OAuth hors plage, diagnostics Stripe préservés pendant effacement, date UTC et bigint exportés sans perte, nettoyage des fichiers temporaires |
 | SQL | Filtres et pages admin, compte sans profil, compteurs, curseurs, fiche/audit et équivalence des agrégats de files |
+| Découverte et blocage | Rejeu d’un like après création du match, filtres toujours appliqués, match terminé jamais rouvert, création concurrente d’un blocage et d’un match sérialisée |
 | Clôture de match | Participants uniquement, rejeux, fermeture concurrente, messages en attente refusés, événement SSE et rétention/quota conservés |
 | Continuations / récompenses | Envoi suspendu, choix privés, coût explicite, réservations concurrentes, double débit évité, deux participants, changement de semaine/plan/consentement, signature ECDSA et récompense unique plafonnée |
 | Migrateur | Base neuve/peuplée, idempotence, index concurrents et réparation d’un index invalide |
@@ -116,7 +117,7 @@ ni la capacité en charge, ni une restauration complète hors machine. Exécuter
 
 ## Crédits et récompenses
 
-Le [guide](../docs/continuation-and-rewards.md) décrit les règles et la validation AdMob restante. Les tests `matches_postgres` couvrent les wallets, récompenses et consentements avec le rôle applicatif, sans appel OTP et sans publicité réelle. Les tests ECDSA utilisent une clé de test générée en mémoire ; ils ne désactivent jamais la vérification de production. Les résultats et limites sont regroupés dans [Validation des continuations](../docs/continuation-validation.md).
+Le [guide](../docs/continuation-and-rewards.md) décrit les règles et la validation AdMob restante. Les tests `matches_postgres` couvrent les wallets, récompenses et consentements avec le rôle applicatif, sans appel OTP et sans publicité réelle. Les tests ECDSA utilisent une clé de test générée en mémoire ; ils ne désactivent jamais la vérification de production. Les résultats et limites sont regroupés dans [Audit fonctionnel](../docs/feature-audit.md).
 
 Pour ces suites, utiliser le lanceur isolé afin que le worker de la pile dev ne récupère pas les événements des fixtures :
 

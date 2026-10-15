@@ -7,6 +7,26 @@ use chrono::{DateTime, Utc};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
+/// Serialize pair creation and blocking before either transaction locks a match.
+/// This also covers a match row that is not visible until its creator commits.
+pub(crate) async fn lock_user_pair(
+    connection: &mut PgConnection,
+    first: Uuid,
+    second: Uuid,
+) -> Result<(), DatabaseError> {
+    let (first, second) = if first < second {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 86302005))")
+        .bind(format!("{first}:{second}"))
+        .execute(connection)
+        .await
+        .map_err(map_sqlx_error)?;
+    Ok(())
+}
+
 pub(crate) async fn lock_eligible_accounts(
     connection: &mut PgConnection,
     users: &[Uuid],

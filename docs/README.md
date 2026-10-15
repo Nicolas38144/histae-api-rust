@@ -25,7 +25,7 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Exploitation](operations.md) : processus, passes de maintenance et incidents de démarrage.
 - [Parcours Stripe](billing.md) : configuration, Checkout, Premium, renouvellements, reprises et revenus.
 - [Continuations et récompenses](continuation-and-rewards.md) : fenêtres, crédits, confidentialité des choix et activation AdMob.
-- [Validation des continuations](continuation-validation.md) : résultats locaux et limites de validation fournisseur.
+- [Audit fonctionnel](feature-audit.md) : corrections, contrôles actuels et validations fournisseur restantes.
 - [Contrat HTTP](http-contract.md) : routes, entrées, réponses, permissions et idempotence.
 - [Postman](../postman/README.md) : import des JSON et parcours de test.
 - [Supervision](observability.md) : Prometheus, Grafana, alertes et runbooks.
@@ -37,7 +37,6 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Tests](../tests/README.md) : commandes, infrastructure et limites des preuves.
 - [Modération photo interne](../services/photo-moderation/README.md) : protocole du service Python.
 - [Migration Caddy](caddy-migration.md) : serveurs statiques, tunnel, passerelle S3 et validation.
-- [Durcissement de sécurité](security-hardening.md) : dépendances, logs Caddy, tunnel et vérification AdMob.
 - [Mise en production](production-readiness.md) : validations sur la livraison réelle.
 - [Feuille de route production](../roadmap-production.md) : blocages, dépendances et critères de clôture avant ouverture.
 

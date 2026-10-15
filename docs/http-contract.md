@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **108 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **109 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -103,6 +103,7 @@ Il n’existe pas de mécanisme de retry universel.
 | Envoi OTP, photo, message, Checkout | Fournir `Idempotency-Key: <UUID v4>` et conserver la même clé et le même contenu pour la même intention. Les fenêtres et conflits sont propres au parcours. |
 | Refresh mobile | Un seul appel à la fois. **Pas de retry aveugle** après perte de réponse ; voir le parcours ci-dessous. |
 | Consentements, attribution/retrait de trait | Rejouer un état identique ne doit pas dupliquer l’effet. |
+| Swipe | Rejouer le même choix conservé est accepté si la cible reste éligible. Un like retrouve le même match encore ouvert ; un match terminé ou expiré n’est pas rouvert. |
 | Effacement du compte | Le jeton est à usage unique. Un `202` indique une acceptation durable, pas la fin des suppressions. |
 | Revue admin | Relire après conflit de version ou d’état ; ne pas écraser automatiquement la décision d’un autre opérateur. |
 
@@ -302,6 +303,11 @@ L’attribution d’un trait existant est idempotente. Une question expose `id, 
 **Découverte.** Demandeur et candidats doivent être actifs, avec sexe, préférences, consentements sensible/localisation courants et position de moins d’une heure. Les actions de préparation possibles sont `profile, sex, preferences, sensitive_data_consent, location_consent, fresh_presence`. Les critères âge/sexe/distance s’appliquent dans les deux sens. Blocages, matchs existants et profils déjà swipés sont exclus. Le feed expose `user_id`, prénom, âge, sexe, distance arrondie au dixième, traits, bio et réponses approuvées. Limites : feed 60/min/utilisateur ; swipe 120/min/utilisateur.
 
 Une décision de swipe est immuable pendant sa rétention. Deux likes réciproques créent un seul match ; aucun endpoint ne permet de fabriquer directement un match. Erreurs : `409 discovery_not_ready`, `404 discovery_candidate_not_found`, `409 swipe_already_recorded`, `400 invalid_cursor`, `429 swipe_rate_limit_exceeded`, `429 feed_rate_limit_exceeded`, `503 discovery_unavailable`.
+
+Après perte de réponse, le rejeu du même like conservé retrouve le match `active`, `awaiting_continuation`
+ou `confirmed` encore accessible, sans nouveau match ni notification. Les consentements, positions,
+préférences et blocages restent vérifiés. Un choix différent reste interdit ; un match terminé ou expiré
+reste exclu. Cette exception de rejeu ne réintroduit jamais le profil dans le feed.
 
 **Matchs.** La liste est triée par activité. Chaque résumé contient l’autre utilisateur (prénom, âge, sexe, bio, traits, `profile_answers`, photo conditionnelle), `my_revealed, photos_revealed, my_continued, unread_count, last_message`. La photo reste `null` avant révélation mutuelle, même approuvée. Les routes mobiles d’un match exigent d’en être participant.
 

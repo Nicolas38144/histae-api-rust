@@ -18,8 +18,9 @@ Il n’existe plus de ledger `schema_migrations`. Le migrateur retire cette anci
 ### Base vide
 
 Le migrateur applique schéma et catalogue dans une transaction, avec `histae.seed_fake_users=off`.
-Il ne crée pas de comptes de démonstration. La pile Docker dev peut aussi initialiser ces deux fichiers
-via l’entrypoint PostgreSQL lors de la création du volume. Cette initialisation ne se rejoue pas sur un volume existant.
+Il ne crée pas de comptes de démonstration. Sur un volume Docker neuf, l’entrypoint PostgreSQL prépare
+les rôles, extensions et permissions via `000_bootstrap_postgres.sql` ; le service `migrate` applique
+ensuite le schéma applicatif et le catalogue avec `histae_migrate`.
 
 ### Base existante
 
@@ -120,8 +121,8 @@ Il effectue un dump au format custom, restaure dans une base temporaire, compare
 public et le nombre de tables, puis supprime base temporaire et archive. Le rôle doit pouvoir créer une base.
 Il choisit Docker direct ou `sudo` selon l’accès disponible.
 
-`Development backup/restore verification passed (46 public tables)` confirme cette restauration technique
-sur le schéma incluant PostGIS.
+`Development backup/restore verification passed (49 public tables)` confirme cette restauration technique
+sur le schéma actuel : 48 tables applicatives et la table spatiale de PostGIS.
 Le script ne conserve pas de sauvegarde, ne compare pas toutes les données et ne teste pas la reprise du S3,
 des certificats ou des fournisseurs.
 

@@ -200,6 +200,112 @@ async fn cleanup(
 }
 
 #[tokio::test]
+async fn a_block_committed_during_match_creation_cannot_leave_an_active_match()
+-> Result<(), Box<dyn std::error::Error>> {
+    use histae_api_rust::privacy::pg::PgPrivacyStore;
+    use histae_api_rust::privacy::store::PrivacyStore;
+
+    let database = Database::connect(&postgres_config()?).await?;
+    let users = [Uuid::new_v4(), Uuid::new_v4()];
+    for user in users {
+        account(&database, user, "Concurrent block").await?;
+    }
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        // Pause creation after the match row is inserted but before its commit.
+        let mut connection = database.acquire().await?;
+        let mut barrier = connection.begin().await?;
+        sqlx::query("LOCK TABLE match_state IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *barrier)
+            .await?;
+        let repository = PgMatchRepository::new(database.clone());
+        let pending = record(users[0], users[1], Utc::now() + TimeDelta::hours(24));
+        let match_id = pending.id;
+        let creating = tokio::spawn(async move { repository.create(pending).await });
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM pg_locks
+                 WHERE relation='match_state'::regclass AND NOT granted)",
+            )
+            .fetch_one(&mut *barrier)
+            .await?;
+            if waiting {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "creation must reach the barrier"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let privacy = PgPrivacyStore::new(database.clone());
+        let mut blocking = tokio::spawn(async move { privacy.block(users[1], users[0]).await });
+        // A correct block waits for the in-flight creation. The former code
+        // returned before commit because its UPDATE could not see the new row.
+        let early_block = tokio::time::timeout(Duration::from_secs(1), &mut blocking).await;
+        barrier.rollback().await?;
+        drop(connection);
+        creating.await??;
+        let blocked = match early_block {
+            Ok(result) => result??,
+            Err(_) => blocking.await??,
+        };
+        assert!(blocked);
+        let status: String = sqlx::query_scalar("SELECT status FROM match_init WHERE id=$1")
+            .bind(match_id)
+            .fetch_one(database.acquire().await?.as_mut())
+            .await?;
+        assert_eq!(
+            status, "ended",
+            "a committed block must close the concurrent match"
+        );
+        let messages = PgMatchMessageRepository::new(database.clone());
+        assert!(matches!(
+            messages
+                .create_message(
+                    Uuid::new_v4(),
+                    match_id,
+                    users[0],
+                    "No bypass".into(),
+                    Uuid::new_v4()
+                )
+                .await?,
+            MessageCreationResult::Unavailable(_)
+        ));
+        // A legacy row left active by the former race must also fail closed.
+        sqlx::query("UPDATE match_init SET status='active' WHERE id=$1")
+            .bind(match_id)
+            .execute(database.acquire().await?.as_mut())
+            .await?;
+        assert!(matches!(
+            messages
+                .create_message(
+                    Uuid::new_v4(),
+                    match_id,
+                    users[0],
+                    "No legacy bypass".into(),
+                    Uuid::new_v4()
+                )
+                .await?,
+            MessageCreationResult::Unavailable(MatchAvailabilityFailure::NotFound)
+        ));
+        assert!(matches!(
+            messages
+                .messages_for_user(match_id, users[1], 10, 0, None)
+                .await?,
+            MatchCommandResult::Unavailable(MatchAvailabilityFailure::NotFound)
+        ));
+        Ok(())
+    }
+    .await;
+    let cleaned = cleanup(&database, &users, &[]).await;
+    database.close().await;
+    result?;
+    cleaned?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn creation_listing_and_reveal_keep_notifications_and_private_photo_rules_atomic()
 -> Result<(), Box<dyn std::error::Error>> {
     let database = Database::connect(&postgres_config()?).await?;

@@ -17,7 +17,12 @@ pub(super) async fn lock_available_match(
            SELECT id, user1_id, user2_id, status, expires_at, purge_after,
                   continuation_initiator_id, created_at, last_message_at
            FROM match_init
-           WHERE id = $1 AND (user1_id = $2 OR user2_id = $2)
+             WHERE id = $1 AND (user1_id = $2 OR user2_id = $2)
+             AND NOT EXISTS (
+               SELECT 1 FROM user_block
+               WHERE (blocker_id = match_init.user1_id AND blocked_id = match_init.user2_id)
+                  OR (blocker_id = match_init.user2_id AND blocked_id = match_init.user1_id)
+             )
              AND NOT EXISTS (
                SELECT 1 FROM user_account
                WHERE user_id IN (match_init.user1_id, match_init.user2_id)

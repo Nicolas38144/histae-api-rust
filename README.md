@@ -5,7 +5,7 @@ Redis les quotas et le relais SSE, et un stockage compatible S3 les photos priv�
 outbox et les maintenances sont exécutés séparément.
 
 Le dépôt contient son schéma PostgreSQL, ses binaires, son image Docker et ses services locaux.
-Le codec photo utilise un processus Node/Sharp autonome ; aucune dépendance au dépôt NestJS n’est nécessaire.
+Le codec photo utilise un processus Node/Sharp autonome, livré dans l’image API.
 
 ## Organisation
 
@@ -99,4 +99,4 @@ pas les essais des fournisseurs, de WebAuthn dans le navigateur, de charge et de
 
 ## Continuations et récompenses
 
-Le [guide des crédits](docs/continuation-and-rewards.md) décrit la pause de la messagerie, les décisions privées, les réservations des deux participants et la vérification serveur AdMob. Le fournisseur publicitaire est désactivé par défaut ; les interfaces mobiles et les callbacks réels doivent être validés avant son activation. [Résultats des tests](docs/continuation-validation.md).
+Le [guide des crédits](docs/continuation-and-rewards.md) décrit la pause de la messagerie, les décisions privées, les réservations des deux participants et la vérification serveur AdMob. Le fournisseur publicitaire est désactivé par défaut ; les interfaces mobiles et les callbacks réels doivent être validés avant son activation. [Résultats des tests](docs/feature-audit.md).

@@ -33,6 +33,101 @@ fn documented_http_inventory_matches_rust_route_registrations() {
     );
 }
 
+#[test]
+fn postman_collections_cover_the_same_routes_and_keep_admin_cookie_authentication() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let documented = documented_routes(&root.join("docs/http-contract.md"));
+    let expected: BTreeSet<_> = documented
+        .into_iter()
+        .map(|route| Route {
+            path: normalized_parameters(&route.path),
+            ..route
+        })
+        .collect();
+    for language in ["fr", "en"] {
+        let source =
+            fs::read_to_string(root.join(format!("postman/postman_collection_{language}.json")))
+                .expect("Postman collection must be readable");
+        let collection: serde_json::Value =
+            serde_json::from_str(&source).expect("valid Postman JSON");
+        let mut routes = Vec::new();
+        collect_postman_routes(&collection["item"], &mut routes);
+        assert_eq!(
+            routes.len(),
+            expected.len(),
+            "Postman request count: {language}"
+        );
+        assert_eq!(
+            routes.into_iter().collect::<BTreeSet<_>>(),
+            expected,
+            "Postman routes: {language}"
+        );
+    }
+}
+
+fn collect_postman_routes(items: &serde_json::Value, routes: &mut Vec<Route>) {
+    for item in items.as_array().expect("Postman items array") {
+        if let Some(children) = item.get("item") {
+            collect_postman_routes(children, routes);
+            continue;
+        }
+        let request = &item["request"];
+        let url = request["url"]
+            .as_str()
+            .or_else(|| request["url"]["raw"].as_str())
+            .expect("Postman URL");
+        let path = url
+            .strip_prefix("{{baseUrl}}")
+            .expect("configurable API origin")
+            .split('?')
+            .next()
+            .expect("request path");
+        if path.starts_with("/api/admin/")
+            && !path.contains("/auth/login/")
+            && !path.contains("/auth/bootstrap/")
+        {
+            assert_eq!(
+                request["auth"]["type"], "noauth",
+                "admin must not inherit a mobile JWT: {path}"
+            );
+            assert!(
+                request["header"]
+                    .as_array()
+                    .expect("headers")
+                    .iter()
+                    .any(|header| {
+                        header["key"]
+                            .as_str()
+                            .is_some_and(|key| key.eq_ignore_ascii_case("cookie"))
+                            && header["value"] == "{{adminCookie}}"
+                            && header["disabled"] != true
+                    }),
+                "administrator cookie is required: {path}"
+            );
+        }
+        routes.push(Route {
+            method: request["method"]
+                .as_str()
+                .expect("request method")
+                .to_owned(),
+            path: normalized_parameters(path),
+        });
+    }
+}
+
+fn normalized_parameters(path: &str) -> String {
+    path.split('/')
+        .map(|part| {
+            if part.starts_with(':') || part.starts_with("{{") {
+                ":parameter"
+            } else {
+                part
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 fn documented_routes(path: &Path) -> BTreeSet<Route> {
     let source = fs::read_to_string(path).expect("HTTP contract must be readable");
     source

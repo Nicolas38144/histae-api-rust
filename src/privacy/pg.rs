@@ -25,6 +25,10 @@ impl PrivacyStore for PgPrivacyStore {
             self.database
                 .transaction(|connection| {
                     Box::pin(async move {
+                        crate::identity::pg_guards::lock_user_pair(
+                            connection, blocker_id, blocked_id,
+                        )
+                        .await?;
                         let target: Option<Uuid> = sqlx::query_scalar(
                             "SELECT user_id FROM user_account
                              WHERE user_id = $1 AND deleted_at IS NULL",
