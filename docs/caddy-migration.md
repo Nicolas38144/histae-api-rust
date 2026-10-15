@@ -64,8 +64,14 @@ Le certificat et sa clé restent sur l’hôte dans `.secrets/storage-gateway/`,
 permissions restreintes. Le montage cible maintenant `/etc/caddy/tls`. Il n’y a pas de génération automatique
 de certificat ni de changement du domaine `HISTAE_STORAGE_HOST`.
 
-Le tunnel S3 conserve `https://storage-gateway:443`, le nom TLS d’origine et la vérification de certificat.
-Host, chemin encodé, query et corps ne sont pas réécrits. Le backend SeaweedFS reste sur son réseau privé.
+Le tunnel envoie `storage.histae.com` à `http://reverse-proxy:80`, comme les autres domaines.
+Le Caddy principal relaie vers `https://storage-gateway:443`, vérifie le certificat avec
+`tls_server_name storage.histae.com` et conserve le Host public avec `header_up Host {hostport}`.
+Cette dernière directive empêche le remplacement automatique du Host par Caddy 2.11 sur un upstream HTTPS,
+qui invaliderait SigV4. Chemin encodé, query et corps ne sont pas réécrits ; le backend SeaweedFS reste privé.
+Ce domaine dessert exclusivement la passerelle de production et ne suit pas `HISTAE_API_UPSTREAM`.
+La pile dev conserve son stockage local. Sans passerelle de production disponible, la route renvoie une
+erreur 502 ; elle ne bascule pas vers le stockage dev. La passerelle et son certificat sont requis.
 
 ## Appliquer sur le serveur
 

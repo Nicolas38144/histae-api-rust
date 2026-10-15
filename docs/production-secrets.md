@@ -429,7 +429,7 @@ comme une seconde zone dans le token. En revanche, le **nom du service S3** est 
 | Endpoint S3 des manifests production | `https://storage.histae.com` | Construit par Compose depuis `HISTAE_STORAGE_HOST` |
 | Certbot, options `--cert-name` et `-d` ci-dessous | `storage.histae.com` | Nom de certificat et nom couvert |
 | DNS Cloudflare et hostname de la route du tunnel | `storage.histae.com` | Accès des clients au stockage |
-| Nom TLS d'origine du tunnel, `originServerName` | `storage.histae.com` | Vérification du certificat de la passerelle |
+| Nom TLS d’origine dans Caddy, `tls_server_name` | `storage.histae.com` | Vérification du certificat de la passerelle |
 
 Dans le `.env` API existant, compléter ou corriger l'unique définition :
 
@@ -517,17 +517,21 @@ les routes du site, du dashboard et de l'API :
 ingress:
   # Autres routes existantes à conserver…
   - hostname: storage.histae.com
-    service: https://storage-gateway:443
-    originRequest:
-      originServerName: storage.histae.com
-      noTLSVerify: false
+    service: http://reverse-proxy:80
   # Garder la règle finale existante, par exemple :
   - service: http_status:404
 ```
 
-Cloudflared contacte le service Docker `storage-gateway`, mais vérifie un certificat délivré
-pour `storage.histae.com`. `originServerName` précise ce nom et `noTLSVerify: false` conserve la
-vérification. Voir les [paramètres TLS d'origine](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/).
+Le connecteur contacte le Caddy principal en HTTP sur le réseau edge, comme pour les autres domaines.
+Dans `histae-reverse-proxy/Caddyfile`, le matcher `storage.histae.com` transmet ensuite à
+`https://storage-gateway:443`. Son transport exige un certificat valide pour `storage.histae.com`
+avec `tls_server_name storage.histae.com` ; la vérification TLS reste activée.
+
+Le bloc définit aussi `header_up Host {hostport}` : Caddy 2.11 remplace normalement le Host lors d’un
+proxy HTTPS, ce qui invaliderait les signatures S3. Aucun chemin ni paramètre n’est réécrit.
+Voir la [documentation du reverse proxy Caddy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#https).
+Cette route est réservée à la production et reste indépendante de `HISTAE_API_UPSTREAM`.
+Elle ne redirige jamais vers le stockage dev ; l’absence de passerelle de production provoque une erreur 502.
 
 Conserver le `Host` public, le chemin et la query string des requêtes S3 signées ; vérifier aussi
 les éventuelles règles Cloudflare qui les modifieraient. La route ne doit pas publier directement

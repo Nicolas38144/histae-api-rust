@@ -252,8 +252,12 @@ crée le bucket via S3, puis termine avec le code 0. SeaweedFS persiste objets e
 ni sauvegarde automatique ni haute disponibilité.
 
 Compose impose `OBJECT_STORAGE_ENDPOINT=https://<HISTAE_STORAGE_HOST>` et donne ce nom comme alias privé
-à `storage-gateway`. Le tunnel doit publier le même nom vers `https://storage-gateway:443`, avec le nom TLS
-d’origine correspondant et vérification du certificat activée. Conserver Host et chemin des requêtes signées.
+à `storage-gateway`. Le tunnel publie le même nom vers `http://reverse-proxy:80`. La route S3 de Caddy
+transmet à `https://storage-gateway:443`, vérifie le certificat avec `tls_server_name storage.histae.com`
+et conserve explicitement le Host public ainsi que le chemin et les paramètres des requêtes signées.
+Pour un autre domaine, adapter ensemble `HISTAE_STORAGE_HOST`, le matcher et le nom TLS de Caddy.
+`storage.histae.com` est réservé à la production : il ne suit pas `HISTAE_API_UPSTREAM` et n'utilise
+jamais le stockage dev, même lorsque le proxy dirige les requêtes API vers la pile dev.
 Les interfaces brutes de SeaweedFS restent sur le réseau `storage` interne.
 
 PostgreSQL utilise SQLx avec vérification du certificat et du nom serveur. Redis utilise également la CA
