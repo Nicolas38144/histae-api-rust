@@ -4,9 +4,10 @@ use super::{
     ReconciliationRow, ReconciliationStoreError, StripeReconciliationGateway, SubscriptionContext,
 };
 use crate::billing::{
-    domain::CUSTOMER_CREATE_SAFETY_HOURS,
+    domain::{CUSTOMER_CREATE_SAFETY_HOURS, KnownSubscriptionPrice, StripeSubscriptionStatus},
     webhook::{
-        BillingRealtimePublisher, SubscriptionProjection, map_subscription, reconciliation_due,
+        BillingRealtimePublisher, SubscriptionProjection, map_subscription_with_known_price,
+        reconciliation_due,
     },
 };
 use crate::config::{BillingConfig, BillingProvider};
@@ -213,6 +214,7 @@ impl BillingReconciliationService {
                     subscription,
                     &self.config.premium_monthly_price_id,
                     &self.config.premium_annual_price_id,
+                    context.known_price.as_ref(),
                 )
             })
             .collect::<Vec<_>>();
@@ -223,10 +225,8 @@ impl BillingReconciliationService {
                     .get("status")
                     .and_then(Value::as_str)
                     .is_some_and(|status| {
-                        matches!(
-                            status,
-                            "incomplete" | "trialing" | "active" | "past_due" | "paused"
-                        )
+                        StripeSubscriptionStatus::parse(status)
+                            .is_some_and(|status| !status.is_terminal())
                     })
             })
             .collect::<Vec<_>>();
@@ -251,8 +251,13 @@ impl BillingReconciliationService {
         let Some(selected) = selected else {
             return Ok(None);
         };
-        let projection = map_subscription(&selected, snapshot_at, &self.config)
-            .map_err(|_| BillingReconciliationError::permanent("billing_projection_invalid"))?;
+        let projection = map_subscription_with_known_price(
+            &selected,
+            snapshot_at,
+            &self.config,
+            context.known_price.as_ref(),
+        )
+        .map_err(|_| BillingReconciliationError::permanent("billing_projection_invalid"))?;
         if projection.stripe_customer_id != context.stripe_customer_id
             || projection
                 .metadata_user_id
@@ -418,7 +423,12 @@ fn customer_creation_resolved(context: &CustomerCreationContext) -> bool {
             && context.created_customer_id == context.mapped_customer_id
 }
 
-fn has_premium_price(subscription: &Value, monthly_id: &str, annual_id: &str) -> bool {
+fn has_premium_price(
+    subscription: &Value,
+    monthly_id: &str,
+    annual_id: &str,
+    known: Option<&KnownSubscriptionPrice>,
+) -> bool {
     subscription
         .pointer("/items/data")
         .and_then(Value::as_array)
@@ -426,7 +436,15 @@ fn has_premium_price(subscription: &Value, monthly_id: &str, annual_id: &str) ->
             items.iter().any(|item| {
                 item.pointer("/price/id")
                     .and_then(Value::as_str)
-                    .is_some_and(|id| id == monthly_id || id == annual_id)
+                    .is_some_and(|id| {
+                        id == monthly_id
+                            || id == annual_id
+                            || known.is_some_and(|known| {
+                                id == known.price_id
+                                    && subscription.get("id").and_then(Value::as_str)
+                                        == Some(known.subscription_id.as_str())
+                            })
+                    })
             })
         })
 }
@@ -550,14 +568,15 @@ mod tests {
                 "items": {"data": [{"price": {"id": price_id, "product": product}}]}
             });
             assert_eq!(
-                has_premium_price(&subscription, "price_Monthly", "price_Annual"),
+                has_premium_price(&subscription, "price_Monthly", "price_Annual", None),
                 expected
             );
         }
         assert!(!has_premium_price(
             &serde_json::json!({"items": {"data": []}}),
             "price_Monthly",
-            "price_Annual"
+            "price_Annual",
+            None
         ));
     }
 

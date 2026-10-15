@@ -297,7 +297,7 @@ async fn checkout_replay_conflicts_and_unresolved_customer_rules_match_nest()
         };
         assert!(
             repository
-                .mark_checkout_open(replay_attempt, session.clone())
+                .mark_checkout_open(replay_attempt, 1, session.clone())
                 .await?
         );
         assert_eq!(
@@ -348,7 +348,9 @@ async fn checkout_replay_conflicts_and_unresolved_customer_rules_match_nest()
         repository
             .begin_customer_creation(unresolved_attempt)
             .await?;
-        repository.mark_checkout_failed(unresolved_attempt).await?;
+        repository
+            .mark_checkout_failed(unresolved_attempt, 1, None)
+            .await?;
         assert_eq!(
             repository
                 .begin_checkout(BeginCheckoutInput {
@@ -447,6 +449,404 @@ async fn old_uncertain_customer_creation_never_replays_the_provider_post()
 
     cleanup(&database, &[user_id]).await?;
     activity.close().await;
+    database.close().await;
+    result
+}
+
+#[derive(Clone)]
+struct MutableClock(Arc<std::sync::Mutex<DateTime<Utc>>>);
+impl histae_api_rust::shared::clock::Clock for MutableClock {
+    fn now(&self) -> DateTime<Utc> {
+        *self.0.lock().expect("clock")
+    }
+}
+
+#[derive(Clone)]
+struct RecordingStripe {
+    inputs: Arc<std::sync::Mutex<Vec<CheckoutInput>>>,
+    current_subscription: Arc<std::sync::atomic::AtomicBool>,
+    clock: MutableClock,
+}
+impl StripeGateway for RecordingStripe {
+    fn has_current_subscription(&self, _: &str) -> StripeFuture<'_, bool> {
+        let value = self.current_subscription.load(Ordering::SeqCst);
+        Box::pin(async move { Ok(value) })
+    }
+    fn create_customer(&self, _: Uuid, _: Uuid, _: String) -> StripeFuture<'_, StripeCustomer> {
+        *self.clock.0.lock().expect("clock") += TimeDelta::minutes(2);
+        Box::pin(async {
+            Ok(StripeCustomer {
+                id: format!("cus_{}", Uuid::new_v4().simple()),
+                deleted: false,
+            })
+        })
+    }
+    fn create_checkout_session(
+        &self,
+        input: CheckoutInput,
+    ) -> StripeFuture<'_, StripeCheckoutSession> {
+        let mut inputs = self.inputs.lock().expect("requests");
+        let result = if inputs.is_empty() {
+            Err(StripeError::Network)
+        } else if inputs[0] != input {
+            Err(StripeError::Rejected)
+        } else {
+            Ok(StripeCheckoutSession {
+                id: format!("cs_test_{}", Uuid::new_v4().simple()),
+                url: Some("https://checkout.stripe.test/session".into()),
+                expires_at: input.expires_at,
+            })
+        };
+        inputs.push(input);
+        Box::pin(async move { result })
+    }
+    fn expire_checkout_session(&self, _: &str) -> StripeFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+    fn create_portal_session(&self, _: &str, _: String) -> StripeFuture<'_, StripePortalSession> {
+        Box::pin(async { Err(StripeError::Rejected) })
+    }
+    fn delete_customer(&self, _: &str, _: String) -> StripeFuture<'_, StripeCustomer> {
+        Box::pin(async { Err(StripeError::Rejected) })
+    }
+    fn retrieve_customer(&self, _: &str) -> StripeFuture<'_, StripeCustomer> {
+        Box::pin(async { Err(StripeError::Rejected) })
+    }
+}
+
+#[tokio::test]
+async fn uncertain_checkout_keeps_the_exact_request_and_blocks_parallel_attempts()
+-> Result<(), Box<dyn std::error::Error>> {
+    use histae_api_rust::shared::clock::Clock;
+    let config = postgres_config()?;
+    let database = Database::connect(&config).await?;
+    let activity = AccountActivityPool::connect(&config).await?;
+    let repository = PgBillingRepository::new(database.clone());
+    let user_id = Uuid::new_v4();
+    insert_user(&database, user_id).await?;
+    let clock = MutableClock(Arc::new(std::sync::Mutex::new(
+        DateTime::from_timestamp(Utc::now().timestamp(), 0).expect("clock"),
+    )));
+    let provider = RecordingStripe {
+        inputs: Default::default(),
+        current_subscription: Default::default(),
+        clock: clock.clone(),
+    };
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let service = BillingService::new(
+            Arc::new(repository.clone()),
+            Arc::new(provider.clone()),
+            billing_config(),
+            activity.clone(),
+            Arc::new(clock.clone()),
+        );
+        let key = Uuid::new_v4().to_string();
+        assert_eq!(
+            service
+                .create_checkout(user_id, BillingPeriod::Monthly, Some(&key))
+                .await,
+            Err(BillingError::StripeRequestFailed)
+        );
+        let original = provider.inputs.lock().expect("request")[0].clone();
+        assert_eq!(original.expires_at - clock.now(), TimeDelta::minutes(35));
+        assert_eq!(
+            service
+                .create_checkout(
+                    user_id,
+                    BillingPeriod::Monthly,
+                    Some(&Uuid::new_v4().to_string())
+                )
+                .await,
+            Err(BillingError::CheckoutAlreadyInProgress)
+        );
+        let mut connection = database.acquire().await?;
+        sqlx::query("UPDATE billing_customer SET trial_used_at=clock_timestamp() WHERE user_id=$1")
+            .bind(user_id)
+            .execute(&mut *connection)
+            .await?;
+        drop(connection);
+        *clock.0.lock().expect("clock") += TimeDelta::minutes(2);
+        let mut changed = billing_config();
+        changed.premium_monthly_price_id = "price_Replaced".into();
+        changed.checkout_success_url = Some("https://changed.histae.test/success".into());
+        changed.automatic_tax = true;
+        changed.allow_promotion_codes = true;
+        let restarted = BillingService::new(
+            Arc::new(repository.clone()),
+            Arc::new(provider.clone()),
+            changed,
+            activity.clone(),
+            Arc::new(clock.clone()),
+        );
+        let session = restarted
+            .create_checkout(user_id, BillingPeriod::Monthly, Some(&key))
+            .await?;
+        assert_eq!(
+            provider.inputs.lock().expect("requests").as_slice(),
+            &[original.clone(), original.clone()]
+        );
+        assert_eq!(
+            restarted
+                .create_checkout(user_id, BillingPeriod::Monthly, Some(&key))
+                .await?,
+            session
+        );
+        assert_eq!(provider.inputs.lock().expect("requests").len(), 2);
+        *clock.0.lock().expect("clock") = original.expires_at;
+        assert_eq!(
+            restarted
+                .create_checkout(user_id, BillingPeriod::Monthly, Some(&key))
+                .await,
+            Err(BillingError::IdempotencyKeyConsumed)
+        );
+        Ok(())
+    }
+    .await;
+    cleanup(&database, &[user_id]).await?;
+    activity.close().await;
+    database.close().await;
+    result
+}
+
+#[tokio::test]
+async fn nonterminal_stripe_subscriptions_block_checkout_even_without_premium_access()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&postgres_config()?).await?;
+    let repository = PgBillingRepository::new(database.clone());
+    let mut users = Vec::new();
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        for (status,expected) in [("active",true),("trialing",true),("past_due",true),("unpaid",true),("paused",true),("incomplete",true),("canceled",false),("incomplete_expired",false)] {
+            let user_id = Uuid::new_v4();users.push(user_id);insert_user(&database,user_id).await?;
+            let mut connection = database.acquire().await?;
+            sqlx::query("INSERT INTO user_subscription(user_id,plan,provider,provider_subscription_id,status,current_period_ends_at) VALUES($1,'premium','stripe',$2,$3,clock_timestamp()-interval '1 day')")
+                .bind(user_id).bind(format!("sub_{}",Uuid::new_v4().simple())).bind(status).execute(&mut *connection).await?;
+            drop(connection);
+            let (now,expires_at,stale_before) = checkout_window();
+            let outcome = repository.begin_checkout(BeginCheckoutInput { user_id,idempotency_key:Uuid::new_v4(),billing_period:BillingPeriod::Monthly,attempt_id:Uuid::new_v4(),now,expires_at,stale_before }).await?;
+            assert_eq!(matches!(outcome,BeginCheckoutResult::AlreadySubscribed),expected,"{status}");
+        }
+        Ok(())
+    }.await;
+    cleanup(&database, &users).await?;
+    database.close().await;
+    result
+}
+
+#[tokio::test]
+async fn missing_webhooks_do_not_allow_a_second_provider_subscription()
+-> Result<(), Box<dyn std::error::Error>> {
+    let config = postgres_config()?;
+    let database = Database::connect(&config).await?;
+    let activity = AccountActivityPool::connect(&config).await?;
+    let repository = PgBillingRepository::new(database.clone());
+    let user_id = Uuid::new_v4();
+    insert_user(&database, user_id).await?;
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        assert!(
+            repository
+                .save_customer(user_id, format!("cus_{}", Uuid::new_v4().simple()))
+                .await?
+        );
+        let provider = RecordingStripe {
+            inputs: Default::default(),
+            current_subscription: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            clock: MutableClock(Arc::new(std::sync::Mutex::new(Utc::now()))),
+        };
+        let service = BillingService::new(
+            Arc::new(repository),
+            Arc::new(provider.clone()),
+            billing_config(),
+            activity.clone(),
+            Arc::new(SystemClock),
+        );
+        assert_eq!(
+            service
+                .create_checkout(
+                    user_id,
+                    BillingPeriod::Monthly,
+                    Some(&Uuid::new_v4().to_string())
+                )
+                .await,
+            Err(BillingError::SubscriptionAlreadyActive)
+        );
+        assert!(provider.inputs.lock().expect("requests").is_empty());
+        Ok(())
+    }
+    .await;
+    cleanup(&database, &[user_id]).await?;
+    activity.close().await;
+    database.close().await;
+    result
+}
+
+#[tokio::test]
+async fn live_checkout_owner_cannot_be_replaced_by_a_stale_timestamp()
+-> Result<(), Box<dyn std::error::Error>> {
+    let config = postgres_config()?;
+    let database = Database::connect(&config).await?;
+    let activity = AccountActivityPool::connect(&config).await?;
+    let repository = PgBillingRepository::new(database.clone());
+    let user_id = Uuid::new_v4();
+    insert_user(&database, user_id).await?;
+    let key = Uuid::new_v4();
+    let attempt = Uuid::new_v4();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    let (resume, paused) = tokio::sync::oneshot::channel();
+    let owner_repository = repository.clone();
+    let owner_activity = activity.clone();
+    let owner = tokio::spawn(async move {
+        owner_activity
+            .try_serialized(user_id, "billing.checkout", move |_| {
+                Box::pin(async move {
+                    let (now, expires_at, stale_before) = checkout_window();
+                    owner_repository
+                        .begin_checkout(BeginCheckoutInput {
+                            user_id,
+                            idempotency_key: key,
+                            billing_period: BillingPeriod::Monthly,
+                            attempt_id: attempt,
+                            now,
+                            expires_at,
+                            stale_before,
+                        })
+                        .await
+                        .map_err(|error| {
+                            BillingError::Database(match error {
+                                histae_api_rust::billing::store::BillingStoreError::Database(
+                                    db,
+                                ) => db,
+                                _ => DatabaseError::QueryFailed,
+                            })
+                        })?;
+                    started.send(()).expect("ready");
+                    paused.await.expect("resume");
+                    owner_repository
+                        .mark_checkout_failed(attempt, 1, None)
+                        .await
+                        .map_err(|_| BillingError::Database(DatabaseError::QueryFailed))?;
+                    Ok::<_, BillingError>(())
+                })
+            })
+            .await
+    });
+    ready.await?;
+    let result: Result<(), Box<dyn std::error::Error>>=async {
+        let mut connection=database.acquire().await?;
+        sqlx::query("UPDATE billing_checkout_session SET updated_at=clock_timestamp()-interval '2 minutes' WHERE id=$1").bind(attempt).execute(&mut *connection).await?;
+        drop(connection);
+        let provider=RecordingStripe {inputs:Default::default(),current_subscription:Default::default(),clock:MutableClock(Arc::new(std::sync::Mutex::new(Utc::now())))};
+        let service=BillingService::new(Arc::new(repository),Arc::new(provider.clone()),billing_config(),activity.clone(),Arc::new(SystemClock));
+        assert_eq!(service.create_checkout(user_id,BillingPeriod::Monthly,Some(&key.to_string())).await,Err(BillingError::CheckoutAlreadyInProgress));
+        assert!(provider.inputs.lock().expect("requests").is_empty());
+        activity.run(&[user_id],|lease|Box::pin(async move {lease.assert_held()?;Ok::<_,BillingError>(())})).await?;
+        Ok(())
+    }.await;
+    let _ = resume.send(());
+    owner.await??;
+    cleanup(&database, &[user_id]).await?;
+    activity.close().await;
+    database.close().await;
+    result
+}
+
+#[tokio::test]
+async fn admin_subscription_badges_follow_effective_mobile_access()
+-> Result<(), Box<dyn std::error::Error>> {
+    use histae_api_rust::administration::{pg::PgAdministrationStore, store::AdministrationStore};
+    let database = Database::connect(&postgres_config()?).await?;
+    let admin = Uuid::new_v4();
+    let user = Uuid::new_v4();
+    insert_user(&database, admin).await?;
+    insert_user(&database, user).await?;
+    let result: Result<(),Box<dyn std::error::Error>>=async {
+        let mut connection=database.acquire().await?;
+        sqlx::query("UPDATE user_account SET role='admin' WHERE user_id=$1").bind(admin).execute(&mut *connection).await?;
+        sqlx::query("INSERT INTO user_subscription(user_id,plan,provider,provider_subscription_id,status,current_period_ends_at) VALUES($1,'premium','stripe',$2,'canceled',clock_timestamp()+interval '30 days')")
+            .bind(user).bind(format!("sub_{}",Uuid::new_v4().simple())).execute(&mut *connection).await?;
+        drop(connection);
+        let store=PgAdministrationStore::new(database.clone());
+        for (status,expected) in [("canceled","free"),("active","premium"),("unpaid","free")] {
+            let mut connection=database.acquire().await?;
+            sqlx::query("UPDATE user_subscription SET status=$2 WHERE user_id=$1").bind(user).bind(status).execute(&mut *connection).await?;
+            drop(connection);
+            let rows=store.list_users(None,None,user.to_string(),1,0,None,"terms-v1".into(),"privacy-v1".into()).await?;
+            assert_eq!(rows[0].plan,expected);
+            let detail=store.user_detail(user,admin,histae_api_rust::identity::admin_role::AdminRole::Admin,"Billing consistency verification".into(),"terms-v1".into(),"privacy-v1".into()).await?.expect("detail");
+            assert_eq!(detail.user.plan,expected);
+        }
+        Ok(())
+    }.await;
+    cleanup(&database, &[admin, user]).await?;
+    database.close().await;
+    result
+}
+
+#[tokio::test]
+async fn replaced_checkout_owners_cannot_fail_or_expire_the_new_attempt()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&postgres_config()?).await?;
+    let repository = PgBillingRepository::new(database.clone());
+    let user_id = Uuid::new_v4();
+    insert_user(&database, user_id).await?;
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let (now, expires_at, stale_before) = checkout_window();
+        let input = BeginCheckoutInput {
+            user_id,
+            idempotency_key: Uuid::new_v4(),
+            billing_period: BillingPeriod::Monthly,
+            attempt_id: Uuid::new_v4(),
+            now,
+            expires_at,
+            stale_before,
+        };
+        let BeginCheckoutResult::Created(first) = repository.begin_checkout(input).await? else {
+            panic!("created")
+        };
+        assert!(
+            repository
+                .mark_checkout_failed(first.attempt_id, first.creation_generation, None)
+                .await?
+        );
+        let BeginCheckoutResult::Retry(second) = repository.begin_checkout(input).await? else {
+            panic!("retry")
+        };
+        assert!(second.creation_generation > first.creation_generation);
+        let session = PersistedCheckoutSession {
+            session_id: format!("cs_test_{}", Uuid::new_v4().simple()),
+            url: "https://checkout.stripe.test/session".into(),
+            expires_at,
+        };
+        assert!(
+            !repository
+                .mark_checkout_failed(
+                    first.attempt_id,
+                    first.creation_generation,
+                    Some(session.session_id.clone())
+                )
+                .await?
+        );
+        assert!(
+            !repository
+                .mark_checkout_open(first.attempt_id, first.creation_generation, session.clone())
+                .await?
+        );
+        assert!(
+            repository
+                .mark_checkout_open(
+                    second.attempt_id,
+                    second.creation_generation,
+                    session.clone()
+                )
+                .await?
+        );
+        assert_eq!(
+            repository.begin_checkout(input).await?,
+            BeginCheckoutResult::Replay(session)
+        );
+        Ok(())
+    }
+    .await;
+    cleanup(&database, &[user_id]).await?;
     database.close().await;
     result
 }

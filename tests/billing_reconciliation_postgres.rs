@@ -11,7 +11,10 @@ use histae_api_rust::billing::reconcile::{
     BillingReconciliationStore, CustomerRecoveryResult, PgBillingReconciliationStore,
     ReconciliationApplyState, ReconciliationKind, SubscriptionContext,
 };
-use histae_api_rust::billing::webhook::SubscriptionProjection;
+use histae_api_rust::billing::webhook::{
+    PgStripeWebhookStore, StripeWebhookStore, SubscriptionProjection, WebhookCommand,
+    WebhookMetadata, WebhookProcessResult,
+};
 use histae_api_rust::config::{PostgresConfig, SecretString};
 use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use uuid::Uuid;
@@ -159,8 +162,9 @@ async fn stale_provider_snapshots_do_not_overwrite_newer_projection()
                     user_id,
                     stripe_customer_id: customer_id.clone(),
                     projection_version: Some(1),
+                    known_price: None,
                 },
-                Some(attempted),
+                Some(attempted.clone()),
                 now,
                 now + TimeDelta::hours(1),
                 false,
@@ -176,6 +180,44 @@ async fn stale_provider_snapshots_do_not_overwrite_newer_projection()
         .fetch_one(&mut *connection)
         .await?;
         assert_eq!(stored, ("active".to_owned(), 2));
+        drop(connection);
+        let webhook = PgStripeWebhookStore::new(database.clone());
+        let known = webhook
+            .known_subscription_price(&subscription_id, &customer_id)
+            .await?
+            .expect("known price");
+        assert_eq!(known.price_id, price_id);
+        assert!(
+            webhook
+                .known_subscription_price(&subscription_id, "cus_Foreign")
+                .await?
+                .is_none()
+        );
+        let context = store.subscription_context(user_id).await?.expect("context");
+        assert_eq!(context.known_price, Some(known));
+        let receipt = webhook
+            .apply(WebhookCommand::Subscription {
+                metadata: WebhookMetadata {
+                    id: format!("evt_{}", Uuid::new_v4().simple()),
+                    event_type: "customer.subscription.updated".into(),
+                    object_id: Some(subscription_id.clone()),
+                    livemode: false,
+                    api_version: None,
+                    created_at: now,
+                },
+                projection: attempted,
+                notify_trial_ending: false,
+            })
+            .await?;
+        assert_eq!(receipt, WebhookProcessResult::Applied(None));
+        let mut connection = database.acquire().await?;
+        let unchanged: (String, i64) = sqlx::query_as(
+            "SELECT status,projection_version FROM user_subscription WHERE user_id=$1",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *connection)
+        .await?;
+        assert_eq!(unchanged, ("active".into(), 2));
         Ok(())
     }
     .await;

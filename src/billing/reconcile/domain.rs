@@ -1,4 +1,4 @@
-use crate::billing::domain::StripeSubscriptionStatus;
+use crate::billing::domain::{KnownSubscriptionPrice, StripeSubscriptionStatus};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -52,6 +52,7 @@ pub struct SubscriptionContext {
     pub user_id: Uuid,
     pub stripe_customer_id: String,
     pub projection_version: Option<i64>,
+    pub known_price: Option<KnownSubscriptionPrice>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

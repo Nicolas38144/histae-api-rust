@@ -79,6 +79,7 @@ permissions applicatives dans un conteneur temporaire. Voir [Rôles PostgreSQL](
 | Auth / transport | JWT aux bornes temporelles, claims invalides, IP socket/X-Forwarded-For falsifié, coercition numérique, corps JSON invalides ou trop grands |
 | Consentements / administration | Onboarding des appareils/SSE, données sensibles, sessions admin, rôles et consultations auditées |
 | Cycle de vie | Drain après échec, worker terminé inopinément, annulation au drop, SSE bloqué, expiration prioritaire du JWT et scrape interrompu |
+| Abonnements Stripe / revenus | Requêtes Checkout figées, reprises bornées, concurrence, abonnement distant sans webhook, prix historiques, projections dépassées et montants des factures payées |
 | Fournisseurs / exports | Durées OAuth hors plage, diagnostics Stripe préservés pendant effacement, date UTC et bigint exportés sans perte, nettoyage des fichiers temporaires |
 | SQL | Filtres et pages admin, compte sans profil, compteurs, curseurs, fiche/audit et équivalence des agrégats de files |
 | Clôture de match | Participants uniquement, rejeux, fermeture concurrente, messages en attente refusés, événement SSE et rétention/quota conservés |

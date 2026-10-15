@@ -143,9 +143,11 @@ Erreurs utiles : `authentication_required`, `invalid_or_expired_access_token`, `
 
 La signature est obligatoire, ainsi que la cohérence test/live. Les Event IDs sont dédupliqués ; les événements non pris en charge mais valides sont acquittés sans effet. Limite dédiée : 300/min/IP.
 
-Les abonnements Premium sont reconnus par les prix `price_…` configurés dans
+Les nouveaux abonnements Premium sont reconnus par les prix `price_…` configurés dans
 `STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID`. Un abonnement traité doit contenir
-un seul article portant l'un de ces deux prix ; aucun identifiant produit n'est configuré.
+un seul article portant un prix autorisé ; aucun identifiant produit n'est configuré.
+
+Les périodes historiques au niveau de l’abonnement et les références historiques de facture `subscription` sont aussi acceptées. Les anciens prix restent reconnus uniquement pour l’abonnement et le client déjà liés à ce prix en base, après rotation des prix des nouvelles ventes. Un événement dépassé par un état plus récent est acquitté sans annoncer un changement d’état obsolète.
 
 Événements traités : `checkout.session.completed`, `checkout.session.expired`, `customer.subscription.created|updated|deleted|paused|resumed|trial_will_end`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.finalization_failed`, `customer.deleted`. Les événements de facture/abonnement plus anciens que l’état connu sont ignorés. Erreurs : `invalid_stripe_signature`, `stripe_mode_mismatch`, `invalid_stripe_event`, `billing_webhook_rate_limit_exceeded`.
 
@@ -361,9 +363,9 @@ SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created
 | POST | `/api/users/me/subscription/checkout` | `{ billing_period: monthly ou annual }` + clé d’idempotence → `201 { session_id, url, expires_at }`. |
 | POST | `/api/users/me/subscription/portal` | Aucun corps → `201 { url }`. |
 
-L’état expose `plan, provider, status, access_granted, billing_period`, dates de période/essai/annulation, `cancel_at_period_end, customer_portal_available`. `trialing, active, past_due` ouvrent l’accès uniquement pendant la période connue de l’API.
+L’état expose `plan, provider, status, access_granted, billing_period`, dates de période/essai/annulation, `cancel_at_period_end, customer_portal_available`. `trialing, active, past_due` ouvrent l’accès uniquement pendant une période Stripe connue et non expirée. Une fin de période absente n’ouvre aucun droit Stripe. Les listes, fiches et compteurs administratifs exposent ce même plan effectif.
 
-**Checkout.** Utiliser l’URL retournée (validité 30 minutes). Une seule session peut être créée/ouverte par utilisateur. Le premier abonnement peut bénéficier de l’essai du catalogue ; un essai consommé n’est pas réattribué. Le retour sur l’URL de succès **ne prouve pas à lui seul l’activation Premium** : relire l’abonnement, mis à jour par webhook signé. Ne jamais envoyer Product ID, Price ID, montant, devise, durée d’essai ou Customer ID. Le portail exige un client Stripe déjà lié. Checkout et portail : 10/min/utilisateur. Tant qu’une création Customer reste incertaine, une nouvelle clé est refusée ; seule la clé d’origine peut rejouer le `POST` dans la fenêtre sûre de 23 heures, puis la réconciliation procède uniquement en lecture.
+**Checkout.** Utiliser l’URL retournée et `expires_at` (35 minutes à la préparation, avec une marge sur le minimum Stripe de 30 minutes). Une seule session peut être créée/ouverte par utilisateur. Une création Checkout incertaine réserve aussi cette place jusqu’à son expiration ; reprendre avec la même clé et les mêmes paramètres persistés, sans nouvelle clé. Un abonnement Stripe non terminé bloque un nouvel achat même si ses droits Premium ont expiré localement ; le portail permet de gérer cet abonnement. Les clients Stripe existants sont également contrôlés chez Stripe avant un nouveau Checkout pour couvrir les webhooks manquants. Le premier abonnement peut bénéficier de l’essai du catalogue ; un essai consommé n’est pas réattribué. Le retour sur l’URL de succès **ne prouve pas à lui seul l’activation Premium** : relire l’abonnement, mis à jour par webhook signé. Ne jamais envoyer Product ID, Price ID, montant, devise, durée d’essai ou Customer ID. Le portail exige un client Stripe déjà lié. Voir le [parcours Stripe](billing.md). Checkout et portail : 10/min/utilisateur. Tant qu’une création Customer reste incertaine, une nouvelle clé est refusée ; seule la clé d’origine peut rejouer le `POST` dans la fenêtre sûre de 23 heures, puis la réconciliation procède uniquement en lecture.
 
 Erreurs : `billing_unavailable`, `stripe_request_failed`, `subscription_already_active`, `checkout_already_in_progress`, `billing_customer_reconciliation_required`, `idempotency_key_reused`, `idempotency_key_consumed`, `billing_customer_not_found`, `billing_rate_limit_exceeded`.
 
@@ -509,7 +511,23 @@ La décision est `approved | rejected`, avec la `version` lue au préalable. Une
 | POST | `/api/admin/outbox/:id/retry` | **Récente** ; `{ reason? }` → `202`, relance auditée. |
 | POST | `/api/admin/outbox/:id/discard` | **Récente** ; `{ reason? }` → `204`, abandon audité lorsque permis. |
 
-`revenue_period = last_7_days | last_30_days | month_to_date | previous_month | year_to_date | all_time`, défaut `month_to_date`. Le revenu est une estimation : abonnements Premium mis à jour sur la période × tarif mensuel actuel ; **ni encaissements ni bénéfice comptable**.
+`revenue_period = last_7_days | last_30_days | month_to_date | previous_month | year_to_date | all_time`, défaut `month_to_date`. Les bornes calendaires utilisent `Europe/Paris`, début inclus et fin exclue.
+
+`revenue` expose `period, period_start, period_end, premium_subscriptions, paid_invoices,
+estimated_revenue_cents, currency, excluded_currency_invoices, basis`. La base est
+`stripe_paid_invoices` : somme de `billing_invoice.amount_paid` pour les factures d’abonnement
+`paid`, de montant positif, dont `paid_at` appartient à la période et dont la devise correspond
+au catalogue Premium. `paid_invoices` compte ces factures ; `premium_subscriptions` compte leurs
+abonnements Stripe distincts, pas les comptes Premium actuels. `price_per_subscription_cents`
+a été supprimé : aucun tarif unique ne permet de calculer ce revenu.
+
+Achats annuels, remises et renouvellements utilisent leurs montants historiques ; les essais à 0,
+factures impayées, dates de paiement absentes et factures sans abonnement sont exclus. Les factures
+d’une autre devise ne sont jamais additionnées : `excluded_currency_invoices` permet de les signaler.
+Une annulation ou un effacement ultérieurs ne retirent pas les factures historiques enregistrées.
+Ce total brut inclut les taxes facturées, sans déduire frais et remboursements ; des webhooks manquants
+peuvent laisser des factures absentes. **Ce n’est ni un MRR, ni un bénéfice, ni un versement bancaire.**
+Voir [Abonnements et revenus](billing.md).
 
 `operations` expose latences/compteurs HTTP et `401/403/429/5xx`, mémoire/uptime du processus Rust, résultats des dépendances, pool, outbox et maintenances. Les mesures du processus repartent à zéro au redémarrage ; les états outbox/maintenance sont persistants. Chaque maintenance fournit notamment `processed_count, batch_count, duration_ms, work_remaining` ; ce dernier signale qu’une passe a consommé son budget borné et doit être reprise. `operations.outbox.notification_push` détaille `pending, processing, completed, dead_letter, discarded, oldest_pending_at` ; `operations.outbox.billing_reconciliation` fournit les mêmes états utiles sans `discarded`. `completed` signifie tâche acquittée encore conservée, pas réception par un terminal ni validation d’un paiement. Voir [Exploitation](operations.md) et [bornes de configuration](configuration.md#groupes-de-variables).
 

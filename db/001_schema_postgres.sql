@@ -525,6 +525,8 @@ CREATE TABLE billing_checkout_session (
     customer_creation_started_at timestamp with time zone,
     created_customer_id text,
     customer_erased_at timestamp with time zone,
+    stripe_checkout_request jsonb,
+    creation_generation bigint DEFAULT 0 NOT NULL,
     CONSTRAINT billing_checkout_session_billing_period_check CHECK ((billing_period = ANY (ARRAY['monthly'::text, 'annual'::text]))),
     CONSTRAINT billing_checkout_session_checkout_url_check CHECK (((checkout_url IS NULL) OR (octet_length(checkout_url) <= 4096))),
     CONSTRAINT billing_checkout_created_customer_id_check CHECK (((created_customer_id IS NULL) OR (created_customer_id ~ '^cus_[A-Za-z0-9]+$'::text))),
@@ -572,6 +574,8 @@ CREATE TABLE billing_invoice (
 CREATE INDEX idx_billing_invoice_user_created ON billing_invoice USING btree (user_id, created_at DESC) WHERE (user_id IS NOT NULL);
 
 CREATE INDEX idx_billing_invoice_user_created_id ON billing_invoice USING btree (user_id, created_at, stripe_invoice_id) WHERE (user_id IS NOT NULL);
+
+CREATE INDEX idx_billing_invoice_paid_revenue ON billing_invoice (paid_at) WHERE (status = 'paid' AND amount_paid > 0 AND stripe_subscription_id IS NOT NULL);
 
 CREATE TABLE stripe_webhook_event (
     id text NOT NULL,

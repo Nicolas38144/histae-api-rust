@@ -344,10 +344,11 @@ pub(super) async fn effective_plan_on(
              AND (
                subscription.plan = 'free'
                OR (
-                 (subscription.provider IS NULL
-                  OR subscription.status IN ('trialing', 'active', 'past_due'))
-                 AND (subscription.current_period_ends_at IS NULL
-                      OR subscription.current_period_ends_at > $2)
+                 (subscription.provider IS NULL AND (subscription.current_period_ends_at IS NULL
+                      OR subscription.current_period_ends_at > $2))
+                 OR (subscription.provider = 'stripe'
+                     AND subscription.status IN ('trialing', 'active', 'past_due')
+                     AND subscription.current_period_ends_at > $2)
                )
              )
          ), 'free')",

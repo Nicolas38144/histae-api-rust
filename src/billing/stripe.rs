@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use futures_util::StreamExt as _;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
 use reqwest::{Method, StatusCode};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::time::sleep;
 use url::Url;
@@ -19,7 +20,7 @@ pub const STRIPE_API_VERSION: &str = "2026-07-29.dahlia";
 pub const MAX_STRIPE_RESPONSE_BYTES: usize = 65_536;
 const STRIPE_ENDPOINT: &str = "https://api.stripe.com/v1/";
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CheckoutInput {
     pub user_id: Uuid,
     pub customer_id: String,
@@ -28,6 +29,10 @@ pub struct CheckoutInput {
     pub trial_days: i16,
     pub expires_at: DateTime<Utc>,
     pub idempotency_key: String,
+    pub success_url: String,
+    pub cancel_url: String,
+    pub automatic_tax: bool,
+    pub allow_promotion_codes: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -74,6 +79,11 @@ impl std::error::Error for StripeError {}
 pub type StripeFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, StripeError>> + Send + 'a>>;
 
 pub trait StripeGateway: Send + Sync {
+    fn has_current_subscription(&self, customer_id: &str) -> StripeFuture<'_, bool> {
+        let _ = customer_id;
+        Box::pin(async { Err(StripeError::NotConfigured) })
+    }
+
     fn create_customer(
         &self,
         user_id: Uuid,
@@ -183,10 +193,9 @@ impl StripeClient {
                 .request(method.clone(), url.clone())
                 .header(AUTHORIZATION, &authorization)
                 .header("Stripe-Version", STRIPE_API_VERSION)
-                .header(USER_AGENT, "Stripe/v1 NodeBindings/22.4.0 histae-api/3.0.0")
                 .header(
-                    "X-Stripe-Client-User-Agent",
-                    r#"{"bindings_version":"22.4.0","lang":"node","publisher":"stripe"}"#,
+                    USER_AGENT,
+                    concat!("histae-api-rust/", env!("CARGO_PKG_VERSION")),
                 );
             if method != Method::GET {
                 request = request
@@ -221,6 +230,46 @@ impl StripeClient {
 }
 
 impl StripeGateway for StripeClient {
+    fn has_current_subscription(&self, customer_id: &str) -> StripeFuture<'_, bool> {
+        let customer_id = customer_id.to_owned();
+        Box::pin(async move {
+            let value = self
+                .request(
+                    Method::GET,
+                    "subscriptions",
+                    vec![
+                        ("customer".to_owned(), customer_id.clone()),
+                        ("status".to_owned(), "all".to_owned()),
+                        ("limit".to_owned(), "100".to_owned()),
+                    ],
+                    None,
+                )
+                .await?;
+            if value.get("has_more").and_then(Value::as_bool) != Some(false) {
+                return Err(StripeError::InvalidResponse);
+            }
+            let subscriptions = value
+                .get("data")
+                .and_then(Value::as_array)
+                .ok_or(StripeError::InvalidResponse)?;
+            let mut current = false;
+            for subscription in subscriptions {
+                if subscription.get("customer").and_then(Value::as_str)
+                    != Some(customer_id.as_str())
+                {
+                    return Err(StripeError::InvalidResponse);
+                }
+                let status = subscription
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .and_then(super::domain::StripeSubscriptionStatus::parse)
+                    .ok_or(StripeError::InvalidResponse)?;
+                current |= !status.is_terminal();
+            }
+            Ok(current)
+        })
+    }
+
     fn create_customer(
         &self,
         user_id: Uuid,
@@ -258,16 +307,6 @@ impl StripeGateway for StripeClient {
         input: CheckoutInput,
     ) -> StripeFuture<'_, StripeCheckoutSession> {
         Box::pin(async move {
-            let success_url = self
-                .config
-                .checkout_success_url
-                .clone()
-                .ok_or(StripeError::InvalidConfiguration)?;
-            let cancel_url = self
-                .config
-                .checkout_cancel_url
-                .clone()
-                .ok_or(StripeError::InvalidConfiguration)?;
             let user_id = input.user_id.hyphenated().to_string();
             let period = input.billing_period.as_str().to_owned();
             let mut form = vec![
@@ -295,28 +334,31 @@ impl StripeGateway for StripeClient {
                 ("payment_method_collection".to_owned(), "always".to_owned()),
                 (
                     "allow_promotion_codes".to_owned(),
-                    self.config.allow_promotion_codes.to_string(),
+                    input.allow_promotion_codes.to_string(),
                 ),
                 (
                     "automatic_tax[enabled]".to_owned(),
-                    self.config.automatic_tax.to_string(),
+                    input.automatic_tax.to_string(),
                 ),
                 (
                     "billing_address_collection".to_owned(),
-                    if self.config.automatic_tax {
+                    if input.automatic_tax {
                         "required"
                     } else {
                         "auto"
                     }
                     .to_owned(),
                 ),
-                ("success_url".to_owned(), success_url),
-                ("cancel_url".to_owned(), cancel_url),
+                ("success_url".to_owned(), input.success_url),
+                ("cancel_url".to_owned(), input.cancel_url),
                 (
                     "expires_at".to_owned(),
                     input.expires_at.timestamp().to_string(),
                 ),
             ];
+            if input.automatic_tax {
+                form.push(("customer_update[address]".to_owned(), "auto".to_owned()));
+            }
             if input.trial_days > 0 {
                 form.push((
                     "subscription_data[trial_period_days]".to_owned(),

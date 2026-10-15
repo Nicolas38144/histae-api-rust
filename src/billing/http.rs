@@ -251,7 +251,7 @@ fn billing_error(error: BillingError) -> ApiError {
         BillingError::SubscriptionAlreadyActive => ApiError::new(
             StatusCode::CONFLICT,
             "subscription_already_active",
-            "A Premium subscription is already active.",
+            "An existing subscription must be resolved before starting another Checkout.",
         ),
         BillingError::CheckoutAlreadyInProgress => ApiError::new(
             StatusCode::CONFLICT,

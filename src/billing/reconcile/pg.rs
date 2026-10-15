@@ -4,7 +4,7 @@ use super::{
     ReconciliationRow, ReconciliationStoreError, ReconciliationStoreFuture, SubscriptionContext,
 };
 use crate::billing::{
-    domain::StripeSubscriptionStatus,
+    domain::{BillingPeriod, KnownSubscriptionPrice, StripeSubscriptionStatus},
     webhook::{SubscriptionProjection, status_name},
 };
 use crate::infra::postgres::{ConstraintKind, Database, DatabaseError, map_sqlx_error};
@@ -283,7 +283,9 @@ impl BillingReconciliationStore for PgBillingReconciliationStore {
             let mut connection = self.database.acquire().await?;
             let row = sqlx::query(
                 "SELECT customer.user_id, customer.stripe_customer_id,
-                        subscription.projection_version
+                        subscription.projection_version,
+                        subscription.provider_subscription_id,
+                        subscription.provider_price_id, subscription.billing_period, subscription.provider
                  FROM billing_customer AS customer
                  JOIN user_account AS account ON account.user_id = customer.user_id
                  LEFT JOIN user_subscription AS subscription ON subscription.user_id = customer.user_id
@@ -304,6 +306,28 @@ impl BillingReconciliationStore for PgBillingReconciliationStore {
                     projection_version: row
                         .try_get("projection_version")
                         .map_err(map_sqlx_error)?,
+                    known_price: match (
+                        row.try_get::<Option<String>, _>("provider")
+                            .map_err(map_sqlx_error)?,
+                        row.try_get::<Option<String>, _>("provider_subscription_id")
+                            .map_err(map_sqlx_error)?,
+                        row.try_get::<Option<String>, _>("provider_price_id")
+                            .map_err(map_sqlx_error)?,
+                        row.try_get::<Option<String>, _>("billing_period")
+                            .map_err(map_sqlx_error)?,
+                    ) {
+                        (Some(provider), Some(subscription_id), Some(price_id), Some(period))
+                            if provider == "stripe" =>
+                        {
+                            Some(KnownSubscriptionPrice {
+                                subscription_id,
+                                price_id,
+                                billing_period: BillingPeriod::parse(&period)
+                                    .ok_or(ReconciliationStoreError::InvalidStoredData)?,
+                            })
+                        }
+                        _ => None,
+                    },
                 })
             })
             .transpose()

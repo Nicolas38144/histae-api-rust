@@ -13,7 +13,9 @@ use super::store::{BeginCheckoutInput, BillingStore, BillingStoreError};
 use super::stripe::{CheckoutInput, StripeGateway};
 use crate::config::{BillingConfig, BillingProvider};
 use crate::infra::postgres::DatabaseError;
-use crate::infra::postgres_locks::{AccountActivityError, AccountActivityPool, ActivityLease};
+use crate::infra::postgres_locks::{
+    AccountActivityError, AccountActivityPool, ActivityLease, TryExclusive,
+};
 use crate::shared::clock::Clock;
 use crate::shared::text::javascript_trim;
 
@@ -120,8 +122,9 @@ impl BillingService {
     ) -> Result<CheckoutSessionView, BillingError> {
         let supplied_key = idempotency_key.map(str::to_owned);
         let service = self.clone();
-        self.activity
-            .run(&[user_id], move |lease| {
+        match self
+            .activity
+            .try_serialized(user_id, "billing.checkout", move |lease| {
                 Box::pin(async move {
                     service.ensure_enabled()?;
                     let idempotency_key = parse_idempotency_key(supplied_key.as_deref())?;
@@ -135,7 +138,11 @@ impl BillingService {
                         .await
                 })
             })
-            .await
+            .await?
+        {
+            TryExclusive::Acquired(value) => Ok(value),
+            TryExclusive::NotAcquired => Err(BillingError::CheckoutAlreadyInProgress),
+        }
     }
 
     pub async fn create_portal(&self, user_id: Uuid) -> Result<String, BillingError> {
@@ -242,9 +249,11 @@ impl BillingService {
         };
 
         let attempt_id = context.attempt_id;
+        let generation = context.creation_generation;
         let mut created_session_id = None;
         let mut unattached_customer_id = None;
         let result = async {
+            let existing_customer = context.stripe_customer_id.is_some();
             let customer_id = match context.stripe_customer_id {
                 Some(customer_id) => customer_id,
                 None => {
@@ -272,27 +281,65 @@ impl BillingService {
             };
 
             lease.assert_held()?;
+            if existing_customer
+                && self
+                    .stripe
+                    .has_current_subscription(&customer_id)
+                    .await
+                    .map_err(|_| BillingError::StripeRequestFailed)?
+            {
+                return Err(BillingError::SubscriptionAlreadyActive);
+            }
+            lease.assert_held()?;
             let price_id = match billing_period {
                 BillingPeriod::Monthly => self.config.premium_monthly_price_id.clone(),
                 BillingPeriod::Annual => self.config.premium_annual_price_id.clone(),
             };
+            // Persist the complete provider request before any Checkout POST.
+            // A retry must reuse its original price, trial, URLs and expiry.
+            let request = self
+                .store
+                .prepare_checkout_request(
+                    attempt_id,
+                    generation,
+                    CheckoutInput {
+                        user_id,
+                        customer_id,
+                        price_id,
+                        billing_period,
+                        trial_days: if context.trial_used {
+                            0
+                        } else {
+                            context.trial_days
+                        },
+                        expires_at: self.clock.now() + TimeDelta::minutes(CHECKOUT_TTL_MINUTES),
+                        idempotency_key: format!("histae-checkout-{attempt_id}"),
+                        success_url: self
+                            .config
+                            .checkout_success_url
+                            .clone()
+                            .ok_or(BillingError::BillingUnavailable)?,
+                        cancel_url: self
+                            .config
+                            .checkout_cancel_url
+                            .clone()
+                            .ok_or(BillingError::BillingUnavailable)?,
+                        automatic_tax: self.config.automatic_tax,
+                        allow_promotion_codes: self.config.allow_promotion_codes,
+                    },
+                )
+                .await
+                .map_err(map_store_error)?;
+            if request.expires_at <= self.clock.now() {
+                return Err(BillingError::IdempotencyKeyConsumed);
+            }
+            lease.assert_held()?;
             let session = self
                 .stripe
-                .create_checkout_session(CheckoutInput {
-                    user_id,
-                    customer_id,
-                    price_id,
-                    billing_period,
-                    trial_days: if context.trial_used {
-                        0
-                    } else {
-                        context.trial_days
-                    },
-                    expires_at,
-                    idempotency_key: format!("histae-checkout-{attempt_id}"),
-                })
+                .create_checkout_session(request)
                 .await
                 .map_err(|_| BillingError::StripeRequestFailed)?;
+            lease.assert_held()?;
             created_session_id = Some(session.id.clone());
             let url = session.url.ok_or(BillingError::StripeCheckoutUnavailable)?;
             let persisted = PersistedCheckoutSession {
@@ -302,29 +349,28 @@ impl BillingService {
             };
             if !self
                 .store
-                .mark_checkout_open(attempt_id, persisted.clone())
+                .mark_checkout_open(attempt_id, generation, persisted.clone())
                 .await
                 .map_err(map_store_error)?
             {
-                if self
-                    .stripe
-                    .expire_checkout_session(&persisted.session_id)
-                    .await
-                    .is_err()
-                {
-                    tracing::warn!(event_code = "billing_checkout_cleanup_failed");
-                }
                 return Err(BillingError::CheckoutStateConflict);
             }
             Ok(persisted.into())
         }
         .await;
 
+        // A lost session may already have a new owner. Leave the durable intent
+        // for its retry rather than failing or expiring the other owner's work.
+        lease.assert_held()?;
         if result.is_err() {
-            self.store
-                .mark_checkout_failed(attempt_id)
+            let owns_cleanup = self
+                .store
+                .mark_checkout_failed(attempt_id, generation, created_session_id.clone())
                 .await
                 .map_err(map_store_error)?;
+            if !owns_cleanup {
+                return result;
+            }
             if let Some(session_id) = created_session_id
                 && self
                     .stripe
@@ -378,6 +424,7 @@ impl BillingService {
             )
             .await
             .map_err(|_| BillingError::StripeRequestFailed)?;
+        lease.assert_held()?;
         self.store
             .record_created_customer(creation.id, customer.id.clone())
             .await

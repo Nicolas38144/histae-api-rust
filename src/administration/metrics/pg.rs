@@ -117,14 +117,15 @@ fn revenue_from_row(row: &PgRow, period: RevenuePeriod) -> Result<AdminRevenue, 
         premium_subscriptions: row
             .try_get("premium_subscriptions")
             .map_err(map_sqlx_error)?,
-        price_per_subscription_cents: row
-            .try_get("price_per_subscription_cents")
-            .map_err(map_sqlx_error)?,
+        paid_invoices: row.try_get("paid_invoices").map_err(map_sqlx_error)?,
         estimated_revenue_cents: row
             .try_get("estimated_revenue_cents")
             .map_err(map_sqlx_error)?,
         currency: row.try_get("currency").map_err(map_sqlx_error)?,
-        basis: "premium_monthly_price",
+        excluded_currency_invoices: row
+            .try_get("excluded_currency_invoices")
+            .map_err(map_sqlx_error)?,
+        basis: "stripe_paid_invoices",
     })
 }
 
@@ -146,16 +147,18 @@ WITH anchor AS MATERIALIZED (
   FROM anchor
 ), revenue AS (
   SELECT bounds.period_start, bounds.period_end,
-    count(subscription.user_id)::bigint AS premium_subscriptions,
-    COALESCE(max(plan.monthly_price_cents), 0)::int AS price_per_subscription_cents,
-    (count(subscription.user_id) * COALESCE(max(plan.monthly_price_cents), 0))::bigint AS estimated_revenue_cents,
-    COALESCE(max(plan.currency), 'EUR')::text AS currency
+    count(DISTINCT invoice.stripe_subscription_id) FILTER (WHERE invoice.currency = COALESCE(plan.currency, 'EUR'))::bigint AS premium_subscriptions,
+    count(invoice.stripe_invoice_id) FILTER (WHERE invoice.currency = COALESCE(plan.currency, 'EUR'))::bigint AS paid_invoices,
+    COALESCE(sum(invoice.amount_paid) FILTER (WHERE invoice.currency = COALESCE(plan.currency, 'EUR')), 0)::bigint AS estimated_revenue_cents,
+    COALESCE(plan.currency, 'EUR')::text AS currency,
+    count(invoice.stripe_invoice_id) FILTER (WHERE invoice.currency <> COALESCE(plan.currency, 'EUR'))::bigint AS excluded_currency_invoices
   FROM bounds
   LEFT JOIN subscription_plan plan ON plan.code = 'premium'
-  LEFT JOIN user_subscription subscription ON subscription.plan = plan.code
-    AND (bounds.period_start IS NULL OR subscription.updated_at >= bounds.period_start)
-    AND subscription.updated_at < bounds.period_end
-  GROUP BY bounds.period_start, bounds.period_end
+  LEFT JOIN billing_invoice invoice ON invoice.status = 'paid' AND invoice.amount_paid > 0
+    AND invoice.stripe_subscription_id IS NOT NULL
+    AND (bounds.period_start IS NULL OR invoice.paid_at >= bounds.period_start)
+    AND invoice.paid_at < bounds.period_end
+  GROUP BY bounds.period_start, bounds.period_end, plan.currency
 )
 "#;
 
@@ -169,7 +172,10 @@ const METRICS_SQL: &str = r#"
       OR (terms.user_id IS NOT NULL AND privacy.user_id IS NOT NULL))::bigint AS onboarded,
     count(*) FILTER (WHERE account.created_at >= now() - INTERVAL '30 days')::bigint AS created_last_30_days
   FROM user_account account
-  LEFT JOIN user_subscription subscription ON subscription.user_id = account.user_id
+  LEFT JOIN user_subscription subscription ON subscription.user_id = account.user_id AND (subscription.plan='free'
+    OR (subscription.provider IS NULL AND (subscription.current_period_ends_at IS NULL OR subscription.current_period_ends_at > clock_timestamp()))
+    OR (subscription.provider='stripe' AND subscription.status IN ('trialing','active','past_due')
+        AND subscription.current_period_ends_at > clock_timestamp()))
   LEFT JOIN user_consent terms ON terms.user_id = account.user_id
     AND terms.consent_type = 'terms_of_service_acceptance' AND terms.granted
     AND terms.withdrawn_at IS NULL AND terms.document_version = $2

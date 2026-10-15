@@ -124,6 +124,13 @@ async fn customer_creation_keeps_the_original_attempt_and_stripe_contract() {
     let request = captured.await.unwrap_or_else(|_| unreachable!());
     let (line, headers, form) = request_parts(&request);
     assert_eq!(line, "POST /v1/customers HTTP/1.1");
+    assert!(
+        headers
+            .get("user-agent")
+            .expect("user agent")
+            .starts_with("histae-api-rust/")
+    );
+    assert!(!headers.contains_key("x-stripe-client-user-agent"));
     assert_eq!(
         headers.get("authorization").map(String::as_str),
         Some("Bearer test-secret")
@@ -155,7 +162,11 @@ async fn checkout_uses_only_server_selected_price_trial_and_urls() {
         expires_at.timestamp()
     );
     let (endpoint, captured) = capture_one(response).await;
-    let client = StripeClient::with_endpoint(config(), endpoint).unwrap_or_else(|_| unreachable!());
+    let mut changed = config();
+    changed.checkout_success_url = Some("https://changed.histae.test/success".into());
+    changed.automatic_tax = false;
+    changed.allow_promotion_codes = true;
+    let client = StripeClient::with_endpoint(changed, endpoint).unwrap_or_else(|_| unreachable!());
     let user_id = Uuid::new_v4();
     let attempt_id = Uuid::new_v4();
     let session = client
@@ -167,6 +178,10 @@ async fn checkout_uses_only_server_selected_price_trial_and_urls() {
             trial_days: 30,
             expires_at,
             idempotency_key: format!("histae-checkout-{attempt_id}"),
+            success_url: config().checkout_success_url.expect("success URL"),
+            cancel_url: config().checkout_cancel_url.expect("cancel URL"),
+            automatic_tax: true,
+            allow_promotion_codes: false,
         })
         .await
         .unwrap_or_else(|_| unreachable!());
@@ -199,6 +214,10 @@ async fn checkout_uses_only_server_selected_price_trial_and_urls() {
     assert_eq!(
         form.get("automatic_tax[enabled]").map(String::as_str),
         Some("true")
+    );
+    assert_eq!(
+        form.get("customer_update[address]").map(String::as_str),
+        Some("auto")
     );
     assert_eq!(
         form.get("allow_promotion_codes").map(String::as_str),
@@ -256,4 +275,57 @@ async fn stripe_requests_update_aggregated_metrics() {
         .find(|(name, _)| *name == "stripe")
         .expect("metrics");
     assert_eq!((counters.calls, counters.errors), (1, 0));
+}
+
+#[tokio::test]
+async fn existing_customer_subscriptions_are_checked_before_a_second_purchase() {
+    for (status, expected) in [
+        ("active", true),
+        ("past_due", true),
+        ("unpaid", true),
+        ("paused", true),
+        ("incomplete", true),
+        ("trialing", true),
+        ("canceled", false),
+        ("incomplete_expired", false),
+    ] {
+        let (endpoint, captured) = capture_one(
+            serde_json::json!({
+                "has_more":false, "data":[{"customer":"cus_Fixture", "status":status}]
+            })
+            .to_string(),
+        )
+        .await;
+        let client = StripeClient::with_endpoint(config(), endpoint).expect("client");
+        assert_eq!(
+            client
+                .has_current_subscription("cus_Fixture")
+                .await
+                .expect("subscription list"),
+            expected
+        );
+        let raw = captured.await.expect("server");
+        let (line, _, _) = request_parts(&raw);
+        assert!(line.starts_with("GET /v1/subscriptions?"));
+        assert!(line.contains("customer=cus_Fixture") && line.contains("status=all"));
+    }
+}
+
+#[tokio::test]
+async fn incomplete_or_misrouted_provider_lists_never_allow_another_subscription() {
+    for value in [
+        serde_json::json!({"has_more":true,"data":[]}),
+        serde_json::json!({"has_more":false,"data":[{"customer":"cus_Other","status":"active"}]}),
+        serde_json::json!({"has_more":false,"data":[{"customer":"cus_Fixture","status":"future_status"}]}),
+    ] {
+        let (endpoint, captured) = capture_one(value.to_string()).await;
+        let client = StripeClient::with_endpoint(config(), endpoint).expect("client");
+        assert!(
+            client
+                .has_current_subscription("cus_Fixture")
+                .await
+                .is_err()
+        );
+        captured.await.expect("server");
+    }
 }

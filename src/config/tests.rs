@@ -193,7 +193,10 @@ fn accepts_the_complete_production_provider_configuration() {
     assert!(config.postgres.tls);
     assert_eq!(config.sms.provider, SmsProvider::Sweego);
     assert_eq!(config.billing.provider, BillingProvider::Stripe);
-    assert_eq!(config.billing.premium_monthly_price_id, "price_histaeMonthly");
+    assert_eq!(
+        config.billing.premium_monthly_price_id,
+        "price_histaeMonthly"
+    );
     assert_eq!(config.billing.premium_annual_price_id, "price_histaeAnnual");
     assert_eq!(config.rate_limit.store, RateLimitStore::Redis);
     assert_eq!(config.admin_auth.cookie_name, "__Host-histae_admin_session");

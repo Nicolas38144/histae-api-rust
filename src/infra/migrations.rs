@@ -80,6 +80,23 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
+    let legacy_checkout: bool = sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'billing_checkout_session' AND column_name = 'stripe_checkout_request')")
+        .fetch_one(&mut *transaction).await.map_err(map_sqlx_error)?;
+    sqlx::query("ALTER TABLE billing_checkout_session ADD COLUMN IF NOT EXISTS stripe_checkout_request jsonb")
+        .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
+    sqlx::query("ALTER TABLE billing_checkout_session ADD COLUMN IF NOT EXISTS creation_generation bigint NOT NULL DEFAULT 0")
+        .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
+    if legacy_checkout {
+        // Old attempts did not retain their POST parameters. Never replay a
+        // potentially executed Checkout with newly reconstructed parameters.
+        sqlx::query(r#"UPDATE billing_checkout_session AS checkout
+                     SET status='failed', stripe_checkout_request='{"legacy_unrecoverable":true}'::jsonb
+                     WHERE status IN ('creating','failed')
+                       AND (created_customer_id IS NOT NULL OR EXISTS (
+                         SELECT 1 FROM billing_customer AS customer
+                         WHERE customer.user_id=checkout.user_id AND stripe_customer_deleted_at IS NULL))"#)
+            .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
+    }
     let legacy_quota: bool = sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'continuation_usage' AND column_name = 'free_used_count')")
         .fetch_one(&mut *transaction).await.map_err(map_sqlx_error)?;
     sqlx::query("ALTER TABLE continuation_usage ADD COLUMN IF NOT EXISTS free_used_count smallint NOT NULL DEFAULT 0 CHECK (free_used_count >= 0)")

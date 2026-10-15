@@ -1519,7 +1519,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ billing_period: monthly or annual } + idempotency key → 201 { session_id, url, expires_at }.\n\nPostman generates a new UUID v4 for each new attempt. If the response is lost or Customer creation is uncertain, retry with the original key shown in the Postman Console: a new key may be rejected."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ billing_period: monthly or annual } + idempotency key → 201 { session_id, url, expires_at }.\n\nPostman generates a new UUID v4 for each new attempt. If the response is lost or Customer creation is uncertain, retry with the original key shown in the Postman Console: a new key may be rejected.\n\nCheckout expiry: use expires_at (35 minutes from preparation). Retry uncertain requests with the same Idempotency-Key; parameters are persisted. An existing nonterminal Stripe subscription blocks another purchase, even before webhook delivery; use the customer portal when available."
               },
               "response": []
             },
@@ -3033,7 +3033,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "revenue_period? → business summary and operations."
+                "description": "revenue_period? → business summary and operations. Revenue uses the same stripe_paid_invoices calculation as /api/admin/revenue."
               },
               "response": []
             },
@@ -3055,7 +3055,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "revenue_period? → revenue estimate."
+                "description": "revenue_period? → estimated gross revenue from paid Stripe subscription invoices, using paid_at. basis=stripe_paid_invoices; historical amounts include monthly/annual purchases, discounts and renewals; zero-value trials are excluded. paid_invoices counts invoices; premium_subscriptions counts distinct subscriptions. Only the catalogue currency is summed; excluded_currency_invoices reports other currencies excluded. Includes invoiced taxes, before fees and refunds; missing webhooks may leave invoices absent. Not MRR, profit or bank payouts."
               },
               "response": []
             },

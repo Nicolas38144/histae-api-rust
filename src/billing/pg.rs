@@ -1,3 +1,4 @@
+use super::stripe::CheckoutInput;
 use chrono::{DateTime, TimeDelta, Utc};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
@@ -51,7 +52,7 @@ impl PgBillingRepository {
 
                     let previous = sqlx::query(
                         "SELECT id, billing_period, stripe_session_id, checkout_url,
-                                status, expires_at, updated_at
+                                status, expires_at, updated_at, stripe_checkout_request
                          FROM billing_checkout_session
                          WHERE user_id = $1 AND idempotency_key = $2",
                     )
@@ -74,6 +75,15 @@ impl PgBillingRepository {
                         let status: String = row.try_get("status").map_err(map_sqlx_error)?;
                         let previous_expiry: DateTime<Utc> =
                             row.try_get("expires_at").map_err(map_sqlx_error)?;
+                        let request: Option<serde_json::Value> = row.try_get("stripe_checkout_request").map_err(map_sqlx_error)?;
+                        if request.as_ref().is_some_and(|value| value.get("legacy_unrecoverable").and_then(serde_json::Value::as_bool) == Some(true)) {
+                            return Ok(BeginCheckoutResult::IdempotencyConsumed);
+                        }
+                        if (status == "open" || request.is_some()) && previous_expiry <= now {
+                            sqlx::query("UPDATE billing_checkout_session SET status='expired', checkout_url=NULL WHERE id=$1")
+                                .bind(previous_id).execute(&mut *connection).await.map_err(map_sqlx_error)?;
+                            return Ok(BeginCheckoutResult::IdempotencyConsumed);
+                        }
                         if status == "open" && previous_expiry > now {
                             let session_id: Option<String> =
                                 row.try_get("stripe_session_id").map_err(map_sqlx_error)?;
@@ -86,8 +96,9 @@ impl PgBillingRepository {
                                     expires_at: previous_expiry,
                                 }));
                             }
+                            return Err(BillingStoreError::InvalidStoredData);
                         }
-                        if matches!(status.as_str(), "completed" | "expired") {
+                        if matches!(status.as_str(), "completed" | "expired") || status == "failed" && row.try_get::<Option<String>,_>("stripe_session_id").map_err(map_sqlx_error)?.is_some() {
                             return Ok(BeginCheckoutResult::IdempotencyConsumed);
                         }
                         let updated_at: DateTime<Utc> =
@@ -101,7 +112,8 @@ impl PgBillingRepository {
                         "UPDATE billing_checkout_session
                          SET status = 'expired', checkout_url = NULL,
                              updated_at = clock_timestamp()
-                         WHERE user_id = $1 AND status = 'open' AND expires_at <= $2",
+                         WHERE user_id = $1 AND expires_at <= $2
+                           AND (status = 'open' OR (status = 'failed' AND stripe_checkout_request IS NOT NULL))",
                     )
                     .bind(user_id)
                     .bind(now)
@@ -124,9 +136,14 @@ impl PgBillingRepository {
                     }
                     let live: Option<i32> = sqlx::query_scalar(
                         "SELECT 1 FROM billing_checkout_session
-                         WHERE user_id = $1 AND status IN ('creating', 'open') LIMIT 1",
+                         WHERE user_id = $1
+                           AND (status IN ('creating', 'open')
+                             OR (status = 'failed' AND stripe_checkout_request IS NOT NULL AND expires_at > $2))
+                           AND ($3::uuid IS NULL OR id <> $3) LIMIT 1",
                     )
                     .bind(user_id)
+                    .bind(now)
+                    .bind(previous_id)
                     .fetch_optional(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
@@ -161,36 +178,39 @@ impl PgBillingRepository {
                         return Err(BillingStoreError::InvalidStoredData);
                     };
                     if let Some(previous_id) = previous_id {
-                        sqlx::query(
+                        let generation: i64 = sqlx::query_scalar(
                             "UPDATE billing_checkout_session
                              SET status = 'creating', stripe_session_id = NULL,
-                                 checkout_url = NULL, expires_at = $3,
-                                 updated_at = clock_timestamp()
-                             WHERE user_id = $1 AND id = $2",
+                                 checkout_url = NULL,
+                                 expires_at = CASE WHEN stripe_checkout_request IS NULL THEN $3 ELSE expires_at END,
+                                 creation_generation = creation_generation + 1, updated_at = clock_timestamp()
+                             WHERE user_id = $1 AND id = $2 RETURNING creation_generation",
                         )
                         .bind(user_id)
                         .bind(previous_id)
                         .bind(expires_at)
-                        .execute(&mut *connection)
+                        .fetch_one(&mut *connection)
                         .await
                         .map_err(map_sqlx_error)?;
                         context.attempt_id = previous_id;
+                        context.creation_generation = generation;
                         return Ok(BeginCheckoutResult::Retry(context));
                     }
-                    sqlx::query(
+                    let generation: i64 = sqlx::query_scalar(
                         "INSERT INTO billing_checkout_session
-                           (id, user_id, idempotency_key, billing_period, status, expires_at)
-                         VALUES ($1, $2, $3, $4, 'creating', $5)",
+                           (id, user_id, idempotency_key, billing_period, status, expires_at, creation_generation)
+                         VALUES ($1, $2, $3, $4, 'creating', $5, 1) RETURNING creation_generation",
                     )
                     .bind(attempt_id)
                     .bind(user_id)
                     .bind(idempotency_key)
                     .bind(billing_period.as_str())
                     .bind(expires_at)
-                    .execute(&mut *connection)
+                    .fetch_one(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
                     context.attempt_id = attempt_id;
+                    context.creation_generation = generation;
                     Ok(BeginCheckoutResult::Created(context))
                 })
             })
@@ -199,6 +219,29 @@ impl PgBillingRepository {
 }
 
 impl BillingStore for PgBillingRepository {
+    fn prepare_checkout_request(
+        &self,
+        attempt_id: Uuid,
+        generation: i64,
+        input: CheckoutInput,
+    ) -> BillingStoreFuture<'_, CheckoutInput> {
+        Box::pin(async move {
+            let value =
+                serde_json::to_value(&input).map_err(|_| BillingStoreError::InvalidStoredData)?;
+            let mut connection = self.database.acquire().await?;
+            let stored: Option<serde_json::Value> = sqlx::query_scalar(
+                "UPDATE billing_checkout_session
+                 SET stripe_checkout_request = COALESCE(stripe_checkout_request, $2),
+                     expires_at = CASE WHEN stripe_checkout_request IS NULL THEN $3 ELSE expires_at END
+                 WHERE id = $1 AND status = 'creating' AND creation_generation = $4
+                 RETURNING stripe_checkout_request"
+            ).bind(attempt_id).bind(value).bind(input.expires_at).bind(generation).fetch_optional(&mut *connection)
+                .await.map_err(map_sqlx_error)?;
+            serde_json::from_value(stored.ok_or(BillingStoreError::CheckoutAttemptMissing)?)
+                .map_err(|_| BillingStoreError::InvalidStoredData)
+        })
+    }
+
     fn subscription_for_user(
         &self,
         user_id: Uuid,
@@ -380,6 +423,7 @@ impl BillingStore for PgBillingRepository {
     fn mark_checkout_open(
         &self,
         attempt_id: Uuid,
+        generation: i64,
         session: PersistedCheckoutSession,
     ) -> BillingStoreFuture<'_, bool> {
         Box::pin(async move {
@@ -388,12 +432,13 @@ impl BillingStore for PgBillingRepository {
                 "UPDATE billing_checkout_session
                  SET stripe_session_id = $2, checkout_url = $3, status = 'open',
                      expires_at = $4, updated_at = clock_timestamp()
-                 WHERE id = $1 AND status = 'creating'",
+                 WHERE id = $1 AND status = 'creating' AND creation_generation = $5",
             )
             .bind(attempt_id)
             .bind(session.session_id)
             .bind(session.url)
             .bind(session.expires_at)
+            .bind(generation)
             .execute(&mut *connection)
             .await
             .map_err(map_sqlx_error)?;
@@ -401,19 +446,26 @@ impl BillingStore for PgBillingRepository {
         })
     }
 
-    fn mark_checkout_failed(&self, attempt_id: Uuid) -> BillingStoreFuture<'_, ()> {
+    fn mark_checkout_failed(
+        &self,
+        attempt_id: Uuid,
+        generation: i64,
+        session_id: Option<String>,
+    ) -> BillingStoreFuture<'_, bool> {
         Box::pin(async move {
             let mut connection = self.database.acquire().await?;
-            sqlx::query(
+            let updated = sqlx::query(
                 "UPDATE billing_checkout_session
-                 SET status = 'failed', checkout_url = NULL, updated_at = clock_timestamp()
-                 WHERE id = $1 AND status = 'creating'",
+                 SET status = 'failed', checkout_url = NULL, stripe_session_id=COALESCE($3,stripe_session_id), updated_at = clock_timestamp()
+                 WHERE id = $1 AND status = 'creating' AND creation_generation = $2",
             )
             .bind(attempt_id)
+            .bind(generation)
+            .bind(session_id)
             .execute(&mut *connection)
             .await
             .map_err(map_sqlx_error)?;
-            Ok(())
+            Ok(updated.rows_affected() == 1)
         })
     }
 
@@ -466,8 +518,7 @@ async fn has_active_subscription(
            AND (
              (provider IS NULL AND (current_period_ends_at IS NULL OR current_period_ends_at > $2))
              OR
-             (provider = 'stripe' AND status IN ('trialing', 'active', 'past_due')
-               AND (current_period_ends_at IS NULL OR current_period_ends_at > $2))
+             (provider = 'stripe' AND status IN ('incomplete', 'trialing', 'active', 'past_due', 'unpaid', 'paused'))
            )
          LIMIT 1",
     )
@@ -500,6 +551,7 @@ async fn checkout_context(
     row.map(|row| {
         Ok(CheckoutContext {
             attempt_id: attempt_id.unwrap_or_else(Uuid::nil),
+            creation_generation: 0,
             stripe_customer_id: row.try_get("stripe_customer_id").map_err(map_sqlx_error)?,
             trial_days: row.try_get("trial_days").map_err(map_sqlx_error)?,
             trial_used: row

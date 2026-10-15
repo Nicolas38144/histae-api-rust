@@ -4,7 +4,9 @@ use uuid::Uuid;
 
 use crate::identity::mobile::domain::wire_timestamp;
 
-pub const CHECKOUT_TTL_MINUTES: i64 = 30;
+// Stripe requires at least 30 minutes after its own session creation. Keep a
+// margin for bounded network retries without changing the idempotent request.
+pub const CHECKOUT_TTL_MINUTES: i64 = 35;
 pub const CHECKOUT_CREATION_STALE_SECONDS: i64 = 60;
 pub const CUSTOMER_CREATE_SAFETY_HOURS: i64 = 23;
 
@@ -38,6 +40,15 @@ pub enum SubscriptionProvider {
     Stripe,
 }
 
+/// A price previously accepted for this exact Stripe subscription. This lets
+/// existing subscribers renew after the prices for new sales are rotated.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KnownSubscriptionPrice {
+    pub subscription_id: String,
+    pub price_id: String,
+    pub billing_period: BillingPeriod,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StripeSubscriptionStatus {
@@ -68,6 +79,10 @@ impl StripeSubscriptionStatus {
 
     pub const fn grants_access(self) -> bool {
         matches!(self, Self::Trialing | Self::Active | Self::PastDue)
+    }
+
+    pub const fn is_terminal(self) -> bool {
+        matches!(self, Self::Canceled | Self::IncompleteExpired)
     }
 }
 
@@ -117,7 +132,12 @@ impl SubscriptionView {
     }
 
     pub fn from_row(row: SubscriptionRow, now: DateTime<Utc>, portal: bool) -> Self {
-        let within_period = row.current_period_ends_at.is_none_or(|end| end > now);
+        let within_period = match row.provider {
+            None => row.current_period_ends_at.is_none_or(|end| end > now),
+            Some(SubscriptionProvider::Stripe) => {
+                row.current_period_ends_at.is_some_and(|end| end > now)
+            }
+        };
         let provider_grants = row.provider.is_none_or(|_| {
             row.status
                 .is_some_and(StripeSubscriptionStatus::grants_access)
@@ -166,6 +186,7 @@ impl From<PersistedCheckoutSession> for CheckoutSessionView {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckoutContext {
     pub attempt_id: Uuid,
+    pub creation_generation: i64,
     pub stripe_customer_id: Option<String>,
     pub trial_days: i16,
     pub trial_used: bool,
@@ -191,4 +212,45 @@ pub struct CustomerCreation {
     pub customer_creation_started_at: DateTime<Utc>,
     pub created_customer_id: Option<String>,
     pub customer_erased_at: Option<DateTime<Utc>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeDelta;
+
+    #[test]
+    fn stripe_access_requires_an_eligible_status_and_a_known_future_period() {
+        let now = Utc::now();
+        let mut row = SubscriptionRow {
+            plan: "premium".into(),
+            provider: Some(SubscriptionProvider::Stripe),
+            billing_period: Some(BillingPeriod::Monthly),
+            status: Some(StripeSubscriptionStatus::Active),
+            cancel_at_period_end: false,
+            current_period_starts_at: Some(now),
+            current_period_ends_at: None,
+            trial_ends_at: None,
+            canceled_at: None,
+        };
+        assert!(!SubscriptionView::from_row(row.clone(), now, true).access_granted);
+        row.current_period_ends_at = Some(now + TimeDelta::days(30));
+        for status in [
+            StripeSubscriptionStatus::Trialing,
+            StripeSubscriptionStatus::Active,
+            StripeSubscriptionStatus::PastDue,
+        ] {
+            row.status = Some(status);
+            assert!(SubscriptionView::from_row(row.clone(), now, true).access_granted);
+        }
+        row.status = Some(StripeSubscriptionStatus::Canceled);
+        assert!(!SubscriptionView::from_row(row.clone(), now, true).access_granted);
+        row.status = Some(StripeSubscriptionStatus::Active);
+        row.current_period_ends_at = Some(now);
+        assert!(!SubscriptionView::from_row(row.clone(), now, true).access_granted);
+        row.provider = None;
+        row.status = None;
+        row.current_period_ends_at = None;
+        assert!(SubscriptionView::from_row(row, now, true).access_granted);
+    }
 }

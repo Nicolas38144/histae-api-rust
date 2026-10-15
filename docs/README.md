@@ -23,6 +23,7 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Rôles PostgreSQL](postgres-roles.md) : comptes séparés, mots de passe dans `.env`, installation et conversion dev.
 - [Administration](administration.md) : premier superadmin, enrôlement, sessions et rôles.
 - [Exploitation](operations.md) : processus, passes de maintenance et incidents de démarrage.
+- [Parcours Stripe](billing.md) : configuration, Checkout, Premium, renouvellements, reprises et revenus.
 - [Continuations et récompenses](continuation-and-rewards.md) : fenêtres, crédits, confidentialité des choix et activation AdMob.
 - [Validation des continuations](continuation-validation.md) : résultats locaux et limites de validation fournisseur.
 - [Contrat HTTP](http-contract.md) : routes, entrées, réponses, permissions et idempotence.

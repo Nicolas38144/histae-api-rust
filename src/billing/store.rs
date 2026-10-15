@@ -8,6 +8,7 @@ use uuid::Uuid;
 use super::domain::{
     BeginCheckoutResult, BillingPeriod, CustomerCreation, PersistedCheckoutSession, SubscriptionRow,
 };
+use super::stripe::CheckoutInput;
 use crate::infra::postgres::DatabaseError;
 
 pub type BillingStoreFuture<'a, T> =
@@ -52,6 +53,13 @@ impl fmt::Display for BillingStoreError {
 impl std::error::Error for BillingStoreError {}
 
 pub trait BillingStore: Send + Sync {
+    fn prepare_checkout_request(
+        &self,
+        attempt_id: Uuid,
+        generation: i64,
+        input: CheckoutInput,
+    ) -> BillingStoreFuture<'_, CheckoutInput>;
+
     fn subscription_for_user(
         &self,
         user_id: Uuid,
@@ -78,10 +86,16 @@ pub trait BillingStore: Send + Sync {
     fn mark_checkout_open(
         &self,
         attempt_id: Uuid,
+        generation: i64,
         session: PersistedCheckoutSession,
     ) -> BillingStoreFuture<'_, bool>;
 
-    fn mark_checkout_failed(&self, attempt_id: Uuid) -> BillingStoreFuture<'_, ()>;
+    fn mark_checkout_failed(
+        &self,
+        attempt_id: Uuid,
+        generation: i64,
+        session_id: Option<String>,
+    ) -> BillingStoreFuture<'_, bool>;
 
     fn customer_creations_for_erasure(
         &self,

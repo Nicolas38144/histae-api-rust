@@ -1519,7 +1519,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ billing_period: monthly ou annual } + clé d’idempotence → 201 { session_id, url, expires_at }.\n\nPostman génère un nouvel UUID v4 pour chaque nouvelle tentative. Si la réponse est perdue ou la création Customer incertaine, rejouer avec la clé initiale relevée dans la console Postman : une nouvelle clé peut être refusée."
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ billing_period: monthly ou annual } + clé d’idempotence → 201 { session_id, url, expires_at }.\n\nPostman génère un nouvel UUID v4 pour chaque nouvelle tentative. Si la réponse est perdue ou la création Customer incertaine, rejouer avec la clé initiale relevée dans la console Postman : une nouvelle clé peut être refusée.\n\nExpiration Checkout : utiliser expires_at (35 minutes après préparation). Reprendre une requête incertaine avec la même Idempotency-Key ; ses paramètres sont persistés. Un abonnement Stripe non terminé bloque un nouvel achat, même avant réception du webhook ; utiliser le portail client lorsqu’il est disponible."
               },
               "response": []
             },
@@ -3033,7 +3033,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "revenue_period? → synthèse métier et operations."
+                "description": "revenue_period? → synthèse métier et operations. Les revenus partagent le calcul stripe_paid_invoices de /api/admin/revenue."
               },
               "response": []
             },
@@ -3055,7 +3055,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "revenue_period? → estimation de chiffre d’affaires."
+                "description": "revenue_period? → revenus bruts estimés des factures d’abonnement Stripe payées, selon paid_at. basis=stripe_paid_invoices ; montants historiques (mensuel/annuel, remises, renouvellements), essais à zéro exclus. paid_invoices compte les factures ; premium_subscriptions les abonnements distincts. Devise du catalogue uniquement ; excluded_currency_invoices signale les autres devises exclues. Taxes facturées incluses, frais et remboursements non déduits ; webhooks absents possibles. Ni MRR ni bénéfice ni versements bancaires."
               },
               "response": []
             },

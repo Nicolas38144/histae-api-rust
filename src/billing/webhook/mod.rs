@@ -13,7 +13,7 @@ use serde_json::Value;
 use sha2::Sha256;
 use uuid::Uuid;
 
-use crate::billing::domain::{BillingPeriod, StripeSubscriptionStatus};
+use crate::billing::domain::{BillingPeriod, KnownSubscriptionPrice, StripeSubscriptionStatus};
 use crate::billing::stripe::{StripeClient, StripeError};
 use crate::config::{BillingConfig, BillingProvider};
 use crate::infra::postgres::DatabaseError;
@@ -157,6 +157,14 @@ pub type WebhookStoreFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, WebhookStoreError>> + Send + 'a>>;
 
 pub trait StripeWebhookStore: Send + Sync {
+    fn known_subscription_price(
+        &self,
+        subscription_id: &str,
+        customer_id: &str,
+    ) -> WebhookStoreFuture<'_, Option<KnownSubscriptionPrice>> {
+        let _ = (subscription_id, customer_id);
+        Box::pin(async { Ok(None) })
+    }
     fn processed(&self, event_id: &str) -> WebhookStoreFuture<'_, bool>;
     fn apply(&self, command: WebhookCommand) -> WebhookStoreFuture<'_, WebhookProcessResult>;
 }
@@ -301,8 +309,9 @@ impl StripeWebhookService {
     async fn command(&self, event: ParsedEvent) -> Result<WebhookCommand, StripeWebhookError> {
         let event_type = event.metadata.event_type.clone();
         if SUBSCRIPTION_EVENTS.contains(&event_type.as_str()) {
-            let projection =
-                map_subscription(&event.object, event.metadata.created_at, &self.config)?;
+            let projection = self
+                .subscription_projection(&event.object, event.metadata.created_at)
+                .await?;
             return Ok(WebhookCommand::Subscription {
                 metadata: event.metadata,
                 projection,
@@ -319,10 +328,14 @@ impl StripeWebhookService {
                 .retrieve_subscription(&subscription_id)
                 .await
                 .map_err(|_| StripeWebhookError::StripeRequestFailed)?;
-            let subscription =
-                map_subscription(&raw_subscription, event.metadata.created_at, &self.config)?;
+            let subscription = self
+                .subscription_projection(&raw_subscription, event.metadata.created_at)
+                .await?;
             let invoice = map_invoice(&event.object, event.metadata.created_at)?;
-            if subscription.stripe_customer_id != invoice.stripe_customer_id {
+            if subscription.stripe_customer_id != invoice.stripe_customer_id
+                || invoice.stripe_subscription_id.as_deref()
+                    != Some(subscription.stripe_subscription_id.as_str())
+            {
                 return Err(StripeWebhookError::InvalidEvent);
             }
             return Ok(WebhookCommand::Invoice {
@@ -352,6 +365,29 @@ impl StripeWebhookService {
             metadata: event.metadata,
             customer_id,
         })
+    }
+
+    async fn subscription_projection(
+        &self,
+        value: &Value,
+        at: DateTime<Utc>,
+    ) -> Result<SubscriptionProjection, StripeWebhookError> {
+        if let Ok(projection) = map_subscription(value, at, &self.config) {
+            return Ok(projection);
+        }
+        let subscription_id = required_provider_id(value, "id", "sub_")?;
+        let customer_id = object_id(
+            value
+                .get("customer")
+                .ok_or(StripeWebhookError::InvalidEvent)?,
+            "cus_",
+        )?;
+        let known = self
+            .store
+            .known_subscription_price(subscription_id, &customer_id)
+            .await
+            .map_err(map_store_error)?;
+        map_subscription_with_known_price(value, at, &self.config, known.as_ref())
     }
 }
 
@@ -472,6 +508,15 @@ pub fn map_subscription(
     event_created_at: DateTime<Utc>,
     config: &BillingConfig,
 ) -> Result<SubscriptionProjection, StripeWebhookError> {
+    map_subscription_with_known_price(value, event_created_at, config, None)
+}
+
+pub fn map_subscription_with_known_price(
+    value: &Value,
+    event_created_at: DateTime<Utc>,
+    config: &BillingConfig,
+    known: Option<&KnownSubscriptionPrice>,
+) -> Result<SubscriptionProjection, StripeWebhookError> {
     let stripe_subscription_id = required_provider_id(value, "id", "sub_")?.to_owned();
     let stripe_customer_id = object_id(
         value
@@ -496,6 +541,10 @@ pub fn map_subscription(
         BillingPeriod::Monthly
     } else if stripe_price_id == config.premium_annual_price_id {
         BillingPeriod::Annual
+    } else if let Some(known) = known.filter(|known| {
+        known.subscription_id == stripe_subscription_id && known.price_id == stripe_price_id
+    }) {
+        known.billing_period
     } else {
         return Err(StripeWebhookError::InvalidEvent);
     };
@@ -514,8 +563,8 @@ pub fn map_subscription(
             .get("cancel_at_period_end")
             .and_then(Value::as_bool)
             .ok_or(StripeWebhookError::InvalidEvent)?,
-        current_period_starts_at: unix_date(required_i64(item, "current_period_start")?)?,
-        current_period_ends_at: unix_date(required_i64(item, "current_period_end")?)?,
+        current_period_starts_at: subscription_period(value, item, "current_period_start")?,
+        current_period_ends_at: subscription_period(value, item, "current_period_end")?,
         trial_starts_at: optional_unix_date(value.get("trial_start"))?,
         trial_ends_at: optional_unix_date(value.get("trial_end"))?,
         canceled_at: optional_unix_date(value.get("canceled_at"))?,
@@ -559,10 +608,26 @@ fn map_invoice(
 }
 
 fn invoice_subscription_id(value: &Value) -> Result<Option<String>, StripeWebhookError> {
-    match value.pointer("/parent/subscription_details/subscription") {
+    let subscription = value
+        .pointer("/parent/subscription_details/subscription")
+        .or_else(|| value.get("subscription"));
+    match subscription {
         None | Some(Value::Null) => Ok(None),
         Some(value) => object_id(value, "sub_").map(Some),
     }
+}
+
+fn subscription_period(
+    value: &Value,
+    item: &Value,
+    field: &str,
+) -> Result<DateTime<Utc>, StripeWebhookError> {
+    let source = if item.get(field).is_some() {
+        item
+    } else {
+        value
+    };
+    unix_date(required_i64(source, field)?)
 }
 
 fn required_string(value: &Value, field: &str) -> Result<String, StripeWebhookError> {
@@ -712,8 +777,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn maps_only_the_two_configured_premium_prices_without_a_product_filter() {
+    fn subscription_fixture() -> (BillingConfig, Uuid, Value) {
         let config = BillingConfig {
             provider: BillingProvider::Stripe,
             stripe_secret_key: SecretString::new("sk_test_value".to_owned()),
@@ -732,7 +796,7 @@ mod tests {
             reconciliation_batch_size: 10,
         };
         let user_id = Uuid::new_v4();
-        let mut value = serde_json::json!({
+        let value = serde_json::json!({
             "id":"sub_Test", "customer":"cus_Test", "status":"active",
             "cancel_at_period_end":false,
             "metadata":{"histae_user_id":user_id},
@@ -740,6 +804,12 @@ mod tests {
                 "current_period_start":1_900_000_000_i64,"current_period_end":1_900_086_400_i64}]},
             "trial_start":null,"trial_end":null,"canceled_at":null
         });
+        (config, user_id, value)
+    }
+
+    #[test]
+    fn maps_only_the_two_configured_premium_prices_without_a_product_filter() {
+        let (config, user_id, mut value) = subscription_fixture();
         for (price_id, product, expected_period) in [
             ("price_Monthly", "prod_Monthly", BillingPeriod::Monthly),
             ("price_Annual", "prod_Annual", BillingPeriod::Annual),
@@ -769,5 +839,62 @@ mod tests {
             map_subscription(&value, Utc::now(), &config),
             Err(StripeWebhookError::InvalidEvent)
         );
+    }
+
+    #[test]
+    fn historical_prices_remain_scoped_to_the_previously_known_subscription() {
+        let (config, _, mut value) = subscription_fixture();
+        value["items"]["data"][0]["price"]["id"] = serde_json::json!("price_Previous");
+        let mut known = KnownSubscriptionPrice {
+            subscription_id: "sub_Test".into(),
+            price_id: "price_Previous".into(),
+            billing_period: BillingPeriod::Monthly,
+        };
+        assert!(map_subscription(&value, Utc::now(), &config).is_err());
+        assert!(
+            map_subscription_with_known_price(&value, Utc::now(), &config, Some(&known)).is_ok()
+        );
+        known.subscription_id = "sub_Other".into();
+        assert!(
+            map_subscription_with_known_price(&value, Utc::now(), &config, Some(&known)).is_err()
+        );
+        known.subscription_id = "sub_Test".into();
+        known.price_id = "price_Other".into();
+        assert!(
+            map_subscription_with_known_price(&value, Utc::now(), &config, Some(&known)).is_err()
+        );
+    }
+
+    #[test]
+    fn accepts_legacy_subscription_periods_and_invoice_subscription_references() {
+        let (config, _, mut value) = subscription_fixture();
+        let start = value["items"]["data"][0]
+            .as_object_mut()
+            .expect("item")
+            .remove("current_period_start")
+            .expect("start");
+        let end = value["items"]["data"][0]
+            .as_object_mut()
+            .expect("item")
+            .remove("current_period_end")
+            .expect("end");
+        value["current_period_start"] = start;
+        value["current_period_end"] = end;
+        let legacy = map_subscription(&value, Utc::now(), &config).expect("legacy subscription");
+        assert_eq!(legacy.current_period_ends_at.timestamp(), 1_900_086_400);
+        assert_eq!(
+            invoice_subscription_id(&serde_json::json!({"subscription":"sub_Test"}))
+                .expect("legacy invoice"),
+            Some("sub_Test".into())
+        );
+        assert_eq!(
+            invoice_subscription_id(
+                &serde_json::json!({"parent":{"subscription_details":{"subscription":"sub_Test"}}})
+            )
+            .expect("current invoice"),
+            Some("sub_Test".into())
+        );
+        value["items"]["data"][0]["current_period_end"] = serde_json::json!("invalid");
+        assert!(map_subscription(&value, Utc::now(), &config).is_err());
     }
 }

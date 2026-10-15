@@ -149,7 +149,32 @@ impl AccountActivityPool {
         F: for<'lease> FnOnce(&'lease ActivityLease) -> ActivityWorkFuture<'lease, T, E>,
     {
         let Some(owner) = self
-            .acquire(&[user_id], LockMode::Exclusive, None)
+            .acquire(&[user_id], LockMode::Exclusive, None, None)
+            .await
+            .map_err(E::from)?
+        else {
+            return Ok(TryExclusive::NotAcquired);
+        };
+        let result = run_guarded(owner.lease(), work).await;
+        owner.release().await;
+        result.map(TryExclusive::Acquired)
+    }
+
+    /// Serialize one kind of operation without blocking the account's other
+    /// shared activities. Both locks belong to the monitored PostgreSQL session.
+    pub async fn try_serialized<T, E, F>(
+        &self,
+        user_id: Uuid,
+        operation: &'static str,
+        work: F,
+    ) -> Result<TryExclusive<T>, E>
+    where
+        T: Send,
+        E: From<AccountActivityError>,
+        F: for<'lease> FnOnce(&'lease ActivityLease) -> ActivityWorkFuture<'lease, T, E>,
+    {
+        let Some(owner) = self
+            .acquire(&[user_id], LockMode::Shared, Some(false), Some(operation))
             .await
             .map_err(E::from)?
         else {
@@ -185,7 +210,7 @@ impl AccountActivityPool {
         F: for<'lease> FnOnce(&'lease ActivityLease) -> ActivityWorkFuture<'lease, T, E>,
     {
         let owner = self
-            .acquire(user_ids, LockMode::Shared, Some(allow_banned))
+            .acquire(user_ids, LockMode::Shared, Some(allow_banned), None)
             .await
             .map_err(E::from)?
             .ok_or_else(|| E::from(AccountActivityError::AccountUnavailable))?;
@@ -199,6 +224,7 @@ impl AccountActivityPool {
         user_ids: &[Uuid],
         mode: LockMode,
         allow_banned: Option<bool>,
+        operation: Option<&'static str>,
     ) -> Result<Option<ActivityOwner>, AccountActivityError> {
         let account_ids = canonical_ids(user_ids);
         let waiting = ActivityAcquisition::new(&self.waiting);
@@ -244,6 +270,21 @@ impl AccountActivityPool {
             }
         }
 
+        if let Some(operation) = operation {
+            for account_id in &account_ids {
+                let acquired: bool =
+                    sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtextextended($1, $2))")
+                        .bind(format!("{operation}:{account_id}"))
+                        .bind(ACCOUNT_ACTIVITY_HASH_SEED)
+                        .fetch_one(session.connection_mut())
+                        .await
+                        .map_err(|_| AccountActivityError::ActivityUnavailable)?;
+                if !acquired {
+                    let _ = unlock_all(&mut session).await;
+                    return Ok(None);
+                }
+            }
+        }
         let backend_process_id: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(session.connection_mut())
             .await

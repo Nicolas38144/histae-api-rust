@@ -2,7 +2,7 @@ use super::{
     InvoiceProjection, StripeWebhookStore, SubscriptionProjection, WebhookCommand, WebhookEffect,
     WebhookProcessResult, WebhookStoreError, WebhookStoreFuture, status_name,
 };
-use crate::billing::domain::StripeSubscriptionStatus;
+use crate::billing::domain::{BillingPeriod, KnownSubscriptionPrice, StripeSubscriptionStatus};
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use crate::notifications::{domain::NotificationIntent, enqueue_notification};
 use chrono::{DateTime, Utc};
@@ -20,6 +20,37 @@ impl PgStripeWebhookStore {
 }
 
 impl StripeWebhookStore for PgStripeWebhookStore {
+    fn known_subscription_price(
+        &self,
+        subscription_id: &str,
+        customer_id: &str,
+    ) -> WebhookStoreFuture<'_, Option<KnownSubscriptionPrice>> {
+        let subscription_id = subscription_id.to_owned();
+        let customer_id = customer_id.to_owned();
+        Box::pin(async move {
+            let mut connection = self.database.acquire().await?;
+            let row = sqlx::query("SELECT subscription.provider_subscription_id, subscription.provider_price_id, subscription.billing_period
+                FROM user_subscription AS subscription JOIN billing_customer AS customer USING(user_id)
+                WHERE subscription.provider='stripe' AND subscription.provider_subscription_id=$1
+                  AND customer.stripe_customer_id=$2")
+                .bind(subscription_id).bind(customer_id).fetch_optional(&mut *connection).await.map_err(map_sqlx_error)?;
+            row.map(|row| {
+                Ok(KnownSubscriptionPrice {
+                    subscription_id: row
+                        .try_get("provider_subscription_id")
+                        .map_err(map_sqlx_error)?,
+                    price_id: row.try_get("provider_price_id").map_err(map_sqlx_error)?,
+                    billing_period: BillingPeriod::parse(
+                        &row.try_get::<String, _>("billing_period")
+                            .map_err(map_sqlx_error)?,
+                    )
+                    .ok_or(WebhookStoreError::InvalidMapping)?,
+                })
+            })
+            .transpose()
+        })
+    }
+
     fn processed(&self, event_id: &str) -> WebhookStoreFuture<'_, bool> {
         let event_id = event_id.to_owned();
         Box::pin(async move {
@@ -102,8 +133,11 @@ async fn apply_command(
             notify_trial_ending,
         } => {
             let user_id = resolve_user(connection, &projection).await?;
-            upsert_subscription(connection, user_id, &projection).await?;
-            if notify_trial_ending && let Some(trial_ends_at) = projection.trial_ends_at {
+            let applied = upsert_subscription(connection, user_id, &projection).await?;
+            if applied
+                && notify_trial_ending
+                && let Some(trial_ends_at) = projection.trial_ends_at
+            {
                 enqueue_notification(
                     connection,
                     user_id,
@@ -115,7 +149,7 @@ async fn apply_command(
                 )
                 .await?;
             }
-            Ok(Some(WebhookEffect {
+            Ok(applied.then_some(WebhookEffect {
                 user_id,
                 subscription_status: Some(projection.status),
             }))
@@ -127,9 +161,9 @@ async fn apply_command(
             notify_payment_failed,
         } => {
             let user_id = resolve_user(connection, &subscription).await?;
-            upsert_subscription(connection, user_id, &subscription).await?;
-            upsert_invoice(connection, user_id, &invoice).await?;
-            if notify_payment_failed {
+            let applied = upsert_subscription(connection, user_id, &subscription).await?;
+            let invoice_applied = upsert_invoice(connection, user_id, &invoice).await?;
+            if invoice_applied && notify_payment_failed {
                 enqueue_notification(
                     connection,
                     user_id,
@@ -140,7 +174,7 @@ async fn apply_command(
                 )
                 .await?;
             }
-            Ok(Some(WebhookEffect {
+            Ok(applied.then_some(WebhookEffect {
                 user_id,
                 subscription_status: Some(subscription.status),
             }))
@@ -244,7 +278,7 @@ async fn upsert_subscription(
     connection: &mut PgConnection,
     user_id: Uuid,
     input: &SubscriptionProjection,
-) -> Result<(), ApplyError> {
+) -> Result<bool, ApplyError> {
     let updated: Option<Uuid> = sqlx::query_scalar(
         "INSERT INTO user_subscription (
            user_id, plan, provider, provider_subscription_id, provider_price_id,
@@ -266,7 +300,7 @@ async fn upsert_subscription(
          WHERE (
              user_subscription.provider_subscription_id IS NULL
              OR user_subscription.provider_subscription_id = EXCLUDED.provider_subscription_id
-             OR user_subscription.status NOT IN ('trialing', 'active', 'past_due')
+             OR user_subscription.status IN ('canceled', 'incomplete_expired')
            )
            AND (
              user_subscription.provider_event_created_at IS NULL
@@ -300,19 +334,31 @@ async fn upsert_subscription(
     .await
     .map_err(map_sqlx_error)?;
     if updated.is_none() {
-        let current: Option<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
-            "SELECT provider_subscription_id, provider_event_created_at
+        let current = sqlx::query(
+            "SELECT provider_subscription_id, provider_event_created_at, provider_snapshot_at
              FROM user_subscription WHERE user_id = $1",
         )
         .bind(user_id)
         .fetch_optional(&mut *connection)
         .await
         .map_err(map_sqlx_error)?;
-        let stale_same_subscription = current.is_some_and(|(subscription_id, event_at)| {
-            subscription_id == input.stripe_subscription_id
-                && event_at.is_some_and(|event_at| event_at >= input.event_created_at)
-        });
-        if !stale_same_subscription {
+        let stale = if let Some(row) = current {
+            let subscription_id: String = row
+                .try_get("provider_subscription_id")
+                .map_err(map_sqlx_error)?;
+            let event_at: Option<DateTime<Utc>> = row
+                .try_get("provider_event_created_at")
+                .map_err(map_sqlx_error)?;
+            let snapshot_at: Option<DateTime<Utc>> = row
+                .try_get("provider_snapshot_at")
+                .map_err(map_sqlx_error)?;
+            event_at.is_some_and(|event_at| event_at >= input.event_created_at)
+                || snapshot_at.is_some_and(|snapshot_at| snapshot_at > input.event_created_at)
+                || subscription_id != input.stripe_subscription_id && input.status.is_terminal()
+        } else {
+            false
+        };
+        if !stale {
             return Err(ApplyError::InvalidMapping);
         }
     }
@@ -329,15 +375,15 @@ async fn upsert_subscription(
         .await
         .map_err(map_sqlx_error)?;
     }
-    Ok(())
+    Ok(updated.is_some())
 }
 
 async fn upsert_invoice(
     connection: &mut PgConnection,
     user_id: Uuid,
     input: &InvoiceProjection,
-) -> Result<(), ApplyError> {
-    sqlx::query(
+) -> Result<bool, ApplyError> {
+    let updated: Option<String> = sqlx::query_scalar(
         "INSERT INTO billing_invoice (
            stripe_invoice_id, user_id, stripe_customer_id, stripe_subscription_id,
            status, currency, amount_due, amount_paid, amount_remaining,
@@ -360,7 +406,7 @@ async fn upsert_invoice(
                billing_invoice.status NOT IN ('paid', 'void', 'uncollectible')
                OR EXCLUDED.status IN ('paid', 'void', 'uncollectible')
              )
-           )",
+           ) RETURNING stripe_invoice_id",
     )
     .bind(&input.stripe_invoice_id)
     .bind(user_id)
@@ -376,10 +422,10 @@ async fn upsert_invoice(
     .bind(input.paid_at)
     .bind(input.created_at)
     .bind(input.event_created_at)
-    .execute(&mut *connection)
+    .fetch_optional(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
-    Ok(())
+    Ok(updated.is_some())
 }
 
 async fn mark_customer_deleted(

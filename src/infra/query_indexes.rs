@@ -5,6 +5,10 @@ use super::postgres::{DatabaseError, map_sqlx_error};
 
 const INDEXES: &[(&str, &str)] = &[
     (
+        "idx_billing_invoice_paid_revenue",
+        "billing_invoice (paid_at) WHERE status = 'paid' AND amount_paid > 0 AND stripe_subscription_id IS NOT NULL",
+    ),
+    (
         "idx_user_presence_geography",
         "user_presence USING gist ((public.st_setsrid(public.st_makepoint(longitude::double precision, latitude::double precision), 4326)::public.geography)) WHERE is_location_fresh AND latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180",
     ),

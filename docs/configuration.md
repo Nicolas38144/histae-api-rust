@@ -156,8 +156,11 @@ Le dashboard lit les prix via `GET /api/plans`.
 `STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID` contiennent les identifiants des **prix**
 Stripe (`price_…`), pas les identifiants des abonnements clients (`sub_…`). Aucun identifiant de
 produit n'est demandé dans le `.env`. Les webhooks et la réconciliation reconnaissent Premium
-à partir de ces deux prix autorisés ; les autres prix ne sont pas reconnus comme Premium.
+à partir de ces deux prix autorisés pour les nouvelles ventes.
 Les contrôles de signature, de mode test/live et d'unicité de l'abonnement restent appliqués.
+Après rotation de ces prix, un ancien prix peut encore renouveler son abonnement déjà connu : son
+association exacte au client et à l'abonnement est contrôlée en base. Il ne devient pas un prix
+supplémentaire autorisé pour les nouveaux achats. Voir le [parcours Stripe](billing.md).
 
 ### Documents juridiques
 
