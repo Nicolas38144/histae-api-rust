@@ -785,8 +785,8 @@ cd ~/Projects/Histae/histae-scripts &&
 
 Les `&&` empêchent de lancer l'étape suivante si le changement de dossier ou le contrôle échoue.
 Le contrôle et le reset sont deux étapes distinctes : le reset n'appelle pas le préparateur
-production complet à ta place. **Passer explicitement `--production`** : sans option, le reset
-sélectionne `dev`, sauf si `HISTAE_DEPLOYMENT_MODE=production` est déjà défini.
+production complet à ta place. **Passer explicitement `--production`** : sans `--dev` ou
+`--production`, le reset refuse de démarrer, même si `HISTAE_DEPLOYMENT_MODE` est défini.
 
 Le reset centralisé sélectionne `compose.yaml`, `compose.production.yaml` et
 `compose.production-observability.yaml` pour l'API, ainsi que le Compose du proxy. Il :

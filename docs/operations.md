@@ -23,6 +23,11 @@ Les processus partagent PostgreSQL mais gardent leurs propres pools et métrique
 
 ## Maintenance régulière
 
+Le déploiement ciblé de l’API se fait avec `bash ../histae-scripts/reset-api.sh --production`.
+Il conserve les dépendances et la supervision de cette pile, sans redémarrer le site, le dashboard
+ou le reverse proxy. Les scripts de déploiement, maintenance et superadmin de `histae-scripts` exigent un mode explicite ; voir
+[les commandes par projet](../../histae-scripts/README.md#reconstruire-et-démarrer-un-projet).
+
 Sélectionner la pile ; exemple dev derrière le proxy :
 
 ```bash
@@ -32,7 +37,8 @@ COMPOSE=(sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml
 
 `--profile jobs` sélectionne le service ponctuel, `run` crée un conteneur pour une passe, `--rm` le retire
 après sortie et `--no-deps` suppose les dépendances déjà prêtes. Cette commande ne relance pas la pile.
-En production, remplacer la sélection par `.env`, `compose.yaml` et `compose.production.yaml`.
+En production, sélectionner `.env`, `compose.yaml`, `compose.production.yaml` et
+`compose.production-observability.yaml` pour reconnaître aussi les conteneurs de supervision.
 
 | Traitement | Effet |
 | --- | --- |
@@ -66,7 +72,9 @@ sudo systemctl enable --now histae-maintenance.timer
 sudo systemctl list-timers --all histae-maintenance.timer
 ```
 
-Le fichier d’environnement conserve `HISTAE_ROOT` (par défaut `/opt/histae`), le mode
+À la première installation, le chemin réel des dépôts est enregistré et le fichier est initialisé
+en production. Le mode de la maintenance est choisi dans `/etc/histae/maintenance.env`.
+Un fichier d’environnement existant conserve `HISTAE_ROOT`, le mode
 `HISTAE_DEPLOYMENT_MODE=production` et, si nécessaire, `HISTAE_ENV_FILE`.
 Choisir explicitement `dev` pour les manifests dev/proxy. Les dépendances doivent déjà être prêtes.
 L’installateur conserve le fichier d’environnement existant et n’active pas le timer automatiquement.

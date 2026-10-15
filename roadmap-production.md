@@ -102,10 +102,11 @@ Références : [Scripts et vérifications](../histae-scripts/README.md),
 - [ ] Valider la configuration Compose et celle des binaires API, outbox et maintenance ; protéger
   l'accès aux secrets et définir la procédure de renouvellement des certificats.
 - [x] Fournir la procédure de lancement production dans
-  `../histae-scripts/reset-docker-compose.sh --production`, avec `compose.yaml`,
+  `../histae-scripts/reset-docker-compose.sh --production` pour toute la pile, ou
+  `../histae-scripts/reset-api.sh --production` pour l’API seule, avec `compose.yaml`,
   `compose.production.yaml` et `compose.production-observability.yaml`.
 - [ ] Exécuter cette procédure sur la cible finale avec les secrets, certificats et images retenus ;
-  vérifier ensuite les parcours, la maintenance et la collecte. Sans option, le reset reste en mode dev.
+  vérifier ensuite les parcours, la maintenance et la collecte. Sans mode explicite, les scripts de déploiement refusent de démarrer.
 
 **Clôture :** une livraison identifiée peut être construite et démarrée avec une configuration validée,
 sans valeurs de démonstration ni dépendance à la pile dev.
