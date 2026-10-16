@@ -103,7 +103,7 @@ Chaque compte ne peut consulter ou annuler que ses propres intentions. Une inten
 
 ## 4. Configuration AdMob et tunnel Cloudflare
 
-Le `.env` unique contient déjà la configuration de développement, fournisseur désactivé :
+Pour le développement, la configuration de référence utilise les unités officielles de test, fournisseur désactivé :
 
 ```dotenv
 ADVERTISING_PROVIDER=disabled
@@ -114,11 +114,24 @@ ADMOB_REWARD_ITEM=continuation_credit
 
 Ces unités sont les unités officielles de test Google. Les identifiants de test sont refusés lorsque `ENV=production` et que le fournisseur est activé. Aucun secret partagé AdMob ni URL arbitraire de clés n’est accepté : les clés publiques proviennent uniquement du serveur officiel Google.
 
+Pour activer les récompenses sur le serveur, renseigner les vrais identifiants de blocs dans son `.env` :
+
+```dotenv
+ADVERTISING_PROVIDER=admob
+ADMOB_ANDROID_REWARDED_AD_UNIT=REPLACE_WITH_ANDROID_REWARDED_AD_UNIT
+ADMOB_IOS_REWARDED_AD_UNIT=REPLACE_WITH_IOS_REWARDED_AD_UNIT
+ADMOB_REWARD_ITEM=continuation_credit
+```
+
+Les deux identifiants sont requis par la configuration actuelle, même si le lancement mobile commence sur une seule plateforme. Ce sont des identifiants de **blocs d’annonces** au format `ca-app-pub-…/…`, distincts de l’identifiant d’application au format `ca-app-pub-…~…`. Le montant de récompense de chaque bloc doit être **1**, avec le libellé `continuation_credit` lorsque cette valeur de `ADMOB_REWARD_ITEM` est conservée.
+
+Le `.env` est local et ignoré par le dépôt : reporter ces valeurs sur le serveur puis recréer l’API. Modifier le fichier local ne configure ni le serveur déployé ni la console AdMob. Le fournisseur peut rester `disabled` en développement tant que le parcours mobile n’est pas prêt ; l’URL SSV répond alors `503 advertising_disabled`.
+
 ### Activer et vérifier le serveur
 
 1. Créer/configurer les applications Android et iOS et leurs unités **rewarded** dans AdMob ; renseigner les unités réellement utilisées dans le `.env` du serveur.
 2. Pour chaque unité, régler la récompense à **1** et son nom sur `continuation_credit`, ou changer `ADMOB_REWARD_ITEM` de manière cohérente. Les unités de test ne remplacent pas cette configuration ni une validation de callback réel.
-3. Activer la vérification côté serveur de l’unité et enregistrer cette URL HTTPS, avec votre domaine API réel : `https://<domaine-api>/api/auth/admob/webhook`.
+3. Activer la vérification côté serveur de chaque unité et enregistrer cette URL HTTPS pour le domaine Histae configuré : `https://api.histae.com/api/auth/admob/webhook`. Pour un autre environnement, remplacer uniquement le domaine par celui de son API.
 4. Le reverse proxy/tunnel doit transmettre cette route GET et sa **chaîne de requête originale**, sans en changer l’ordre, l’encodage ou le contenu. Éviter une page d’authentification Cloudflare Access ou un challenge interactif sur ce webhook. Les autres protections restent actives.
 5. Mettre `ADVERTISING_PROVIDER=admob`, reconstruire puis recréer l’API avec les fichiers Compose habituels. Les choix SDK/UMP et le parcours mobile doivent être prêts avant d’ouvrir les publicités aux utilisateurs.
 6. Utiliser une intention de test réelle, son `custom_data`, l’unité correspondante et l’outil de test SSV AdMob. Vérifier le statut `credited`, un seul crédit ajouté, puis le même callback rejoué sans deuxième crédit. Utiliser les montants/libellés configurés ; ne pas fournir de `user_id` personnel.
