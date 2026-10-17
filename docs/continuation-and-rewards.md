@@ -140,6 +140,35 @@ Le webhook n’accepte pas de JSON « watched=true » ni de preuve fabriquée de
 
 Les clés officielles sont mises en cache au plus 24 heures ; la récupération HTTPS est bornée à cinq secondes et 64 Kio. Une indisponibilité de vérification renvoie `503 admob_verification_unavailable`. Les créations d’intention ont une limite utilisateur de 10/min ; le webhook une limite IP de 300/min avec son espace de clés propre. Ces deux politiques reprennent les paramètres de facturation existants.
 
+### Diagnostiquer un HTTP 400 pendant la validation AdMob
+
+L’URL et un UUID dans `custom_data` ne suffisent pas à garantir le succès. La console doit tester le bloc correspondant à l’intention, avec un ID utilisateur vide, une récompense de **1** et le libellé configuré. Le POST de création d’intention doit viser la même API/base que l’URL publique de rappel.
+
+Le webhook conserve des erreurs publiques génériques (`invalid_admob_signature` pour la preuve, `invalid_admob_reward` pour sa cohérence métier). Les refus de preuve émettent aussi une ligne `admob_callback_rejected error_code=...` dans les logs API. Ces lignes contiennent uniquement un motif technique constant, jamais l’URL, la signature, les paramètres reçus, l’UUID de l’intention ou un identifiant utilisateur.
+
+Après déploiement de cette version, observer les logs pendant un nouvel essai :
+
+```bash
+sudo docker logs --since 5m --follow histae-api-production-api-1
+```
+
+| Motif dans les logs | Vérification à effectuer |
+| --- | --- |
+| `admob_user_id_not_allowed` | Laisser le champ ID utilisateur vide dans la console et le SDK |
+| `admob_required_field_missing`, `admob_custom_data_invalid` | Copier le `custom_data` complet d’une intention réelle, sans guillemets ni ajout à l’URL de rappel |
+| `admob_reward_amount_mismatch`, `admob_reward_item_mismatch` | Vérifier le montant et le libellé réellement envoyés, ainsi que le `ADMOB_REWARD_ITEM` de l’API déployée |
+| `admob_ad_unit_mismatch` | Tester le bloc Android ou iOS exact avec lequel l’intention a été créée |
+| `admob_event_before_intent`, `admob_event_after_expiry`, `admob_event_in_future`, `admob_callback_too_late` | Vérifier les horloges et préparer une intention dont la fenêtre de visionnage est encore ouverte |
+| `admob_intent_cancelled`, `admob_intent_already_credited`, `admob_transaction_already_used` | Relire l’état de l’intention ; ne pas réutiliser une preuve ou une intention terminée pour une nouvelle récompense |
+| `admob_signature_missing`, `admob_signature_parameter_order_invalid`, `admob_signature_encoding_invalid`, `admob_signature_der_invalid`, `admob_signature_mismatch` | Déclencher le véritable outil AdMob et vérifier qu’aucun intermédiaire ne modifie la query signée ; un GET manuel sans preuve n’est pas un test SSV |
+| `admob_key_id_missing`, `admob_key_id_invalid`, `admob_key_id_unknown` | Vérifier la réception intacte des paramètres Google ; ne pas remplacer la clé de vérification manuellement |
+| `admob_callback_fields_invalid`, `admob_ad_network_invalid`, `admob_transaction_id_invalid`, `admob_timestamp_invalid`, `admob_timestamp_out_of_range`, `admob_reward_amount_invalid`, `admob_query_too_large` | Le format reçu ne respecte pas le contrat attendu ; conserver le motif pour le diagnostic sans publier la query complète |
+| `admob_signature_verification_failed` | Vérifier l’environnement cryptographique et les erreurs de vérification sans accepter une preuve non vérifiée |
+
+Une intention accepte une récompense gagnée pendant les 15 minutes suivant sa création. Répéter le POST pendant cette fenêtre reprend la même intention ; cela ne prolonge pas `expires_at`. Si la fenêtre est passée, annuler l’ancienne intention avec sa route DELETE puis créer une nouvelle intention et remplacer le `custom_data` de test. Ne pas annuler une vidéo réellement terminée qui attend encore son callback : une preuve gagnée à temps reste recevable pendant le délai de réception prévu.
+
+Après un succès, relire le statut de l’intention et le quota. La validation de l’URL ne constitue pas à elle seule une validation du parcours Flutter complet.
+
 ## 5. Migration, rétention et validation
 
 La migration ajoute les tables wallet, réservation et intention publicitaire ainsi que `free_used_count` au compteur hebdomadaire. Le schéma neuf et l’upgrade réutilisent les sections du SQL consolidé. Les privilèges restent ceux de `histae_migrate` et `histae_app`.

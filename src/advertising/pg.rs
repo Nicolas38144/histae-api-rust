@@ -116,15 +116,21 @@ impl RewardRepository {
         if !self.config.enabled {
             return Err(RewardError::Disabled);
         }
-        if callback.reward_amount != REWARD_CREDITS
-            || callback.reward_item != self.config.reward_item
-        {
-            return Err(RewardError::InvalidProof);
+        if callback.reward_amount != REWARD_CREDITS {
+            return Err(invalid_reward("admob_reward_amount_mismatch"));
+        }
+        if callback.reward_item != self.config.reward_item {
+            return Err(invalid_reward("admob_reward_item_mismatch"));
         }
         self.database
             .transaction(|connection| Box::pin(complete_on(connection, callback)))
             .await
     }
+}
+
+fn invalid_reward(code: &'static str) -> RewardError {
+    super::log_callback_rejection(code);
+    RewardError::InvalidProof
 }
 
 fn map_intent(
@@ -264,13 +270,13 @@ async fn complete_on(
         .map_err(map_sqlx_error)?
         .is_some()
     {
-        return Err(RewardError::InvalidProof);
+        return Err(invalid_reward("admob_intent_cancelled"));
     }
     let expected: String = row.try_get("ad_unit").map_err(map_sqlx_error)?;
     if callback.ad_unit != expected
         && Some(callback.ad_unit.as_str()) != expected.rsplit('/').next()
     {
-        return Err(RewardError::InvalidProof);
+        return Err(invalid_reward("admob_ad_unit_mismatch"));
     }
     let hash = format!(
         "{:x}",
@@ -283,20 +289,25 @@ async fn complete_on(
         return if existing == hash {
             Ok(())
         } else {
-            Err(RewardError::InvalidProof)
+            Err(invalid_reward("admob_intent_already_credited"))
         };
     }
-    let event =
-        DateTime::from_timestamp_millis(callback.timestamp_ms).ok_or(RewardError::InvalidProof)?;
+    let event = DateTime::from_timestamp_millis(callback.timestamp_ms)
+        .ok_or_else(|| invalid_reward("admob_timestamp_out_of_range"))?;
     let created: DateTime<Utc> = row.try_get("created_at").map_err(map_sqlx_error)?;
     let expires: DateTime<Utc> = row.try_get("expires_at").map_err(map_sqlx_error)?;
     let now: DateTime<Utc> = row.try_get("database_now").map_err(map_sqlx_error)?;
-    if event < created - TimeDelta::seconds(5)
-        || event > expires
-        || event > now + TimeDelta::minutes(5)
-        || now > expires + TimeDelta::hours(24)
-    {
-        return Err(RewardError::InvalidProof);
+    if event < created - TimeDelta::seconds(5) {
+        return Err(invalid_reward("admob_event_before_intent"));
+    }
+    if event > expires {
+        return Err(invalid_reward("admob_event_after_expiry"));
+    }
+    if event > now + TimeDelta::minutes(5) {
+        return Err(invalid_reward("admob_event_in_future"));
+    }
+    if now > expires + TimeDelta::hours(24) {
+        return Err(invalid_reward("admob_callback_too_late"));
     }
     // A globally unique transaction hash prevents cross-intent replay.
     let updated = sqlx::query(
@@ -314,7 +325,7 @@ async fn complete_on(
                 .as_database_error()
                 .is_some_and(|error| error.code().as_deref() == Some("23505")) =>
         {
-            return Err(RewardError::InvalidProof);
+            return Err(invalid_reward("admob_transaction_already_used"));
         }
         Err(error) => return Err(map_sqlx_error(error).into()),
     }

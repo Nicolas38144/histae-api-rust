@@ -47,32 +47,41 @@ struct SignedQuery<'a> {
     key_id: u64,
     callback: Callback,
 }
+fn invalid_callback(code: &'static str) -> VerificationError {
+    super::log_callback_rejection(code);
+    VerificationError::Invalid
+}
 fn parse(raw: &str) -> Result<SignedQuery<'_>, VerificationError> {
-    let invalid = VerificationError::Invalid;
     if raw.len() > MAX_QUERY_BYTES {
-        return Err(invalid);
+        return Err(invalid_callback("admob_query_too_large"));
     }
-    let (content, tail) = raw.rsplit_once("&signature=").ok_or(invalid)?;
-    let (signature, key_id) = tail.split_once("&key_id=").ok_or(invalid)?;
+    let (content, tail) = raw
+        .rsplit_once("&signature=")
+        .ok_or_else(|| invalid_callback("admob_signature_missing"))?;
+    let (signature, key_id) = tail
+        .split_once("&key_id=")
+        .ok_or_else(|| invalid_callback("admob_key_id_missing"))?;
     if signature.contains('&') || key_id.contains('&') {
-        return Err(invalid);
+        return Err(invalid_callback("admob_signature_parameter_order_invalid"));
     }
     let signature_pair = format!("signature={signature}");
     let decoded_signature = url::form_urlencoded::parse(signature_pair.as_bytes())
         .next()
         .map(|(_, value)| value.into_owned())
-        .ok_or(invalid)?;
+        .ok_or_else(|| invalid_callback("admob_signature_encoding_invalid"))?;
     let signature = decoded_signature.as_str();
     let signature = URL_SAFE_NO_PAD
         .decode(signature)
         .or_else(|_| URL_SAFE.decode(signature))
-        .map_err(|_| invalid)?;
+        .map_err(|_| invalid_callback("admob_signature_encoding_invalid"))?;
     // P-256 signatures are DER encoded. Reject malformed signatures before any
     // key refresh so empty or arbitrary bytes cannot initiate a Google request.
     if !(8..=72).contains(&signature.len()) || EcdsaSig::from_der(&signature).is_err() {
-        return Err(invalid);
+        return Err(invalid_callback("admob_signature_der_invalid"));
     }
-    let key_id = key_id.parse().map_err(|_| invalid)?;
+    let key_id = key_id
+        .parse()
+        .map_err(|_| invalid_callback("admob_key_id_invalid"))?;
     let mut fields = BTreeMap::new();
     for (key, value) in url::form_urlencoded::parse(content.as_bytes()) {
         if ![
@@ -90,7 +99,7 @@ fn parse(raw: &str) -> Result<SignedQuery<'_>, VerificationError> {
                 .insert(key.into_owned(), value.into_owned())
                 .is_some()
         {
-            return Err(invalid);
+            return Err(invalid_callback("admob_callback_fields_invalid"));
         }
     }
     let required = |name: &str| {
@@ -98,23 +107,30 @@ fn parse(raw: &str) -> Result<SignedQuery<'_>, VerificationError> {
             .get(name)
             .cloned()
             .filter(|v| !v.is_empty())
-            .ok_or(invalid)
+            .ok_or_else(|| invalid_callback("admob_required_field_missing"))
     };
     let transaction_id = required("transaction_id")?;
     if transaction_id.len() > 128 || !transaction_id.bytes().all(|v| v.is_ascii_hexdigit()) {
-        return Err(invalid);
+        return Err(invalid_callback("admob_transaction_id_invalid"));
     }
     // user_id must never contain a Histae account identifier. Only custom_data is used.
     if fields.get("user_id").is_some_and(|value| !value.is_empty()) {
-        return Err(invalid);
+        return Err(invalid_callback("admob_user_id_not_allowed"));
     }
-    let _network: u64 = required("ad_network")?.parse().map_err(|_| invalid)?;
+    let _network: u64 = required("ad_network")?
+        .parse()
+        .map_err(|_| invalid_callback("admob_ad_network_invalid"))?;
     let callback = Callback {
-        intent_id: Uuid::parse_str(&required("custom_data")?).map_err(|_| invalid)?,
+        intent_id: Uuid::parse_str(&required("custom_data")?)
+            .map_err(|_| invalid_callback("admob_custom_data_invalid"))?,
         ad_unit: required("ad_unit")?,
         transaction_id,
-        timestamp_ms: required("timestamp")?.parse().map_err(|_| invalid)?,
-        reward_amount: required("reward_amount")?.parse().map_err(|_| invalid)?,
+        timestamp_ms: required("timestamp")?
+            .parse()
+            .map_err(|_| invalid_callback("admob_timestamp_invalid"))?,
+        reward_amount: required("reward_amount")?
+            .parse()
+            .map_err(|_| invalid_callback("admob_reward_amount_invalid"))?,
         reward_item: required("reward_item")?,
     };
     Ok(SignedQuery {
@@ -125,18 +141,18 @@ fn parse(raw: &str) -> Result<SignedQuery<'_>, VerificationError> {
     })
 }
 fn verify(key: &PKey<Public>, signed: &SignedQuery<'_>) -> Result<(), VerificationError> {
-    let mut verifier =
-        Verifier::new(MessageDigest::sha256(), key).map_err(|_| VerificationError::Invalid)?;
+    let mut verifier = Verifier::new(MessageDigest::sha256(), key)
+        .map_err(|_| invalid_callback("admob_signature_verification_failed"))?;
     verifier
         .update(signed.content.as_bytes())
-        .map_err(|_| VerificationError::Invalid)?;
+        .map_err(|_| invalid_callback("admob_signature_verification_failed"))?;
     if verifier
         .verify(&signed.signature)
-        .map_err(|_| VerificationError::Invalid)?
+        .map_err(|_| invalid_callback("admob_signature_verification_failed"))?
     {
         Ok(())
     } else {
-        Err(VerificationError::Invalid)
+        Err(invalid_callback("admob_signature_mismatch"))
     }
 }
 #[derive(Default)]
@@ -235,7 +251,7 @@ impl AdMobVerifier {
                     .unknown_refresh_at
                     .is_some_and(|at| at.elapsed() < KEY_REFRESH_COOLDOWN)
             {
-                return Err(VerificationError::Invalid);
+                return Err(invalid_callback("admob_key_id_unknown"));
             }
             // Set this before awaiting: failure or cancellation also observes
             // the cooldown. Expired keys are never accepted as a fallback.
@@ -253,7 +269,7 @@ impl AdMobVerifier {
             .keys
             .get(&id)
             .cloned()
-            .ok_or(VerificationError::Invalid)
+            .ok_or_else(|| invalid_callback("admob_key_id_unknown"))
     }
     async fn fetch_keys(&self) -> Result<BTreeMap<u64, PKey<Public>>, VerificationError> {
         let mut response = self
@@ -346,6 +362,50 @@ mod tests {
         assert!(parse(&format!("{raw}&ignored=1")).is_err());
         assert!(parse(&raw.replace("&signature=", "&user_id=account-id&signature=")).is_err());
     }
+
+    #[test]
+    fn rejected_signature_logs_the_reason_without_callback_data() {
+        #[derive(Clone)]
+        struct LogWriter(Arc<std::sync::Mutex<Vec<u8>>>);
+
+        impl std::io::Write for LogWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let (key, raw) = signed_query();
+        let tampered = raw.replace("continuation_credit", "private_reward_value");
+        let signed = parse(&tampered).unwrap();
+        let output = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let writer = LogWriter(output.clone());
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_target(false)
+            .with_max_level(tracing::Level::WARN)
+            .with_writer(move || writer.clone())
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            assert_eq!(verify(&key, &signed), Err(VerificationError::Invalid));
+        });
+
+        let log = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        assert!(log.contains("admob_callback_rejected"));
+        assert!(log.contains("error_code=admob_signature_mismatch"));
+        assert!(!log.contains(&signed.callback.intent_id.to_string()));
+        assert!(!log.contains("private_reward_value"));
+        assert!(!log.contains("custom_data="));
+        assert!(!log.contains("signature="));
+        assert!(!log.contains(&URL_SAFE_NO_PAD.encode(&signed.signature)));
+    }
+
     #[tokio::test]
     async fn unknown_key_and_invalid_signature_do_not_use_stale_or_other_keys() {
         let (key, raw) = signed_query();
