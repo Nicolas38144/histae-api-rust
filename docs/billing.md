@@ -16,10 +16,48 @@ le catalogue n’altère pas le montant d’un Price Stripe existant. Le portail
 pour les offres et les changements effectivement souhaités.
 
 L’activation exige `BILLING_PROVIDER=stripe`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, ces deux prix
-et trois URL HTTPS : succès avec `{CHECKOUT_SESSION_ID}`, annulation et retour du portail. Publier de
-vraies pages de retour ou des liens applicatifs vérifiés. La redirection de succès ne constitue pas
-une preuve d’achat. Une configuration `BILLING_PROVIDER=disabled` refuse Checkout/portail avec
+et trois URL HTTPS : succès avec `{CHECKOUT_SESSION_ID}`, annulation et retour du portail. La redirection
+de succès ne constitue pas une preuve d’achat. Une configuration `BILLING_PROVIDER=disabled` refuse Checkout/portail avec
 `503 billing_unavailable`, tout en laissant lire le catalogue et l’état local.
+
+### Retours Stripe sur le site vitrine
+
+Les pages sont implémentées dans `histae-site`, en français, anglais, espagnol et italien. La
+configuration retenue utilise les pages françaises :
+
+```dotenv
+STRIPE_CHECKOUT_SUCCESS_URL=https://histae.com/fr/billing/success?session_id={CHECKOUT_SESSION_ID}
+STRIPE_CHECKOUT_CANCEL_URL=https://histae.com/fr/billing/cancel
+STRIPE_PORTAL_RETURN_URL=https://histae.com/fr/billing/return
+```
+
+Conserver le marqueur littéral `{CHECKOUT_SESSION_ID}` : Stripe le remplace lors du retour.
+Le site redirige `histae.com` vers `www.histae.com` puis vers le chemin avec slash final, en conservant
+le paramètre. Ces redirections ne doivent pas être supprimées ou remplacées par une route inexistante.
+Publier ces pages **avant** d'utiliser les nouvelles URL dans les sessions Checkout de production.
+Une session déjà créée conserve les URL de sa tentative persistée ; ce changement ne la réécrit pas.
+
+Ces pages statiques expliquent comment revenir manuellement dans Histae, ouvrir **Mon abonnement**
+depuis le profil et utiliser **Vérifier mon abonnement** si nécessaire. Elles ne lisent ni n'affichent
+`session_id`, ne contactent pas l'API, n'accordent aucun droit et ne confirment ni encaissement ni
+résiliation. Le portail peut avoir été quitté sans modification. Elles restent en `noindex`, hors
+sitemap, avec `Referrer-Policy: no-referrer` et `Cache-Control: no-store` dans le Caddyfile du site.
+Le domaine et le CDN de production doivent conserver ces protections.
+
+Dans le `.env` public Flutter, `BILLING_SUCCESS_URL`, `BILLING_CANCEL_URL` et
+`BILLING_PORTAL_RETURN_URL` reprennent respectivement ces trois valeurs, sans clé secrète Stripe.
+L'app ouvre l'URL Checkout/portail fournie par l'API ; ces champs publics ne remplacent pas les
+paramètres serveur. Aucun app link ou lien universel n'est nécessaire pour ce retour manuel.
+La reprise au premier plan et le bouton de vérification relisent
+`GET /api/users/me/subscription` : `access_granted` reste l'autorité sur les droits Premium.
+Le `.env` mobile conserve `BILLING_ENABLED=false` pour la version courante. Après publication des
+pages, préparer une compilation de test distincte avec `BILLING_ENABLED=true` et l'API de développement
+configurée avec les clés et prix Stripe test. Valider les retours sur téléphone avant d'activer les
+ventes de la version de production. Un changement du `.env` embarqué exige une nouvelle compilation
+de l'app. Les clés test restent dans l'environnement de développement.
+
+La distinction entre redirection et confirmation serveur suit le
+[guide Stripe Checkout](https://docs.stripe.com/payments/checkout/custom-success-page?payment-ui=stripe-hosted).
 
 ## 1. Choix de l’offre et création de Checkout
 

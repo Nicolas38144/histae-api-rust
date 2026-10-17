@@ -663,8 +663,12 @@ Références : [clés API](https://docs.stripe.com/keys),
 Configurer les quatre valeurs **dans le même environnement live** : les prix mensuel et annuel
 doivent être récurrents, actifs et distincts. Le secret du webhook doit
 être celui de l'endpoint réel du serveur, pas un secret d'écoute locale. Conserver aussi les
-URL de retour Stripe HTTPS déjà présentes dans le `.env`, dont `STRIPE_CHECKOUT_SUCCESS_URL`
-avec son paramètre `{CHECKOUT_SESSION_ID}`.
+URL de retour Stripe HTTPS : les pages retenues sont `/fr/billing/success`, `/fr/billing/cancel`
+et `/fr/billing/return` sur `https://histae.com`. `STRIPE_CHECKOUT_SUCCESS_URL` conserve son
+paramètre `?session_id={CHECKOUT_SESSION_ID}`. Publier le site avant le changement des URL sur le
+serveur, puis mettre à jour les trois variables de son `.env` et recréer l'API. Les `.env` locaux
+ne sont pas transférés par une mise à jour du code. Voir les
+[valeurs exactes et le parcours de retour dans l'app](billing.md#retours-stripe-sur-le-site-vitrine).
 
 Les variables `STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID` contiennent des
 identifiants de **prix** `price_…`. Elles ne contiennent
