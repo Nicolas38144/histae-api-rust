@@ -3364,7 +3364,7 @@
             "auth": {
               "type": "noauth"
             },
-            "description": "Utiliser la query exacte d’un callback AdMob signé réel, sans ? initial. Ne pas changer ordre ou encodage. Aucun watched=true accepté. Fournisseur désactivé : 503 ; preuve invalide : 400 ; crédit/rejeu vérifié : 200. Ne pas inclure de user_id personnel."
+            "description": "Utiliser la query exacte d’un callback AdMob signé réel, sans ? initial. Ne pas changer ordre ou encodage. Aucun watched=true accepté. Fournisseur désactivé : 503 ; preuve invalide : 400 ; crédit/rejeu vérifié : 200. Pour valider uniquement l’URL dans la console AdMob, définir Données personnalisées à histae-ssv-validation et laisser ID utilisateur vide : le callback reste signé, répond 200 et n’accorde aucun crédit. Pour une vidéo, le SDK transmet le custom_data UUID de l’intention et tous les contrôles métier restent actifs. Ne pas inclure de user_id personnel."
           },
           "response": []
         }

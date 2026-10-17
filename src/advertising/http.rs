@@ -1,7 +1,7 @@
 use super::{
     domain::{RewardIntent, RewardPlatform},
     error::RewardError,
-    ssv::{AdMobVerifier, VerificationError},
+    ssv::{AdMobVerifier, VerificationError, VerifiedCallback},
     store::RewardStore,
 };
 use crate::{
@@ -14,6 +14,7 @@ use crate::{
         router::HttpState,
     },
     identity::mobile::http::{MobileAuthState, OnboardedMobile},
+    operations::logging,
 };
 use axum::{
     Json, Router,
@@ -161,11 +162,21 @@ async fn webhook(
                 "Reward verification is temporarily unavailable.",
             ),
         })?;
-    state
-        .repository
-        .complete(callback)
-        .await
-        .map_err(reward_error)?;
+    complete_verified_callback(state.repository.as_ref(), callback).await
+}
+
+async fn complete_verified_callback(
+    repository: &dyn RewardStore,
+    callback: VerifiedCallback,
+) -> Result<StatusCode, ApiError> {
+    match callback {
+        VerifiedCallback::UrlValidation => {
+            let _ = logging::info("admob_callback_url_validated", &[]);
+        }
+        VerifiedCallback::Reward(callback) => {
+            repository.complete(callback).await.map_err(reward_error)?;
+        }
+    }
     Ok(StatusCode::OK)
 }
 fn reward_error(error: RewardError) -> ApiError {
@@ -207,6 +218,92 @@ mod tests {
         http::Request,
     };
     use tower::ServiceExt;
+
+    struct RejectingStore {
+        completions: std::sync::atomic::AtomicUsize,
+    }
+
+    impl RewardStore for RejectingStore {
+        fn enabled(&self) -> bool {
+            true
+        }
+
+        fn create(
+            &self,
+            _user_id: uuid::Uuid,
+            _platform: RewardPlatform,
+        ) -> super::super::store::RewardFuture<'_, RewardIntent> {
+            Box::pin(async { Err(RewardError::NotEligible) })
+        }
+
+        fn status(
+            &self,
+            _user_id: uuid::Uuid,
+            _id: uuid::Uuid,
+        ) -> super::super::store::RewardFuture<'_, RewardIntent> {
+            Box::pin(async { Err(RewardError::NotFound) })
+        }
+
+        fn cancel(
+            &self,
+            _user_id: uuid::Uuid,
+            _id: uuid::Uuid,
+        ) -> super::super::store::RewardFuture<'_, ()> {
+            Box::pin(async { Err(RewardError::NotFound) })
+        }
+
+        fn complete(
+            &self,
+            _callback: super::super::ssv::Callback,
+        ) -> super::super::store::RewardFuture<'_, ()> {
+            self.completions
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async { Err(RewardError::InvalidProof) })
+        }
+    }
+
+    #[tokio::test]
+    async fn url_validation_never_calls_the_reward_store() {
+        let repository = RejectingStore {
+            completions: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let status = complete_verified_callback(&repository, VerifiedCallback::UrlValidation)
+            .await
+            .unwrap();
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            repository
+                .completions
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn reward_callbacks_keep_the_store_validation() {
+        let repository = RejectingStore {
+            completions: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let callback = VerifiedCallback::Reward(super::super::ssv::Callback {
+            intent_id: uuid::Uuid::new_v4(),
+            ad_unit: "1234567890".to_owned(),
+            transaction_id: "123456789".to_owned(),
+            timestamp_ms: 1_791_907_200_000,
+            reward_amount: 1,
+            reward_item: "continuation_credit".to_owned(),
+        });
+        let error = complete_verified_callback(&repository, callback)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.code(), "invalid_admob_reward");
+        assert_eq!(
+            repository
+                .completions
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+    }
 
     #[tokio::test]
     async fn platform_validation_preserves_the_http_error_contract() {

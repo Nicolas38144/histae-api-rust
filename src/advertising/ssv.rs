@@ -26,6 +26,7 @@ const KEY_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const KEY_REFRESH_COOLDOWN: Duration = Duration::from_secs(30);
 const MAX_CONCURRENT_VERIFICATIONS: usize = 32;
 const MAX_KEY_REFRESH_WAITERS: usize = 32;
+pub const URL_VALIDATION_CUSTOM_DATA: &str = "histae-ssv-validation";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VerificationError {
@@ -41,11 +42,16 @@ pub struct Callback {
     pub reward_amount: i32,
     pub reward_item: String,
 }
+#[derive(Debug)]
+pub enum VerifiedCallback {
+    Reward(Callback),
+    UrlValidation,
+}
 struct SignedQuery<'a> {
     content: &'a str,
     signature: Vec<u8>,
     key_id: u64,
-    callback: Callback,
+    callback: VerifiedCallback,
 }
 fn invalid_callback(code: &'static str) -> VerificationError {
     super::log_callback_rejection(code);
@@ -120,18 +126,28 @@ fn parse(raw: &str) -> Result<SignedQuery<'_>, VerificationError> {
     let _network: u64 = required("ad_network")?
         .parse()
         .map_err(|_| invalid_callback("admob_ad_network_invalid"))?;
-    let callback = Callback {
-        intent_id: Uuid::parse_str(&required("custom_data")?)
-            .map_err(|_| invalid_callback("admob_custom_data_invalid"))?,
-        ad_unit: required("ad_unit")?,
-        transaction_id,
-        timestamp_ms: required("timestamp")?
-            .parse()
-            .map_err(|_| invalid_callback("admob_timestamp_invalid"))?,
-        reward_amount: required("reward_amount")?
-            .parse()
-            .map_err(|_| invalid_callback("admob_reward_amount_invalid"))?,
-        reward_item: required("reward_item")?,
+    let custom_data = required("custom_data")?;
+    let ad_unit = required("ad_unit")?;
+    let timestamp_ms = required("timestamp")?
+        .parse()
+        .map_err(|_| invalid_callback("admob_timestamp_invalid"))?;
+    let reward_amount = required("reward_amount")?
+        .parse()
+        .map_err(|_| invalid_callback("admob_reward_amount_invalid"))?;
+    let reward_item = required("reward_item")?;
+    let callback = if custom_data == URL_VALIDATION_CUSTOM_DATA {
+        // Console URL validation is authenticated below, but never grants a reward.
+        VerifiedCallback::UrlValidation
+    } else {
+        VerifiedCallback::Reward(Callback {
+            intent_id: Uuid::parse_str(&custom_data)
+                .map_err(|_| invalid_callback("admob_custom_data_invalid"))?,
+            ad_unit,
+            transaction_id,
+            timestamp_ms,
+            reward_amount,
+            reward_item,
+        })
     };
     Ok(SignedQuery {
         content,
@@ -205,7 +221,7 @@ impl AdMobVerifier {
             verification_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_VERIFICATIONS)),
         })
     }
-    pub async fn verify(&self, raw: &str) -> Result<Callback, VerificationError> {
+    pub async fn verify(&self, raw: &str) -> Result<VerifiedCallback, VerificationError> {
         let signed = parse(raw)?;
         let key = self.key(signed.key_id).await?;
         let _slot = self
@@ -326,14 +342,17 @@ mod tests {
         sign::Signer,
     };
     fn signed_query() -> (PKey<Public>, String) {
+        sign_content(&format!(
+            "ad_network=5450213213286189855&ad_unit=123&custom_data={}&reward_amount=1&reward_item=continuation_credit&timestamp=1791907200000&transaction_id=abcdef",
+            Uuid::new_v4()
+        ))
+    }
+
+    fn sign_content(content: &str) -> (PKey<Public>, String) {
         let key = PKey::from_ec_key(
             EcKey::generate(&EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap()).unwrap(),
         )
         .unwrap();
-        let content = format!(
-            "ad_network=5450213213286189855&ad_unit=123&custom_data={}&reward_amount=1&reward_item=continuation_credit&timestamp=1791907200000&transaction_id=abcdef",
-            Uuid::new_v4()
-        );
         let mut signer = Signer::new(MessageDigest::sha256(), &key).unwrap();
         signer.update(content.as_bytes()).unwrap();
         let raw = format!(
@@ -399,11 +418,55 @@ mod tests {
         let log = String::from_utf8(output.lock().unwrap().clone()).unwrap();
         assert!(log.contains("admob_callback_rejected"));
         assert!(log.contains("error_code=admob_signature_mismatch"));
-        assert!(!log.contains(&signed.callback.intent_id.to_string()));
+        let VerifiedCallback::Reward(callback) = &signed.callback else {
+            panic!("a reward UUID must remain a reward callback");
+        };
+        assert!(!log.contains(&callback.intent_id.to_string()));
         assert!(!log.contains("private_reward_value"));
         assert!(!log.contains("custom_data="));
         assert!(!log.contains("signature="));
         assert!(!log.contains(&URL_SAFE_NO_PAD.encode(&signed.signature)));
+    }
+
+    #[tokio::test]
+    async fn console_url_validation_requires_a_valid_signature_and_explicit_marker() {
+        let content = format!(
+            "ad_network=5450213213286189855&ad_unit=1234567890&custom_data={URL_VALIDATION_CUSTOM_DATA}&reward_amount=1&reward_item=continuation_credit&timestamp=1791907200000&transaction_id=123456789"
+        );
+        let (key, raw) = sign_content(&content);
+        let verifier = AdMobVerifier::new().unwrap();
+        {
+            let mut cache = verifier.cache.lock().await;
+            cache.keys.insert(42, key);
+            cache.fetched_at = Some(Instant::now());
+        }
+        assert!(matches!(
+            verifier.verify(&raw).await,
+            Ok(VerifiedCallback::UrlValidation)
+        ));
+        assert!(matches!(
+            verifier
+                .verify(&raw.replace("reward_amount=1", "reward_amount=2"))
+                .await,
+            Err(VerificationError::Invalid)
+        ));
+        assert!(matches!(
+            verifier
+                .verify(&format!("custom_data={URL_VALIDATION_CUSTOM_DATA}"))
+                .await,
+            Err(VerificationError::Invalid)
+        ));
+
+        let intent_id = Uuid::new_v4();
+        let (key, reward_query) = sign_content(
+            &content.replace(URL_VALIDATION_CUSTOM_DATA, &intent_id.to_string()),
+        );
+        verifier.cache.lock().await.keys.insert(42, key);
+        let Ok(VerifiedCallback::Reward(callback)) = verifier.verify(&reward_query).await else {
+            panic!("a signed reward UUID must not become URL validation");
+        };
+        assert_eq!(callback.intent_id, intent_id);
+        assert_eq!(callback.ad_unit, "1234567890");
     }
 
     #[tokio::test]

@@ -134,15 +134,20 @@ Le `.env` est local et ignoré par le dépôt : reporter ces valeurs sur le serv
 3. Activer la vérification côté serveur de chaque unité et enregistrer cette URL HTTPS pour le domaine Histae configuré : `https://api.histae.com/api/auth/admob/webhook`. Pour un autre environnement, remplacer uniquement le domaine par celui de son API.
 4. Le reverse proxy/tunnel doit transmettre cette route GET et sa **chaîne de requête originale**, sans en changer l’ordre, l’encodage ou le contenu. Éviter une page d’authentification Cloudflare Access ou un challenge interactif sur ce webhook. Les autres protections restent actives.
 5. Mettre `ADVERTISING_PROVIDER=admob`, reconstruire puis recréer l’API avec les fichiers Compose habituels. Les choix SDK/UMP et le parcours mobile doivent être prêts avant d’ouvrir les publicités aux utilisateurs.
-6. Utiliser une intention de test réelle, son `custom_data`, l’unité correspondante et l’outil de test SSV AdMob. Vérifier le statut `credited`, un seul crédit ajouté, puis le même callback rejoué sans deuxième crédit. Utiliser les montants/libellés configurés ; ne pas fournir de `user_id` personnel.
+6. Dans l’outil SSV de la console AdMob, laisser **ID utilisateur** vide et renseigner exactement **`histae-ssv-validation`** dans **Données personnalisées**. Déclencher la validation, utiliser l’URL validée puis enregistrer. Cette vérification d’URL ne nécessite ni compte Histae ni intention et n’accorde aucun crédit : elle doit produire `200` et le log `admob_callback_url_validated` après vérification de la signature Google.
+7. Tester séparément une vraie vidéo en mode de test fournisseur, avec une intention créée par l’API et son `custom_data` UUID transmis par le SDK. Vérifier le statut `credited`, un seul crédit ajouté et l’absence de deuxième crédit au rejeu du même callback. Utiliser les montants/libellés configurés ; ne pas fournir de `user_id` personnel.
 
 Le webhook n’accepte pas de JSON « watched=true » ni de preuve fabriquée depuis Postman. Il vérifie ECDSA P-256/SHA-256 sur les octets signés, l’unité, le montant/libellé, l’intention, les bornes temporelles et l’unicité de la transaction. Une preuve liée à un compte effacé ou banni est refusée. Les erreurs publiques ne dévoilent ni compte ni clé.
+
+Le marqueur `histae-ssv-validation` distingue uniquement le contrôle d’URL de la console : la signature Google, le format, l’interdiction d’un `user_id` non vide et les limites de débit restent vérifiés. Les paramètres de démonstration n’ont pas à correspondre à une intention pour ce contrôle sans effet métier. Ce chemin n’appelle jamais le stockage des récompenses. Tous les callbacks portant un UUID restent soumis au contrôle strict du bloc attendu ; le marqueur ne doit jamais remplacer cet UUID dans Flutter.
 
 Les clés officielles sont mises en cache au plus 24 heures ; la récupération HTTPS est bornée à cinq secondes et 64 Kio. Une indisponibilité de vérification renvoie `503 admob_verification_unavailable`. Les créations d’intention ont une limite utilisateur de 10/min ; le webhook une limite IP de 300/min avec son espace de clés propre. Ces deux politiques reprennent les paramètres de facturation existants.
 
 ### Diagnostiquer un HTTP 400 pendant la validation AdMob
 
-L’URL et un UUID dans `custom_data` ne suffisent pas à garantir le succès. La console doit tester le bloc correspondant à l’intention, avec un ID utilisateur vide, une récompense de **1** et le libellé configuré. Le POST de création d’intention doit viser la même API/base que l’URL publique de rappel.
+Pour valider uniquement l’URL, utiliser le marqueur `histae-ssv-validation`, pas un UUID d’intention : le test de console et le versement d’une récompense sont deux parcours distincts. Une ancienne version du serveur qui ne reconnaît pas ce marqueur renvoie `400 invalid_admob_signature` avec `admob_custom_data_invalid` dans les logs ; déployer la version correspondante avant le test.
+
+Pour un vrai callback de vidéo, l’unité doit correspondre à l’intention et la récompense valoir **1** avec le libellé configuré. Le POST de création d’intention doit viser la même API/base que l’URL publique de rappel. Un rejet `admob_ad_unit_mismatch` prouve que la signature et le format ont été acceptés, mais que le bloc reçu ne correspond pas au bloc lié à l’intention. La console ne doit plus être validée au moyen d’une telle intention.
 
 Le webhook conserve des erreurs publiques génériques (`invalid_admob_signature` pour la preuve, `invalid_admob_reward` pour sa cohérence métier). Les refus de preuve émettent aussi une ligne `admob_callback_rejected error_code=...` dans les logs API. Ces lignes contiennent uniquement un motif technique constant, jamais l’URL, la signature, les paramètres reçus, l’UUID de l’intention ou un identifiant utilisateur.
 
@@ -155,7 +160,7 @@ sudo docker logs --since 5m --follow histae-api-production-api-1
 | Motif dans les logs | Vérification à effectuer |
 | --- | --- |
 | `admob_user_id_not_allowed` | Laisser le champ ID utilisateur vide dans la console et le SDK |
-| `admob_required_field_missing`, `admob_custom_data_invalid` | Copier le `custom_data` complet d’une intention réelle, sans guillemets ni ajout à l’URL de rappel |
+| `admob_required_field_missing`, `admob_custom_data_invalid` | Dans la console : marqueur exact `histae-ssv-validation` sur la version qui le prend en charge ; dans le SDK : UUID complet de l’intention, sans guillemets ni ajout à l’URL de rappel |
 | `admob_reward_amount_mismatch`, `admob_reward_item_mismatch` | Vérifier le montant et le libellé réellement envoyés, ainsi que le `ADMOB_REWARD_ITEM` de l’API déployée |
 | `admob_ad_unit_mismatch` | Tester le bloc Android ou iOS exact avec lequel l’intention a été créée |
 | `admob_event_before_intent`, `admob_event_after_expiry`, `admob_event_in_future`, `admob_callback_too_late` | Vérifier les horloges et préparer une intention dont la fenêtre de visionnage est encore ouverte |
@@ -167,7 +172,7 @@ sudo docker logs --since 5m --follow histae-api-production-api-1
 
 Une intention accepte une récompense gagnée pendant les 15 minutes suivant sa création. Répéter le POST pendant cette fenêtre reprend la même intention ; cela ne prolonge pas `expires_at`. Si la fenêtre est passée, annuler l’ancienne intention avec sa route DELETE puis créer une nouvelle intention et remplacer le `custom_data` de test. Ne pas annuler une vidéo réellement terminée qui attend encore son callback : une preuve gagnée à temps reste recevable pendant le délai de réception prévu.
 
-Après un succès, relire le statut de l’intention et le quota. La validation de l’URL ne constitue pas à elle seule une validation du parcours Flutter complet.
+Après une vraie récompense, relire le statut de l’intention et le quota. La validation d’URL avec le marqueur ne modifie ni l’intention ni le quota et ne constitue pas une validation du parcours Flutter complet.
 
 ## 5. Migration, rétention et validation
 

@@ -3364,7 +3364,7 @@
             "auth": {
               "type": "noauth"
             },
-            "description": "Use the exact query of a genuine AdMob signed callback, without the leading ?. Do not reorder or re-encode it. No fabricated watched=true proof is accepted. Disabled provider: 503; invalid proof: 400; verified grant/replay: 200. Do not include a personal user_id."
+            "description": "Use the exact query of a genuine AdMob signed callback, without the leading ?. Do not reorder or re-encode it. No fabricated watched=true proof is accepted. Disabled provider: 503; invalid proof: 400; verified grant/replay: 200. To validate only the URL in the AdMob console, set Custom data to histae-ssv-validation and leave User ID empty: the callback remains signed, returns 200 and never grants credit. For an ad view, the SDK sends the intent UUID as custom_data and all reward checks remain enforced. Do not include a personal user_id."
           },
           "response": []
         }

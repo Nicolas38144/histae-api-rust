@@ -119,6 +119,8 @@ ni la capacité en charge, ni une restauration complète hors machine. Exécuter
 
 Le [guide](../docs/continuation-and-rewards.md) décrit les règles et la validation AdMob restante. Les tests `matches_postgres` couvrent les wallets, récompenses et consentements avec le rôle applicatif, sans appel OTP et sans publicité réelle. Les tests ECDSA utilisent une clé de test générée en mémoire ; ils ne désactivent jamais la vérification de production. Les résultats et limites sont regroupés dans [Audit fonctionnel](../docs/feature-audit.md).
 
+Les tests unitaires `advertising::` couvrent aussi la validation d’URL réservée à la console AdMob : un callback signé avec `custom_data=histae-ssv-validation` est distingué d’une récompense UUID, une signature altérée reste refusée et le chemin de validation ne doit jamais appeler le stockage des récompenses. Exécuter `cargo test --locked --lib advertising::` dans un environnement Rust configuré. Ces tests ne prouvent pas à eux seuls la validation réelle de la console ni le crédit après une vidéo sur appareil.
+
 Pour ces suites, utiliser le lanceur isolé afin que le worker de la pile dev ne récupère pas les événements des fixtures :
 
 ```bash
