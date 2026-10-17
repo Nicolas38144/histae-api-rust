@@ -245,10 +245,12 @@ la facturation désactivée nécessiterait une évolution explicite de cette rè
   son identifiant n'est plus requis dans le `.env`.
 - [ ] Vérifier l'accord entre catalogue PostgreSQL, catalogue du site, dashboard et paramètres Stripe.
 - [x] Préparer les pages statiques de retour succès/annulation/portail dans `histae-site`, dans les
-  quatre langues, et aligner les trois URL du `.env` local API/Flutter sur `https://histae.com/fr/billing/…`.
+  quatre langues, avec trois entrées `https://www.histae.com/billing/…` choisissant la langue du
+  navigateur, et aligner les trois URL du `.env` local API/Flutter sur ces entrées.
   Le retour est manuel dans l'app ; seul le GET d'abonnement authentifié confirme les droits.
 - [ ] Publier le site, reporter les trois URL dans le `.env` du serveur et recréer l'API. Vérifier les
-  redirections HTTPS vers `www`, la conservation du paramètre de succès et les en-têtes de confidentialité.
+  redirections HTTPS vers `www`, le choix des langues (dont italien et langue non prise en charge),
+  la conservation du paramètre de succès et les en-têtes de confidentialité.
 - [ ] Configurer Checkout et le portail client, puis valider le retour dans Flutter sur téléphone,
   y compris annulation, portail sans changement, webhook retardé et fermeture complète de l'app.
   Le retour de succès contient `{CHECKOUT_SESSION_ID}` ; `BILLING_ENABLED=false` reste en place

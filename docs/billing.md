@@ -23,25 +23,33 @@ de succès ne constitue pas une preuve d’achat. Une configuration `BILLING_PRO
 ### Retours Stripe sur le site vitrine
 
 Les pages sont implémentées dans `histae-site`, en français, anglais, espagnol et italien. La
-configuration retenue utilise les pages françaises :
+configuration retenue utilise trois points d'entrée sans langue :
 
 ```dotenv
-STRIPE_CHECKOUT_SUCCESS_URL=https://histae.com/fr/billing/success?session_id={CHECKOUT_SESSION_ID}
-STRIPE_CHECKOUT_CANCEL_URL=https://histae.com/fr/billing/cancel
-STRIPE_PORTAL_RETURN_URL=https://histae.com/fr/billing/return
+STRIPE_CHECKOUT_SUCCESS_URL=https://www.histae.com/billing/success?session_id={CHECKOUT_SESSION_ID}
+STRIPE_CHECKOUT_CANCEL_URL=https://www.histae.com/billing/cancel
+STRIPE_PORTAL_RETURN_URL=https://www.histae.com/billing/return
 ```
 
 Conserver le marqueur littéral `{CHECKOUT_SESSION_ID}` : Stripe le remplace lors du retour.
-Le site redirige `histae.com` vers `www.histae.com` puis vers le chemin avec slash final, en conservant
-le paramètre. Ces redirections ne doivent pas être supprimées ou remplacées par une route inexistante.
+Le domaine canonique est `www.histae.com` ; `histae.com` reste redirigé vers celui-ci.
+Caddy ajoute le slash final aux chemins statiques en conservant les paramètres. Le navigateur choisit
+ensuite la première langue prise en charge dans ses préférences (`fr`, `en`, `es`, `it`), puis rejoint
+la page localisée correspondante. Exemple : italien → `/it/billing/success/`. Le français sert de secours
+si aucune préférence n'est prise en charge. La redirection transmet la chaîne de paramètres telle
+quelle, sans lire l'identifiant Stripe, avec `location.replace` pour éviter une boucle via le bouton Retour.
+Les liens déjà localisés conservent leur langue ; ils ne déclenchent pas une nouvelle détection.
+Sans JavaScript, chaque point d'entrée propose quatre liens de langue vers la bonne page. Ces liens
+manuels n'ont pas besoin du paramètre de session : la page finale n'en fait aucun usage métier.
 Publier ces pages **avant** d'utiliser les nouvelles URL dans les sessions Checkout de production.
 Une session déjà créée conserve les URL de sa tentative persistée ; ce changement ne la réécrit pas.
 
-Ces pages statiques expliquent comment revenir manuellement dans Histae, ouvrir **Mon abonnement**
+Les pages localisées statiques expliquent comment revenir manuellement dans Histae, ouvrir **Mon abonnement**
 depuis le profil et utiliser **Vérifier mon abonnement** si nécessaire. Elles ne lisent ni n'affichent
 `session_id`, ne contactent pas l'API, n'accordent aucun droit et ne confirment ni encaissement ni
 résiliation. Le portail peut avoir été quitté sans modification. Elles restent en `noindex`, hors
-sitemap, avec `Referrer-Policy: no-referrer` et `Cache-Control: no-store` dans le Caddyfile du site.
+sitemap, tout comme les trois points d'entrée, avec `Referrer-Policy: no-referrer` et
+`Cache-Control: no-store` dans le Caddyfile du site.
 Le domaine et le CDN de production doivent conserver ces protections.
 
 Dans le `.env` public Flutter, `BILLING_SUCCESS_URL`, `BILLING_CANCEL_URL` et

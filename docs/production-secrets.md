@@ -663,8 +663,10 @@ Références : [clés API](https://docs.stripe.com/keys),
 Configurer les quatre valeurs **dans le même environnement live** : les prix mensuel et annuel
 doivent être récurrents, actifs et distincts. Le secret du webhook doit
 être celui de l'endpoint réel du serveur, pas un secret d'écoute locale. Conserver aussi les
-URL de retour Stripe HTTPS : les pages retenues sont `/fr/billing/success`, `/fr/billing/cancel`
-et `/fr/billing/return` sur `https://histae.com`. `STRIPE_CHECKOUT_SUCCESS_URL` conserve son
+URL de retour Stripe HTTPS : les entrées retenues sont `/billing/success`, `/billing/cancel`
+et `/billing/return` sur `https://www.histae.com`, sans langue imposée. Le navigateur rejoint ensuite
+la première langue prise en charge parmi ses préférences ; le français sert de secours.
+`STRIPE_CHECKOUT_SUCCESS_URL` conserve son
 paramètre `?session_id={CHECKOUT_SESSION_ID}`. Publier le site avant le changement des URL sur le
 serveur, puis mettre à jour les trois variables de son `.env` et recréer l'API. Les `.env` locaux
 ne sont pas transférés par une mise à jour du code. Voir les
