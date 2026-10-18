@@ -16,7 +16,7 @@ use uuid::Uuid;
 use super::domain::{
     AdminProfileQuestion, ProfileQuestionCategory, ProfileQuestionInput, ProfileQuestionPatch,
 };
-use super::domain::{ProfileAnswer, ProfileAnswerInput, ProfileQuestion, SubscriptionPlan, Trait};
+use super::domain::{PlanCatalog, ProfileAnswer, ProfileAnswerInput, ProfileQuestion, Trait};
 use super::service::{CatalogError, CatalogService};
 use crate::http::error::ApiError;
 use crate::http::extract::{ApiDto, ValidatedJson, ValidatedPath};
@@ -94,19 +94,14 @@ fn admin_routes(state: CatalogHttpState, admin_auth: AdminAuthHttpState) -> Rout
         .layer(Extension(admin_auth))
 }
 
-#[derive(Serialize)]
-struct PlansResponse {
-    plans: Vec<SubscriptionPlan>,
-}
-
 async fn list_plans(
     Extension(state): Extension<CatalogHttpState>,
-) -> Result<Json<PlansResponse>, ApiError> {
+) -> Result<Json<PlanCatalog>, ApiError> {
     state
         .service
         .plans()
         .await
-        .map(|plans| Json(PlansResponse { plans }))
+        .map(|plans| Json(PlanCatalog::new(plans)))
         .map_err(catalog_error)
 }
 

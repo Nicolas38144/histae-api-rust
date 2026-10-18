@@ -74,6 +74,11 @@ permissions applicatives dans un conteneur temporaire. Voir [Rôles PostgreSQL](
 
 ## Régressions couvertes
 
+`cargo test --test catalog_offers` vérifie les trois offres Free/Premium Mensuel/Premium Annuel,
+la conservation des deux niveaux de droits, la sérialisation et la propagation des prix/devise/essai
+du catalogue. Il ne contacte ni PostgreSQL ni Stripe. Les tests clients vérifient l'affichage séparé
+et le choix de la bonne périodicité ; ils ne prouvent pas un paiement réel.
+
 | Sujet | Exemples |
 | --- | --- |
 | Auth / transport | JWT aux bornes temporelles, claims invalides, IP socket/X-Forwarded-For falsifié, coercition numérique, corps JSON invalides ou trop grands |

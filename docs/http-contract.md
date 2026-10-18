@@ -118,7 +118,7 @@ Il n’existe pas de mécanisme de retry universel.
 | POST | `/api/auth/otp/send` | `{ phone_number }` + clé d’idempotence → `202 { message }`. |
 | POST | `/api/auth/otp/verify` | `{ phone_number, otp }` → `200 { access_token, refresh_token }`. |
 | POST | `/api/auth/refresh` | `{ refresh_token }` → `200 { access_token, refresh_token }`. |
-| GET | `/api/plans` | `200 { plans: [...] }` ; inclut `weekly_included_credits`, `weekly_continuation_limit`, `advertising_credit_stock_limit`, `ads_removed`, `rewarded_advertising_enabled`. |
+| GET | `/api/plans` | `200 { plans: [...], offers: [...] }` ; trois offres commerciales et leurs plans de droits, avec quotas et fonctionnalités. |
 
 **OTP.** Seuls les téléphones français E.164 `+33…` sont acceptés. La vérification consomme le code une seule fois et crée un compte utilisateur si nécessaire. Envoi et vérification : 5/h par IP et numéro pseudonymisé. La validité du code suit `OTP_TTL`.
 
@@ -134,7 +134,26 @@ un autre numéro renvoie `409 idempotency_key_conflict`. Configuration : [variab
 
 Erreurs utiles : `authentication_required`, `invalid_or_expired_access_token`, `invalid_or_expired_refresh_token`, `invalid_idempotency_key`, `idempotency_key_conflict`, `otp_delivery_unavailable`, `otp_delivery_unknown`, `otp_rate_limit_exceeded`, `refresh_rate_limit_exceeded`. Les durées et clés sont décrites dans [Configuration](configuration.md#groupes-de-variables).
 
-**Plans.** Chaque plan expose code, nom, prix mensuel/annuel, devise, jours d’essai, limite hebdomadaire éventuelle et fonctionnalités. Le client ne choisit jamais les identifiants ou prix Stripe.
+**Plans et offres.** `plans` conserve les niveaux de droits `free` et `premium`, avec prix historiques
+mensuel/annuel, devise, jours d'essai, fonctionnalités et quotas (`weekly_included_credits`,
+`weekly_continuation_limit`, `advertising_credit_stock_limit`, `ads_removed`, `rewarded_advertising_enabled`).
+`offers` expose les trois choix commerciaux, dans cet ordre lorsque les deux plans sont actifs :
+
+| `code` | `display_name` | `plan_code` | `billing_period` | `price_cents` initial |
+| --- | --- | --- | --- | --- |
+| `free` | Free | `free` | `null` | 0 |
+| `premium_monthly` | Premium Mensuel | `premium` | `monthly` | 500 |
+| `premium_annual` | Premium Annuel | `premium` | `annual` | 4800 |
+
+Chaque offre expose aussi `currency` et `trial_days`. Les prix, la devise et l'essai sont projetés depuis
+le catalogue PostgreSQL actif ; aucun tarif de secours n'est ajouté aux clients. Les fonctionnalités et
+quotas viennent du plan référencé par `plan_code`. Une offre n'est pas publiée si son plan est absent
+ou inactif. L'ajout de `offers` conserve le contrat des clients qui lisent seulement `plans`.
+
+Le client affiche une carte par offre. Checkout reçoit uniquement `billing_period: monthly` ou `annual`,
+avec sa clé d'idempotence ; ni `premium_monthly` ni `premium_annual` ne deviennent un niveau de droits.
+Les deux abonnements donnent les droits `premium` selon la projection serveur. Le catalogue ne prouve
+pas la disponibilité des paiements, et aucun identifiant ou prix Stripe n'est choisi par le client.
 
 ### Webhook Stripe
 

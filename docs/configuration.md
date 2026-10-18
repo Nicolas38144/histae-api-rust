@@ -151,7 +151,13 @@ Le montant réellement facturé dépend du Price Stripe référencé par `STRIPE
 Créer un Price récurrent annuel à 48 EUR avant d'activer cette offre, puis renseigner son identifiant dans
 le `.env` du serveur. Modifier le catalogue ne modifie pas les Prices Stripe ni les abonnements existants.
 Aligner également le catalogue statique du site (`histae-site/config/site.json`) et le reconstruire.
-Le dashboard lit les prix via `GET /api/plans`.
+L'app et le dashboard lisent les trois offres via `GET /api/plans` : `offers` contient Free,
+Premium Mensuel et Premium Annuel, avec un prix, une devise et une périodicité par carte.
+Les fonctionnalités et quotas sont rattachés aux deux niveaux `plans` par `plan_code`.
+Le catalogue initial expose 0 EUR, 5 EUR/mois et 48 EUR/an ; les deux offres Premium héritent des
+mêmes fonctionnalités et des 30 jours d'essai, sous réserve d'éligibilité.
+Déployer l'API qui expose `offers` avant le dashboard et l'app correspondants. Aucun nouvel
+identifiant produit Stripe ni migration créant un troisième niveau de droits n'est nécessaire.
 
 `STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID` contiennent les identifiants des **prix**
 Stripe (`price_…`), pas les identifiants des abonnements clients (`sub_…`). Aucun identifiant de

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::billing::domain::BillingPeriod;
 use crate::profiles::domain::{AutomatedModerationDecision, ModerationReason, ModerationStatus};
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -29,6 +30,68 @@ pub struct SubscriptionPlan {
     pub ads_removed: bool,
     pub rewarded_advertising_enabled: bool,
     pub features: Vec<PlanFeature>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SubscriptionOffer {
+    pub code: String,
+    pub plan_code: String,
+    pub display_name: String,
+    pub billing_period: Option<BillingPeriod>,
+    pub price_cents: i32,
+    pub currency: String,
+    pub trial_days: i32,
+}
+
+impl SubscriptionOffer {
+    fn new(plan: &SubscriptionPlan, billing_period: Option<BillingPeriod>) -> Self {
+        let (code, display_name, price_cents) = match billing_period {
+            None => (
+                plan.code.clone(),
+                plan.display_name.clone(),
+                plan.monthly_price_cents,
+            ),
+            Some(BillingPeriod::Monthly) => (
+                format!("{}_monthly", plan.code),
+                format!("{} Mensuel", plan.display_name),
+                plan.monthly_price_cents,
+            ),
+            Some(BillingPeriod::Annual) => (
+                format!("{}_annual", plan.code),
+                format!("{} Annuel", plan.display_name),
+                plan.annual_price_cents,
+            ),
+        };
+        Self {
+            code,
+            plan_code: plan.code.clone(),
+            display_name,
+            billing_period,
+            price_cents,
+            currency: plan.currency.clone(),
+            trial_days: plan.trial_days,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PlanCatalog {
+    pub plans: Vec<SubscriptionPlan>,
+    pub offers: Vec<SubscriptionOffer>,
+}
+
+impl PlanCatalog {
+    pub fn new(plans: Vec<SubscriptionPlan>) -> Self {
+        let mut offers = Vec::new();
+        if let Some(plan) = plans.iter().find(|plan| plan.code == "free") {
+            offers.push(SubscriptionOffer::new(plan, None));
+        }
+        if let Some(plan) = plans.iter().find(|plan| plan.code == "premium") {
+            offers.push(SubscriptionOffer::new(plan, Some(BillingPeriod::Monthly)));
+            offers.push(SubscriptionOffer::new(plan, Some(BillingPeriod::Annual)));
+        }
+        Self { plans, offers }
+    }
 }
 
 #[derive(Clone, Debug)]

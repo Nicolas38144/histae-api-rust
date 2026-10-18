@@ -69,7 +69,13 @@ La distinction entre redirection et confirmation serveur suit le
 
 ## 1. Choix de l’offre et création de Checkout
 
-Le client lit `GET /api/plans`, puis envoie avec son Bearer et une clé UUID v4 :
+Le client lit `GET /api/plans`, affiche une carte pour chacune des entrées de `offers` et utilise
+`plan_code` pour retrouver les fonctionnalités et quotas dans `plans`. Le catalogue initial distingue
+Free (0 EUR, sans périodicité), Premium Mensuel (5 EUR/mois) et Premium Annuel (48 EUR/an, payé en une fois).
+Les deux offres Premium ont les mêmes droits et le même essai soumis à éligibilité. Les montants
+affichés restent ceux de l'API ; les cartes n'embarquent pas de prix métier en dur.
+
+Après le choix d'une offre Premium, le client envoie sa `billing_period`, avec son Bearer et une clé UUID v4 :
 
 ```http
 POST /api/users/me/subscription/checkout

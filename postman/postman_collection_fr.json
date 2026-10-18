@@ -152,7 +152,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "Catalogue avec weekly_included_credits, weekly_continuation_limit, advertising_credit_stock_limit, ads_removed et rewarded_advertising_enabled."
+                "description": "200 { plans: [...], offers: [...] }. Trois offres : Free (0 EUR, billing_period=null), Premium Mensuel (500 centimes/mois, monthly), Premium Annuel (4800 centimes/an, annual), selon le catalogue initial. offers expose code, plan_code, display_name, billing_period, price_cents, currency et trial_days ; plan_code référence les fonctionnalités et quotas de plans (free/premium). Les prix viennent du catalogue actif. Checkout reçoit seulement la périodicité et une clé d'idempotence."
               },
               "response": []
             }

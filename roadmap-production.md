@@ -244,6 +244,12 @@ la facturation désactivée nécessiterait une évolution explicite de cette rè
   correspondant au catalogue : 5 EUR/mois, 48 EUR/an, essai de 30 jours. Le produit reste chez Stripe ;
   son identifiant n'est plus requis dans le `.env`.
 - [ ] Vérifier l'accord entre catalogue PostgreSQL, catalogue du site, dashboard et paramètres Stripe.
+- [x] Exposer Free, Premium Mensuel et Premium Annuel dans `GET /api/plans` via `offers`, et rendre
+  trois cartes dans le dashboard et l'app. Les prix viennent de PostgreSQL ; `plans` garde les deux
+  niveaux de droits Free/Premium. Les contrôles de paiement et d'éligibilité restent côté API.
+  Validation locale du 18 octobre 2026 : 33 tests Flutter ciblés et analyse réussis ; trois tests
+  dashboard ciblés, TypeScript, lint et build réussis. Les tests Rust `catalog_offers` sont ajoutés
+  mais restent à exécuter avec Cargo avant livraison, l'outillage Rust étant absent de cet hôte.
 - [x] Préparer les pages statiques de retour succès/annulation/portail dans `histae-site`, dans les
   quatre langues, avec trois entrées `https://www.histae.com/billing/…` choisissant la langue du
   navigateur, et aligner les trois URL du `.env` local API/Flutter sur ces entrées.
