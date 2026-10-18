@@ -241,7 +241,7 @@ la facturation désactivée nécessiterait une évolution explicite de cette rè
 
 - [ ] Configurer le compte Stripe, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
   `STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID` avec les identifiants `price_…`
-  correspondant au catalogue : 5 EUR/mois, 48 EUR/an, essai de 30 jours. Le produit reste chez Stripe ;
+  correspondant au catalogue : 5 EUR/mois ou 48 EUR/an, sans période d'essai. Le produit reste chez Stripe ;
   son identifiant n'est plus requis dans le `.env`.
 - [ ] Vérifier l'accord entre catalogue PostgreSQL, catalogue du site, dashboard et paramètres Stripe.
 - [x] Exposer Free, Premium Mensuel et Premium Annuel dans `GET /api/plans` via `offers`, et rendre
@@ -250,6 +250,23 @@ la facturation désactivée nécessiterait une évolution explicite de cette rè
   Validation locale du 18 octobre 2026 : 33 tests Flutter ciblés et analyse réussis ; trois tests
   dashboard ciblés, TypeScript, lint et build réussis. Les tests Rust `catalog_offers` sont ajoutés
   mais restent à exécuter avec Cargo avant livraison, l'outillage Rust étant absent de cet hôte.
+- [x] Exiger le contrat courant `plans` + `offers` dans l'app et le dashboard ; rejeter l'ancienne
+  réponse sans reconstruire de cartes localement. Exiger aussi `subscription_offers` dans la vue
+  d'ensemble, en conservant un compteur explicite pour les accès Premium sans périodicité.
+- [x] Retirer les offres d'essai de l'API, du dashboard, du site (quatre langues) et de l'app.
+  Retirer `trial_days` du contrat HTTP et des modèles clients, ainsi que la colonne et sa contrainte du schéma initial
+  et du catalogue existant, puis créer les nouvelles sessions Checkout sans essai. Les abonnements
+  historiques et leurs échéances sont conservés.
+  Validation du contrat courant : 39 tests Flutter ciblés et analyse réussis ; 17 tests dashboard ciblés,
+  TypeScript, lint et build réussis ; site compilé, lint/typecheck et contrôle des pages exportées
+  dans les quatre langues réussis. Les tests Rust/SQL restent à exécuter, faute de Cargo et de
+  PostgreSQL disponibles sur cet hôte. Aucun script shell testé, aucune commande Git exécutée.
+- [ ] Redéployer les sources à jour de l'API et du dashboard depuis le bon `HISTAE_ROOT`, puis
+  vérifier `offers` dans `/api/plans`, `subscription_offers` dans les métriques et les trois cartes
+  dans la nouvelle compilation Flutter. Cette mise à jour ne nécessite pas d'effacement des données ;
+  un nettoyage volontaire des seules données de développement reste indépendant. Exécuter aussi
+  les tests PostgreSQL `admin_metrics_postgres` sur la base
+  de développement dédiée avant livraison.
 - [x] Préparer les pages statiques de retour succès/annulation/portail dans `histae-site`, dans les
   quatre langues, avec trois entrées `https://www.histae.com/billing/…` choisissant la langue du
   navigateur, et aligner les trois URL du `.env` local API/Flutter sur ces entrées.

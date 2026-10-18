@@ -548,6 +548,7 @@ async fn uncertain_checkout_keeps_the_exact_request_and_blocks_parallel_attempts
             Err(BillingError::StripeRequestFailed)
         );
         let original = provider.inputs.lock().expect("request")[0].clone();
+        assert_eq!(original.trial_days, 0);
         assert_eq!(original.expires_at - clock.now(), TimeDelta::minutes(35));
         assert_eq!(
             service

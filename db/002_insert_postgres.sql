@@ -8,8 +8,8 @@ INSERT INTO subscription_plan (
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO subscription_plan (
-  code, display_name, monthly_price_cents, annual_price_cents, currency, weekly_continuation_limit, trial_days
-) VALUES ('premium', 'Premium', 500, 4800, 'EUR', NULL, 30)
+  code, display_name, monthly_price_cents, annual_price_cents, currency, weekly_continuation_limit
+) VALUES ('premium', 'Premium', 500, 4800, 'EUR', NULL)
 ON CONFLICT (code) DO NOTHING;
 
 -- BEGIN subscription plan features

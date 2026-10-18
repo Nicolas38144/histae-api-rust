@@ -133,7 +133,7 @@ Les durées utilisent une unité, par exemple `5s`, `1m` ou `8h`.
 
 ### Tarifs du catalogue et Stripe
 
-Le catalogue initial propose Premium à **5 EUR par mois** ou **48 EUR par an**, avec 30 jours d'essai.
+Le catalogue initial propose Premium à **5 EUR par mois** ou **48 EUR par an**, sans période d'essai.
 
 Free reçoit **trois crédits gratuits chaque lundi à 00:00 UTC**, sans accumulation. Il peut aussi
 conserver un stock de **trois crédits publicitaires maximum**, réservations comprises, obtenu par les
@@ -155,9 +155,23 @@ L'app et le dashboard lisent les trois offres via `GET /api/plans` : `offers` co
 Premium Mensuel et Premium Annuel, avec un prix, une devise et une périodicité par carte.
 Les fonctionnalités et quotas sont rattachés aux deux niveaux `plans` par `plan_code`.
 Le catalogue initial expose 0 EUR, 5 EUR/mois et 48 EUR/an ; les deux offres Premium héritent des
-mêmes fonctionnalités et des 30 jours d'essai, sous réserve d'éligibilité.
-Déployer l'API qui expose `offers` avant le dashboard et l'app correspondants. Aucun nouvel
-identifiant produit Stripe ni migration créant un troisième niveau de droits n'est nécessaire.
+mêmes fonctionnalités, sans période d'essai. Le catalogue HTTP ne contient plus `trial_days`.
+Le contrat impose `plans` et `offers` ; l'app et le dashboard rejettent une réponse sans `offers`,
+sans reconstruire de cartes depuis les prix de `plans`. Une liste `offers` explicitement vide
+reste vide ; aucune donnée invalide n'est remplacée par un tarif local.
+Le dashboard exige aussi les quatre compteurs `subscription_offers` des métriques d'administration.
+Déployer l'API, le dashboard et la nouvelle compilation mobile avec le même contrat. Aucun nouvel
+identifiant produit Stripe ni troisième niveau de droits n'est nécessaire.
+
+Une réponse `/api/plans` qui n'a toujours pas `offers` après déploiement indique une ancienne
+version de l'API en service. Vérifier les sources présentes sous `HISTAE_ROOT`, puis reconstruire
+et recréer l'API et le dashboard avec `reset-api.sh --production --full` et
+`reset-dashboard.sh --production --full`. Les scripts conservent les volumes. Le schéma initial et le seed n’ont plus de colonne `subscription_plan.trial_days`. Sur une base
+existante, le migrateur retire cette colonne si elle est présente, avec sa contrainte locale, sans
+modifier les abonnements ni leurs échéances. Le champ `trial_days` est aussi retiré du catalogue HTTP. Les nouvelles créations Checkout
+sont sans essai ; les sessions Stripe déjà créées avant la mise à jour conservent leurs conditions
+jusqu'à expiration. Pour retirer immédiatement une ancienne session ouverte, l'expirer dans Stripe. Effacer la base
+n'ajoute pas ce champ : les trois offres sont calculées par le code à partir des deux plans.
 
 `STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID` contiennent les identifiants des **prix**
 Stripe (`price_…`), pas les identifiants des abonnements clients (`sub_…`). Aucun identifiant de

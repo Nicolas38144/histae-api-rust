@@ -11,7 +11,7 @@ son produit. L’API choisit et reconnaît les nouveaux abonnements à partir de
 - `STRIPE_PREMIUM_ANNUAL_PRICE_ID` : prix annuel.
 
 Ils doivent être distincts, appartenir au mode test/live de la clé API et correspondre aux offres du
-catalogue : par défaut 5 EUR/mois, 48 EUR/an et 30 jours d’essai. L’essai est transmis par l’API ; modifier
+catalogue : par défaut 5 EUR/mois ou 48 EUR/an, sans période d’essai. Modifier
 le catalogue n’altère pas le montant d’un Price Stripe existant. Le portail Stripe doit être configuré
 pour les offres et les changements effectivement souhaités.
 
@@ -72,7 +72,7 @@ La distinction entre redirection et confirmation serveur suit le
 Le client lit `GET /api/plans`, affiche une carte pour chacune des entrées de `offers` et utilise
 `plan_code` pour retrouver les fonctionnalités et quotas dans `plans`. Le catalogue initial distingue
 Free (0 EUR, sans périodicité), Premium Mensuel (5 EUR/mois) et Premium Annuel (48 EUR/an, payé en une fois).
-Les deux offres Premium ont les mêmes droits et le même essai soumis à éligibilité. Les montants
+Les deux offres Premium ont les mêmes droits, sans période d’essai. Les montants
 affichés restent ceux de l'API ; les cartes n'embarquent pas de prix métier en dur.
 
 Après le choix d'une offre Premium, le client envoie sa `billing_period`, avec son Bearer et une clé UUID v4 :
@@ -119,8 +119,10 @@ conserver une marge sur le minimum Stripe de 30 minutes lors des reprises résea
 renvoyée par Stripe et publiée dans `expires_at` reste celle à respecter. Les paramètres ne sont pas
 recalculés pour prolonger une tentative incertaine.
 
-Checkout est créé en mode `subscription`, avec un seul Price et une quantité de 1. L’essai du catalogue
-est ajouté uniquement si `billing_customer.trial_used_at` est vide. Si les taxes automatiques sont
+Checkout est créé en mode `subscription`, avec un seul Price et une quantité de 1, sans paramètre
+`subscription_data[trial_period_days]`. Le service impose zéro jour même si une ancienne ligne de
+catalogue conserve une durée positive. Une reprise non créée avec un ancien essai persistant est
+refusée comme clé consommée ; ses paramètres ne sont jamais modifiés sous la même clé Stripe. Si les taxes automatiques sont
 activées, l’adresse collectée est enregistrée chez Stripe pour permettre le calcul fiscal.
 
 L’API persiste la session puis renvoie `201 { session_id, url, expires_at }`. Le client ouvre `url`.
@@ -136,7 +138,7 @@ correspondre à la clé. Chaque Event ID est traité au plus une fois en transac
 - Les événements `customer.subscription.*` projettent l’abonnement et sa période en PostgreSQL.
 - `invoice.paid` enregistre la facture et relit l’abonnement chez Stripe ; le statut de l’abonnement
   reste déterminant pour les droits.
-- Le premier essai reconnu inscrit `trial_used_at` ; annuler puis racheter ne réattribue pas l’essai.
+- Les essais historiques reconnus conservent `trial_used_at` et leur projection ; aucun nouvel essai n’est proposé.
 
 Le Customer, l’abonnement, le prix et les métadonnées sont contrôlés pour rattacher l’état au bon
 compte. Les anciens formats de périodes et de références de facture restent compatibles. Après

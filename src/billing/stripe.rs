@@ -307,6 +307,9 @@ impl StripeGateway for StripeClient {
         input: CheckoutInput,
     ) -> StripeFuture<'_, StripeCheckoutSession> {
         Box::pin(async move {
+            if input.trial_days != 0 {
+                return Err(StripeError::InvalidConfiguration);
+            }
             let user_id = input.user_id.hyphenated().to_string();
             let period = input.billing_period.as_str().to_owned();
             let mut form = vec![
@@ -358,12 +361,6 @@ impl StripeGateway for StripeClient {
             ];
             if input.automatic_tax {
                 form.push(("customer_update[address]".to_owned(), "auto".to_owned()));
-            }
-            if input.trial_days > 0 {
-                form.push((
-                    "subscription_data[trial_period_days]".to_owned(),
-                    input.trial_days.to_string(),
-                ));
             }
             let value = self
                 .request(

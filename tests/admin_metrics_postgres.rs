@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use histae_api_rust::administration::metrics::{
-    AdminMetricsStore, PgAdminMetricsRepository, RevenuePeriod,
+    AdminBusinessMetrics, AdminMetricsStore, PgAdminMetricsRepository, RevenuePeriod,
 };
 use histae_api_rust::config::{PostgresConfig, SecretString};
 use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
@@ -134,6 +134,13 @@ async fn admin_metrics_and_revenue_execute_against_the_real_schema()
                 .any(|entry| entry.plan == "premium" && entry.users >= 1)
         );
         assert_eq!(metrics.revenue.period, RevenuePeriod::MonthToDate);
+        assert_eq!(metrics.subscription_offers.len(), 4);
+        assert!(
+            metrics
+                .subscription_offers
+                .iter()
+                .any(|entry| entry.offer == "premium_unspecified" && entry.users >= 1)
+        );
         let mut connection = database.acquire().await?;
         let expected_users: (i64, i64, i64) = sqlx::query_as(
             "SELECT count(*)::bigint, count(*) FILTER (WHERE NOT is_banned)::bigint,
@@ -184,6 +191,95 @@ async fn admin_metrics_and_revenue_execute_against_the_real_schema()
         let previous_month = repository.revenue(RevenuePeriod::PreviousMonth).await?;
         assert!(previous_month.period_start.is_some());
         assert!(previous_month.period_start < Some(previous_month.period_end));
+        Ok(())
+    }
+    .await;
+
+    let cleanup_result = cleanup(&database, user_id).await;
+    result?;
+    cleanup_result?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn subscription_offer_metrics_follow_effective_access_and_billing_period()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&local_config()?).await?;
+    let repository = PgAdminMetricsRepository::new(database.clone(), "test".into(), "test".into());
+    let count = |metrics: &AdminBusinessMetrics, offer: &str| {
+        metrics
+            .subscription_offers
+            .iter()
+            .find(|entry| entry.offer == offer)
+            .expect("all offer counters are present, including zero counts")
+            .users
+    };
+    let before = repository.metrics(RevenuePeriod::MonthToDate).await?;
+    let user_id = Uuid::new_v4();
+    insert_premium_account(&database, user_id).await?;
+
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        // The manual fixture has no billing period: never guess monthly or annual.
+        let manual = repository.metrics(RevenuePeriod::MonthToDate).await?;
+        assert!(count(&manual, "premium_unspecified") >= 1);
+        assert_eq!(
+            count(&manual, "premium_monthly"),
+            count(&before, "premium_monthly")
+        );
+        assert_eq!(
+            count(&manual, "premium_annual"),
+            count(&before, "premium_annual")
+        );
+
+        for (period, status, expired, expected_monthly, expected_annual) in [
+            ("monthly", "active", false, 1, 0),
+            ("annual", "trialing", false, 0, 1),
+            ("annual", "past_due", false, 0, 1),
+            ("annual", "active", true, 0, 0),
+            ("monthly", "canceled", false, 0, 0),
+        ] {
+            let mut connection = database.acquire().await?;
+            sqlx::query(
+                "UPDATE user_subscription SET provider = 'stripe', billing_period = $2,
+                 status = $3, current_period_ends_at = now() +
+                 CASE WHEN $4::boolean THEN -INTERVAL '1 day' ELSE INTERVAL '1 day' END
+                 WHERE user_id = $1",
+            )
+            .bind(user_id)
+            .bind(period)
+            .bind(status)
+            .bind(expired)
+            .execute(&mut *connection)
+            .await?;
+            drop(connection);
+            let metrics = repository.metrics(RevenuePeriod::MonthToDate).await?;
+            assert_eq!(
+                count(&metrics, "premium_monthly"),
+                count(&before, "premium_monthly") + expected_monthly
+            );
+            assert_eq!(
+                count(&metrics, "premium_annual"),
+                count(&before, "premium_annual") + expected_annual
+            );
+            assert_eq!(
+                metrics
+                    .subscription_offers
+                    .iter()
+                    .map(|entry| entry.users)
+                    .sum::<i64>(),
+                metrics.users.total
+            );
+            let premium = metrics
+                .subscriptions
+                .iter()
+                .find(|entry| entry.plan == "premium")
+                .expect("legacy Premium counter is retained");
+            assert_eq!(
+                premium.users,
+                count(&metrics, "premium_monthly") + count(&metrics, "premium_annual")
+                    + count(&metrics, "premium_unspecified")
+            );
+        }
         Ok(())
     }
     .await;

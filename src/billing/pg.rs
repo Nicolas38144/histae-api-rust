@@ -536,10 +536,8 @@ async fn checkout_context(
     attempt_id: Option<Uuid>,
 ) -> Result<Option<CheckoutContext>, BillingStoreError> {
     let row = sqlx::query(
-        "SELECT plan.trial_days,
-           CASE WHEN customer.stripe_customer_deleted_at IS NULL
-             THEN customer.stripe_customer_id ELSE NULL END AS stripe_customer_id,
-           customer.trial_used_at
+        "SELECT CASE WHEN customer.stripe_customer_deleted_at IS NULL
+             THEN customer.stripe_customer_id ELSE NULL END AS stripe_customer_id
          FROM subscription_plan AS plan
          LEFT JOIN billing_customer AS customer ON customer.user_id = $1
          WHERE plan.code = 'premium' AND plan.is_active = true",
@@ -553,11 +551,6 @@ async fn checkout_context(
             attempt_id: attempt_id.unwrap_or_else(Uuid::nil),
             creation_generation: 0,
             stripe_customer_id: row.try_get("stripe_customer_id").map_err(map_sqlx_error)?,
-            trial_days: row.try_get("trial_days").map_err(map_sqlx_error)?,
-            trial_used: row
-                .try_get::<Option<DateTime<Utc>>, _>("trial_used_at")
-                .map_err(map_sqlx_error)?
-                .is_some(),
         })
     })
     .transpose()

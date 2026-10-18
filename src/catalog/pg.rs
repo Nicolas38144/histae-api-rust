@@ -31,7 +31,7 @@ impl CatalogStore for PgCatalogRepository {
                 r#"
                 SELECT plan.code, plan.display_name, plan.monthly_price_cents,
                     plan.annual_price_cents, plan.currency,
-                    plan.weekly_continuation_limit, plan.trial_days,
+                    plan.weekly_continuation_limit,
                     feature.feature_code, feature.display_name AS feature_name,
                     feature.description AS feature_description, feature.feature_value
                 FROM subscription_plan AS plan
@@ -423,7 +423,6 @@ fn plan_row(row: sqlx::postgres::PgRow) -> Result<PlanRow, DatabaseError> {
         currency: get::<String>(&row, "currency")?.trim_end().to_owned(),
         weekly_continuation_limit: get::<Option<i16>>(&row, "weekly_continuation_limit")?
             .map(i32::from),
-        trial_days: i32::from(get::<i16>(&row, "trial_days")?),
         feature_code: get(&row, "feature_code")?,
         feature_name: get(&row, "feature_name")?,
         feature_description: get(&row, "feature_description")?,

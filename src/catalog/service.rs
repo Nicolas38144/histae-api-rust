@@ -68,7 +68,6 @@ impl CatalogService {
                     monthly_price_cents: row.monthly_price_cents,
                     annual_price_cents: row.annual_price_cents,
                     currency: row.currency,
-                    trial_days: row.trial_days,
                     weekly_continuation_limit: row
                         .weekly_continuation_limit
                         .map(|_| crate::matches::domain::FREE_WEEKLY_CONTINUATION_LIMIT),

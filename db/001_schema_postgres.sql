@@ -436,7 +436,6 @@ CREATE TABLE subscription_plan (
     annual_price_cents integer NOT NULL,
     currency character(3) DEFAULT 'EUR'::bpchar NOT NULL,
     weekly_continuation_limit smallint,
-    trial_days smallint DEFAULT 0 NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -444,7 +443,6 @@ CREATE TABLE subscription_plan (
     CONSTRAINT subscription_plan_check CHECK ((annual_price_cents <= (monthly_price_cents * 12))),
     CONSTRAINT subscription_plan_currency_check CHECK ((currency ~ '^[A-Z]{3}$'::text)),
     CONSTRAINT subscription_plan_monthly_price_cents_check CHECK ((monthly_price_cents >= 0)),
-    CONSTRAINT subscription_plan_trial_days_check CHECK ((trial_days >= 0)),
     CONSTRAINT subscription_plan_weekly_continuation_limit_check CHECK (((weekly_continuation_limit IS NULL) OR (weekly_continuation_limit >= 0))),
     CONSTRAINT subscription_plan_pkey PRIMARY KEY (code)
 );

@@ -134,8 +134,8 @@ un autre numéro renvoie `409 idempotency_key_conflict`. Configuration : [variab
 
 Erreurs utiles : `authentication_required`, `invalid_or_expired_access_token`, `invalid_or_expired_refresh_token`, `invalid_idempotency_key`, `idempotency_key_conflict`, `otp_delivery_unavailable`, `otp_delivery_unknown`, `otp_rate_limit_exceeded`, `refresh_rate_limit_exceeded`. Les durées et clés sont décrites dans [Configuration](configuration.md#groupes-de-variables).
 
-**Plans et offres.** `plans` conserve les niveaux de droits `free` et `premium`, avec prix historiques
-mensuel/annuel, devise, jours d'essai, fonctionnalités et quotas (`weekly_included_credits`,
+**Plans et offres.** `plans` expose les niveaux de droits `free` et `premium`, avec prix du catalogue
+mensuel/annuel, devise, fonctionnalités et quotas (`weekly_included_credits`,
 `weekly_continuation_limit`, `advertising_credit_stock_limit`, `ads_removed`, `rewarded_advertising_enabled`).
 `offers` expose les trois choix commerciaux, dans cet ordre lorsque les deux plans sont actifs :
 
@@ -145,10 +145,11 @@ mensuel/annuel, devise, jours d'essai, fonctionnalités et quotas (`weekly_inclu
 | `premium_monthly` | Premium Mensuel | `premium` | `monthly` | 500 |
 | `premium_annual` | Premium Annuel | `premium` | `annual` | 4800 |
 
-Chaque offre expose aussi `currency` et `trial_days`. Les prix, la devise et l'essai sont projetés depuis
+Chaque offre expose aussi `currency`. Les prix et la devise sont projetés depuis
 le catalogue PostgreSQL actif ; aucun tarif de secours n'est ajouté aux clients. Les fonctionnalités et
 quotas viennent du plan référencé par `plan_code`. Une offre n'est pas publiée si son plan est absent
-ou inactif. L'ajout de `offers` conserve le contrat des clients qui lisent seulement `plans`.
+ou inactif. Le contrat exige `plans` et `offers` ; les réponses ne contenant que `plans` sont rejetées
+par les clients. Le champ `trial_days` est supprimé des plans et des offres ; aucun essai n'est proposé.
 
 Le client affiche une carte par offre. Checkout reçoit uniquement `billing_period: monthly` ou `annual`,
 avec sa clé d'idempotence ; ni `premium_monthly` ni `premium_annual` ne deviennent un niveau de droits.
@@ -392,7 +393,7 @@ SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created
 
 L’état expose `plan, provider, status, access_granted, billing_period`, dates de période/essai/annulation, `cancel_at_period_end, customer_portal_available`. `trialing, active, past_due` ouvrent l’accès uniquement pendant une période Stripe connue et non expirée. Une fin de période absente n’ouvre aucun droit Stripe. Les listes, fiches et compteurs administratifs exposent ce même plan effectif.
 
-**Checkout.** Utiliser l’URL retournée et `expires_at` (35 minutes à la préparation, avec une marge sur le minimum Stripe de 30 minutes). Une seule session peut être créée/ouverte par utilisateur. Une création Checkout incertaine réserve aussi cette place jusqu’à son expiration ; reprendre avec la même clé et les mêmes paramètres persistés, sans nouvelle clé. Un abonnement Stripe non terminé bloque un nouvel achat même si ses droits Premium ont expiré localement ; le portail permet de gérer cet abonnement. Les clients Stripe existants sont également contrôlés chez Stripe avant un nouveau Checkout pour couvrir les webhooks manquants. Le premier abonnement peut bénéficier de l’essai du catalogue ; un essai consommé n’est pas réattribué. Le retour sur l’URL de succès **ne prouve pas à lui seul l’activation Premium** : relire l’abonnement, mis à jour par webhook signé. Ne jamais envoyer Product ID, Price ID, montant, devise, durée d’essai ou Customer ID. Le portail exige un client Stripe déjà lié. Voir le [parcours Stripe](billing.md). Checkout et portail : 10/min/utilisateur. Tant qu’une création Customer reste incertaine, une nouvelle clé est refusée ; seule la clé d’origine peut rejouer le `POST` dans la fenêtre sûre de 23 heures, puis la réconciliation procède uniquement en lecture.
+**Checkout.** Utiliser l’URL retournée et `expires_at` (35 minutes à la préparation, avec une marge sur le minimum Stripe de 30 minutes). Une seule session peut être créée/ouverte par utilisateur. Une création Checkout incertaine réserve aussi cette place jusqu’à son expiration ; reprendre avec la même clé et les mêmes paramètres persistés, sans nouvelle clé. Un abonnement Stripe non terminé bloque un nouvel achat même si ses droits Premium ont expiré localement ; le portail permet de gérer cet abonnement. Les clients Stripe existants sont également contrôlés chez Stripe avant un nouveau Checkout pour couvrir les webhooks manquants. Les nouvelles souscriptions ne proposent aucun essai. Le catalogue ne contient plus de champ `trial_days` ; les abonnements historiques `trialing` restent pris en charge jusqu’à leur échéance. Le retour sur l’URL de succès **ne prouve pas à lui seul l’activation Premium** : relire l’abonnement, mis à jour par webhook signé. Ne jamais envoyer Product ID, Price ID, montant, devise, durée d’essai ou Customer ID. Le portail exige un client Stripe déjà lié. Voir le [parcours Stripe](billing.md). Checkout et portail : 10/min/utilisateur. Tant qu’une création Customer reste incertaine, une nouvelle clé est refusée ; seule la clé d’origine peut rejouer le `POST` dans la fenêtre sûre de 23 heures, puis la réconciliation procède uniquement en lecture.
 
 Erreurs : `billing_unavailable`, `stripe_request_failed`, `subscription_already_active`, `checkout_already_in_progress`, `billing_customer_reconciliation_required`, `idempotency_key_reused`, `idempotency_key_consumed`, `billing_customer_not_found`, `billing_rate_limit_exceeded`.
 
@@ -539,6 +540,16 @@ La décision est `approved | rejected`, avec la `version` lue au préalable. Une
 | POST | `/api/admin/outbox/:id/discard` | **Récente** ; `{ reason? }` → `204`, abandon audité lorsque permis. |
 
 `revenue_period = last_7_days | last_30_days | month_to_date | previous_month | year_to_date | all_time`, défaut `month_to_date`. Les bornes calendaires utilisent `Europe/Paris`, début inclus et fin exclue.
+
+`GET /api/admin/metrics` expose `subscriptions: [{ plan, users }]` par niveau de droits et
+`subscription_offers: [{ offer, users }]` avec quatre compteurs, toujours présents :
+`free`, `premium_monthly`, `premium_annual`, `premium_unspecified`. Ce dernier regroupe les
+accès Premium sans périodicité enregistrée ; il ne représente pas une quatrième offre vendue.
+La ventilation suit `user_subscription.billing_period` et les mêmes règles d'accès effectif que
+`subscriptions` : Stripe `trialing`, `active` ou `past_due` avec fin de période future, ou accès
+manuel non expiré. Un abonnement expiré ou Stripe résilié compte comme Free. Les comptes supprimés
+sont exclus ; les comptes bannis restent inclus comme dans les totaux existants. Les compteurs
+représentent les accès actuels, indépendamment de `revenue_period`, et ne modifient aucun abonnement.
 
 `revenue` expose `period, period_start, period_end, premium_subscriptions, paid_invoices,
 estimated_revenue_cents, currency, excluded_currency_invoices, basis`. La base est

@@ -86,6 +86,12 @@ pub struct SubscriptionMetrics {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct SubscriptionOfferMetrics {
+    pub offer: String,
+    pub users: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct AdminBusinessMetrics {
     pub users: UserMetrics,
     pub moderation: ModerationMetrics,
@@ -93,6 +99,7 @@ pub struct AdminBusinessMetrics {
     pub messages: MessageMetrics,
     pub photos: PhotoMetrics,
     pub subscriptions: Vec<SubscriptionMetrics>,
+    pub subscription_offers: Vec<SubscriptionOfferMetrics>,
     pub revenue: AdminRevenue,
 }
 

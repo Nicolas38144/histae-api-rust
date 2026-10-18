@@ -63,6 +63,8 @@ impl PgAdminMetricsRepository {
         }
         let subscriptions: Json<Vec<(String, i64)>> =
             row.try_get("subscriptions").map_err(map_sqlx_error)?;
+        let subscription_offers: Json<Vec<(String, i64)>> =
+            row.try_get("subscription_offers").map_err(map_sqlx_error)?;
         Ok(AdminBusinessMetrics {
             users: UserMetrics {
                 total: row.try_get("users_total").map_err(map_sqlx_error)?,
@@ -101,6 +103,11 @@ impl PgAdminMetricsRepository {
                 .0
                 .into_iter()
                 .map(|(plan, users)| SubscriptionMetrics { plan, users })
+                .collect(),
+            subscription_offers: subscription_offers
+                .0
+                .into_iter()
+                .map(|(offer, users)| SubscriptionOfferMetrics { offer, users })
                 .collect(),
             revenue: revenue_from_row(&row, period)?,
         })
@@ -165,6 +172,7 @@ WITH anchor AS MATERIALIZED (
 const METRICS_SQL: &str = r#"
 , account_plans AS MATERIALIZED (
   SELECT COALESCE(subscription.plan, 'free') AS plan,
+    CASE WHEN subscription.plan = 'premium' THEN subscription.billing_period END AS billing_period,
     count(*)::bigint AS total,
     count(*) FILTER (WHERE NOT account.is_banned)::bigint AS active,
     count(*) FILTER (WHERE account.is_banned)::bigint AS banned,
@@ -183,7 +191,8 @@ const METRICS_SQL: &str = r#"
     AND privacy.consent_type = 'privacy_notice_acknowledgement' AND privacy.granted
     AND privacy.withdrawn_at IS NULL AND privacy.document_version = $3
   WHERE account.deleted_at IS NULL
-  GROUP BY COALESCE(subscription.plan, 'free')
+  GROUP BY COALESCE(subscription.plan, 'free'),
+    CASE WHEN subscription.plan = 'premium' THEN subscription.billing_period END
 ), users AS (
   SELECT COALESCE(sum(total), 0)::bigint AS users_total,
     COALESCE(sum(active), 0)::bigint AS users_active,
@@ -191,9 +200,19 @@ const METRICS_SQL: &str = r#"
     COALESCE(sum(onboarded), 0)::bigint AS users_onboarded,
     COALESCE(sum(created_last_30_days), 0)::bigint AS users_created_last_30_days
   FROM account_plans
+), plan_counts AS (
+  SELECT plan, sum(total)::bigint AS total FROM account_plans GROUP BY plan
 ), subscriptions AS (
-  SELECT COALESCE(jsonb_agg(jsonb_build_array(plan.code, COALESCE(account_plans.total, 0)) ORDER BY plan.code), '[]'::jsonb) AS subscriptions
-  FROM subscription_plan plan LEFT JOIN account_plans ON account_plans.plan = plan.code
+  SELECT COALESCE(jsonb_agg(jsonb_build_array(plan.code, COALESCE(plan_counts.total, 0)) ORDER BY plan.code), '[]'::jsonb) AS subscriptions
+  FROM subscription_plan plan LEFT JOIN plan_counts ON plan_counts.plan = plan.code
+), subscription_offers AS (
+  SELECT jsonb_build_array(
+    jsonb_build_array('free', COALESCE(sum(total) FILTER (WHERE plan = 'free'), 0)::bigint),
+    jsonb_build_array('premium_monthly', COALESCE(sum(total) FILTER (WHERE plan = 'premium' AND billing_period = 'monthly'), 0)::bigint),
+    jsonb_build_array('premium_annual', COALESCE(sum(total) FILTER (WHERE plan = 'premium' AND billing_period = 'annual'), 0)::bigint),
+    jsonb_build_array('premium_unspecified', COALESCE(sum(total) FILTER (WHERE plan = 'premium' AND billing_period IS NULL), 0)::bigint)
+  ) AS subscription_offers
+  FROM account_plans
 ), matches AS (
   SELECT COALESCE(jsonb_agg(jsonb_build_array(status, total) ORDER BY status), '[]'::jsonb) AS match_counts
   FROM (SELECT status, count(*)::bigint AS total FROM match_init GROUP BY status) counts
@@ -208,12 +227,12 @@ const METRICS_SQL: &str = r#"
   FROM user_photo photo LEFT JOIN outbox_event event
     ON photo.status = 'deleting' AND event.event_type = 'photo.delete' AND event.aggregate_id = photo.id
 )
-SELECT users.*, matches.*, photos.*, subscriptions.*, revenue.*,
+SELECT users.*, matches.*, photos.*, subscriptions.*, subscription_offers.*, revenue.*,
   (SELECT count(*) FROM user_report WHERE status = 'pending')::bigint AS pending_reports,
   (SELECT count(*) FROM content_moderation_case WHERE status = 'pending')::bigint AS pending_content,
   (SELECT count(*) FROM data_subject_request WHERE status IN ('pending','in_progress'))::bigint AS open_data_requests,
   (SELECT count(*) FROM chat_message)::bigint AS messages_total
-FROM users CROSS JOIN matches CROSS JOIN photos CROSS JOIN subscriptions CROSS JOIN revenue
+FROM users CROSS JOIN matches CROSS JOIN photos CROSS JOIN subscriptions CROSS JOIN subscription_offers CROSS JOIN revenue
 "#;
 
 impl AdminMetricsStore for PgAdminMetricsRepository {

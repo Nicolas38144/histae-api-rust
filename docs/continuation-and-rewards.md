@@ -30,7 +30,7 @@ La révélation des photos reste un accord distinct. Premium ne dispense jamais 
 | Continuations confirmées | 6 maximum par personne et par semaine UTC | Illimitées |
 | Coût d’une continuation | 1 crédit **pour chaque participant Free** | 0 |
 
-Le prix Premium reste **5 € par mois, 48 € par an, essai de 30 jours**. Les Prices Stripe réels restent distincts du catalogue ; voir [Configuration](configuration.md#tarifs-du-catalogue-et-stripe).
+Le prix Premium reste **5 € par mois ou 48 € par an, sans période d'essai**. Les Prices Stripe réels restent distincts du catalogue ; voir [Configuration](configuration.md#tarifs-du-catalogue-et-stripe).
 
 ### Réserver, confirmer et libérer
 

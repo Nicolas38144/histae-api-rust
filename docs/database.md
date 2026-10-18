@@ -27,6 +27,11 @@ ensuite le schéma applicatif et le catalogue avec `histae_migrate`.
 Le migrateur vérifie les objets attendus, ajoute les évolutions prises en charge et retire le ledger obsolète.
 Il met aussi à jour l'ancien tarif annuel Premium de 30 EUR à 48 EUR dans le catalogue, sans modifier
 les autres tarifs personnalisés ni les abonnements Stripe existants ; voir [Configuration](configuration.md#tarifs-du-catalogue-et-stripe).
+
+Le catalogue n'a plus de colonne `subscription_plan.trial_days` ni de contrainte associée dans le
+schéma initial ; le seed et les requêtes sont alignés. Le migrateur retire aussi cette colonne si
+elle existe encore. Les nouvelles souscriptions n'ont aucune période d'essai. Le champ `trial_days` est aussi retiré du
+catalogue HTTP et des modèles clients. Les dates d'essais historiques des abonnements ne sont pas modifiées.
 Les index de performance sont ensuite construits avec `CONCURRENTLY`, hors de la transaction de schéma.
 Un verrou advisory sérialise les migrateurs. Un index valide est conservé ; un index invalide laissé par une
 interruption est supprimé puis reconstruit au prochain lancement.

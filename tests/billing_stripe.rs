@@ -4,7 +4,7 @@ use std::time::Duration;
 use chrono::{TimeDelta, Utc};
 use histae_api_rust::billing::domain::BillingPeriod;
 use histae_api_rust::billing::stripe::{
-    CheckoutInput, STRIPE_API_VERSION, StripeClient, StripeGateway,
+    CheckoutInput, STRIPE_API_VERSION, StripeClient, StripeError, StripeGateway,
 };
 use histae_api_rust::config::{BillingConfig, BillingProvider, SecretString};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -154,7 +154,7 @@ async fn customer_creation_keeps_the_original_attempt_and_stripe_contract() {
 }
 
 #[tokio::test]
-async fn checkout_uses_only_server_selected_price_trial_and_urls() {
+async fn checkout_uses_server_selected_price_and_urls_without_a_trial() {
     let expires_at = Utc::now() + TimeDelta::minutes(30);
     let response = format!(
         r#"{{"id":"cs_{}","url":"https://checkout.stripe.test/session","expires_at":{}}}"#,
@@ -175,7 +175,7 @@ async fn checkout_uses_only_server_selected_price_trial_and_urls() {
             customer_id: format!("cus_{}", Uuid::new_v4().simple()),
             price_id: "price_annual_contract".to_owned(),
             billing_period: BillingPeriod::Annual,
-            trial_days: 30,
+            trial_days: 0,
             expires_at,
             idempotency_key: format!("histae-checkout-{attempt_id}"),
             success_url: config().checkout_success_url.expect("success URL"),
@@ -201,11 +201,7 @@ async fn checkout_uses_only_server_selected_price_trial_and_urls() {
         form.get("line_items[0][price]").map(String::as_str),
         Some("price_annual_contract")
     );
-    assert_eq!(
-        form.get("subscription_data[trial_period_days]")
-            .map(String::as_str),
-        Some("30")
-    );
+    assert!(!form.contains_key("subscription_data[trial_period_days]"));
     assert_eq!(
         form.get("metadata[histae_billing_period]")
             .map(String::as_str),
@@ -227,6 +223,31 @@ async fn checkout_uses_only_server_selected_price_trial_and_urls() {
         form.get("success_url").map(String::as_str),
         Some("https://app.histae.test/billing/success?session_id={CHECKOUT_SESSION_ID}")
     );
+}
+
+#[tokio::test]
+async fn checkout_rejects_an_old_trial_request_before_contacting_stripe() {
+    let client = StripeClient::with_endpoint(
+        config(),
+        Url::parse("http://127.0.0.1:9/v1/").expect("local endpoint"),
+    )
+    .expect("test configuration");
+    let result = client
+        .create_checkout_session(CheckoutInput {
+            user_id: Uuid::new_v4(),
+            customer_id: "cus_Legacy".into(),
+            price_id: "price_monthly_contract".into(),
+            billing_period: BillingPeriod::Monthly,
+            trial_days: 30,
+            expires_at: Utc::now() + TimeDelta::minutes(35),
+            idempotency_key: format!("histae-checkout-{}", Uuid::new_v4()),
+            success_url: config().checkout_success_url.expect("success URL"),
+            cancel_url: config().checkout_cancel_url.expect("cancel URL"),
+            automatic_tax: false,
+            allow_promotion_codes: false,
+        })
+        .await;
+    assert_eq!(result, Err(StripeError::InvalidConfiguration));
 }
 
 #[tokio::test]

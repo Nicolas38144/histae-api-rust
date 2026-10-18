@@ -21,7 +21,6 @@ pub struct SubscriptionPlan {
     pub monthly_price_cents: i32,
     pub annual_price_cents: i32,
     pub currency: String,
-    pub trial_days: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub weekly_continuation_limit: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -40,7 +39,6 @@ pub struct SubscriptionOffer {
     pub billing_period: Option<BillingPeriod>,
     pub price_cents: i32,
     pub currency: String,
-    pub trial_days: i32,
 }
 
 impl SubscriptionOffer {
@@ -69,7 +67,6 @@ impl SubscriptionOffer {
             billing_period,
             price_cents,
             currency: plan.currency.clone(),
-            trial_days: plan.trial_days,
         }
     }
 }
@@ -102,7 +99,6 @@ pub struct PlanRow {
     pub annual_price_cents: i32,
     pub currency: String,
     pub weekly_continuation_limit: Option<i32>,
-    pub trial_days: i32,
     pub feature_code: Option<String>,
     pub feature_name: Option<String>,
     pub feature_description: Option<String>,

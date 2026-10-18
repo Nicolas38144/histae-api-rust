@@ -188,8 +188,6 @@ pub struct CheckoutContext {
     pub attempt_id: Uuid,
     pub creation_generation: i64,
     pub stripe_customer_id: Option<String>,
-    pub trial_days: i16,
-    pub trial_used: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

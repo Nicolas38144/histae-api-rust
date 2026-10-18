@@ -141,6 +141,11 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
             .map_err(map_sqlx_error)?;
         sqlx::query("CREATE INDEX idx_advertising_reward_owner ON advertising_reward_intent(user_id,created_at DESC,id DESC)").execute(&mut *transaction).await.map_err(map_sqlx_error)?;
     }
+    // Remove the retired catalogue setting without changing historical subscriptions.
+    sqlx::query("ALTER TABLE subscription_plan DROP COLUMN IF EXISTS trial_days")
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
     // Upgrade the former EUR catalogue price without overwriting custom prices.
     // Stripe Prices and existing subscriptions are managed separately.
     sqlx::query(

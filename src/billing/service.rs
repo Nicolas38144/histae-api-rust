@@ -307,11 +307,7 @@ impl BillingService {
                         customer_id,
                         price_id,
                         billing_period,
-                        trial_days: if context.trial_used {
-                            0
-                        } else {
-                            context.trial_days
-                        },
+                        trial_days: 0,
                         expires_at: self.clock.now() + TimeDelta::minutes(CHECKOUT_TTL_MINUTES),
                         idempotency_key: format!("histae-checkout-{attempt_id}"),
                         success_url: self
@@ -330,7 +326,9 @@ impl BillingService {
                 )
                 .await
                 .map_err(map_store_error)?;
-            if request.expires_at <= self.clock.now() {
+            // Never change a persisted Stripe request under its idempotency key.
+            // An old, uncreated trial Checkout needs a fresh attempt without a trial.
+            if request.trial_days != 0 || request.expires_at <= self.clock.now() {
                 return Err(BillingError::IdempotencyKeyConsumed);
             }
             lease.assert_held()?;

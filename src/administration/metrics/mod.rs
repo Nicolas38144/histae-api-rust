@@ -5,7 +5,8 @@ mod store;
 
 pub use domain::{
     AdminBusinessMetrics, AdminMetrics, AdminRevenue, MatchMetrics, MessageMetrics,
-    ModerationMetrics, PhotoMetrics, RevenuePeriod, SubscriptionMetrics, UserMetrics,
+    ModerationMetrics, PhotoMetrics, RevenuePeriod, SubscriptionMetrics, SubscriptionOfferMetrics,
+    UserMetrics,
 };
 pub use pg::PgAdminMetricsRepository;
 pub use service::AdminMetricsService;
