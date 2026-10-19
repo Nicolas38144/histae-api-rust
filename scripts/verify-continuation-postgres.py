@@ -14,6 +14,7 @@ TESTS = (
     "matches_postgres", "privacy_rights_postgres", "account_erasure_postgres",
     "administration_reports_postgres", "billing_postgres",
     "maintenance_outbox_postgres", "notifications_postgres",
+    "discovery_postgres", "profiles_postgres",
 )
 
 
@@ -88,30 +89,34 @@ def main():
                     'case "$1" in histae_app) export PGPASSWORD="$HISTAE_BOOTSTRAP_APP_PASSWORD" ;; histae_migrate) export PGPASSWORD="$HISTAE_BOOTSTRAP_MIGRATE_PASSWORD" ;; *) exit 2 ;; esac; exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d histae-dev',
                     "sh", role, input_text=statement)
 
-            # Simulate the pre-credit schema, then prove the guarded upgrade and
+            # Simulate the pre-credit/pre-pause schema, then prove the upgrade and
             # that a repeated migration preserves choices made under the new rules.
             first, second, match_id = [str(uuid.uuid4()) for _ in range(3)]
             query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{first}','legacy-credit-first',''::bytea),('{second}','legacy-credit-second',''::bytea); "
                   f"INSERT INTO match_init(id,user1_id,user2_id,status,expires_at,continuation_initiator_id) VALUES ('{match_id}',LEAST('{first}'::uuid,'{second}'::uuid),GREATEST('{first}'::uuid,'{second}'::uuid),'awaiting_continuation',clock_timestamp()+INTERVAL '24 hours','{first}'); "
                   f"INSERT INTO match_state(match_id,user_id,continued) VALUES ('{match_id}','{first}',true),('{match_id}','{second}',false); "
                   f"INSERT INTO continuation_usage(user_id,week_start,used_count,free_used_count) VALUES ('{first}',date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date,2,2);")
-            query("DROP TABLE continuation_reservation,advertising_reward_intent,continuation_wallet; ALTER TABLE continuation_usage DROP COLUMN free_used_count;", "histae_migrate")
+            assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
+            query("DROP TABLE continuation_reservation,advertising_reward_intent,continuation_wallet; ALTER TABLE continuation_usage DROP COLUMN free_used_count; ALTER TABLE user_account DROP COLUMN discovery_paused;", "histae_migrate")
             def migrate():
                 docker("run", "--rm", "--network", f"container:{name}",
                        "--env-file", str(directory / "migrate.env"), "--user", "1000:1000",
                        "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
                        "--entrypoint", "/app/bin/db-migrate", args.api_image)
             migrate()
+            assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
             assert query(f"SELECT used_count||':'||free_used_count FROM continuation_usage WHERE user_id='{first}';") == "2:2"
             assert query(f"SELECT count(*) FROM match_state WHERE match_id='{match_id}' AND continued;") == "0"
             assert query(f"SELECT continuation_initiator_id IS NULL FROM match_init WHERE id='{match_id}';") == "t"
             query(f"UPDATE match_state SET continued=true WHERE match_id='{match_id}' AND user_id='{first}'; INSERT INTO continuation_reservation(match_id,user_id,source,week_start) VALUES ('{match_id}','{first}','free',date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date);")
+            query(f"UPDATE user_account SET discovery_paused=true WHERE user_id='{first}';")
             migrate()
+            assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "t"
             assert query(f"SELECT count(*) FROM match_state WHERE match_id='{match_id}' AND continued;") == "1"
             assert query(f"SELECT count(*) FROM continuation_reservation WHERE match_id='{match_id}';") == "1"
             assert query(f"SELECT used_count||':'||free_used_count FROM continuation_usage WHERE user_id='{first}';") == "2:2"
             query(f"DELETE FROM user_account WHERE user_id IN ('{first}','{second}');")
-            print("Legacy quota migration and repeated upgrade passed.", flush=True)
+            print("Legacy quota/pause migrations and repeated upgrade passed.", flush=True)
             port = docker("port", name, "5432/tcp").split(":")[-1]
             runtime.update(POSTGRES_PORT=port, POSTGRES_USER="histae_app", POSTGRES_PASSWORD=app_password)
             environment = os.environ.copy()

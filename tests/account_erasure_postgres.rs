@@ -274,6 +274,10 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
         );
 
         let mut connection = database.acquire().await?;
+        sqlx::query("UPDATE user_account SET discovery_paused=true WHERE user_id=$1")
+            .bind(user_id)
+            .execute(&mut *connection)
+            .await?;
         let stored_hash: String =
             sqlx::query_scalar("SELECT token_hash FROM account_deletion_token WHERE user_id = $1")
                 .bind(user_id)
@@ -448,6 +452,12 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
         .fetch_one(&mut *connection)
         .await?;
         assert!(anonymized);
+        let paused: bool =
+            sqlx::query_scalar("SELECT discovery_paused FROM user_account WHERE user_id=$1")
+                .bind(user_id)
+                .fetch_one(&mut *connection)
+                .await?;
+        assert!(!paused, "erasure must clear the discovery preference");
         let audits: i64 = sqlx::query_scalar(
             "SELECT count(*)::bigint FROM data_access_log
              WHERE accessed_user_id = $1 AND action = 'system_anonymize'",

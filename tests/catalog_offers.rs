@@ -26,10 +26,7 @@ fn plan(code: &str, monthly: i32, annual: i32) -> SubscriptionPlan {
 
 #[test]
 fn catalog_exposes_three_offers_and_keeps_the_two_entitlement_plans() {
-    let catalog = PlanCatalog::new(vec![
-        plan("free", 0, 0),
-        plan("premium", 500, 4800),
-    ]);
+    let catalog = PlanCatalog::new(vec![plan("free", 0, 0), plan("premium", 500, 4800)]);
     let body = serde_json::to_value(&catalog).expect("serialized catalogue");
     assert_eq!(body["plans"].as_array().expect("plans").len(), 2);
     assert_eq!(
@@ -64,13 +61,11 @@ fn offers_follow_database_prices_currency_and_availability_without_trials() {
     assert_eq!(catalog.offers.len(), 2);
     assert_eq!(catalog.offers[0].price_cents, 1234);
     assert_eq!(catalog.offers[1].price_cents, 9876);
-    assert_eq!(catalog.offers[1].billing_period, Some(BillingPeriod::Annual));
-    assert!(
-        catalog
-            .offers
-            .iter()
-            .all(|offer| offer.currency == "CHF")
+    assert_eq!(
+        catalog.offers[1].billing_period,
+        Some(BillingPeriod::Annual)
     );
+    assert!(catalog.offers.iter().all(|offer| offer.currency == "CHF"));
     assert!(PlanCatalog::new(Vec::new()).offers.is_empty());
     assert_eq!(PlanCatalog::new(vec![plan("free", 0, 0)]).offers.len(), 1);
 }

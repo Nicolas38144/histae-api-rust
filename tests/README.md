@@ -11,7 +11,7 @@ Utiliser des fixtures fictives et des secrets de développement, jamais une base
 | --- | --- | --- |
 | Unitaire | Modules `#[cfg(test)]` de `src/` | Règles, configuration, transports, mocks et cycles de vie |
 | Contrat | `*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, guards et permissions |
-| Inventaire | `route_inventory.rs` | Les 109 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
+| Inventaire | `route_inventory.rs` | Les 111 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
 | PostgreSQL | `*_postgres.rs`, `postgres_compatibility`, `postgres_locks` | SQL, contraintes, verrous, snapshots et concurrence réels |
 | Redis / S3 | `redis_integration`, `media_integration` | Adaptateurs sur services locaux |
 | Codec | `photo_codec.rs`, `fixtures/photos/` | Formats, taille, métadonnées, corruption et arrêt du processus Node |
@@ -147,12 +147,61 @@ campagne locale de migration sont conservés dans ce guide.
 Les tests `advertising::ssv::tests` couvrent la signature, le cache périmé, l’actualisation concurrente et
 les limites d’admission, avec des clés générées en mémoire et sans appel à Google.
 
+<a id="mode-pause"></a>
 
 ## Mode pause de la découverte — 19 octobre 2026
 
-Deux contrôles ajoutés, **non exécutés sur le poste mobile sans chaîne Rust** :
+La compilation et les tests de ce réglage sont vérifiés sur le poste Rust, avec une instance
+PostgreSQL/PostGIS jetable pour la migration et les cas de concurrence. Aucun compte réel ni fournisseur
+SMS n’est utilisé.
 
-- `cargo test --test discovery_contract discovery_pause_is_authenticated_persistent_and_blocks_new_discovery` : authentification, booléen strict, persistance, affectation répétée, blocage/reprise du feed et des nouveaux swipes.
-- `cargo test --features postgres-integration --test discovery_postgres paused_profiles_are_filtered_and_atomic_writes_preserve_existing_matches` : filtres PostgreSQL demandeur/candidat, écriture directe sous verrou, création de match refusée pendant la pause et conservation du match existant. Utiliser uniquement l’infrastructure locale de test gardée par cette suite, après migration du schéma.
+### Cas couverts
 
-Exécuter également le formatage et la compilation Rust avant livraison. Les contrôles Flutter avec réponses simulées ne remplacent pas ces vérifications serveur. Aucune base réelle, migration ou service n’a été modifié lors de cette intervention.
+- `discovery_contract` : authentification, booléen strict, affectation idempotente, diagnostic
+  `resume_discovery`, blocage et reprise du feed/des swipes.
+- `discovery_postgres` : persistance entre repositories, exclusion des profils en pause, écriture refusée
+  même avec une carte chargée précédemment et conservation des conversations existantes.
+- `writes_wait_for_a_concurrent_pause_and_recheck_both_participants` : pause non encore commitée du
+  demandeur ou du candidat, attente effective sur PostgreSQL, puis refus du swipe et de la création de
+  match après commit. Aucun swipe ni match ne subsiste après ces quatre courses contrôlées.
+- `privacy_rights_postgres` et `account_erasure_postgres` : préférence présente dans l’export propriétaire,
+  puis remise à `false` pendant l’anonymisation. Le test d’effacement reproduit l’oubli avant correction.
+- Lanceur isolé : colonne créée à `false`, ajout sur une base existante et conservation d’une pause
+  active lors d’une seconde migration ; les migrations de crédits restent aussi vérifiées.
+
+### Résultats du 19 octobre 2026
+
+| Vérification | Résultat |
+| --- | --- |
+| Compilation des binaires (`cargo build --locked --bins`) | Réussie |
+| Suite Rust avec features par défaut, tous les targets | 320 tests réussis |
+| Suites PostgreSQL ciblées, feature `postgres-integration` | 27 tests réussis : découverte, matchs, profils, export et effacement |
+| Migration neuve, upgrade et réexécution | Réussis ; préférence existante conservée |
+| Clippy, tous les targets et toutes les features, warnings refusés | Réussi |
+| rustfmt et `git diff --check` | Réussis |
+| Inventaire Axum, contrat et collections Postman FR/EN | 111 routes cohérentes |
+
+Le test de logs AdMob utilise désormais un processus isolé pour éviter les interactions entre son
+subscriber temporaire et le cache Tracing partagé par les tests parallèles. Les assertions de rejet
+cryptographique et d’absence de données privées restent actives ; le code de production est conservé.
+
+### Rejouer
+
+```bash
+cargo build --locked --bins
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets
+
+# Construire préalablement l’image API depuis les sources actuelles, comme décrit plus haut.
+sudo -v
+python3 scripts/verify-continuation-postgres.py --sudo-docker \
+  --test discovery_postgres --test matches_postgres \
+  --test privacy_rights_postgres --test account_erasure_postgres --test profiles_postgres
+```
+
+Les 27 tests PostgreSQL ciblés réussissent, y compris les cas pause et les migrations.
+La campagne locale emploie le migrateur natif fraîchement compilé avec les mêmes rôles séparés ;
+le lanceur maintenu ci-dessus emploie le migrateur de l’image indiquée par `--api-image`.
+Les résultats Flutter avec réponses simulées ne prouvent pas le fonctionnement de cette API.
+Le déploiement exige le passage du migrateur avant le démarrage de la nouvelle API.

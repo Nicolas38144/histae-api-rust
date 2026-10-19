@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **109 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **111 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -326,7 +326,7 @@ L’attribution d’un trait existant est idempotente. Une question expose `id, 
 
 **Mode pause.** `paused` vaut `false` à la création du compte et persiste entre sessions/appareils. Avec `true`, le profil est exclu des nouvelles lectures du feed et ne peut plus envoyer ni recevoir de nouveaux swipes ou créer de nouveaux matchs. Les écritures de swipe et de création du match recontrôlent la pause sous verrou de ligne ; une carte chargée avant la pause ne suffit pas à autoriser un nouveau like. Une lecture déjà reçue ne peut pas être effacée à distance. Le diagnostic ajoute `resume_discovery` aux actions requises ; `ready` devient faux. La reprise réévalue les autres prérequis, notamment la fraîcheur de la position. Matchs, conversations, consentements, photo et abonnement existants sont conservés. Le réglage apparaît dans l’export propriétaire sous `account.discovery_paused`.
 
-Les deux routes de réglage exigent le compte mobile avec onboarding terminé, utilisent le même budget dédié de 60 requêtes/min/utilisateur et n’acceptent aucun identifiant de compte en entrée. Le PATCH est une affectation idempotente, sans rejeu réseau automatique. Erreurs : `400 invalid_discovery_settings`, `429 discovery_settings_rate_limit_exceeded`, erreurs communes de session/base. Le schéma et le migrateur doivent être mis à jour avant de déployer cette API. Collections Postman FR/EN mises à jour ; compilation et tests Rust non exécutés sur le poste Windows sans chaîne Rust.
+Les deux routes de réglage exigent le compte mobile avec onboarding terminé, utilisent le même budget dédié de 60 requêtes/min/utilisateur et n’acceptent aucun identifiant de compte en entrée. Le PATCH est une affectation idempotente, sans rejeu réseau automatique. Erreurs : `400 invalid_discovery_settings`, `429 discovery_settings_rate_limit_exceeded`, erreurs communes de session/base. Le schéma et le migrateur doivent être mis à jour avant de déployer cette API. Les collections Postman FR/EN couvrent ces routes. Les vérifications de compilation, de concurrence et de migration sont décrites dans le [guide de tests](../tests/README.md#mode-pause).
 
 Une décision de swipe est immuable pendant sa rétention. Deux likes réciproques créent un seul match ; aucun endpoint ne permet de fabriquer directement un match. Erreurs : `409 discovery_not_ready`, `404 discovery_candidate_not_found`, `409 swipe_already_recorded`, `400 invalid_cursor`, `429 swipe_rate_limit_exceeded`, `429 feed_rate_limit_exceeded`, `503 discovery_unavailable`.
 

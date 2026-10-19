@@ -146,7 +146,10 @@ impl DiscoveryRepository for FakeRepository {
         Box::pin(async move { Ok(self.paused.load(Ordering::SeqCst)) })
     }
     fn set_paused(&self, _: Uuid, paused: bool) -> DiscoveryStoreFuture<'_, bool> {
-        Box::pin(async move { self.paused.store(paused, Ordering::SeqCst); Ok(paused) })
+        Box::pin(async move {
+            self.paused.store(paused, Ordering::SeqCst);
+            Ok(paused)
+        })
     }
 
     fn status(
@@ -401,7 +404,11 @@ fn app_with_pause(
     };
     let auth_state = MobileAuthState::new(auth, limiter.clone(), policy.clone());
     let service = DiscoveryService::new(
-        Arc::new(FakeRepository { paused, ready, candidates }),
+        Arc::new(FakeRepository {
+            paused,
+            ready,
+            candidates,
+        }),
         Arc::new(swipes),
         Arc::new(FakeMatches),
         legal(),
@@ -850,44 +857,118 @@ fn authenticated(uri: &str, method: &str, token: &str, body: Option<Value>) -> R
         .unwrap_or_else(|_| unreachable!())
 }
 
-
 #[tokio::test]
 async fn discovery_pause_is_authenticated_persistent_and_blocks_new_discovery() {
     let target = Uuid::new_v4();
     let paused = Arc::new(AtomicBool::new(false));
-    let (app, token) = app_with_pause(true, vec![candidate(target, 1.0)], FakeSwipes::default(), paused.clone());
+    let (app, token) = app_with_pause(
+        true,
+        vec![candidate(target, 1.0)],
+        FakeSwipes::default(),
+        paused.clone(),
+    );
     let route = "/api/users/me/discovery-settings";
-    let response = app.clone().oneshot(authenticated(route, "GET", &token, None)).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(authenticated(route, "GET", &token, None))
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(json_response(response).await, json!({"paused": false}));
 
-    let response = app.clone().oneshot(Request::builder().method("PATCH").uri(route)
-        .header(header::CONTENT_TYPE, "application/json").body(Body::from(r#"{"paused":true}"#)).unwrap()).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(route)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"paused":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert!(!paused.load(Ordering::SeqCst));
-    for invalid in [json!({}), json!({"paused": null}), json!({"paused": "true"}), json!({"paused": true, "user_id": target})] {
-        let response = app.clone().oneshot(authenticated(route, "PATCH", &token, Some(invalid))).await.unwrap();
+    for invalid in [
+        json!({}),
+        json!({"paused": null}),
+        json!({"paused": "true"}),
+        json!({"paused": true, "user_id": target}),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(authenticated(route, "PATCH", &token, Some(invalid)))
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert!(!paused.load(Ordering::SeqCst));
     }
     for _ in 0..2 {
-        let response = app.clone().oneshot(authenticated(route, "PATCH", &token, Some(json!({"paused": true})))).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(authenticated(
+                route,
+                "PATCH",
+                &token,
+                Some(json!({"paused": true})),
+            ))
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(json_response(response).await, json!({"paused": true}));
     }
-    let response = app.clone().oneshot(authenticated("/api/users/me/discovery-status", "GET", &token, None)).await.unwrap();
-    assert_eq!(json_response(response).await["required_actions"], json!(["resume_discovery"]));
+    let response = app
+        .clone()
+        .oneshot(authenticated(
+            "/api/users/me/discovery-status",
+            "GET",
+            &token,
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        json_response(response).await["required_actions"],
+        json!(["resume_discovery"])
+    );
     for (route, method, body) in [
         ("/api/feed", "GET", None),
-        ("/api/swipes", "POST", Some(json!({"target_user_id": target, "decision": "like"}))),
+        (
+            "/api/swipes",
+            "POST",
+            Some(json!({"target_user_id": target, "decision": "like"})),
+        ),
     ] {
-        let response = app.clone().oneshot(authenticated(route, method, &token, body)).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(authenticated(route, method, &token, body))
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::CONFLICT);
-        assert_eq!(json_response(response).await["error"]["code"], "discovery_not_ready");
+        assert_eq!(
+            json_response(response).await["error"]["code"],
+            "discovery_not_ready"
+        );
     }
-    let response = app.clone().oneshot(authenticated(route, "PATCH", &token, Some(json!({"paused": false})))).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(authenticated(
+            route,
+            "PATCH",
+            &token,
+            Some(json!({"paused": false})),
+        ))
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let response = app.oneshot(authenticated("/api/feed", "GET", &token, None)).await.unwrap();
+    let response = app
+        .oneshot(authenticated("/api/feed", "GET", &token, None))
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(json_response(response).await["profiles"][0]["user_id"], target.to_string());
+    assert_eq!(
+        json_response(response).await["profiles"][0]["user_id"],
+        target.to_string()
+    );
 }

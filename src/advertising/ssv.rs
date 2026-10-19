@@ -384,6 +384,27 @@ mod tests {
 
     #[test]
     fn rejected_signature_logs_the_reason_without_callback_data() {
+        // Tracing's callsite cache is process-wide. Isolate the temporary
+        // subscriber from parallel tests that emit through the same callsite.
+        const CHILD: &str = "HISTAE_ADMOB_LOG_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "advertising::ssv::tests::rejected_signature_logs_the_reason_without_callback_data",
+                    "--test-threads=1",
+                ])
+                .env(CHILD, "1")
+                .output()
+                .expect("isolated logging test");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            return;
+        }
+
         #[derive(Clone)]
         struct LogWriter(Arc<std::sync::Mutex<Vec<u8>>>);
 
@@ -458,9 +479,8 @@ mod tests {
         ));
 
         let intent_id = Uuid::new_v4();
-        let (key, reward_query) = sign_content(
-            &content.replace(URL_VALIDATION_CUSTOM_DATA, &intent_id.to_string()),
-        );
+        let (key, reward_query) =
+            sign_content(&content.replace(URL_VALIDATION_CUSTOM_DATA, &intent_id.to_string()));
         verifier.cache.lock().await.keys.insert(42, key);
         let Ok(VerifiedCallback::Reward(callback)) = verifier.verify(&reward_query).await else {
             panic!("a signed reward UUID must not become URL validation");

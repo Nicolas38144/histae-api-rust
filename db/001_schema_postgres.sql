@@ -1179,6 +1179,7 @@ BEGIN
     phone_number_hash = 'anon_' || encode(gen_random_bytes(16), 'hex'),
     phone_number_encrypted = '',
     is_banned = false,
+    discovery_paused = false,
     banned_at = NULL,
     banned_reason = NULL,
     banned_by = NULL,

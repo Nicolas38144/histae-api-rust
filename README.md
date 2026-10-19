@@ -76,7 +76,7 @@ L’[index des guides](docs/README.md) permet de choisir une procédure par usag
 | Initialiser et sauvegarder PostgreSQL | [Base de données](docs/database.md) |
 | Enrôler une passkey et gérer les administrateurs | [Administration](docs/administration.md) |
 | Exécuter les workers et planifier la maintenance | [Exploitation](docs/operations.md) |
-| Intégrer les 109 routes et leurs autorisations | [Contrat HTTP](docs/http-contract.md) |
+| Intégrer les 111 routes et leurs autorisations | [Contrat HTTP](docs/http-contract.md) |
 | Importer les collections française ou anglaise | [Postman](postman/README.md) |
 | Diagnostiquer les alertes et les requêtes lentes | [Supervision](docs/observability.md), [SQL](docs/sql-performance.md) |
 | Tester la charge et le tunnel Cloudflare | [Test de charge](docs/load-testing.md) |

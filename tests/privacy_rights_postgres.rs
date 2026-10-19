@@ -142,6 +142,10 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
     insert_account(&database, admin_id, "admin").await?;
 
     let mut connection = database.acquire().await?;
+    sqlx::query("UPDATE user_account SET discovery_paused=true WHERE user_id=$1")
+        .bind(user_id)
+        .execute(&mut *connection)
+        .await?;
     let first_swipe = Utc::now() - TimeDelta::seconds(2);
     let second_swipe = Utc::now() - TimeDelta::seconds(1);
     sqlx::query(
@@ -234,6 +238,7 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
             bytes.extend_from_slice(&chunk?);
         }
         let document: Value = serde_json::from_slice(&bytes)?;
+        assert_eq!(document["account"]["discovery_paused"], true);
         assert_eq!(document["profile"]["birthdate"], "1990-02-03T00:00:00.000Z");
         assert_eq!(document["billing_invoices"][0]["amount_due"], "9007199254740993");
         assert_eq!(document["billing_invoices"][0]["amount_paid"], "0");

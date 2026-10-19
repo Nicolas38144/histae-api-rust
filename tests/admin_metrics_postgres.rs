@@ -276,7 +276,8 @@ async fn subscription_offer_metrics_follow_effective_access_and_billing_period()
                 .expect("legacy Premium counter is retained");
             assert_eq!(
                 premium.users,
-                count(&metrics, "premium_monthly") + count(&metrics, "premium_annual")
+                count(&metrics, "premium_monthly")
+                    + count(&metrics, "premium_annual")
                     + count(&metrics, "premium_unspecified")
             );
         }

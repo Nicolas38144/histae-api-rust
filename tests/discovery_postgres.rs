@@ -598,46 +598,207 @@ async fn simultaneous_mutual_likes_create_one_match_and_keep_decisions_immutable
     test_result
 }
 
-
 #[tokio::test]
 async fn paused_profiles_are_filtered_and_atomic_writes_preserve_existing_matches()
 -> Result<(), Box<dyn std::error::Error>> {
     use histae_api_rust::discovery::service::DiscoveryError;
     use histae_api_rust::discovery::store::DiscoveryStoreError;
-    use histae_api_rust::matches::store::MatchStore;
+    use histae_api_rust::matches::domain::MessageCreationResult;
+    use histae_api_rust::matches::store::{MatchMessageStore, MatchStore};
 
     let (database, activity, service, swipes) = services(&postgres_config()?).await?;
     let users = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
     for (index, user) in users.iter().enumerate() {
-        ready_user(&database, *user, index as i32 + 1, 48.8566 + index as f64 * 0.001).await?;
+        ready_user(
+            &database,
+            *user,
+            index as i32 + 1,
+            48.8566 + index as f64 * 0.001,
+        )
+        .await?;
     }
     let result: Result<(), Box<dyn std::error::Error>> = async {
-        service.swipe(users[0], users[1], SwipeDecision::Like).await?;
-        let existing = service.swipe(users[1], users[0], SwipeDecision::Like).await?;
+        service
+            .swipe(users[0], users[1], SwipeDecision::Like)
+            .await?;
+        let existing = service
+            .swipe(users[1], users[0], SwipeDecision::Like)
+            .await?;
         assert!(existing.matched);
-        assert!(service.feed(users[2], 20, None).await?.profiles.iter().any(|p| p.user_id == users[0]));
+        let match_id = existing.r#match.ok_or(FixtureError("existing_match"))?.id;
+        assert!(
+            service
+                .feed(users[2], 20, None)
+                .await?
+                .profiles
+                .iter()
+                .any(|p| p.user_id == users[0])
+        );
         service.set_paused(users[0], true).await?;
         let second_reader = PgDiscoveryRepository::new(database.clone());
         assert!(second_reader.paused(users[0]).await?);
-        assert!(!service.feed(users[2], 20, None).await?.profiles.iter().any(|p| p.user_id == users[0]));
-        assert_eq!(service.feed(users[0], 20, None).await, Err(DiscoveryError::NotReady));
-        assert_eq!(service.swipe(users[2], users[0], SwipeDecision::Like).await, Err(DiscoveryError::CandidateNotFound));
-        assert_eq!(swipes.record(users[2], users[0], SwipeDecision::Like).await, Err(DiscoveryStoreError::CandidateNotFound));
-        assert_eq!(swipes.record(users[0], users[2], SwipeDecision::Like).await, Err(DiscoveryStoreError::NotReady));
+        assert!(
+            !service
+                .feed(users[2], 20, None)
+                .await?
+                .profiles
+                .iter()
+                .any(|p| p.user_id == users[0])
+        );
+        assert_eq!(
+            service.feed(users[0], 20, None).await,
+            Err(DiscoveryError::NotReady)
+        );
+        assert_eq!(
+            service.swipe(users[2], users[0], SwipeDecision::Like).await,
+            Err(DiscoveryError::CandidateNotFound)
+        );
+        assert_eq!(
+            swipes.record(users[2], users[0], SwipeDecision::Like).await,
+            Err(DiscoveryStoreError::CandidateNotFound)
+        );
+        assert_eq!(
+            swipes.record(users[0], users[2], SwipeDecision::Like).await,
+            Err(DiscoveryStoreError::NotReady)
+        );
         let matches = PgMatchRepository::new(database.clone());
         assert_eq!(matches.list_for_user(users[0], 20, 0, None).await?.len(), 1);
+        let messages = PgMatchMessageRepository::new(database.clone());
+        for user in &users[..2] {
+            assert!(matches!(
+                messages
+                    .create_message(
+                        Uuid::new_v4(),
+                        match_id,
+                        *user,
+                        "Existing conversation stays open".to_owned(),
+                        Uuid::new_v4(),
+                    )
+                    .await?,
+                MessageCreationResult::Available(_)
+            ));
+        }
         let creator = MatchService::new(
             Arc::new(matches),
             Arc::new(PgMatchMessageRepository::new(database.clone())),
-            Arc::new(NoPhotoUrls), Arc::new(NoopMatchEventPublisher), Arc::new(SystemClock),
+            Arc::new(NoPhotoUrls),
+            Arc::new(NoopMatchEventPublisher),
+            Arc::new(SystemClock),
         );
-        assert!(creator.create_from_mutual_like(users[0], users[2]).await.is_err());
+        assert!(
+            creator
+                .create_from_mutual_like(users[0], users[2])
+                .await
+                .is_err()
+        );
         service.set_paused(users[0], false).await?;
-        assert!(service.feed(users[2], 20, None).await?.profiles.iter().any(|p| p.user_id == users[0]));
+        assert!(
+            service
+                .feed(users[2], 20, None)
+                .await?
+                .profiles
+                .iter()
+                .any(|p| p.user_id == users[0])
+        );
         Ok(())
-    }.await;
+    }
+    .await;
     cleanup(&database, &users).await?;
     activity.close().await;
     database.close().await;
     result
+}
+
+#[tokio::test]
+async fn writes_wait_for_a_concurrent_pause_and_recheck_both_participants()
+-> Result<(), Box<dyn std::error::Error>> {
+    use histae_api_rust::discovery::store::DiscoveryStoreError;
+    use histae_api_rust::matches::service::MatchError;
+
+    let (database, activity, service, swipes) = services(&postgres_config()?).await?;
+    let users = [Uuid::new_v4(), Uuid::new_v4()];
+    for (index, user) in users.iter().enumerate() {
+        ready_user(&database, *user, index as i32 + 1, 48.8566).await?;
+    }
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        for paused_user in users {
+            for create_match in [false, true] {
+                let mut connection = database.acquire().await?;
+                let mut pausing = sqlx::Connection::begin(&mut *connection).await?;
+                sqlx::query("UPDATE user_account SET discovery_paused=true WHERE user_id=$1")
+                    .bind(paused_user)
+                    .execute(&mut *pausing)
+                    .await?;
+                let pending = if create_match {
+                    let creator = MatchService::new(
+                        Arc::new(PgMatchRepository::new(database.clone())),
+                        Arc::new(PgMatchMessageRepository::new(database.clone())),
+                        Arc::new(NoPhotoUrls),
+                        Arc::new(NoopMatchEventPublisher),
+                        Arc::new(SystemClock),
+                    );
+                    tokio::spawn(async move {
+                        matches!(
+                            creator.create_from_mutual_like(users[0], users[1]).await,
+                            Err(MatchError::CandidateNotFound)
+                        )
+                    })
+                } else {
+                    let swipes = swipes.clone();
+                    tokio::spawn(async move {
+                        let expected = if paused_user == users[0] {
+                            DiscoveryStoreError::NotReady
+                        } else {
+                            DiscoveryStoreError::CandidateNotFound
+                        };
+                        swipes.record(users[0], users[1], SwipeDecision::Like).await
+                            == Err(expected)
+                    })
+                };
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+                loop {
+                    let waiting: bool = sqlx::query_scalar(
+                        "SELECT EXISTS (
+                           SELECT 1 FROM pg_locks AS lock
+                           JOIN pg_stat_activity AS activity ON activity.pid=lock.pid
+                           WHERE NOT lock.granted AND lock.locktype='transactionid'
+                             AND activity.datname=current_database()
+                             AND activity.usename=current_user
+                         )",
+                    )
+                    .fetch_one(database.acquire().await?.as_mut())
+                    .await?;
+                    if waiting {
+                        break;
+                    }
+                    assert!(!pending.is_finished(), "the write must wait for the pause");
+                    assert!(
+                        tokio::time::Instant::now() < deadline,
+                        "the write must reach the account lock"
+                    );
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                pausing.commit().await?;
+                drop(connection);
+                assert!(pending.await?, "the committed pause must reject the write");
+                service.set_paused(paused_user, false).await?;
+            }
+        }
+        let writes: i64 = sqlx::query_scalar(
+            "SELECT (SELECT count(*) FROM swipe_decision WHERE actor_id=ANY($1))
+                  + (SELECT count(*) FROM match_init WHERE user1_id=ANY($1) OR user2_id=ANY($1))",
+        )
+        .bind(&users[..])
+        .fetch_one(database.acquire().await?.as_mut())
+        .await?;
+        assert_eq!(writes, 0, "no discovery write may survive the pause race");
+        Ok(())
+    }
+    .await;
+    let cleaned = cleanup(&database, &users).await;
+    activity.close().await;
+    database.close().await;
+    result?;
+    cleaned?;
+    Ok(())
 }

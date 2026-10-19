@@ -15,7 +15,7 @@
 
 Il n’existe plus de ledger `schema_migrations`. Le migrateur retire cette ancienne table si elle est présente.
 
-Mode pause (19 octobre 2026) : `user_account.discovery_paused boolean NOT NULL DEFAULT false` est créé par le schéma neuf et ajouté de manière idempotente aux bases existantes par `db-migrate`. La vérification de démarrage exige cette colonne booléenne non nullable ; exécuter le migrateur avant la nouvelle API. Aucune migration ni modification de production n’a été exécutée lors du développement mobile. Le réglage conserve les matchs, les données et l’abonnement et figure dans l’export propriétaire. Les contrôles de concurrence du swipe et de la création du match utilisent les verrous partagés sur les comptes, compatibles avec la mise à jour du réglage.
+Mode pause (19 octobre 2026) : `user_account.discovery_paused boolean NOT NULL DEFAULT false` est créé par le schéma neuf et ajouté de manière idempotente aux bases existantes par `db-migrate`. La vérification de démarrage exige cette colonne booléenne non nullable ; exécuter le migrateur avant la nouvelle API. Les migrations sont vérifiées sur une instance PostgreSQL jetable ; aucune modification de production n’est effectuée par ces tests. Le réglage conserve les matchs, les données et l’abonnement, figure dans l’export propriétaire et est remis à `false` lors de l’anonymisation du compte. Les contrôles de concurrence du swipe et de la création du match utilisent les verrous partagés sur les comptes, compatibles avec la mise à jour du réglage.
 
 ### Base vide
 
