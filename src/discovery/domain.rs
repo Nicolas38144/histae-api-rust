@@ -99,10 +99,12 @@ pub enum DiscoveryRequiredAction {
     SensitiveDataConsent,
     LocationConsent,
     FreshPresence,
+    ResumeDiscovery,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiscoveryStatusRow {
+    pub paused: bool,
     pub has_profile: bool,
     pub has_sex: bool,
     pub has_preferences: bool,
@@ -110,6 +112,11 @@ pub struct DiscoveryStatusRow {
     pub has_location_consent: bool,
     pub has_fresh_presence: bool,
     pub presence_expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct DiscoverySettings {
+    pub paused: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

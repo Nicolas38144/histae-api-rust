@@ -308,6 +308,8 @@ L’attribution d’un trait existant est idempotente. Une question expose `id, 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
 | GET | `/api/users/me/discovery-status` | `200 { ready, required_actions, presence_expires_at }`. |
+| GET | `/api/users/me/discovery-settings` | `200 { paused: boolean }`, visibilité persistée du compte. |
+| PATCH | `/api/users/me/discovery-settings` | `{ paused: boolean }` strict → même état confirmé ; `false` reprend la découverte. |
 | GET | `/api/feed` | `limit, cursor` → `200 { profiles, next_cursor }`. |
 | POST | `/api/swipes` | `{ target_user_id, decision: like ou pass }` → `201 { decision, matched, match? }`. |
 | GET | `/api/matches/me` | `limit, cursor` (offset déprécié) → `200 { matches, next_cursor }`. |
@@ -320,7 +322,11 @@ L’attribution d’un trait existant est idempotente. Une question expose `id, 
 | PATCH | `/api/matches/:id/messages/read` | `{ read_through_message_id }` → `200 { updated_count, read_through_message_id }`. |
 | PATCH | `/api/matches/:id/messages/:msgId/read` | Aucun corps → `200 { message: "message marked as read" }`. |
 
-**Découverte.** Demandeur et candidats doivent être actifs, avec sexe, préférences, consentements sensible/localisation courants et position de moins d’une heure. Les actions de préparation possibles sont `profile, sex, preferences, sensitive_data_consent, location_consent, fresh_presence`. Les critères âge/sexe/distance s’appliquent dans les deux sens. Blocages, matchs existants et profils déjà swipés sont exclus. Le feed expose `user_id`, prénom, âge, sexe, distance arrondie au dixième, traits, bio et réponses approuvées. Limites : feed 60/min/utilisateur ; swipe 120/min/utilisateur.
+**Découverte.** Demandeur et candidats doivent être actifs, avec sexe, préférences, consentements sensible/localisation courants et position de moins d’une heure. Les actions de préparation possibles sont `profile, sex, preferences, sensitive_data_consent, location_consent, fresh_presence, resume_discovery`. Les critères âge/sexe/distance s’appliquent dans les deux sens. Blocages, matchs existants et profils déjà swipés sont exclus. Le feed expose `user_id`, prénom, âge, sexe, distance arrondie au dixième, traits, bio et réponses approuvées. Limites : feed 60/min/utilisateur ; swipe 120/min/utilisateur.
+
+**Mode pause.** `paused` vaut `false` à la création du compte et persiste entre sessions/appareils. Avec `true`, le profil est exclu des nouvelles lectures du feed et ne peut plus envoyer ni recevoir de nouveaux swipes ou créer de nouveaux matchs. Les écritures de swipe et de création du match recontrôlent la pause sous verrou de ligne ; une carte chargée avant la pause ne suffit pas à autoriser un nouveau like. Une lecture déjà reçue ne peut pas être effacée à distance. Le diagnostic ajoute `resume_discovery` aux actions requises ; `ready` devient faux. La reprise réévalue les autres prérequis, notamment la fraîcheur de la position. Matchs, conversations, consentements, photo et abonnement existants sont conservés. Le réglage apparaît dans l’export propriétaire sous `account.discovery_paused`.
+
+Les deux routes de réglage exigent le compte mobile avec onboarding terminé, utilisent le même budget dédié de 60 requêtes/min/utilisateur et n’acceptent aucun identifiant de compte en entrée. Le PATCH est une affectation idempotente, sans rejeu réseau automatique. Erreurs : `400 invalid_discovery_settings`, `429 discovery_settings_rate_limit_exceeded`, erreurs communes de session/base. Le schéma et le migrateur doivent être mis à jour avant de déployer cette API. Collections Postman FR/EN mises à jour ; compilation et tests Rust non exécutés sur le poste Windows sans chaîne Rust.
 
 Une décision de swipe est immuable pendant sa rétention. Deux likes réciproques créent un seul match ; aucun endpoint ne permet de fabriquer directement un match. Erreurs : `409 discovery_not_ready`, `404 discovery_candidate_not_found`, `409 swipe_already_recorded`, `400 invalid_cursor`, `429 swipe_rate_limit_exceeded`, `429 feed_rate_limit_exceeded`, `503 discovery_unavailable`.
 

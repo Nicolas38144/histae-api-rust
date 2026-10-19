@@ -8,7 +8,8 @@ use uuid::Uuid;
 
 use super::cursor::FeedCursorCodec;
 use super::domain::{
-    DiscoveryCursor, DiscoveryRequiredAction, DiscoveryStatus, FeedCandidate, SwipeDecision,
+    DiscoveryCursor, DiscoveryRequiredAction, DiscoverySettings, DiscoveryStatus, FeedCandidate,
+    SwipeDecision,
 };
 use super::store::{DiscoveryRepository, DiscoveryStoreError, SwipeStore};
 use crate::config::LegalConfig;
@@ -119,6 +120,26 @@ impl DiscoveryService {
         }
     }
 
+    pub async fn settings(&self, user_id: Uuid) -> Result<DiscoverySettings, DiscoveryError> {
+        self.repository
+            .paused(user_id)
+            .await
+            .map(|paused| DiscoverySettings { paused })
+            .map_err(repository_error)
+    }
+
+    pub async fn set_paused(
+        &self,
+        user_id: Uuid,
+        paused: bool,
+    ) -> Result<DiscoverySettings, DiscoveryError> {
+        self.repository
+            .set_paused(user_id, paused)
+            .await
+            .map(|paused| DiscoverySettings { paused })
+            .map_err(repository_error)
+    }
+
     pub async fn status(&self, user_id: Uuid) -> Result<DiscoveryStatus, DiscoveryError> {
         let row = self
             .repository
@@ -130,6 +151,9 @@ impl DiscoveryService {
             .await
             .map_err(repository_error)?;
         let mut required_actions = Vec::new();
+        if row.paused {
+            required_actions.push(DiscoveryRequiredAction::ResumeDiscovery);
+        }
         if !row.has_profile {
             required_actions.push(DiscoveryRequiredAction::Profile);
         } else if !row.has_sex {
@@ -350,6 +374,8 @@ impl DiscoveryService {
 
 fn repository_error(error: DiscoveryStoreError) -> DiscoveryError {
     match error {
+        DiscoveryStoreError::NotReady => DiscoveryError::NotReady,
+        DiscoveryStoreError::CandidateNotFound => DiscoveryError::CandidateNotFound,
         DiscoveryStoreError::Database(error) => DiscoveryError::Database(error),
         DiscoveryStoreError::AccountActivity(error) => DiscoveryError::AccountActivity(error),
         DiscoveryStoreError::InvalidStoredData => {
@@ -360,6 +386,8 @@ fn repository_error(error: DiscoveryStoreError) -> DiscoveryError {
 
 fn swipe_error(error: DiscoveryStoreError) -> DiscoveryError {
     match error {
+        DiscoveryStoreError::NotReady => DiscoveryError::NotReady,
+        DiscoveryStoreError::CandidateNotFound => DiscoveryError::CandidateNotFound,
         DiscoveryStoreError::AccountActivity(error) => DiscoveryError::AccountActivity(error),
         DiscoveryStoreError::Database(_) | DiscoveryStoreError::InvalidStoredData => {
             DiscoveryError::Unavailable
@@ -376,6 +404,7 @@ mod tests {
     #[test]
     fn preserves_required_action_order_and_profile_sex_exclusivity() {
         let row = super::super::domain::DiscoveryStatusRow {
+            paused: false,
             has_profile: false,
             has_sex: false,
             has_preferences: false,

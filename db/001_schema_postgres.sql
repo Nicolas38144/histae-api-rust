@@ -19,6 +19,7 @@ CREATE TABLE user_account (
     phone_number_hash text NOT NULL,
     phone_number_encrypted bytea NOT NULL,
     is_banned boolean DEFAULT false NOT NULL,
+    discovery_paused boolean DEFAULT false NOT NULL,
     banned_at timestamp with time zone,
     banned_reason text,
     banned_by uuid,

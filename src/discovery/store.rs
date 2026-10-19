@@ -20,6 +20,8 @@ pub enum DiscoveryStoreError {
     Database(DatabaseError),
     AccountActivity(AccountActivityError),
     InvalidStoredData,
+    NotReady,
+    CandidateNotFound,
 }
 
 impl fmt::Display for DiscoveryStoreError {
@@ -28,6 +30,8 @@ impl fmt::Display for DiscoveryStoreError {
             Self::Database(error) => error.safe_code(),
             Self::AccountActivity(error) => error.safe_code(),
             Self::InvalidStoredData => "invalid_discovery_data",
+            Self::NotReady => "discovery_not_ready",
+            Self::CandidateNotFound => "discovery_candidate_not_found",
         };
         formatter.write_str(code)
     }
@@ -48,6 +52,9 @@ impl From<AccountActivityError> for DiscoveryStoreError {
 }
 
 pub trait DiscoveryRepository: Send + Sync {
+    fn paused(&self, user_id: Uuid) -> DiscoveryStoreFuture<'_, bool>;
+    fn set_paused(&self, user_id: Uuid, paused: bool) -> DiscoveryStoreFuture<'_, bool>;
+
     fn feed_batch(
         &self,
         user_id: Uuid,

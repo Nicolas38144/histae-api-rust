@@ -5,7 +5,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use super::domain::{DiscoveryStatus, SwipeDecision};
+use super::domain::{DiscoverySettings, DiscoveryStatus, SwipeDecision};
 use super::service::{DiscoveryError, DiscoveryService, FeedPage, SwipeResponse};
 use crate::config::LimitPolicy;
 use crate::http::error::ApiError;
@@ -43,10 +43,71 @@ impl DiscoveryHttpState {
 pub fn routes(state: DiscoveryHttpState, auth: MobileAuthState) -> Router<HttpState> {
     Router::new()
         .route("/api/users/me/discovery-status", get(status))
+        .route(
+            "/api/users/me/discovery-settings",
+            get(settings).patch(update_settings),
+        )
         .route("/api/feed", get(feed))
         .route("/api/swipes", post(swipe))
         .layer(Extension(state))
         .layer(Extension(auth))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DiscoverySettingsBody {
+    paused: bool,
+}
+
+impl ApiDto for DiscoverySettingsBody {
+    const ERROR_CODE: &'static str = "invalid_discovery_settings";
+    const ERROR_MESSAGE: &'static str = "The discovery settings are invalid.";
+    fn is_valid(&self) -> bool {
+        true
+    }
+}
+
+async fn settings(
+    OnboardedMobile(identity): OnboardedMobile,
+    Extension(state): Extension<DiscoveryHttpState>,
+) -> Result<Json<DiscoverySettings>, ApiError> {
+    state
+        .limiter
+        .enforce(
+            "discovery-settings",
+            &identity.account.user_id.to_string(),
+            &state.feed_policy,
+            "discovery_settings_rate_limit_exceeded",
+        )
+        .await?;
+    state
+        .service
+        .settings(identity.account.user_id)
+        .await
+        .map(Json)
+        .map_err(discovery_error)
+}
+
+async fn update_settings(
+    OnboardedMobile(identity): OnboardedMobile,
+    Extension(state): Extension<DiscoveryHttpState>,
+    ValidatedJson(body): ValidatedJson<DiscoverySettingsBody>,
+) -> Result<Json<DiscoverySettings>, ApiError> {
+    state
+        .limiter
+        .enforce(
+            "discovery-settings",
+            &identity.account.user_id.to_string(),
+            &state.feed_policy,
+            "discovery_settings_rate_limit_exceeded",
+        )
+        .await?;
+    state
+        .service
+        .set_paused(identity.account.user_id, body.paused)
+        .await
+        .map(Json)
+        .map_err(discovery_error)
 }
 
 async fn status(

@@ -989,6 +989,69 @@
               "response": []
             },
             {
+              "name": "GET /api/users/me/discovery-settings",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/discovery-settings",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 { paused }. false resumes discovery; existing matches and consents are preserved."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/users/me/discovery-settings",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/discovery-settings",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "200 { paused }. false resumes discovery; existing matches and consents are preserved.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"paused\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
               "name": "GET /api/feed",
               "request": {
                 "method": "GET",

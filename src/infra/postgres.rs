@@ -202,6 +202,18 @@ impl Database {
     pub async fn verify_schema_compatibility(&self) -> Result<(), DatabaseError> {
         let mut connection = self.acquire().await?;
         verify_schema_compatibility_on(&mut connection).await?;
+        let visibility_ready: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_attribute
+             WHERE attrelid=to_regclass(current_schema() || '.user_account')
+               AND attname='discovery_paused' AND atttypid='bool'::regtype
+               AND attnotnull AND NOT attisdropped)",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(map_sqlx_error)?;
+        if !visibility_ready {
+            return Err(DatabaseError::SchemaObjectsMissing);
+        }
         let credits_ready: bool = sqlx::query_scalar(
             "SELECT to_regclass(current_schema() || '.continuation_wallet') IS NOT NULL
                 AND to_regclass(current_schema() || '.continuation_reservation') IS NOT NULL

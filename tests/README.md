@@ -146,3 +146,13 @@ campagne locale de migration sont conservés dans ce guide.
 
 Les tests `advertising::ssv::tests` couvrent la signature, le cache périmé, l’actualisation concurrente et
 les limites d’admission, avec des clés générées en mémoire et sans appel à Google.
+
+
+## Mode pause de la découverte — 19 octobre 2026
+
+Deux contrôles ajoutés, **non exécutés sur le poste mobile sans chaîne Rust** :
+
+- `cargo test --test discovery_contract discovery_pause_is_authenticated_persistent_and_blocks_new_discovery` : authentification, booléen strict, persistance, affectation répétée, blocage/reprise du feed et des nouveaux swipes.
+- `cargo test --features postgres-integration --test discovery_postgres paused_profiles_are_filtered_and_atomic_writes_preserve_existing_matches` : filtres PostgreSQL demandeur/candidat, écriture directe sous verrou, création de match refusée pendant la pause et conservation du match existant. Utiliser uniquement l’infrastructure locale de test gardée par cette suite, après migration du schéma.
+
+Exécuter également le formatage et la compilation Rust avant livraison. Les contrôles Flutter avec réponses simulées ne remplacent pas ces vérifications serveur. Aucune base réelle, migration ou service n’a été modifié lors de cette intervention.

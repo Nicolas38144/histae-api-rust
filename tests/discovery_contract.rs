@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -136,11 +136,19 @@ impl MobileSessionStore for AuthStore {
 
 #[derive(Clone)]
 struct FakeRepository {
+    paused: Arc<AtomicBool>,
     ready: bool,
     candidates: Vec<DiscoveryCandidateRow>,
 }
 
 impl DiscoveryRepository for FakeRepository {
+    fn paused(&self, _: Uuid) -> DiscoveryStoreFuture<'_, bool> {
+        Box::pin(async move { Ok(self.paused.load(Ordering::SeqCst)) })
+    }
+    fn set_paused(&self, _: Uuid, paused: bool) -> DiscoveryStoreFuture<'_, bool> {
+        Box::pin(async move { self.paused.store(paused, Ordering::SeqCst); Ok(paused) })
+    }
+
     fn status(
         &self,
         _user_id: Uuid,
@@ -150,6 +158,7 @@ impl DiscoveryRepository for FakeRepository {
         let ready = self.ready;
         Box::pin(async move {
             Ok(DiscoveryStatusRow {
+                paused: self.paused.load(Ordering::SeqCst),
                 has_profile: ready,
                 has_sex: ready,
                 has_preferences: ready,
@@ -167,7 +176,7 @@ impl DiscoveryRepository for FakeRepository {
         _sensitive_version: &str,
         _location_version: &str,
     ) -> DiscoveryStoreFuture<'_, bool> {
-        let ready = self.ready;
+        let ready = self.ready && !self.paused.load(Ordering::SeqCst);
         Box::pin(async move { Ok(ready) })
     }
 
@@ -367,6 +376,15 @@ fn app(
     candidates: Vec<DiscoveryCandidateRow>,
     swipes: FakeSwipes,
 ) -> (axum::Router, String) {
+    app_with_pause(ready, candidates, swipes, Arc::new(AtomicBool::new(false)))
+}
+
+fn app_with_pause(
+    ready: bool,
+    candidates: Vec<DiscoveryCandidateRow>,
+    swipes: FakeSwipes,
+    paused: Arc<AtomicBool>,
+) -> (axum::Router, String) {
     let tokens = TokenService::new(jwt_config());
     let auth = MobileAuthService::new(
         tokens.clone(),
@@ -383,7 +401,7 @@ fn app(
     };
     let auth_state = MobileAuthState::new(auth, limiter.clone(), policy.clone());
     let service = DiscoveryService::new(
-        Arc::new(FakeRepository { ready, candidates }),
+        Arc::new(FakeRepository { paused, ready, candidates }),
         Arc::new(swipes),
         Arc::new(FakeMatches),
         legal(),
@@ -654,6 +672,7 @@ async fn adaptive_feed_refills_after_concurrent_swipes_without_skipping_pages() 
     // committed after its snapshot and caught by the service's recheck.
     let service = DiscoveryService::new(
         Arc::new(FakeRepository {
+            paused: Arc::new(AtomicBool::new(false)),
             ready: true,
             candidates: rows.clone(),
         }),
@@ -689,6 +708,7 @@ async fn adaptive_feed_refills_after_concurrent_swipes_without_skipping_pages() 
 async fn unready_feed_keeps_precedence_over_an_invalid_cursor() {
     let service = DiscoveryService::new(
         Arc::new(FakeRepository {
+            paused: Arc::new(AtomicBool::new(false)),
             ready: false,
             candidates: vec![],
         }),
@@ -708,6 +728,13 @@ struct FailedCombinedRepository {
 }
 
 impl DiscoveryRepository for FailedCombinedRepository {
+    fn paused(&self, _: Uuid) -> DiscoveryStoreFuture<'_, bool> {
+        Box::pin(async { Err(DatabaseError::QueryFailed.into()) })
+    }
+    fn set_paused(&self, _: Uuid, _: bool) -> DiscoveryStoreFuture<'_, bool> {
+        Box::pin(async { Err(DatabaseError::QueryFailed.into()) })
+    }
+
     fn feed_batch(
         &self,
         _: Uuid,
@@ -775,6 +802,7 @@ async fn identical_like_replay_recovers_after_match_creation_failure() {
     let matches = FlakyMatches::default();
     let service = DiscoveryService::new(
         Arc::new(FakeRepository {
+            paused: Arc::new(AtomicBool::new(false)),
             ready: true,
             candidates: vec![candidate(target, 1.0)],
         }),
@@ -820,4 +848,46 @@ fn authenticated(uri: &str, method: &str, token: &str, body: Option<Value>) -> R
     builder
         .body(body.map_or_else(Body::empty, |value| Body::from(value.to_string())))
         .unwrap_or_else(|_| unreachable!())
+}
+
+
+#[tokio::test]
+async fn discovery_pause_is_authenticated_persistent_and_blocks_new_discovery() {
+    let target = Uuid::new_v4();
+    let paused = Arc::new(AtomicBool::new(false));
+    let (app, token) = app_with_pause(true, vec![candidate(target, 1.0)], FakeSwipes::default(), paused.clone());
+    let route = "/api/users/me/discovery-settings";
+    let response = app.clone().oneshot(authenticated(route, "GET", &token, None)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(json_response(response).await, json!({"paused": false}));
+
+    let response = app.clone().oneshot(Request::builder().method("PATCH").uri(route)
+        .header(header::CONTENT_TYPE, "application/json").body(Body::from(r#"{"paused":true}"#)).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(!paused.load(Ordering::SeqCst));
+    for invalid in [json!({}), json!({"paused": null}), json!({"paused": "true"}), json!({"paused": true, "user_id": target})] {
+        let response = app.clone().oneshot(authenticated(route, "PATCH", &token, Some(invalid))).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert!(!paused.load(Ordering::SeqCst));
+    }
+    for _ in 0..2 {
+        let response = app.clone().oneshot(authenticated(route, "PATCH", &token, Some(json!({"paused": true})))).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(json_response(response).await, json!({"paused": true}));
+    }
+    let response = app.clone().oneshot(authenticated("/api/users/me/discovery-status", "GET", &token, None)).await.unwrap();
+    assert_eq!(json_response(response).await["required_actions"], json!(["resume_discovery"]));
+    for (route, method, body) in [
+        ("/api/feed", "GET", None),
+        ("/api/swipes", "POST", Some(json!({"target_user_id": target, "decision": "like"}))),
+    ] {
+        let response = app.clone().oneshot(authenticated(route, method, &token, body)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(json_response(response).await["error"]["code"], "discovery_not_ready");
+    }
+    let response = app.clone().oneshot(authenticated(route, "PATCH", &token, Some(json!({"paused": false})))).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = app.oneshot(authenticated("/api/feed", "GET", &token, None)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(json_response(response).await["profiles"][0]["user_id"], target.to_string());
 }

@@ -48,6 +48,18 @@ impl MatchStore for PgMatchRepository {
                             record.user2_id,
                         )
                         .await?;
+                        let available: Vec<bool> = sqlx::query_scalar(
+                            "SELECT discovery_paused FROM user_account
+                             WHERE user_id=ANY($1) AND deleted_at IS NULL AND NOT is_banned
+                             ORDER BY user_id FOR SHARE",
+                        )
+                        .bind(vec![record.user1_id, record.user2_id])
+                        .fetch_all(&mut *connection)
+                        .await
+                        .map_err(map_sqlx_error)?;
+                        if available.len() != 2 || available.into_iter().any(|paused| paused) {
+                            return Err(MatchStoreError::ParticipantUnavailable);
+                        }
                         let inserted = sqlx::query(
                             "INSERT INTO match_init
                              (id, user1_id, user2_id, status, expires_at, purge_after,

@@ -80,6 +80,8 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
+    sqlx::query("ALTER TABLE user_account ADD COLUMN IF NOT EXISTS discovery_paused boolean NOT NULL DEFAULT false")
+        .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
     let legacy_checkout: bool = sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'billing_checkout_session' AND column_name = 'stripe_checkout_request')")
         .fetch_one(&mut *transaction).await.map_err(map_sqlx_error)?;
     sqlx::query("ALTER TABLE billing_checkout_session ADD COLUMN IF NOT EXISTS stripe_checkout_request jsonb")

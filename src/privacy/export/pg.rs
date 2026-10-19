@@ -42,6 +42,7 @@ impl PgDataExportStore {
                         &mut transaction,
                         "SELECT jsonb_build_object(
                            'user_id', user_id, 'role', role, 'is_banned', is_banned,
+                           'discovery_paused', discovery_paused,
                            'deleted_at', CASE WHEN deleted_at IS NULL THEN NULL ELSE
                              to_char(deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END,
                            'anonymized_at', CASE WHEN anonymized_at IS NULL THEN NULL ELSE

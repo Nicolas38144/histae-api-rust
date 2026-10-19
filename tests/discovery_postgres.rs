@@ -597,3 +597,47 @@ async fn simultaneous_mutual_likes_create_one_match_and_keep_decisions_immutable
     database.close().await;
     test_result
 }
+
+
+#[tokio::test]
+async fn paused_profiles_are_filtered_and_atomic_writes_preserve_existing_matches()
+-> Result<(), Box<dyn std::error::Error>> {
+    use histae_api_rust::discovery::service::DiscoveryError;
+    use histae_api_rust::discovery::store::DiscoveryStoreError;
+    use histae_api_rust::matches::store::MatchStore;
+
+    let (database, activity, service, swipes) = services(&postgres_config()?).await?;
+    let users = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+    for (index, user) in users.iter().enumerate() {
+        ready_user(&database, *user, index as i32 + 1, 48.8566 + index as f64 * 0.001).await?;
+    }
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        service.swipe(users[0], users[1], SwipeDecision::Like).await?;
+        let existing = service.swipe(users[1], users[0], SwipeDecision::Like).await?;
+        assert!(existing.matched);
+        assert!(service.feed(users[2], 20, None).await?.profiles.iter().any(|p| p.user_id == users[0]));
+        service.set_paused(users[0], true).await?;
+        let second_reader = PgDiscoveryRepository::new(database.clone());
+        assert!(second_reader.paused(users[0]).await?);
+        assert!(!service.feed(users[2], 20, None).await?.profiles.iter().any(|p| p.user_id == users[0]));
+        assert_eq!(service.feed(users[0], 20, None).await, Err(DiscoveryError::NotReady));
+        assert_eq!(service.swipe(users[2], users[0], SwipeDecision::Like).await, Err(DiscoveryError::CandidateNotFound));
+        assert_eq!(swipes.record(users[2], users[0], SwipeDecision::Like).await, Err(DiscoveryStoreError::CandidateNotFound));
+        assert_eq!(swipes.record(users[0], users[2], SwipeDecision::Like).await, Err(DiscoveryStoreError::NotReady));
+        let matches = PgMatchRepository::new(database.clone());
+        assert_eq!(matches.list_for_user(users[0], 20, 0, None).await?.len(), 1);
+        let creator = MatchService::new(
+            Arc::new(matches),
+            Arc::new(PgMatchMessageRepository::new(database.clone())),
+            Arc::new(NoPhotoUrls), Arc::new(NoopMatchEventPublisher), Arc::new(SystemClock),
+        );
+        assert!(creator.create_from_mutual_like(users[0], users[2]).await.is_err());
+        service.set_paused(users[0], false).await?;
+        assert!(service.feed(users[2], 20, None).await?.profiles.iter().any(|p| p.user_id == users[0]));
+        Ok(())
+    }.await;
+    cleanup(&database, &users).await?;
+    activity.close().await;
+    database.close().await;
+    result
+}

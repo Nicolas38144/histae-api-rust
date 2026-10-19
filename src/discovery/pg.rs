@@ -73,6 +73,38 @@ impl PgDiscoveryRepository {
 }
 
 impl DiscoveryRepository for PgDiscoveryRepository {
+    fn paused(&self, user_id: Uuid) -> DiscoveryStoreFuture<'_, bool> {
+        Box::pin(async move {
+            let mut connection = self.database.acquire().await?;
+            sqlx::query_scalar::<_, bool>(
+                "SELECT discovery_paused FROM user_account
+                 WHERE user_id=$1 AND deleted_at IS NULL AND NOT is_banned",
+            )
+            .bind(user_id)
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(map_sqlx_error)?
+            .ok_or_else(|| crate::infra::postgres::DatabaseError::AccountUnavailable.into())
+        })
+    }
+
+    fn set_paused(&self, user_id: Uuid, paused: bool) -> DiscoveryStoreFuture<'_, bool> {
+        Box::pin(async move {
+            let mut connection = self.database.acquire().await?;
+            sqlx::query_scalar::<_, bool>(
+                "UPDATE user_account SET discovery_paused=$2
+                 WHERE user_id=$1 AND deleted_at IS NULL AND NOT is_banned
+                 RETURNING discovery_paused",
+            )
+            .bind(user_id)
+            .bind(paused)
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(map_sqlx_error)?
+            .ok_or_else(|| crate::infra::postgres::DatabaseError::AccountUnavailable.into())
+        })
+    }
+
     fn feed_batch(
         &self,
         user_id: Uuid,
@@ -113,6 +145,7 @@ impl DiscoveryRepository for PgDiscoveryRepository {
                 .await
                 .map_err(map_sqlx_error)?;
             Ok(DiscoveryStatusRow {
+                paused: row.try_get("paused").map_err(map_sqlx_error)?,
                 has_profile: row.try_get("has_profile").map_err(map_sqlx_error)?,
                 has_sex: row.try_get("has_sex").map_err(map_sqlx_error)?,
                 has_preferences: row.try_get("has_preferences").map_err(map_sqlx_error)?,
@@ -222,6 +255,31 @@ impl PgSwipeStore {
             .database
             .transaction(|connection| {
                 Box::pin(async move {
+                    let accounts = sqlx::query(
+                        "SELECT user_id, discovery_paused FROM user_account
+                         WHERE user_id=ANY($1) AND deleted_at IS NULL AND NOT is_banned
+                         ORDER BY user_id FOR SHARE",
+                    )
+                    .bind(vec![actor_id, target_id])
+                    .fetch_all(&mut *connection)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                    if accounts.len() != 2 {
+                        return Err(DiscoveryStoreError::CandidateNotFound);
+                    }
+                    for account in accounts {
+                        if account
+                            .try_get::<bool, _>("discovery_paused")
+                            .map_err(map_sqlx_error)?
+                        {
+                            let id: Uuid = account.try_get("user_id").map_err(map_sqlx_error)?;
+                            return Err(if id == actor_id {
+                                DiscoveryStoreError::NotReady
+                            } else {
+                                DiscoveryStoreError::CandidateNotFound
+                            });
+                        }
+                    }
                     if let Some(stored) = sqlx::query_scalar::<_, String>(
                         "INSERT INTO swipe_decision
                          (actor_id, target_id, decision, swiped_at, expires_at)
@@ -393,6 +451,7 @@ fn map_candidate(
 
 const STATUS_SQL: &str = r#"
 SELECT
+  COALESCE((SELECT discovery_paused FROM user_account WHERE user_id=$1), false) AS paused,
   EXISTS (SELECT 1 FROM user_profile WHERE user_id = $1) AS has_profile,
   EXISTS (SELECT 1 FROM user_profile WHERE user_id = $1 AND sex IS NOT NULL) AS has_sex,
   EXISTS (SELECT 1 FROM user_preferences WHERE user_id = $1) AS has_preferences,
@@ -415,7 +474,7 @@ SELECT EXISTS (
   JOIN user_presence AS presence ON presence.user_id = account.user_id
     AND presence.is_location_fresh = true
     AND presence.updated_at > clock_timestamp() - INTERVAL '1 hour'
-  WHERE account.user_id = $1 AND account.deleted_at IS NULL AND account.is_banned = false
+  WHERE account.user_id = $1 AND account.deleted_at IS NULL AND account.is_banned = false AND NOT account.discovery_paused
     AND EXISTS (SELECT 1 FROM user_consent WHERE user_id = account.user_id
       AND consent_type = 'sensitive_data_consent' AND granted = true
       AND withdrawn_at IS NULL AND document_version = $2)
@@ -443,7 +502,7 @@ WITH viewer AS MATERIALIZED (
   JOIN user_profile AS profile ON profile.user_id = account.user_id AND profile.sex IS NOT NULL
   JOIN user_preferences AS preferences ON preferences.user_id = account.user_id
   JOIN user_presence AS presence ON presence.user_id = account.user_id
-  WHERE account.user_id = $1 AND account.deleted_at IS NULL AND account.is_banned = false
+  WHERE account.user_id = $1 AND account.deleted_at IS NULL AND account.is_banned = false AND NOT account.discovery_paused
     AND presence.is_location_fresh = true
     AND presence.updated_at > statement_timestamp() - INTERVAL '1 hour'
     AND EXISTS (SELECT 1 FROM user_consent WHERE user_id = account.user_id
@@ -527,7 +586,7 @@ const FEED_PAGE_SQL: &str = r#"
       AND target.birthdate <= viewer.youngest_birthdate
       AND ($7::uuid IS NULL OR target.user_id = $7)
     JOIN user_account AS account ON account.user_id = target.user_id
-      AND account.deleted_at IS NULL AND NOT account.is_banned
+      AND account.deleted_at IS NULL AND NOT account.is_banned AND NOT account.discovery_paused
     JOIN user_preferences AS preferences ON preferences.user_id = target.user_id
     WHERE viewer.age BETWEEN preferences.min_age AND preferences.max_age
       AND (viewer.looking_for = target.sex OR (viewer.looking_for = 'both' AND target.sex IN ('male', 'female')))
@@ -605,7 +664,7 @@ JOIN user_profile AS target ON target.user_id = target_presence.user_id
     AND target.birthdate <= viewer.youngest_birthdate
     AND ($7::uuid IS NULL OR target.user_id = $7)
   JOIN user_account AS target_account ON target_account.user_id = target.user_id
-    AND target_account.deleted_at IS NULL AND target_account.is_banned = false
+    AND target_account.deleted_at IS NULL AND target_account.is_banned = false AND NOT target_account.discovery_paused
   JOIN user_preferences AS target_preferences ON target_preferences.user_id = target.user_id
   WHERE viewer.age BETWEEN target_preferences.min_age AND target_preferences.max_age
     AND (viewer.looking_for = target.sex OR (viewer.looking_for = 'both' AND target.sex IN ('male', 'female')))
