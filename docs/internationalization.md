@@ -46,9 +46,23 @@ Content-Type: application/json
 
 Les notifications push sont localisées à la livraison ; le flux SSE reste un protocole technique sans traduction.
 
+## Application Flutter
+
+`histae-app` partage la langue du sélecteur avec ses clients HTTP publics et authentifiés. Les requêtes portent `Accept-Language`, y compris multipart et ouvertures SSE/export. Le choix « appareil » utilise la langue principale du système, avec repli français. Les contenus personnels et les identifiants restent inchangés.
+
+Sans préférence locale enregistrée, le mobile peut reprendre la langue du compte après vérification de son identité. Un choix explicite connecté appelle `PATCH /api/users/me/language` ; la restauration ne réécrit pas silencieusement cette préférence. Les notifications déjà autorisées utilisent une exception de langue par appareil, actualisée par réenregistrement du même jeton.
+
+Les reprises techniques OTP gardent le numéro, la clé et la langue de l’intention d’origine. Les nouvelles tentatives Checkout sauvegardent aussi leur langue avant le premier POST. Le mobile compare version, URL et langue du document présenté avant un PUT de consentements et conserve la distinction entre langue disponible et langue historique d’acceptation.
+
+Les révisions de traduction sont distinctes des révisions de confidentialité : elles rechargent les lectures sans supprimer les brouillons ni les intentions. Les gardes de session et de consentement continuent à s’appliquer. Voir le [guide mobile des langues API](../../histae-app/docs/api-languages.md), notamment les commandes de validation sur une machine avec Flutter. Cette adaptation mobile a été préparée sans SDK Flutter/Dart local ; ses tests et sa compilation restent à exécuter.
+
 ## Catalogues et dashboard
 
-Le français reste la source canonique de `name` / `prompt`. Les réponses administratives ajoutent `translations`, une carte des traductions disponibles, français inclus. Le dashboard reste en français et demande explicitement `Accept-Language: fr`. Il édite les trois autres langues et affiche leur couverture.
+Le français reste la source canonique de `name` / `prompt`. Les réponses administratives ajoutent `translations`, une carte des traductions disponibles, français inclus. Le dashboard propose le français, l’anglais, l’espagnol et l’italien dès la connexion et dans l’en-tête. Il conserve ce choix localement et envoie la langue courante dans `Accept-Language` à chaque appel.
+
+Les listes affichent la projection localisée. Les champs d’édition français continuent de modifier la source canonique, indépendamment de la langue d’interface ; les trois autres champs éditent les traductions et les indicateurs EN/ES/IT montrent leur couverture. Changer de langue recharge les lectures et reprend la pagination à sa première page sans effacer les saisies en cours. Les motifs d’audit, noms et messages des utilisateurs conservent leur contenu original.
+
+Les libellés, erreurs et textes accessibles du dashboard sont centralisés dans ses quatre fichiers `src/i18n/messages/*.json`. Les dates, nombres, devises et pluriels suivent la langue choisie. Le [guide du dashboard](../../histae-dashboard/README.md#langue-de-linterface) décrit l’ajout d’un texte et les contrôles contre les libellés écrits directement dans le code.
 
 ```json
 {
@@ -126,10 +140,11 @@ Les tests utilisent des fournisseurs simulés et une base jetable ; ils ne décl
 | Régressions PostgreSQL avec rôles limités | 45 tests réussis ; reprise ciblée des 2 scénarios multilingues après intégration de la langue dans le contrôle de session |
 | Migrations | Base neuve, ancien schéma, couverture des traductions, question déjà personnalisée, modification et suppression de traduction préservées après réexécution |
 | Compilation Rust | Tous les binaires compilés ; contrôle sans features par défaut réussi ; formatage et Clippy sur toutes les cibles/features réussis |
-| Dashboard | 77 tests réussis ; typage, lint et build de production réussis |
+| Dashboard | Typage, lint et build réussis ; résultats de l’interface multilingue dans le [guide des tests dashboard](../../histae-dashboard/test.md#résultats-actuels) |
+| Mobile Flutter | Adaptation des appels et tests de régression préparés ; analyse, tests Flutter et compilation non exécutés sur cette machine dépourvue du SDK |
 | Contrat et Postman | 113 routes cohérentes avec les deux collections JSON |
 
 PostgreSQL a tourné dans un conteneur jetable avec le migrateur natif compilé depuis ces sources.
 Les fournisseurs SMS, Stripe et FCM ont été simulés. Aucun SMS ni paiement réel n’a été déclenché.
 Le site possède déjà les quatre variantes de ses documents et retours Stripe ; les chemins de l’API
-utilisent ces routes existantes. Le dépôt mobile n’a pas été modifié.
+utilisent ces routes existantes. Le raccordement mobile a été ajouté ensuite ; ses contrôles à lancer avec Flutter sont décrits dans son guide dédié.
