@@ -768,10 +768,9 @@ CREATE TABLE notification (
     expires_at timestamp with time zone DEFAULT (now() + '90 days'::interval) NOT NULL,
     deduplication_key text,
     billing_reference text,
-    billing_trial_ends_at timestamp with time zone,
-    CONSTRAINT chk_notification_billing_context CHECK ((((billing_reference IS NULL) AND (billing_trial_ends_at IS NULL)) OR ((type = 'billing_payment_failed'::text) AND (billing_reference IS NOT NULL) AND (billing_reference ~ '^in_[A-Za-z0-9]+$'::text) AND (billing_trial_ends_at IS NULL)) OR ((type = 'subscription_trial_ending'::text) AND (billing_reference IS NOT NULL) AND (billing_reference ~ '^sub_[A-Za-z0-9]+$'::text) AND (billing_trial_ends_at IS NOT NULL)))),
+    CONSTRAINT chk_notification_billing_context CHECK ((billing_reference IS NULL) OR ((type = 'billing_payment_failed'::text) AND (billing_reference ~ '^in_[A-Za-z0-9]+$'::text))),
     CONSTRAINT notification_deduplication_key_check CHECK (((deduplication_key IS NULL) OR (deduplication_key ~ '^[0-9a-f]{64}$'::text))),
-    CONSTRAINT notification_type_check CHECK ((type = ANY (ARRAY['new_match'::text, 'new_message'::text, 'profile_liked'::text, 'match_expiring'::text, 'billing_payment_failed'::text, 'subscription_trial_ending'::text]))),
+    CONSTRAINT notification_type_check CHECK ((type = ANY (ARRAY['new_match'::text, 'new_message'::text, 'profile_liked'::text, 'match_expiring'::text, 'billing_payment_failed'::text]))),
     CONSTRAINT notification_deduplication_key_key UNIQUE (deduplication_key),
     CONSTRAINT notification_pkey PRIMARY KEY (id),
     CONSTRAINT notification_user_id_fkey FOREIGN KEY (user_id) REFERENCES user_account(user_id) ON DELETE CASCADE

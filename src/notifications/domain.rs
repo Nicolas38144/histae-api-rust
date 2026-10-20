@@ -87,10 +87,6 @@ pub enum NotificationIntent {
     BillingPaymentFailed {
         invoice_id: String,
     },
-    SubscriptionTrialEnding {
-        subscription_id: String,
-        trial_ends_at: DateTime<Utc>,
-    },
 }
 
 impl NotificationIntent {
@@ -99,7 +95,6 @@ impl NotificationIntent {
             Self::NewMatch { .. } => "new_match",
             Self::NewMessage { .. } => "new_message",
             Self::BillingPaymentFailed { .. } => "billing_payment_failed",
-            Self::SubscriptionTrialEnding { .. } => "subscription_trial_ending",
         }
     }
 
@@ -115,28 +110,14 @@ impl NotificationIntent {
                 "message_id": message_id,
                 "sender_id": sender_id,
             }),
-            Self::BillingPaymentFailed { .. } | Self::SubscriptionTrialEnding { .. } => {
-                json!({})
-            }
+            Self::BillingPaymentFailed { .. } => json!({}),
         }
     }
 
     pub fn billing_reference(&self) -> Option<&str> {
         match self {
             Self::BillingPaymentFailed { invoice_id } => Some(invoice_id),
-            Self::SubscriptionTrialEnding {
-                subscription_id, ..
-            } => Some(subscription_id),
             Self::NewMatch { .. } | Self::NewMessage { .. } => None,
-        }
-    }
-
-    pub fn billing_trial_ends_at(&self) -> Option<DateTime<Utc>> {
-        match self {
-            Self::SubscriptionTrialEnding { trial_ends_at, .. } => Some(*trial_ends_at),
-            Self::NewMatch { .. } | Self::NewMessage { .. } | Self::BillingPaymentFailed { .. } => {
-                None
-            }
         }
     }
 }
@@ -146,7 +127,6 @@ pub enum NotificationType {
     NewMatch,
     NewMessage,
     BillingPaymentFailed,
-    SubscriptionTrialEnding,
 }
 
 impl NotificationType {
@@ -155,7 +135,6 @@ impl NotificationType {
             "new_match" => Some(Self::NewMatch),
             "new_message" => Some(Self::NewMessage),
             "billing_payment_failed" => Some(Self::BillingPaymentFailed),
-            "subscription_trial_ending" => Some(Self::SubscriptionTrialEnding),
             _ => None,
         }
     }
@@ -165,7 +144,6 @@ impl NotificationType {
             Self::NewMatch => "new_match",
             Self::NewMessage => "new_message",
             Self::BillingPaymentFailed => "billing_payment_failed",
-            Self::SubscriptionTrialEnding => "subscription_trial_ending",
         }
     }
 }

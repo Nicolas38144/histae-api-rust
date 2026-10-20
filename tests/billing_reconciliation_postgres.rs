@@ -206,7 +206,6 @@ async fn stale_provider_snapshots_do_not_overwrite_newer_projection()
                     created_at: now,
                 },
                 projection: attempted,
-                notify_trial_ending: false,
             })
             .await?;
         assert_eq!(receipt, WebhookProcessResult::Applied(None));

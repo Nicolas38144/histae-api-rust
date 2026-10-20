@@ -127,28 +127,9 @@ async fn apply_command(
 ) -> Result<Option<WebhookEffect>, ApplyError> {
     match command {
         WebhookCommand::Receipt(_) => Ok(None),
-        WebhookCommand::Subscription {
-            metadata,
-            projection,
-            notify_trial_ending,
-        } => {
+        WebhookCommand::Subscription { projection, .. } => {
             let user_id = resolve_user(connection, &projection).await?;
             let applied = upsert_subscription(connection, user_id, &projection).await?;
-            if applied
-                && notify_trial_ending
-                && let Some(trial_ends_at) = projection.trial_ends_at
-            {
-                enqueue_notification(
-                    connection,
-                    user_id,
-                    &metadata.id,
-                    &NotificationIntent::SubscriptionTrialEnding {
-                        subscription_id: projection.stripe_subscription_id.clone(),
-                        trial_ends_at,
-                    },
-                )
-                .await?;
-            }
             Ok(applied.then_some(WebhookEffect {
                 user_id,
                 subscription_status: Some(projection.status),

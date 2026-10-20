@@ -27,7 +27,6 @@ const SUBSCRIPTION_EVENTS: &[&str] = &[
     "customer.subscription.deleted",
     "customer.subscription.paused",
     "customer.subscription.resumed",
-    "customer.subscription.trial_will_end",
 ];
 const INVOICE_EVENTS: &[&str] = &[
     "invoice.paid",
@@ -87,7 +86,6 @@ pub enum WebhookCommand {
     Subscription {
         metadata: WebhookMetadata,
         projection: SubscriptionProjection,
-        notify_trial_ending: bool,
     },
     Invoice {
         metadata: WebhookMetadata,
@@ -315,7 +313,6 @@ impl StripeWebhookService {
             return Ok(WebhookCommand::Subscription {
                 metadata: event.metadata,
                 projection,
-                notify_trial_ending: event_type == "customer.subscription.trial_will_end",
             });
         }
         if INVOICE_EVENTS.contains(&event_type.as_str()) {

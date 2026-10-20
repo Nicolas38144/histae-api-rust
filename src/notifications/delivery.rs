@@ -181,7 +181,7 @@ fn allowlisted_data(pending: &PendingPush) -> Result<BTreeMap<String, String>, P
                 payload_string(&pending.payload, "match_id")?,
             );
         }
-        NotificationType::BillingPaymentFailed | NotificationType::SubscriptionTrialEnding => {}
+        NotificationType::BillingPaymentFailed => {}
     }
     if pending.notification_type == NotificationType::NewMessage {
         data.insert(

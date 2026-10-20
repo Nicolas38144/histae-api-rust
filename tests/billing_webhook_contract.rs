@@ -184,6 +184,26 @@ async fn accepts_the_exact_signed_body_and_returns_the_nest_contract() {
 }
 
 #[tokio::test]
+async fn acknowledges_retired_trial_events_without_applying_billing_effects() {
+    let (app, store, now) = fixture(10);
+    let body = serde_json::to_vec(&json!({
+        "id": "evt_RetiredTrial",
+        "type": "customer.subscription.trial_will_end",
+        "livemode": false,
+        "created": now.timestamp(),
+        "data": {"object": {"id": "sub_RetiredTrial"}}
+    }))
+    .expect("serializable event");
+    let response = app
+        .oneshot(request(body.clone(), &signature(&body, now)))
+        .await
+        .expect("webhook response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body_json(response).await, json!({"received": true}));
+    assert!(store.commands.lock().expect("commands").is_empty());
+}
+
+#[tokio::test]
 async fn rejects_invalid_signatures_before_any_database_effect() {
     let (app, store, now) = fixture(10);
     let body = checkout_event(now, false);

@@ -27,7 +27,6 @@ pub async fn enqueue_notification(
         .bind(Json(intent.payload()))
         .bind(prepared.deduplication_key)
         .bind(intent.billing_reference())
-        .bind(intent.billing_trial_ends_at())
         .execute(connection)
         .await
         .map_err(map_sqlx_error)?;
@@ -64,15 +63,13 @@ fn enqueue_sql() -> &'static str {
               FOR SHARE
             ), candidate AS (
               SELECT $1::uuid AS id, user_id, $3::text AS type, $4::jsonb AS payload,
-                $5::text AS deduplication_key, $6::text AS billing_reference,
-                $7::timestamptz AS billing_trial_ends_at
+                $5::text AS deduplication_key, $6::text AS billing_reference
               FROM account
             ), created_notification AS (
               INSERT INTO notification
-                (id, user_id, type, payload, deduplication_key,
-                 billing_reference, billing_trial_ends_at)
+                (id, user_id, type, payload, deduplication_key, billing_reference)
               SELECT id, user_id, type, payload, deduplication_key,
-                     billing_reference, billing_trial_ends_at
+                     billing_reference
               FROM candidate n
               WHERE n.type IN ('new_match', 'new_message') OR (
             "#,

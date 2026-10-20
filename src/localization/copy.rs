@@ -33,28 +33,17 @@ pub const fn notification(
             "Paiement à vérifier",
             "Votre paiement Premium a échoué. Vérifiez votre moyen de paiement.",
         ),
-        (Language::Fr, SubscriptionTrialEnding) => (
-            "Essai Premium",
-            "Votre période d’essai Premium se termine bientôt.",
-        ),
         (Language::En, NewMatch) => ("New match", "You have a new match on Histae."),
         (Language::En, NewMessage) => ("New message", "You have received a new message on Histae."),
         (Language::En, BillingPaymentFailed) => (
             "Payment needs attention",
             "Your Premium payment failed. Please check your payment method.",
         ),
-        (Language::En, SubscriptionTrialEnding) => {
-            ("Premium trial", "Your Premium trial is ending soon.")
-        }
         (Language::Es, NewMatch) => ("Nuevo match", "Tienes un nuevo match en Histae."),
         (Language::Es, NewMessage) => ("Nuevo mensaje", "Has recibido un nuevo mensaje en Histae."),
         (Language::Es, BillingPaymentFailed) => (
             "Revisa tu pago",
             "Tu pago Premium ha fallado. Revisa tu método de pago.",
-        ),
-        (Language::Es, SubscriptionTrialEnding) => (
-            "Prueba Premium",
-            "Tu periodo de prueba Premium termina pronto.",
         ),
         (Language::It, NewMatch) => ("Nuovo match", "Hai un nuovo match su Histae."),
         (Language::It, NewMessage) => (
@@ -64,10 +53,6 @@ pub const fn notification(
         (Language::It, BillingPaymentFailed) => (
             "Pagamento da verificare",
             "Il pagamento Premium non è riuscito. Controlla il metodo di pagamento.",
-        ),
-        (Language::It, SubscriptionTrialEnding) => (
-            "Prova Premium",
-            "Il tuo periodo di prova Premium sta per terminare.",
         ),
     }
 }

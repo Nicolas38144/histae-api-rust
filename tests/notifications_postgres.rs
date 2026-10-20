@@ -349,8 +349,6 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
 
         let invoice_id = format!("in_{}", Uuid::new_v4().simple());
         let customer_id = format!("cus_{}", Uuid::new_v4().simple());
-        let subscription_id = format!("sub_{}", Uuid::new_v4().simple());
-        let trial_ends_at = Utc::now() + TimeDelta::days(2);
         let mut billing_connection = database.acquire().await?;
         sqlx::query(
             "INSERT INTO billing_invoice
@@ -363,16 +361,6 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
         .bind(&invoice_id)
         .bind(user_id)
         .bind(customer_id)
-        .execute(&mut *billing_connection)
-        .await?;
-        sqlx::query(
-            "INSERT INTO user_subscription
-               (user_id, plan, provider, provider_subscription_id, status, trial_ends_at)
-             VALUES ($1, 'free', 'stripe', $2, 'trialing', $3)",
-        )
-        .bind(user_id)
-        .bind(&subscription_id)
-        .bind(trial_ends_at)
         .execute(&mut *billing_connection)
         .await?;
         drop(billing_connection);
@@ -388,19 +376,6 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
                 })
             })
             .await?;
-        let trial_source = Uuid::new_v4().hyphenated().to_string();
-        let trial_intent = NotificationIntent::SubscriptionTrialEnding {
-            subscription_id,
-            trial_ends_at,
-        };
-        database
-            .transaction(|connection| {
-                Box::pin(async move {
-                    enqueue_notification(connection, user_id, &trial_source, &trial_intent).await
-                })
-            })
-            .await?;
-
         let mut query_connection = database.acquire().await?;
         let billing_counts: (i64, i64, i64) = sqlx::query_as(
             "SELECT
@@ -416,7 +391,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
         .bind(user_id)
         .fetch_one(&mut *query_connection)
         .await?;
-        assert_eq!(billing_counts, (4, 8, 8));
+        assert_eq!(billing_counts, (3, 6, 6));
 
         let invoice_job: Uuid = sqlx::query_scalar(
             "SELECT delivery.id FROM notification_push_delivery delivery
@@ -438,22 +413,6 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
             .await?;
         assert!(delivery_repository.find_deliverable(invoice_job).await?.is_none());
 
-        let trial_job: Uuid = sqlx::query_scalar(
-            "SELECT delivery.id FROM notification_push_delivery delivery
-             JOIN notification n ON n.id = delivery.notification_id
-             WHERE n.user_id = $1 AND n.type = 'subscription_trial_ending'
-             ORDER BY delivery.id LIMIT 1",
-        )
-        .bind(user_id)
-        .fetch_one(&mut *query_connection)
-        .await?;
-        assert!(delivery_repository.find_deliverable(trial_job).await?.is_some());
-        sqlx::query("UPDATE user_subscription SET status = 'active' WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&mut *query_connection)
-            .await?;
-        assert!(delivery_repository.find_deliverable(trial_job).await?.is_none());
-
         created_outbox_ids = sqlx::query_scalar(
             "SELECT outbox.id FROM outbox_event outbox
              JOIN notification_push_delivery delivery ON delivery.id = outbox.id
@@ -463,7 +422,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
         .bind(user_id)
         .fetch_all(&mut *query_connection)
         .await?;
-        assert_eq!(created_outbox_ids.len(), 8);
+        assert_eq!(created_outbox_ids.len(), 6);
         drop(query_connection);
 
         assert!(repository.remove(user_id, first.id).await?);
@@ -476,13 +435,13 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
         .bind(user_id)
         .fetch_one(&mut *query_connection)
         .await?;
-        assert_eq!(remaining_deliveries, 4);
+        assert_eq!(remaining_deliveries, 3);
         let remaining_outbox: i64 =
             sqlx::query_scalar("SELECT count(*) FROM outbox_event WHERE id = ANY($1::uuid[])")
                 .bind(&created_outbox_ids)
                 .fetch_one(&mut *query_connection)
                 .await?;
-        assert_eq!(remaining_outbox, 8);
+        assert_eq!(remaining_outbox, 6);
         Ok(())
     }
     .await;

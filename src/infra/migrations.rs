@@ -161,6 +161,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         .execute(&mut *transaction)
         .await
         .map_err(map_sqlx_error)?;
+    retire_trial_notifications(&mut transaction).await?;
     // Upgrade the former EUR catalogue price without overwriting custom prices.
     // Stripe Prices and existing subscriptions are managed separately.
     sqlx::query(
@@ -211,6 +212,51 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         .await
         .map_err(map_sqlx_error)?;
     transaction.commit().await.map_err(map_sqlx_error)
+}
+
+async fn retire_trial_notifications(
+    connection: &mut sqlx::PgConnection,
+) -> Result<(), DatabaseError> {
+    let legacy: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+           SELECT 1 FROM pg_attribute
+           WHERE attrelid = to_regclass(current_schema() || '.notification')
+             AND attname = 'billing_trial_ends_at' AND NOT attisdropped
+         ) OR EXISTS (
+           SELECT 1 FROM pg_constraint
+           WHERE conrelid = to_regclass(current_schema() || '.notification')
+             AND conname = 'notification_type_check'
+             AND pg_get_constraintdef(oid) LIKE '%subscription_trial_ending%'
+         )",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !legacy {
+        return Ok(());
+    }
+    // Remove jobs before their delivery references cascade away. Retain all
+    // other notifications and the historical subscription projections.
+    sqlx::raw_sql(
+        "DELETE FROM outbox_event job USING notification_push_delivery delivery, notification n
+         WHERE job.id = delivery.id AND job.event_type = 'notification.push'
+           AND delivery.notification_id = n.id AND n.type = 'subscription_trial_ending';
+         DELETE FROM notification WHERE type = 'subscription_trial_ending';
+         ALTER TABLE notification
+           DROP CONSTRAINT chk_notification_billing_context,
+           DROP CONSTRAINT notification_type_check,
+           DROP COLUMN IF EXISTS billing_trial_ends_at;
+         ALTER TABLE notification
+           ADD CONSTRAINT chk_notification_billing_context CHECK (
+             billing_reference IS NULL OR
+             (type = 'billing_payment_failed' AND billing_reference ~ '^in_[A-Za-z0-9]+$')),
+           ADD CONSTRAINT notification_type_check CHECK (
+             type IN ('new_match', 'new_message', 'profile_liked', 'match_expiring', 'billing_payment_failed'));",
+    )
+    .execute(connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    Ok(())
 }
 
 fn schema_section<'a>(source: &'a str, name: &str) -> Result<&'a str, DatabaseError> {

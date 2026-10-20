@@ -178,7 +178,7 @@ un seul article portant un prix autorisé ; aucun identifiant produit n'est conf
 
 Les périodes historiques au niveau de l’abonnement et les références historiques de facture `subscription` sont aussi acceptées. Les anciens prix restent reconnus uniquement pour l’abonnement et le client déjà liés à ce prix en base, après rotation des prix des nouvelles ventes. Un événement dépassé par un état plus récent est acquitté sans annoncer un changement d’état obsolète.
 
-Événements traités : `checkout.session.completed`, `checkout.session.expired`, `customer.subscription.created|updated|deleted|paused|resumed|trial_will_end`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.finalization_failed`, `customer.deleted`. Les événements de facture/abonnement plus anciens que l’état connu sont ignorés. Erreurs : `invalid_stripe_signature`, `stripe_mode_mismatch`, `invalid_stripe_event`, `billing_webhook_rate_limit_exceeded`.
+Événements traités : `checkout.session.completed`, `checkout.session.expired`, `customer.subscription.created|updated|deleted|paused|resumed`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.finalization_failed`, `customer.deleted`. Les événements de facture/abonnement plus anciens que l’état connu sont ignorés. Erreurs : `invalid_stripe_signature`, `stripe_mode_mismatch`, `invalid_stripe_event`, `billing_webhook_rate_limit_exceeded`.
 
 ### Webhook Sweego
 
@@ -397,7 +397,7 @@ L’appareil expose UUID, `session_id`, plateforme, version et dates d’usage ;
 
 SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created, match.updated, matches.invalidated, message.created, message.read, subscription.updated`. Le flux ferme à expiration du JWT ou après échec/révocation détecté lors du contrôle de session toutes les 25 secondes. Le client SSE doit pouvoir envoyer le Bearer.
 
-**Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les alertes de paiement/essai devenues obsolètes ne sont pas envoyées. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation.
+**Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les alertes de paiement devenues obsolètes ne sont pas envoyées. Les types push pris en charge sont `new_match`, `new_message` et `billing_payment_failed`. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation.
 
 ### Abonnement
 

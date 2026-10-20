@@ -143,7 +143,7 @@ correspondre à la clé. Chaque Event ID est traité au plus une fois en transac
 - Les événements `customer.subscription.*` projettent l’abonnement et sa période en PostgreSQL.
 - `invoice.paid` enregistre la facture et relit l’abonnement chez Stripe ; le statut de l’abonnement
   reste déterminant pour les droits.
-- Les essais historiques reconnus conservent `trial_used_at` et leur projection ; aucun nouvel essai n’est proposé.
+- Les essais historiques reconnus conservent `trial_used_at` et leur projection ; aucun nouvel essai n’est proposé. Aucune notification de fin d’essai n’est générée ; `customer.subscription.trial_will_end` est acquitté sans effet après validation de sa signature et de son mode test/live. Cet événement peut être retiré de la sélection du webhook Stripe.
 
 Le Customer, l’abonnement, le prix et les métadonnées sont contrôlés pour rattacher l’état au bon
 compte. Les anciens formats de périodes et de références de facture restent compatibles. Après
