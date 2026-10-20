@@ -1,3 +1,4 @@
+use crate::localization::{Language, legal::localized_histae_url};
 use std::fmt;
 use std::sync::Arc;
 
@@ -120,6 +121,17 @@ impl BillingService {
         billing_period: BillingPeriod,
         idempotency_key: Option<&str>,
     ) -> Result<CheckoutSessionView, BillingError> {
+        self.create_checkout_in(user_id, billing_period, idempotency_key, Language::Fr)
+            .await
+    }
+
+    pub async fn create_checkout_in(
+        &self,
+        user_id: Uuid,
+        billing_period: BillingPeriod,
+        idempotency_key: Option<&str>,
+        language: Language,
+    ) -> Result<CheckoutSessionView, BillingError> {
         let supplied_key = idempotency_key.map(str::to_owned);
         let service = self.clone();
         match self
@@ -134,6 +146,7 @@ impl BillingService {
                             user_id,
                             billing_period,
                             idempotency_key,
+                            language,
                         )
                         .await
                 })
@@ -146,6 +159,14 @@ impl BillingService {
     }
 
     pub async fn create_portal(&self, user_id: Uuid) -> Result<String, BillingError> {
+        self.create_portal_in(user_id, Language::Fr).await
+    }
+
+    pub async fn create_portal_in(
+        &self,
+        user_id: Uuid,
+        language: Language,
+    ) -> Result<String, BillingError> {
         self.ensure_enabled()?;
         let customer_id = self
             .store
@@ -155,7 +176,11 @@ impl BillingService {
             .ok_or(BillingError::BillingCustomerNotFound)?;
         let portal = self
             .stripe
-            .create_portal_session(&customer_id, format!("histae-portal-{}", Uuid::new_v4()))
+            .create_portal_session_in(
+                &customer_id,
+                format!("histae-portal-{}", Uuid::new_v4()),
+                language,
+            )
             .await
             .map_err(|_| BillingError::StripeRequestFailed)?;
         Ok(portal.url)
@@ -212,6 +237,7 @@ impl BillingService {
         user_id: Uuid,
         billing_period: BillingPeriod,
         idempotency_key: Uuid,
+        language: Language,
     ) -> Result<CheckoutSessionView, BillingError> {
         let now = self.clock.now();
         let expires_at = now + TimeDelta::minutes(CHECKOUT_TTL_MINUTES);
@@ -303,6 +329,7 @@ impl BillingService {
                     attempt_id,
                     generation,
                     CheckoutInput {
+                        locale: Some(language),
                         user_id,
                         customer_id,
                         price_id,
@@ -310,16 +337,14 @@ impl BillingService {
                         trial_days: 0,
                         expires_at: self.clock.now() + TimeDelta::minutes(CHECKOUT_TTL_MINUTES),
                         idempotency_key: format!("histae-checkout-{attempt_id}"),
-                        success_url: self
-                            .config
-                            .checkout_success_url
-                            .clone()
-                            .ok_or(BillingError::BillingUnavailable)?,
-                        cancel_url: self
-                            .config
-                            .checkout_cancel_url
-                            .clone()
-                            .ok_or(BillingError::BillingUnavailable)?,
+                        success_url: localized_return_url(
+                            self.config.checkout_success_url.as_deref(),
+                            language,
+                        )?,
+                        cancel_url: localized_return_url(
+                            self.config.checkout_cancel_url.as_deref(),
+                            language,
+                        )?,
                         automatic_tax: self.config.automatic_tax,
                         allow_promotion_codes: self.config.allow_promotion_codes,
                     },
@@ -517,6 +542,11 @@ fn map_erasure_store_error(error: BillingStoreError) -> BillingError {
         BillingStoreError::Database(error) => BillingError::Database(error),
         _ => BillingError::DataErasureUnavailable,
     }
+}
+
+fn localized_return_url(value: Option<&str>, language: Language) -> Result<String, BillingError> {
+    let value = value.ok_or(BillingError::BillingUnavailable)?;
+    Ok(localized_histae_url(value, language).unwrap_or_else(|| value.to_owned()))
 }
 
 #[cfg(test)]

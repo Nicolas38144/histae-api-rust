@@ -6,7 +6,7 @@ use unicode_normalization::{UnicodeNormalization as _, char::is_combining_mark};
 
 use crate::profiles::domain::{AutomatedModerationDecision, ModerationReason, ModerationStatus};
 
-pub const TEXT_MODERATION_POLICY_VERSION: &str = "text_rules_v1";
+pub const TEXT_MODERATION_POLICY_VERSION: &str = "text_rules_v2_multilingual";
 
 static WORDS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[a-z0-9]+").unwrap_or_else(|_| unreachable!()));
@@ -14,20 +14,54 @@ static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
     javascript_regex(r"\b[a-z0-9._%+-]+\s*(?:@|\bat\b)\s*[a-z0-9.-]+\.[a-z]{2,}\b")
 });
 static URL: LazyLock<Regex> = LazyLock::new(|| {
-    javascript_regex(r"(?:https?://|www\.|\b[a-z0-9-]+\.(?:com|fr|net|org|io)\b)")
+    javascript_regex(r"(?:https?://|www\.|\b[a-z0-9-]+\.(?:com|fr|es|it|uk|net|org|io)\b)")
 });
 static SOCIAL_HANDLE: LazyLock<Regex> =
     LazyLock::new(|| javascript_regex(r"(?:^|\s)@[a-z0-9._-]{3,32}\b"));
 static PHONE: LazyLock<Regex> = LazyLock::new(|| javascript_regex(r"(?:\+?\d[\s().-]*){8,}"));
 static SPAM_ACTION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:contact|dm|ajoute|rejoins|gagne|gratuit|promo)")
+    Regex::new(r"(?:contact|dm|ajoute|rejoins|gagne|gratuit|promo|join|win|free|anade|unete|gana|gratis|aggiungi|unisciti|vinci|gratuito)")
         .unwrap_or_else(|_| unreachable!())
 });
 
 const INSULTS: &[&str] = &[
-    "abruti", "abrutie", "connard", "connasse", "conne", "cretin", "cretine", "debile", "idiot",
-    "idiote", "imbecile", "merde", "salope", "pute", "asshole", "bastard", "bitch", "moron",
-    "slut", "whore",
+    "abruti",
+    "abrutie",
+    "connard",
+    "connasse",
+    "conne",
+    "cretin",
+    "cretine",
+    "debile",
+    "idiot",
+    "idiote",
+    "imbecile",
+    "merde",
+    "salope",
+    "pute",
+    "asshole",
+    "bastard",
+    "bitch",
+    "moron",
+    "slut",
+    "whore",
+    "fuck",
+    "fucking",
+    "stupid",
+    "dumbass",
+    "cabron",
+    "cabrona",
+    "gilipollas",
+    "pendejo",
+    "pendeja",
+    "mierda",
+    "zorra",
+    "stronzo",
+    "stronza",
+    "coglione",
+    "cogliona",
+    "vaffanculo",
+    "troia",
 ];
 
 // ECMAScript /u (without /i): word boundaries and digits are ASCII, but
@@ -55,12 +89,34 @@ const SEXUAL_TERMS: &[&str] = &[
     "sexe",
     "sexcam",
     "sugarbaby",
+    "naked",
+    "pornography",
+    "sexting",
+    "blowjob",
+    "follar",
+    "polla",
+    "desnudo",
+    "desnuda",
+    "pornografia",
+    "sexo",
+    "scopare",
+    "cazzo",
+    "figa",
+    "sesso",
+    "nudo",
+    "nuda",
 ];
 const SPAM_TERMS: &[&str] = &[
     "bitcoin",
     "casino",
     "crypto",
     "cryptomonnaie",
+    "cryptocurrency",
+    "criptomoneda",
+    "criptovaluta",
+    "investment",
+    "inversion",
+    "investimento",
     "dropshipping",
     "investissement",
     "promotion",
@@ -161,6 +217,39 @@ fn contains_personal_contact(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checks_all_languages_without_trusting_a_declared_locale() {
+        for text in [
+            "I enjoy hiking and cooking.",
+            "Me gusta viajar y cocinar.",
+            "Mi piace viaggiare e cucinare.",
+            "J’aime voyager et cuisiner.",
+        ] {
+            assert_eq!(
+                TextModerator.analyze(text).status,
+                ModerationStatus::Approved,
+                "{text}"
+            );
+        }
+        for (text, reason) in [
+            ("Eres un gilipollas", ModerationReason::Insult),
+            ("Sei uno stronzo", ModerationReason::Insult),
+            ("You are an asshole", ModerationReason::Insult),
+            ("Gana bitcoin gratis", ModerationReason::Spam),
+            ("Vinci crypto gratuito", ModerationReason::Spam),
+            ("Get free crypto", ModerationReason::Spam),
+            ("visit example.es", ModerationReason::PersonalContact),
+            ("visita example.it", ModerationReason::PersonalContact),
+            ("Hello, fóllar", ModerationReason::SexualContent),
+            ("ciao, sésso", ModerationReason::SexualContent),
+        ] {
+            assert!(
+                TextModerator.analyze(text).reasons.contains(&reason),
+                "{text}"
+            );
+        }
+    }
 
     #[test]
     fn matches_javascript_unicode_boundaries_digits_whitespace_and_dot() {

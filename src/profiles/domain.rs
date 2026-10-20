@@ -1,3 +1,4 @@
+use crate::localization::Language;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -318,6 +319,7 @@ pub struct VersionedConsentChange {
     pub consent_type: ConsentType,
     pub granted: bool,
     pub document_version: String,
+    pub document_language: Language,
 }
 
 #[derive(Clone, Debug)]
@@ -325,6 +327,7 @@ pub struct ConsentRecord {
     pub consent_type: ConsentType,
     pub granted: bool,
     pub document_version: String,
+    pub document_language: Language,
     pub granted_at: DateTime<Utc>,
 }
 
@@ -342,6 +345,9 @@ pub struct PublicConsent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document_version: Option<String>,
     pub required_document_version: String,
+    pub document_language: Language,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accepted_document_language: Option<Language>,
     pub document_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,

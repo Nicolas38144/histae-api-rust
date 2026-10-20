@@ -473,7 +473,7 @@ async fn cors_preflight_matches_fastify_and_bypasses_the_http_lifecycle() {
     );
     assert_eq!(
         response.headers()[header::ACCESS_CONTROL_ALLOW_HEADERS],
-        "Authorization, Content-Type, Idempotency-Key, X-Request-ID"
+        "Authorization, Content-Type, Idempotency-Key, X-Request-ID, Accept-Language"
     );
     assert!(!response.headers().contains_key("x-request-id"));
     assert!(!response.headers().contains_key(header::CACHE_CONTROL));

@@ -213,6 +213,7 @@ async fn consent_withdrawal_serializes_with_sensitive_writes_and_erases_immediat
         let withdrawal = repository.record_consents(
             user_id,
             vec![VersionedConsentChange {
+            document_language: histae_api_rust::localization::Language::Fr,
                 consent_type: ConsentType::SensitiveDataConsent,
                 granted: false,
                 document_version: "sensitive-v1".to_owned(),
@@ -275,6 +276,7 @@ async fn consent_withdrawal_serializes_with_sensitive_writes_and_erases_immediat
                 .record_consents(
                     user_id,
                     vec![VersionedConsentChange {
+            document_language: histae_api_rust::localization::Language::Fr,
                         consent_type: ConsentType::LocationConsent,
                         granted: false,
                         document_version: "location-v1".to_owned(),
@@ -317,6 +319,7 @@ async fn consent_withdrawal_serializes_with_sensitive_writes_and_erases_immediat
                 .record_consents(
                     user_id,
                     vec![VersionedConsentChange {
+            document_language: histae_api_rust::localization::Language::Fr,
                         consent_type: ConsentType::LocationConsent,
                         granted: false,
                         document_version: "location-v1".to_owned(),

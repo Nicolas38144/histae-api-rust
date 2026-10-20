@@ -1,4 +1,7 @@
 #[cfg(feature = "webauthn-probe")]
+use crate::localization::catalog::TranslationPatch;
+use crate::localization::http::Locale;
+#[cfg(feature = "webauthn-probe")]
 use std::fmt;
 
 use axum::extract::Extension;
@@ -96,13 +99,48 @@ fn admin_routes(state: CatalogHttpState, admin_auth: AdminAuthHttpState) -> Rout
 
 async fn list_plans(
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
 ) -> Result<Json<PlanCatalog>, ApiError> {
-    state
-        .service
-        .plans()
-        .await
-        .map(|plans| Json(PlanCatalog::new(plans)))
-        .map_err(catalog_error)
+    let locale = locale.anonymous();
+    let catalog = locale.catalog(false).await?;
+    let mut plans = state.service.plans().await.map_err(catalog_error)?;
+    for plan in &mut plans {
+        if let Some(entry) = catalog.plans.get(&plan.code) {
+            plan.display_name = entry.name(locale.language).to_owned();
+        }
+        for feature in &mut plan.features {
+            if let Some(entry) = catalog
+                .features
+                .get(&format!("{}:{}", plan.code, feature.code))
+            {
+                feature.display_name = Some(entry.name(locale.language).to_owned());
+                if let Some(description) = entry
+                    .descriptions
+                    .get(&locale.language)
+                    .or_else(|| entry.descriptions.get(&crate::localization::Language::Fr))
+                {
+                    feature.description = Some(description.clone());
+                }
+            }
+        }
+    }
+    let mut response = PlanCatalog::new(plans);
+    for offer in &mut response.offers {
+        if let Some(period) = offer.billing_period {
+            if let Some(plan) = response
+                .plans
+                .iter()
+                .find(|plan| plan.code == offer.plan_code)
+            {
+                offer.display_name = crate::localization::copy::offer(
+                    locale.language,
+                    &plan.display_name,
+                    period == crate::billing::domain::BillingPeriod::Annual,
+                );
+            }
+        }
+    }
+    Ok(Json(response))
 }
 
 #[derive(Serialize)]
@@ -111,27 +149,35 @@ struct TraitsResponse {
 }
 
 async fn list_traits(
-    OnboardedMobile(_identity): OnboardedMobile,
+    OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
 ) -> Result<Json<TraitsResponse>, ApiError> {
-    state
-        .service
-        .traits()
-        .await
-        .map(|traits| Json(TraitsResponse { traits }))
-        .map_err(catalog_error)
+    let locale = locale.for_account(&identity.account);
+    let mut traits = state.service.traits().await.map_err(catalog_error)?;
+    let catalog = locale.catalog(false).await?;
+    for item in &mut traits {
+        catalog.trait_name(item.id, &mut item.name, locale.language);
+    }
+    Ok(Json(TraitsResponse { traits }))
 }
 
 async fn list_my_traits(
     OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
 ) -> Result<Json<TraitsResponse>, ApiError> {
-    state
+    let locale = locale.for_account(&identity.account);
+    let mut traits = state
         .service
         .traits_for_user(identity.account.user_id)
         .await
-        .map(|traits| Json(TraitsResponse { traits }))
-        .map_err(catalog_error)
+        .map_err(catalog_error)?;
+    let catalog = locale.catalog(false).await?;
+    for item in &mut traits {
+        catalog.trait_name(item.id, &mut item.name, locale.language);
+    }
+    Ok(Json(TraitsResponse { traits }))
 }
 
 #[derive(Deserialize)]
@@ -194,16 +240,32 @@ async fn remove_my_trait(
 }
 
 #[cfg(feature = "webauthn-probe")]
+#[derive(Serialize)]
+struct AdminTraitsResponse {
+    traits: Vec<crate::localization::catalog::Translated<Trait>>,
+}
+
+#[cfg(feature = "webauthn-probe")]
 async fn list_admin_traits(
-    AdminIdentity(_identity): AdminIdentity,
+    AdminIdentity(identity): AdminIdentity,
     Extension(state): Extension<CatalogHttpState>,
-) -> Result<Json<TraitsResponse>, ApiError> {
-    state
-        .service
-        .traits()
-        .await
-        .map(|traits| Json(TraitsResponse { traits }))
-        .map_err(catalog_error)
+    locale: Locale,
+) -> Result<Json<AdminTraitsResponse>, ApiError> {
+    let locale = locale.resolve(identity.user_id).await?;
+    let traits = state.service.traits().await.map_err(catalog_error)?;
+    let catalog = locale.catalog(true).await?;
+    let traits = traits
+        .into_iter()
+        .map(|mut value| {
+            let translations = catalog.trait_translations(value.id, &value.name);
+            catalog.trait_name(value.id, &mut value.name, locale.language);
+            crate::localization::catalog::Translated {
+                value,
+                translations,
+            }
+        })
+        .collect();
+    Ok(Json(AdminTraitsResponse { traits }))
 }
 
 #[cfg(feature = "webauthn-probe")]
@@ -211,6 +273,8 @@ async fn list_admin_traits(
 #[serde(deny_unknown_fields)]
 struct TraitBody {
     name: String,
+    #[serde(default)]
+    translations: TranslationPatch,
 }
 
 #[cfg(feature = "webauthn-probe")]
@@ -221,16 +285,41 @@ impl ApiDto for TraitBody {
 
 #[cfg(feature = "webauthn-probe")]
 async fn create_trait(
-    AdminIdentity(_identity): AdminIdentity,
+    AdminIdentity(identity): AdminIdentity,
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
     ValidatedJson(body): ValidatedJson<TraitBody>,
-) -> Result<(StatusCode, Json<Trait>), ApiError> {
-    state
+) -> Result<
+    (
+        StatusCode,
+        Json<crate::localization::catalog::Translated<Trait>>,
+    ),
+    ApiError,
+> {
+    let locale = locale.resolve(identity.user_id).await?;
+    let translations =
+        super::service::normalize_translations(body.translations.clone(), None, false)
+            .map_err(catalog_error)?;
+    let value = state
         .service
-        .create_trait(body.name)
+        .create_translated_trait(body.name, body.translations)
         .await
-        .map(|trait_value| (StatusCode::CREATED, Json(trait_value)))
-        .map_err(catalog_error)
+        .map_err(catalog_error)?;
+    locale.invalidate().await;
+    let mut names =
+        std::collections::BTreeMap::from([(crate::localization::Language::Fr, value.name.clone())]);
+    names.extend(
+        translations
+            .into_iter()
+            .filter_map(|(language, text)| text.map(|text| (language, text.trim().to_owned()))),
+    );
+    Ok((
+        StatusCode::CREATED,
+        Json(crate::localization::catalog::Translated {
+            value,
+            translations: names,
+        }),
+    ))
 }
 
 #[cfg(feature = "webauthn-probe")]
@@ -258,16 +347,19 @@ struct MessageResponse {
 
 #[cfg(feature = "webauthn-probe")]
 async fn update_trait(
-    AdminIdentity(_identity): AdminIdentity,
+    AdminIdentity(identity): AdminIdentity,
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
     ValidatedPath(path): ValidatedPath<IdPath>,
     ValidatedJson(body): ValidatedJson<TraitBody>,
 ) -> Result<Json<MessageResponse>, ApiError> {
+    let locale = locale.resolve(identity.user_id).await?;
     state
         .service
-        .update_trait(path.id, body.name)
+        .update_translated_trait(path.id, body.name, body.translations)
         .await
         .map_err(catalog_error)?;
+    locale.invalidate().await;
     Ok(Json(MessageResponse {
         message: "trait updated",
     }))
@@ -275,15 +367,18 @@ async fn update_trait(
 
 #[cfg(feature = "webauthn-probe")]
 async fn delete_trait(
-    AdminIdentity(_identity): AdminIdentity,
+    AdminIdentity(identity): AdminIdentity,
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
     ValidatedPath(path): ValidatedPath<IdPath>,
 ) -> Result<StatusCode, ApiError> {
+    let locale = locale.resolve(identity.user_id).await?;
     state
         .service
         .delete_trait(path.id)
         .await
         .map_err(catalog_error)?;
+    locale.invalidate().await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -293,15 +388,17 @@ struct QuestionsResponse {
 }
 
 async fn list_questions(
-    OnboardedMobile(_identity): OnboardedMobile,
+    OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
 ) -> Result<Json<QuestionsResponse>, ApiError> {
-    state
-        .service
-        .questions()
-        .await
-        .map(|questions| Json(QuestionsResponse { questions }))
-        .map_err(catalog_error)
+    let locale = locale.for_account(&identity.account);
+    let mut questions = state.service.questions().await.map_err(catalog_error)?;
+    let catalog = locale.catalog(false).await?;
+    for item in &mut questions {
+        catalog.question(item.id, &mut item.prompt, locale.language);
+    }
+    Ok(Json(QuestionsResponse { questions }))
 }
 
 #[derive(Serialize)]
@@ -312,13 +409,19 @@ struct AnswersResponse {
 async fn list_my_answers(
     OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
 ) -> Result<Json<AnswersResponse>, ApiError> {
-    state
+    let locale = locale.for_account(&identity.account);
+    let mut answers = state
         .service
         .answers_for_user(identity.account.user_id)
         .await
-        .map(|answers| Json(AnswersResponse { answers }))
-        .map_err(catalog_error)
+        .map_err(catalog_error)?;
+    let catalog = locale.catalog(false).await?;
+    for item in &mut answers {
+        catalog.question(item.question_id, &mut item.question, locale.language);
+    }
+    Ok(Json(AnswersResponse { answers }))
 }
 
 #[derive(Deserialize)]
@@ -351,8 +454,12 @@ impl ApiDto for ReplaceAnswersBody {
 async fn replace_my_answers(
     OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
     ValidatedJson(body): ValidatedJson<ReplaceAnswersBody>,
 ) -> Result<Json<AnswersResponse>, ApiError> {
+    let locale = locale.for_account(&identity.account);
+    // Fetch localization before mutation so an unavailable catalogue cannot hide a successful write.
+    let catalog = locale.catalog(false).await?;
     let input = body
         .answers
         .into_iter()
@@ -361,31 +468,48 @@ async fn replace_my_answers(
             answer: answer.answer,
         })
         .collect();
-    state
+    let mut answers = state
         .service
         .replace_answers_for_user(identity.account.user_id, input)
         .await
-        .map(|answers| Json(AnswersResponse { answers }))
-        .map_err(catalog_error)
+        .map_err(catalog_error)?;
+    for item in &mut answers {
+        catalog.question(item.question_id, &mut item.question, locale.language);
+    }
+    Ok(Json(AnswersResponse { answers }))
 }
 
 #[cfg(feature = "webauthn-probe")]
 #[derive(Serialize)]
 struct AdminQuestionsResponse {
-    questions: Vec<AdminProfileQuestion>,
+    questions: Vec<crate::localization::catalog::Translated<AdminProfileQuestion>>,
 }
 
 #[cfg(feature = "webauthn-probe")]
 async fn list_admin_questions(
-    AdminIdentity(_identity): AdminIdentity,
+    AdminIdentity(identity): AdminIdentity,
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
 ) -> Result<Json<AdminQuestionsResponse>, ApiError> {
-    state
+    let locale = locale.resolve(identity.user_id).await?;
+    let questions = state
         .service
         .questions_for_admin()
         .await
-        .map(|questions| Json(AdminQuestionsResponse { questions }))
-        .map_err(catalog_error)
+        .map_err(catalog_error)?;
+    let catalog = locale.catalog(true).await?;
+    let questions = questions
+        .into_iter()
+        .map(|mut value| {
+            let translations = catalog.question_translations(value.id, &value.prompt);
+            catalog.question(value.id, &mut value.prompt, locale.language);
+            crate::localization::catalog::Translated {
+                value,
+                translations,
+            }
+        })
+        .collect();
+    Ok(Json(AdminQuestionsResponse { questions }))
 }
 
 #[cfg(feature = "webauthn-probe")]
@@ -519,6 +643,8 @@ where
 #[serde(deny_unknown_fields)]
 struct CreateQuestionBody {
     prompt: String,
+    #[serde(default)]
+    translations: TranslationPatch,
     category: ProfileQuestionCategory,
     #[serde(default)]
     display_order: OptionalField<DisplayOrder>,
@@ -540,31 +666,63 @@ impl ApiDto for CreateQuestionBody {
 
 #[cfg(feature = "webauthn-probe")]
 async fn create_question(
-    AdminIdentity(_identity): AdminIdentity,
+    AdminIdentity(identity): AdminIdentity,
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
     ValidatedJson(body): ValidatedJson<CreateQuestionBody>,
-) -> Result<(StatusCode, Json<AdminProfileQuestion>), ApiError> {
+) -> Result<
+    (
+        StatusCode,
+        Json<crate::localization::catalog::Translated<AdminProfileQuestion>>,
+    ),
+    ApiError,
+> {
+    let locale = locale.resolve(identity.user_id).await?;
     let display_order = match body.display_order {
         OptionalField::Missing => 100,
         OptionalField::Value(value) => value.0,
         OptionalField::Null => return Err(ApiError::internal()),
     };
-    state
+    let translations =
+        super::service::normalize_translations(body.translations.clone(), None, true)
+            .map_err(catalog_error)?;
+    let value = state
         .service
-        .create_question(ProfileQuestionInput {
-            prompt: body.prompt,
-            category: body.category,
-            display_order,
-        })
+        .create_translated_question(
+            ProfileQuestionInput {
+                prompt: body.prompt,
+                category: body.category,
+                display_order,
+            },
+            body.translations,
+        )
         .await
-        .map(|question| (StatusCode::CREATED, Json(question)))
-        .map_err(catalog_error)
+        .map_err(catalog_error)?;
+    locale.invalidate().await;
+    let mut names = std::collections::BTreeMap::from([(
+        crate::localization::Language::Fr,
+        value.prompt.clone(),
+    )]);
+    names.extend(
+        translations
+            .into_iter()
+            .filter_map(|(language, text)| text.map(|text| (language, text.trim().to_owned()))),
+    );
+    Ok((
+        StatusCode::CREATED,
+        Json(crate::localization::catalog::Translated {
+            value,
+            translations: names,
+        }),
+    ))
 }
 
 #[cfg(feature = "webauthn-probe")]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UpdateQuestionBody {
+    #[serde(default)]
+    translations: TranslationPatch,
     #[serde(default)]
     prompt: OptionalField<String>,
     #[serde(default)]
@@ -610,42 +768,49 @@ impl ApiDto for QuestionIdPath {
 
 #[cfg(feature = "webauthn-probe")]
 async fn update_question(
-    AdminIdentity(_identity): AdminIdentity,
+    AdminIdentity(identity): AdminIdentity,
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
     ValidatedPath(path): ValidatedPath<QuestionIdPath>,
     ValidatedJson(body): ValidatedJson<UpdateQuestionBody>,
-) -> Result<Json<AdminProfileQuestion>, ApiError> {
+) -> Result<Json<crate::localization::catalog::Translated<AdminProfileQuestion>>, ApiError> {
+    let locale = locale.resolve(identity.user_id).await?;
     let supplied = body.prompt.is_supplied()
         || body.category.is_supplied()
-        || body.display_order.is_supplied();
-    let display_order = body.display_order.into_option().map(|value| value.0);
-    state
+        || body.display_order.is_supplied()
+        || !body.translations.is_empty();
+    let value = state
         .service
-        .update_question(
+        .update_translated_question(
             path.id,
             ProfileQuestionPatch {
                 prompt: body.prompt.into_option(),
                 category: body.category.into_option(),
-                display_order,
+                display_order: body.display_order.into_option().map(|value| value.0),
                 supplied,
             },
+            body.translations,
         )
         .await
-        .map(Json)
-        .map_err(catalog_error)
+        .map_err(catalog_error)?;
+    locale.invalidate().await;
+    Ok(Json(value))
 }
 
 #[cfg(feature = "webauthn-probe")]
 async fn delete_question(
-    AdminIdentity(_identity): AdminIdentity,
+    AdminIdentity(identity): AdminIdentity,
     Extension(state): Extension<CatalogHttpState>,
+    locale: Locale,
     ValidatedPath(path): ValidatedPath<QuestionIdPath>,
 ) -> Result<StatusCode, ApiError> {
+    let locale = locale.resolve(identity.user_id).await?;
     state
         .service
         .delete_question(path.id)
         .await
         .map_err(catalog_error)?;
+    locale.invalidate().await;
     Ok(StatusCode::NO_CONTENT)
 }
 

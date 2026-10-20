@@ -43,6 +43,7 @@ impl PgDataExportStore {
                         "SELECT jsonb_build_object(
                            'user_id', user_id, 'role', role, 'is_banned', is_banned,
                            'discovery_paused', discovery_paused,
+                           'preferred_language', preferred_language,
                            'deleted_at', CASE WHEN deleted_at IS NULL THEN NULL ELSE
                              to_char(deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END,
                            'anonymized_at', CASE WHEN anonymized_at IS NULL THEN NULL ELSE
@@ -127,6 +128,14 @@ impl PgDataExportStore {
                         .await?;
                     self.write_invoices(&mut transaction, writer, user_id, page_size)
                         .await?;
+                    self.write_uuid_timestamp_pages(&mut transaction, writer, "devices", user_id, page_size,
+                        "SELECT jsonb_build_object('id', id, 'session_id', session_id, 'platform', platform,
+                           'app_version', app_version, 'language', language, 'created_at', created_at,
+                           'last_used_at', last_used_at) AS value,
+                           created_at::text AS cursor_at, id AS cursor_id
+                         FROM device_token WHERE user_id=$1
+                           AND ($2::timestamptz IS NULL OR (created_at,id)>($2::timestamptz,$3::uuid))
+                         ORDER BY created_at,id LIMIT $4").await?;
                     self.write_mobile_sessions(&mut transaction, writer, user_id, page_size)
                         .await?;
                     let discovery_rows = self
@@ -312,6 +321,7 @@ impl PgDataExportStore {
                 "SELECT jsonb_build_object(
                    'consent_type', consent_type, 'granted', granted,
                    'document_version', document_version,
+                           'document_language', document_language,
                    'granted_at', to_char(granted_at AT TIME ZONE 'UTC',
                      'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),
                    'withdrawn_at', CASE WHEN withdrawn_at IS NULL THEN NULL ELSE

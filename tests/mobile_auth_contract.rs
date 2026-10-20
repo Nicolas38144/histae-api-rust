@@ -172,6 +172,7 @@ fn jwt_config() -> JwtConfig {
 
 fn account() -> ActiveAccount {
     ActiveAccount {
+        preferred_language: histae_api_rust::localization::Language::Fr,
         user_id: user_id(),
         role: AccountRole::User,
         is_banned: false,
@@ -180,6 +181,13 @@ fn account() -> ActiveAccount {
 }
 
 fn app(store: FakeStore) -> (Router, TokenService) {
+    app_with_language(store, None)
+}
+
+fn app_with_language(
+    store: FakeStore,
+    localization: Option<histae_api_rust::localization::LocalizationService>,
+) -> (Router, TokenService) {
     let tokens = TokenService::new(jwt_config());
     let service = MobileAuthService::new(
         tokens.clone(),
@@ -206,13 +214,22 @@ fn app(store: FakeStore) -> (Router, TokenService) {
         },
     )
     .expect("valid HTTP state");
-    (
-        build_router(
-            routes(MobileAuthState::new(service, limiter, policy)),
-            http_state,
-        ),
-        tokens,
-    )
+    let auth = MobileAuthState::new(service, limiter.clone(), policy.clone());
+    let mut router = routes(auth.clone());
+    let http_state = if let Some(localization) = localization {
+        router = router.merge(histae_api_rust::localization::http::routes(
+            histae_api_rust::localization::http::LanguageHttpState {
+                service: localization.clone(),
+                limiter,
+                policy,
+            },
+            auth,
+        ));
+        http_state.with_localization(localization)
+    } else {
+        http_state
+    };
+    (build_router(router, http_state), tokens)
 }
 
 async fn json_body(response: axum::response::Response) -> Value {
@@ -531,4 +548,102 @@ async fn session_limit_accepts_class_transformer_numeric_strings() {
             .expect("response");
         assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{limit}");
     }
+}
+
+#[derive(Default)]
+struct LanguageStore(Mutex<histae_api_rust::localization::Language>);
+impl histae_api_rust::localization::store::LocalizationStore for LanguageStore {
+    fn language(
+        &self,
+        _id: Uuid,
+    ) -> histae_api_rust::localization::store::LocalizationFuture<
+        '_,
+        histae_api_rust::localization::Language,
+    > {
+        Box::pin(async { Ok(*self.0.lock().expect("language")) })
+    }
+    fn set_language(
+        &self,
+        _id: Uuid,
+        language: histae_api_rust::localization::Language,
+    ) -> histae_api_rust::localization::store::LocalizationFuture<
+        '_,
+        histae_api_rust::localization::Language,
+    > {
+        Box::pin(async move {
+            *self.0.lock().expect("language") = language;
+            Ok(language)
+        })
+    }
+    fn catalog(
+        &self,
+    ) -> histae_api_rust::localization::store::LocalizationFuture<
+        '_,
+        histae_api_rust::localization::catalog::CatalogSnapshot,
+    > {
+        Box::pin(async { Ok(Default::default()) })
+    }
+}
+
+#[tokio::test]
+async fn language_settings_require_an_active_session_but_not_onboarding() {
+    use histae_api_rust::localization::{Language, LocalizationService};
+    let settings = Arc::new(LanguageStore::default());
+    let session = FakeStore::new(account()); // This account has not completed onboarding.
+    let (app, tokens) = app_with_language(
+        session.clone(),
+        Some(LocalizationService::new(settings.clone())),
+    );
+    let access = tokens.access_token(user_id(), session_id()).expect("token");
+    let path = "/api/users/me/language";
+    let unauthorized = app
+        .clone()
+        .oneshot(request("PATCH", path, None, r#"{"language":"it"}"#))
+        .await
+        .expect("response");
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(*settings.0.lock().expect("language"), Language::Fr);
+    for body in [
+        r#"{"language":"de"}"#,
+        r#"{"language":"en-US"}"#,
+        r#"{"language":"it","user_id":"other"}"#,
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request("PATCH", path, Some(&access), body))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    let response = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            path,
+            Some(&access),
+            r#"{"language":"it"}"#,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CONTENT_LANGUAGE], "it");
+    assert_eq!(json_body(response).await, json!({"language":"it"}));
+    let response = app
+        .clone()
+        .oneshot(request("GET", path, Some(&access), ""))
+        .await
+        .expect("response");
+    assert_eq!(json_body(response).await, json!({"language":"it"}));
+    session.state.lock().expect("state").account = None;
+    let response = app
+        .oneshot(request(
+            "PATCH",
+            path,
+            Some(&access),
+            r#"{"language":"en"}"#,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(*settings.0.lock().expect("language"), Language::It);
 }

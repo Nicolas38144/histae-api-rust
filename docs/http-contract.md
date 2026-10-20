@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **111 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **113 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -40,6 +40,14 @@ Les corps sont JSON, sauf l’upload photo multipart. Les champs inconnus sont r
 - Horodatages : ISO 8601 avec fuseau ; traiter les curseurs comme des chaînes opaques.
 - Prix du catalogue : centimes, avec devise explicite. Distances : kilomètres.
 - En-têtes communs : `Cache-Control: no-store`, protections navigateur et `X-Request-ID`. Un UUID v4 fourni dans `X-Request-ID` est conservé ; sinon un identifiant est généré. HSTS est ajouté en production.
+
+### Langues
+
+`Accept-Language` accepte `fr`, `en`, `es`, `it`, les variantes régionales et les priorités `q`.
+Il prime pour la requête sur la langue du compte ; sans en-tête, le catalogue public utilise le français.
+Les réponses localisées exposent `Content-Language` et `Vary: Accept-Language`.
+Les traductions manquantes se replient sur le français, sans changer UUID, codes, ordre ou curseurs.
+Voir [internationalisation](internationalization.md) pour les règles complètes, les champs et les migrations.
 
 ### Authentification et autorisations
 
@@ -232,6 +240,8 @@ Onboarding incomplet accepté.
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
+| GET | `/api/users/me/language` | `200 { language }` (`fr`, `en`, `es`, `it`) ; onboarding incomplet accepté. |
+| PATCH | `/api/users/me/language` | `{ language }` → même préférence ; onboarding incomplet accepté, aucun consentement modifié. |
 | GET | `/api/users/me/consents` | `200 { consents, onboarding_complete, required_actions }`. |
 | PUT | `/api/users/me/consents` | `{ consents: [{ consent_type, granted }] }` → même état enrichi. |
 
@@ -379,7 +389,7 @@ Erreurs : `400 invalid_reward_request`, `400 invalid_reward_id`, `400 invalid_ad
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
 | GET | `/api/users/me/devices` | `200 { devices: [...] }`, sans tokens FCM. |
-| POST | `/api/users/me/devices` | `{ push_token, platform: ios ou android, app_version? }` → `201` avec l’appareil public. |
+| POST | `/api/users/me/devices` | `{ push_token, platform: ios ou android, app_version?, language?: fr, en, es, it ou null }` → `201` avec l’appareil public. |
 | DELETE | `/api/users/me/devices/:id` | UUID d’un appareil du compte → `204` ; `404 device_not_found`. |
 | GET | `/api/users/me/events` | Flux SSE authentifié `text/event-stream`. |
 
@@ -511,6 +521,10 @@ Pour une demande RGPD, la mutation accepte `in_progress | completed | rejected`.
 <a id="catalogue-et-moderation"></a>
 
 ### Catalogue et modération
+
+Les traits et questions admin ajoutent une carte `translations` (`fr`, `en`, `es`, `it`).
+POST/PATCH acceptent ses traductions facultatives ; clé absente = conservation, `null` = suppression,
+français non supprimable. `name` / `prompt` reste la source française. Voir [les règles de traduction](internationalization.md#catalogues-et-dashboard).
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |

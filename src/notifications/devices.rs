@@ -1,3 +1,4 @@
+use crate::localization::Language;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -42,6 +43,26 @@ impl DeviceService {
         platform: DevicePlatform,
         raw_app_version: Option<String>,
     ) -> Result<PublicDevice, DeviceError> {
+        self.register_in(
+            user_id,
+            session_id,
+            raw_token,
+            platform,
+            raw_app_version,
+            None,
+        )
+        .await
+    }
+
+    pub async fn register_in(
+        &self,
+        user_id: Uuid,
+        session_id: Uuid,
+        raw_token: String,
+        platform: DevicePlatform,
+        raw_app_version: Option<String>,
+        language: Option<Language>,
+    ) -> Result<PublicDevice, DeviceError> {
         let token = javascript_trim(&raw_token).to_owned();
         let app_version = raw_app_version
             .map(|value| javascript_trim(&value).to_owned())
@@ -55,6 +76,7 @@ impl DeviceService {
                     token,
                     platform,
                     app_version,
+                    language,
                 },
             )
             .await?
@@ -147,6 +169,7 @@ mod tests {
 
     fn device() -> DeviceRecord {
         DeviceRecord {
+            language: None,
             id: Uuid::new_v4(),
             session_id: Some(Uuid::new_v4()),
             platform: DevicePlatform::Android,

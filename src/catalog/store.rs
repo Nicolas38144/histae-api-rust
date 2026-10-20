@@ -1,3 +1,4 @@
+use crate::localization::catalog::TranslationPatch;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -16,8 +17,17 @@ pub trait CatalogStore: Send + Sync {
     fn list_plan_rows(&self) -> CatalogStoreFuture<'_, Vec<PlanRow>>;
     fn list_traits(&self) -> CatalogStoreFuture<'_, Vec<Trait>>;
     fn list_traits_for_user(&self, user_id: Uuid) -> CatalogStoreFuture<'_, Vec<Trait>>;
-    fn create_trait(&self, trait_value: Trait) -> CatalogStoreFuture<'_, ()>;
-    fn update_trait(&self, id: Uuid, name: String) -> CatalogStoreFuture<'_, bool>;
+    fn create_trait(
+        &self,
+        trait_value: Trait,
+        translations: TranslationPatch,
+    ) -> CatalogStoreFuture<'_, ()>;
+    fn update_trait(
+        &self,
+        id: Uuid,
+        name: String,
+        translations: TranslationPatch,
+    ) -> CatalogStoreFuture<'_, bool>;
     fn delete_trait(&self, id: Uuid) -> CatalogStoreFuture<'_, bool>;
     fn trait_exists(&self, id: Uuid) -> CatalogStoreFuture<'_, bool>;
     fn add_trait_to_user(&self, user_id: Uuid, trait_id: Uuid) -> CatalogStoreFuture<'_, ()>;
@@ -35,11 +45,16 @@ pub trait CatalogStore: Send + Sync {
         id: Uuid,
         code: String,
         input: ProfileQuestionInput,
+        translations: TranslationPatch,
     ) -> CatalogStoreFuture<'_, AdminProfileQuestionRow>;
     fn update_question(
         &self,
         id: Uuid,
         patch: ProfileQuestionPatch,
-    ) -> CatalogStoreFuture<'_, Option<AdminProfileQuestionRow>>;
+        translations: TranslationPatch,
+    ) -> CatalogStoreFuture<
+        '_,
+        Option<crate::localization::catalog::Translated<AdminProfileQuestionRow>>,
+    >;
     fn delete_question(&self, id: Uuid) -> CatalogStoreFuture<'_, bool>;
 }

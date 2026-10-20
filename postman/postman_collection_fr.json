@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection issue de docs/http-contract.md (111 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
+    "description": "Collection issue de docs/http-contract.md (113 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -27,6 +27,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/auth/otp/send",
@@ -146,6 +151,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/plans",
@@ -459,6 +469,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/consents",
@@ -488,6 +503,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/consents",
@@ -527,6 +547,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me",
@@ -556,6 +581,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/profile",
@@ -590,6 +620,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/preferences",
@@ -619,6 +654,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/preferences",
@@ -657,6 +697,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/presence",
@@ -700,6 +745,11 @@
                   {
                     "key": "Idempotency-Key",
                     "value": "{{$guid}}"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/photo",
@@ -735,6 +785,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/photo",
@@ -765,6 +820,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/traits",
@@ -790,6 +850,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/traits",
@@ -819,6 +884,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/traits",
@@ -853,6 +923,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/traits/{{traitId}}",
@@ -878,6 +953,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/profile-questions",
@@ -903,6 +983,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/profile-answers",
@@ -932,6 +1017,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/profile-answers",
@@ -971,6 +1061,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/discovery-status",
@@ -996,6 +1091,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/discovery-settings",
@@ -1025,6 +1125,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/discovery-settings",
@@ -1059,6 +1164,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/feed",
@@ -1122,6 +1232,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/matches/me",
@@ -1147,6 +1262,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/continuation-quota",
@@ -1409,6 +1529,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/devices",
@@ -1438,6 +1563,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/devices",
@@ -1453,7 +1583,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"push_token\": \"{{pushToken}}\",\n  \"platform\": \"android\",\n  \"app_version\": \"1.0.0\"\n}",
+                  "raw": "{\n  \"push_token\": \"{{pushToken}}\",\n  \"platform\": \"android\",\n  \"app_version\": \"1.0.0\",\n  \"language\": \"{{language}}\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1472,6 +1602,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/devices/{{deviceId}}",
@@ -1497,6 +1632,11 @@
                   {
                     "key": "Accept",
                     "value": "text/event-stream"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/events",
@@ -1527,6 +1667,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/subscription",
@@ -1560,6 +1705,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/subscription/checkout",
@@ -1594,6 +1744,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/subscription/portal",
@@ -1624,6 +1779,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/deletion-token",
@@ -1667,6 +1827,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me",
@@ -1705,6 +1870,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/data-subject-requests",
@@ -1739,6 +1909,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/data-subject-requests",
@@ -1764,6 +1939,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/data-export",
@@ -1789,6 +1969,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/blocks",
@@ -1814,6 +1999,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/blocks/{{targetUserId}}",
@@ -1839,6 +2029,11 @@
                   {
                     "key": "Accept",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/users/me/blocks/{{targetUserId}}",
@@ -1895,6 +2090,77 @@
               "response": []
             }
           ]
+        },
+        {
+          "name": "Lire la langue",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/language",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Préférence du compte authentifié, disponible avant l’onboarding : fr, en, es, it. Accept-Language remplace cette préférence pour une requête."
+          }
+        },
+        {
+          "name": "Modifier la langue",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/language",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Préférence du compte authentifié, disponible avant l’onboarding : fr, en, es, it. Accept-Language remplace cette préférence pour une requête.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"language\": \"{{language}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -2413,6 +2679,11 @@
                   {
                     "key": "Cookie",
                     "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/users",
@@ -2457,6 +2728,11 @@
                   {
                     "key": "Cookie",
                     "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/users/{{targetUserId}}?reason={{auditReason}}",
@@ -2487,6 +2763,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/users/{{targetUserId}}/status",
@@ -2526,6 +2807,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/users/{{targetUserId}}/role",
@@ -2750,6 +3036,11 @@
                   {
                     "key": "Cookie",
                     "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/traits",
@@ -2780,6 +3071,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/traits",
@@ -2788,14 +3084,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"Trait de test\"\n}",
+                  "raw": "{\n  \"name\": \"Trait de test\",\n  \"translations\": {\n    \"en\": \"Test trait\",\n    \"es\": \"Rasgo de prueba\",\n    \"it\": \"Tratto di prova\"\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "{ name } → 201 { id, name }."
+                "description": "{ name } → 201 { id, name }.\nTraductions facultatives. Une clé absente conserve sa valeur ; null supprime la traduction et rétablit le français. name/prompt reste en français."
               },
               "response": []
             },
@@ -2819,6 +3115,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/traits/{{traitId}}",
@@ -2827,14 +3128,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"Trait de test modifié\"\n}",
+                  "raw": "{\n  \"name\": \"Trait de test modifié\",\n  \"translations\": {\n    \"en\": \"Updated test trait\",\n    \"es\": \"Rasgo de prueba modificado\",\n    \"it\": \"Tratto di prova aggiornato\"\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "{ name } → 200 { message: \"trait updated\" }."
+                "description": "{ name } → 200 { message: \"trait updated\" }.\nTraductions facultatives. Une clé absente conserve sa valeur ; null supprime la traduction et rétablit le français. name/prompt reste en français."
               },
               "response": []
             },
@@ -2854,6 +3155,11 @@
                   {
                     "key": "Origin",
                     "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/traits/{{traitId}}",
@@ -2876,6 +3182,11 @@
                   {
                     "key": "Cookie",
                     "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/profile-questions",
@@ -2906,6 +3217,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/profile-questions",
@@ -2914,14 +3230,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"prompt\": \"Quel est votre passe-temps préféré ?\",\n  \"category\": \"interests\",\n  \"display_order\": 100\n}",
+                  "raw": "{\n  \"prompt\": \"Quel est ton loisir préféré ?\",\n  \"category\": \"interests\",\n  \"display_order\": 100,\n  \"translations\": {\n    \"en\": \"What is your favorite hobby?\",\n    \"es\": \"¿Cuál es tu pasatiempo favorito?\",\n    \"it\": \"Qual è il tuo hobby preferito?\"\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "{ prompt, category, display_order? } → 201 avec la question."
+                "description": "{ prompt, category, display_order? } → 201 avec la question.\nTraductions facultatives. Une clé absente conserve sa valeur ; null supprime la traduction et rétablit le français. name/prompt reste en français."
               },
               "response": []
             },
@@ -2945,6 +3261,11 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/profile-questions/{{questionId}}",
@@ -2953,14 +3274,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"prompt\": \"Quel passe-temps préférez-vous ?\"\n}",
+                  "raw": "{\n  \"prompt\": \"Quel loisir préfères-tu ?\",\n  \"translations\": {\n    \"en\": \"Which hobby do you prefer?\",\n    \"es\": \"¿Qué pasatiempo prefieres?\",\n    \"it\": \"Quale hobby preferisci?\"\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "Au moins un de ces trois champs → 200 avec la question."
+                "description": "Au moins un de ces trois champs → 200 avec la question.\nTraductions facultatives. Une clé absente conserve sa valeur ; null supprime la traduction et rétablit le français. name/prompt reste en français."
               },
               "response": []
             },
@@ -2980,6 +3301,11 @@
                   {
                     "key": "Origin",
                     "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/profile-questions/{{questionId}}",
@@ -3024,6 +3350,10 @@
                   {
                     "key": "Cookie",
                     "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}"
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/content-moderation/{{moderationCaseId}}?reason={{auditReason}}",
@@ -3054,6 +3384,10 @@
                   {
                     "key": "Content-Type",
                     "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}"
                   }
                 ],
                 "url": "{{baseUrl}}/api/admin/content-moderation/{{moderationCaseId}}",
@@ -3324,6 +3658,11 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
               }
             ],
             "url": "{{baseUrl}}/api/users/me/advertising-rewards",
@@ -3371,6 +3710,11 @@
               {
                 "key": "Accept",
                 "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
               }
             ],
             "url": "{{baseUrl}}/api/users/me/advertising-rewards/{{rewardId}}",
@@ -3396,6 +3740,11 @@
               {
                 "key": "Accept",
                 "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
               }
             ],
             "url": "{{baseUrl}}/api/users/me/advertising-rewards/{{rewardId}}",
@@ -3608,6 +3957,11 @@
     {
       "key": "admobSignedQuery",
       "value": "",
+      "type": "string"
+    },
+    {
+      "key": "language",
+      "value": "fr",
       "type": "string"
     }
   ]

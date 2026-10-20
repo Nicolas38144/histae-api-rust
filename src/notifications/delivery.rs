@@ -1,3 +1,4 @@
+use crate::localization::Language;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -22,6 +23,7 @@ use crate::outbox::worker::{DispatchFuture, OutboxHandler};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingPush {
     pub notification_id: Uuid,
+    pub language: Language,
     pub token: String,
     pub notification_type: NotificationType,
     pub payload: serde_json::Map<String, Value>,
@@ -47,7 +49,7 @@ impl PgNotificationDeliveryStore {
 
     async fn pending(&self, id: Uuid) -> Result<Option<PendingPush>, DatabaseError> {
         let query = format!(
-            r#"SELECT n.id AS notification_id, d.token, n.type, n.payload
+            r#"SELECT n.id AS notification_id, d.token, n.type, n.payload, COALESCE(d.language, account.preferred_language) AS language
                FROM notification_push_delivery delivery
                JOIN notification n ON n.id = delivery.notification_id
                JOIN device_token d ON d.id = delivery.device_id AND d.user_id = n.user_id
@@ -91,6 +93,11 @@ impl PgNotificationDeliveryStore {
         let kind: String = row.try_get("type").map_err(map_sqlx_error)?;
         let payload: Value = row.try_get("payload").map_err(map_sqlx_error)?;
         Ok(Some(PendingPush {
+            language: Language::parse(
+                &row.try_get::<String, _>("language")
+                    .map_err(map_sqlx_error)?,
+            )
+            .ok_or(DatabaseError::QueryFailed)?,
             notification_id: row.try_get("notification_id").map_err(map_sqlx_error)?,
             token: row.try_get("token").map_err(map_sqlx_error)?,
             notification_type: NotificationType::parse(&kind).ok_or(DatabaseError::QueryFailed)?,
@@ -141,7 +148,12 @@ impl NotificationPushHandler {
         };
         let data = allowlisted_data(&pending)?;
         self.push
-            .send(&pending.token, pending.notification_type, data)
+            .send_in(
+                &pending.token,
+                pending.notification_type,
+                data,
+                pending.language,
+            )
             .await
     }
 }
@@ -393,6 +405,7 @@ mod tests {
         let handler = NotificationPushHandler::new(
             Arc::new(Store {
                 pending: Some(PendingPush {
+                    language: crate::localization::Language::Fr,
                     notification_id,
                     token: "generated-device-token".to_owned(),
                     notification_type: NotificationType::NewMessage,

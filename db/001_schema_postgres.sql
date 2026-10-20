@@ -20,6 +20,7 @@ CREATE TABLE user_account (
     phone_number_encrypted bytea NOT NULL,
     is_banned boolean DEFAULT false NOT NULL,
     discovery_paused boolean DEFAULT false NOT NULL,
+    preferred_language text DEFAULT 'fr' NOT NULL CHECK (preferred_language IN ('fr','en','es','it')),
     banned_at timestamp with time zone,
     banned_reason text,
     banned_by uuid,
@@ -72,6 +73,7 @@ CREATE TABLE otp_verification (
     id uuid DEFAULT uuid_generate_v4() NOT NULL,
     phone_number_hash text NOT NULL,
     otp_hash text NOT NULL,
+    language text DEFAULT 'fr' NOT NULL CHECK (language IN ('fr','en','es','it')),
     expires_at timestamp with time zone NOT NULL,
     used boolean DEFAULT false NOT NULL,
     idempotency_key uuid DEFAULT uuid_generate_v4() NOT NULL,
@@ -158,6 +160,7 @@ CREATE TABLE device_token (
     id uuid DEFAULT uuid_generate_v4() NOT NULL,
     user_id uuid NOT NULL,
     token text NOT NULL,
+    language text CHECK (language IN ('fr','en','es','it')),
     platform text NOT NULL,
     app_version text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -230,6 +233,7 @@ CREATE TABLE user_consent (
     consent_type text NOT NULL,
     granted boolean NOT NULL,
     document_version text NOT NULL,
+    document_language text DEFAULT 'fr' NOT NULL CHECK (document_language IN ('fr','en','es','it')),
     ip_address text,
     user_agent text,
     granted_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -1130,6 +1134,36 @@ CREATE INDEX idx_admin_auth_event_session ON admin_auth_event (session_id) WHERE
 
 -- Fonctions métier et guards transactionnels
 
+-- BEGIN localization
+CREATE TABLE IF NOT EXISTS trait_translation (
+    trait_id uuid NOT NULL REFERENCES trait(id) ON DELETE CASCADE,
+    language text NOT NULL CHECK (language IN ('fr','en','es','it')),
+    name text NOT NULL CHECK (length(btrim(name)) > 0 AND octet_length(name) <= 100),
+    PRIMARY KEY (trait_id, language)
+);
+CREATE TABLE IF NOT EXISTS profile_question_translation (
+    question_id uuid NOT NULL REFERENCES profile_question(id) ON DELETE CASCADE,
+    language text NOT NULL CHECK (language IN ('fr','en','es','it')),
+    prompt text NOT NULL CHECK (char_length(prompt) BETWEEN 3 AND 200 AND octet_length(prompt) <= 500),
+    PRIMARY KEY (question_id, language)
+);
+CREATE TABLE IF NOT EXISTS subscription_plan_translation (
+    plan_code text NOT NULL REFERENCES subscription_plan(code) ON DELETE CASCADE,
+    language text NOT NULL CHECK (language IN ('fr','en','es','it')),
+    display_name text NOT NULL,
+    PRIMARY KEY (plan_code, language)
+);
+CREATE TABLE IF NOT EXISTS subscription_plan_feature_translation (
+    plan_code text NOT NULL,
+    feature_code text NOT NULL,
+    language text NOT NULL CHECK (language IN ('fr','en','es','it')),
+    display_name text NOT NULL,
+    description text NOT NULL,
+    PRIMARY KEY (plan_code, feature_code, language),
+    FOREIGN KEY (plan_code, feature_code) REFERENCES subscription_plan_feature(plan_code, feature_code) ON DELETE CASCADE
+);
+-- END localization
+
 -- BEGIN account anonymization
 CREATE OR REPLACE FUNCTION fct_anonymize_user(p_user_id uuid) RETURNS void
     LANGUAGE plpgsql
@@ -1180,6 +1214,7 @@ BEGIN
     phone_number_encrypted = '',
     is_banned = false,
     discovery_paused = false,
+    preferred_language = 'fr',
     banned_at = NULL,
     banned_reason = NULL,
     banned_by = NULL,

@@ -6,7 +6,7 @@
 
 | Fichier | Usage |
 | --- | --- |
-| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 48 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
+| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 52 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
 | [002_insert_postgres.sql](../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
 | [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
 | [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
@@ -59,7 +59,7 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --
 Ajouter l’override proxy s’il est utilisé. En production, employer les fichiers d’environnement et
 Compose de production. La mise à jour de PostgreSQL implique un bref redémarrage ; le migrateur doit
 terminer avant le démarrage de la nouvelle API. Une sauvegarde contenant PostGIS doit être restaurée
-sur un serveur disposant de cette extension. Le test local de restauration compte désormais 49 tables publiques.
+sur un serveur disposant de cette extension. Le test local de restauration compte désormais 53 tables publiques.
 
 Le migrateur ne transforme pas automatiquement une base arbitraire. Modifier le fichier de schéma ne suffit
 pas à modifier une base existante : toute évolution doit aussi avoir son chemin de mise à niveau et ses tests.
@@ -128,8 +128,8 @@ Il effectue un dump au format custom, restaure dans une base temporaire, compare
 public et le nombre de tables, puis supprime base temporaire et archive. Le rôle doit pouvoir créer une base.
 Il choisit Docker direct ou `sudo` selon l’accès disponible.
 
-`Development backup/restore verification passed (49 public tables)` confirme cette restauration technique
-sur le schéma actuel : 48 tables applicatives et la table spatiale de PostGIS.
+`Development backup/restore verification passed (53 public tables)` confirme cette restauration technique
+sur le schéma actuel : 52 tables applicatives et la table spatiale de PostGIS.
 Le script ne conserve pas de sauvegarde, ne compare pas toutes les données et ne teste pas la reprise du S3,
 des certificats ou des fournisseurs.
 
@@ -189,3 +189,12 @@ Ne pas relancer un ordonnanceur de maintenance avant la fin de la réinstallatio
 Le [guide des crédits](continuation-and-rewards.md) définit les invariants et l’upgrade. `continuation_wallet` conserve le stock publicitaire ; `continuation_reservation` lie chaque accord à sa source et sa semaine ; `advertising_reward_intent` conserve une intention opaque et une empreinte de transaction unique. `continuation_usage` distingue le total confirmé et les crédits gratuits consommés. Le schéma et les upgrades réutilisent les sections marquées du SQL consolidé, y compris les guards et la fonction d’anonymisation. Les nouvelles tables reçoivent les privilèges applicatifs par les default privileges du rôle migrateur. Aucune table de suivi des migrations n’est réintroduite.
 
 Les proofs/intents et compteurs hebdomadaires sont purgés au-delà de 90 jours lors de la maintenance bornée ; les réservations périmées sont libérées et purgées. Un stock publicitaire acquis reste conservé pendant la vie du compte. Export et effacement couvrent ces données, avec libération des réservations du partenaire sur les matchs clôturés.
+
+## Langues et traductions
+
+Le schéma comporte `preferred_language` sur le compte, `language` sur les appareils et tentatives OTP,
+et `document_language` sur les décisions de consentement. Quatre tables de traduction sont liées par
+clés étrangères en cascade aux traits, questions, plans et fonctionnalités. Le migrateur les ajoute aux
+installations existantes et insère les traductions initiales sans remplacer les textes déjà présents.
+L’effacement réinitialise la langue du compte ; l’export inclut les préférences et la langue documentaire.
+Voir [Internationalisation](internationalization.md).

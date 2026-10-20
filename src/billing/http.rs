@@ -1,3 +1,4 @@
+use crate::localization::{Language, http::Locale};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -55,6 +56,22 @@ pub trait BillingUseCases: Send + Sync {
     ) -> BillingHttpFuture<'_, CheckoutSessionView>;
 
     fn create_portal(&self, user_id: uuid::Uuid) -> BillingHttpFuture<'_, String>;
+    fn create_checkout_in(
+        &self,
+        user_id: uuid::Uuid,
+        period: BillingPeriod,
+        key: Option<&str>,
+        _language: Language,
+    ) -> BillingHttpFuture<'_, CheckoutSessionView> {
+        self.create_checkout(user_id, period, key)
+    }
+    fn create_portal_in(
+        &self,
+        user_id: uuid::Uuid,
+        _language: Language,
+    ) -> BillingHttpFuture<'_, String> {
+        self.create_portal(user_id)
+    }
 }
 
 impl BillingUseCases for BillingService {
@@ -82,6 +99,26 @@ impl BillingUseCases for BillingService {
 
     fn create_portal(&self, user_id: uuid::Uuid) -> BillingHttpFuture<'_, String> {
         Box::pin(BillingService::create_portal(self, user_id))
+    }
+    fn create_checkout_in(
+        &self,
+        user_id: uuid::Uuid,
+        period: BillingPeriod,
+        key: Option<&str>,
+        language: Language,
+    ) -> BillingHttpFuture<'_, CheckoutSessionView> {
+        let key = key.map(str::to_owned);
+        Box::pin(async move {
+            BillingService::create_checkout_in(self, user_id, period, key.as_deref(), language)
+                .await
+        })
+    }
+    fn create_portal_in(
+        &self,
+        user_id: uuid::Uuid,
+        language: Language,
+    ) -> BillingHttpFuture<'_, String> {
+        Box::pin(BillingService::create_portal_in(self, user_id, language))
     }
 }
 
@@ -176,10 +213,12 @@ impl ApiDto for CreateCheckoutBody {
 async fn create_checkout(
     OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<BillingHttpState>,
+    locale: Locale,
     headers: HeaderMap,
     ValidatedJson(body): ValidatedJson<CreateCheckoutBody>,
 ) -> Result<(StatusCode, Json<CheckoutSessionView>), ApiError> {
     let user_id = identity.account.user_id;
+    let locale = locale.for_account(&identity.account);
     state
         .limiter
         .enforce(
@@ -192,7 +231,12 @@ async fn create_checkout(
     let idempotency_key = single_header(&headers, "idempotency-key");
     state
         .service
-        .create_checkout(user_id, body.billing_period, idempotency_key)
+        .create_checkout_in(
+            user_id,
+            body.billing_period,
+            idempotency_key,
+            locale.language,
+        )
         .await
         .map(|session| (StatusCode::CREATED, Json(session)))
         .map_err(billing_error)
@@ -206,8 +250,10 @@ struct PortalResponse {
 async fn create_portal(
     OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<BillingHttpState>,
+    locale: Locale,
 ) -> Result<(StatusCode, Json<PortalResponse>), ApiError> {
     let user_id = identity.account.user_id;
+    let locale = locale.for_account(&identity.account);
     state
         .limiter
         .enforce(
@@ -219,7 +265,7 @@ async fn create_portal(
         .await?;
     state
         .service
-        .create_portal(user_id)
+        .create_portal_in(user_id, locale.language)
         .await
         .map(|url| (StatusCode::CREATED, Json(PortalResponse { url })))
         .map_err(billing_error)

@@ -1,3 +1,4 @@
+use crate::localization::Language;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
@@ -85,6 +86,7 @@ impl std::error::Error for SmsDeliveryError {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SmsMessage {
+    pub language: Language,
     pub phone: String,
     pub region: String,
     pub code: String,
@@ -157,10 +159,7 @@ impl SweegoSmsService {
                 number: &message.phone,
                 region: &message.region,
             }],
-            text: format!(
-                "Histae : votre code de verification est {}. Il expire dans {minutes} minutes.",
-                message.code
-            ),
+            text: crate::localization::copy::otp(message.language, &message.code, minutes),
             shorten_urls: false,
             shorten_with_protocol: false,
         };

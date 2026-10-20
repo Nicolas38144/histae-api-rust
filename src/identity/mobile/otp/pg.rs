@@ -28,10 +28,10 @@ impl OtpRepository {
                     let settlement_millis = duration_millis(input.settlement)?;
                     let inserted = sqlx::query_scalar::<_, Uuid>(
                         "INSERT INTO otp_verification
-                         (id, phone_number_hash, otp_hash, idempotency_key, expires_at, settlement_deadline)
+                         (id, phone_number_hash, otp_hash, idempotency_key, expires_at, settlement_deadline, language)
                          VALUES ($1, $2, $3, $4,
                            clock_timestamp() + $5 * INTERVAL '1 millisecond',
-                           clock_timestamp() + $6 * INTERVAL '1 millisecond')
+                           clock_timestamp() + $6 * INTERVAL '1 millisecond', $7)
                          ON CONFLICT (idempotency_key) DO NOTHING RETURNING id",
                     )
                     .bind(input.id)
@@ -40,6 +40,7 @@ impl OtpRepository {
                     .bind(input.idempotency_key)
                     .bind(ttl_millis)
                     .bind(settlement_millis)
+                    .bind(input.language.as_str())
                     .fetch_optional(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
@@ -49,17 +50,18 @@ impl OtpRepository {
                     sqlx::query(
                         "UPDATE otp_verification
                          SET delivery_status = 'unknown', delivery_error_code = 'delivery_unknown'
-                         WHERE idempotency_key = $1 AND phone_number_hash = $2
+                         WHERE idempotency_key = $1 AND phone_number_hash = $2 AND language = $3
                            AND delivery_status = 'pending'
                            AND settlement_deadline <= clock_timestamp()",
                     )
                     .bind(input.idempotency_key)
                     .bind(&input.phone_hash)
+                    .bind(input.language.as_str())
                     .execute(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
-                    let existing = sqlx::query_as::<_, (Uuid, String, String)>(
-                        "SELECT id, phone_number_hash, delivery_status
+                    let existing = sqlx::query_as::<_, (Uuid, String, String, String)>(
+                        "SELECT id, phone_number_hash, delivery_status, language
                          FROM otp_verification WHERE idempotency_key = $1",
                     )
                     .bind(input.idempotency_key)
@@ -67,7 +69,7 @@ impl OtpRepository {
                     .await
                     .map_err(map_sqlx_error)?
                     .ok_or(DatabaseError::QueryFailed)?;
-                    if existing.1 != input.phone_hash {
+                    if existing.1 != input.phone_hash || existing.3 != input.language.as_str() {
                         return Ok(OtpDeliveryStart::Conflict);
                     }
                     Ok(OtpDeliveryStart::Existing(

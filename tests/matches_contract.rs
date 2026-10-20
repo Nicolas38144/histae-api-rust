@@ -496,6 +496,7 @@ fn app_with_message_limit(
     message_limit: u64,
 ) -> (axum::Router, String) {
     let account = ActiveAccount {
+        preferred_language: histae_api_rust::localization::Language::Fr,
         user_id: user_id(),
         role: AccountRole::User,
         is_banned: false,

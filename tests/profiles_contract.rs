@@ -293,7 +293,22 @@ fn jwt_config() -> JwtConfig {
 }
 
 fn app(store: FakeProfileStore, onboarded: bool) -> (axum::Router, TokenPair) {
+    localized_app(
+        store,
+        onboarded,
+        None,
+        histae_api_rust::localization::Language::Fr,
+    )
+}
+
+fn localized_app(
+    store: FakeProfileStore,
+    onboarded: bool,
+    localization: Option<histae_api_rust::localization::LocalizationService>,
+    preferred_language: histae_api_rust::localization::Language,
+) -> (axum::Router, TokenPair) {
     let account = ActiveAccount {
+        preferred_language,
         user_id: user_id(),
         role: AccountRole::User,
         is_banned: false,
@@ -343,6 +358,11 @@ fn app(store: FakeProfileStore, onboarded: bool) -> (axum::Router, TokenPair) {
         },
     )
     .expect("HTTP state");
+    let http_state = if let Some(service) = localization {
+        http_state.with_localization(service)
+    } else {
+        http_state
+    };
     let pair = TokenPair {
         access_token: tokens
             .access_token(user_id(), session_id())
@@ -380,6 +400,7 @@ async fn json_body(response: axum::response::Response) -> Value {
 async fn consents_are_available_during_onboarding_and_keep_the_public_shape() {
     let store = FakeProfileStore::new();
     store.state.lock().expect("state").consents = vec![ConsentRecord {
+        document_language: histae_api_rust::localization::Language::Fr,
         consent_type: ConsentType::TermsOfServiceAcceptance,
         granted: true,
         document_version: "terms-v1".to_owned(),
@@ -407,6 +428,8 @@ async fn consents_are_available_during_onboarding_and_keep_the_public_shape() {
                     "consent_type": "terms_of_service_acceptance",
                     "granted": true,
                     "document_version": "terms-v1",
+                    "accepted_document_language": "fr",
+                    "document_language": "fr",
                     "required_document_version": "terms-v1",
                     "document_url": "https://histae.test/legal/terms",
                     "updated_at": "2030-01-01T00:00:00.000Z"
@@ -414,18 +437,21 @@ async fn consents_are_available_during_onboarding_and_keep_the_public_shape() {
                 {
                     "consent_type": "privacy_notice_acknowledgement",
                     "granted": false,
+                    "document_language": "fr",
                     "required_document_version": "privacy-v1",
                     "document_url": "https://histae.test/legal/privacy"
                 },
                 {
                     "consent_type": "sensitive_data_consent",
                     "granted": false,
+                    "document_language": "fr",
                     "required_document_version": "sensitive-v1",
                     "document_url": "https://histae.test/legal/sensitive-data"
                 },
                 {
                     "consent_type": "location_consent",
                     "granted": false,
+                    "document_language": "fr",
                     "required_document_version": "location-v1",
                     "document_url": "https://histae.test/legal/location"
                 }
@@ -711,4 +737,119 @@ async fn consent_payload_rules_and_version_assignment_are_preserved() {
         state.last_consent_changes[0].document_version,
         "sensitive-v1"
     );
+}
+
+struct CatalogFixture(histae_api_rust::localization::catalog::CatalogSnapshot);
+impl histae_api_rust::localization::store::LocalizationStore for CatalogFixture {
+    fn language(
+        &self,
+        _id: Uuid,
+    ) -> histae_api_rust::localization::store::LocalizationFuture<
+        '_,
+        histae_api_rust::localization::Language,
+    > {
+        panic!("reuse the authenticated projection")
+    }
+    fn set_language(
+        &self,
+        _id: Uuid,
+        _language: histae_api_rust::localization::Language,
+    ) -> histae_api_rust::localization::store::LocalizationFuture<
+        '_,
+        histae_api_rust::localization::Language,
+    > {
+        panic!("a read must not change the preference")
+    }
+    fn catalog(
+        &self,
+    ) -> histae_api_rust::localization::store::LocalizationFuture<
+        '_,
+        histae_api_rust::localization::catalog::CatalogSnapshot,
+    > {
+        Box::pin(async { Ok(self.0.clone()) })
+    }
+}
+
+#[tokio::test]
+async fn language_negotiation_keeps_user_content_ids_and_session_guards_intact() {
+    use histae_api_rust::localization::{
+        Language, LocalizationService,
+        catalog::{CatalogSnapshot, Entry},
+    };
+    let question = Uuid::new_v4();
+    let store = FakeProfileStore::new();
+    store.state.lock().expect("state").profile = Some(ProfileRecord {
+        user_id: user_id(),
+        firstname: "Alice".into(),
+        birthdate: NaiveDate::from_ymd_opt(1995, 4, 12).expect("date"),
+        sex: None,
+        bio: Some("Mon texte personnel".into()),
+        photo_object_key: None,
+        profile_answers: vec![
+            json!({"question_id":question,"question":"Question française ?","answer":"Une réponse personnelle"}),
+        ],
+        bio_moderation_status: None,
+        bio_moderation_reasons: vec![],
+        photo_moderation_status: None,
+        photo_moderation_reasons: vec![],
+    });
+    let mut catalog = CatalogSnapshot::default();
+    catalog.questions.insert(
+        question,
+        Entry {
+            base: "Question française ?".into(),
+            names: [
+                (Language::Fr, "Question française ?".into()),
+                (Language::En, "English question?".into()),
+                (Language::It, "Domanda italiana?".into()),
+            ]
+            .into(),
+            descriptions: Default::default(),
+        },
+    );
+    let (app, tokens) = localized_app(
+        store,
+        true,
+        Some(LocalizationService::new(Arc::new(CatalogFixture(catalog)))),
+        Language::It,
+    );
+    for (header_value, expected, language) in [
+        (None, "Domanda italiana?", "it"),
+        (Some("en-US,en;q=0.8"), "English question?", "en"),
+        (Some("de"), "Question française ?", "fr"),
+        (Some("es"), "Question française ?", "es"),
+    ] {
+        let mut input = request("GET", "/api/users/me", Some(&tokens.access_token), "");
+        if let Some(value) = header_value {
+            input
+                .headers_mut()
+                .insert(header::ACCEPT_LANGUAGE, value.parse().expect("header"));
+        }
+        let response = app.clone().oneshot(input).await.expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_LANGUAGE], language);
+        assert!(
+            response
+                .headers()
+                .get_all(header::VARY)
+                .iter()
+                .any(|value| value.to_str().expect("header").contains("Accept-Language"))
+        );
+        let body = json_body(response).await;
+        assert_eq!(body["profile_answers"][0]["question"], expected);
+        assert_eq!(
+            body["profile_answers"][0]["question_id"],
+            question.to_string()
+        );
+        assert_eq!(
+            body["profile_answers"][0]["answer"],
+            "Une réponse personnelle"
+        );
+        assert_eq!(body["bio"], "Mon texte personnel");
+    }
+    let response = app
+        .oneshot(request("GET", "/api/users/me", None, ""))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }

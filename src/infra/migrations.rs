@@ -82,6 +82,8 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
     verify_schema_compatibility_on(&mut transaction).await?;
     sqlx::query("ALTER TABLE user_account ADD COLUMN IF NOT EXISTS discovery_paused boolean NOT NULL DEFAULT false")
         .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
+    sqlx::raw_sql("ALTER TABLE user_account ADD COLUMN IF NOT EXISTS preferred_language text NOT NULL DEFAULT 'fr' CHECK (preferred_language IN ('fr','en','es','it')); ALTER TABLE device_token ADD COLUMN IF NOT EXISTS language text CHECK (language IN ('fr','en','es','it')); ALTER TABLE user_consent ADD COLUMN IF NOT EXISTS document_language text NOT NULL DEFAULT 'fr' CHECK (document_language IN ('fr','en','es','it')); ALTER TABLE otp_verification ADD COLUMN IF NOT EXISTS language text NOT NULL DEFAULT 'fr' CHECK (language IN ('fr','en','es','it'))")
+        .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
     let legacy_checkout: bool = sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'billing_checkout_session' AND column_name = 'stripe_checkout_request')")
         .fetch_one(&mut *transaction).await.map_err(map_sqlx_error)?;
     sqlx::query("ALTER TABLE billing_checkout_session ADD COLUMN IF NOT EXISTS stripe_checkout_request jsonb")
@@ -117,12 +119,23 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         sqlx::query("UPDATE match_state SET continued = false WHERE match_id IN (SELECT id FROM match_init WHERE status = 'awaiting_continuation')")
             .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
     }
+    let localization_new: bool =
+        sqlx::query_scalar("SELECT to_regclass(current_schema() || '.trait_translation') IS NULL")
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(map_sqlx_error)?;
     for (source, name) in [
+        (SCHEMA, "localization"),
         (SCHEMA, "continuation credits"),
         (SCHEMA, "continuation guards"),
         (SCHEMA, "account anonymization"),
         (SEED, "subscription plan features"),
+        (SEED, "catalog translations"),
     ] {
+        // Seed only at introduction. Later deploys must preserve deliberate removals too.
+        if name == "catalog translations" && !localization_new {
+            continue;
+        }
         transaction
             .execute(sqlx::raw_sql(schema_section(source, name)?))
             .await

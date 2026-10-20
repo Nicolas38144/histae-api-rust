@@ -1,3 +1,4 @@
+use crate::localization::http::Locale;
 use axum::extract::Extension;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, patch};
@@ -112,11 +113,16 @@ struct ListResponse {
 async fn list(
     OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<MatchHttpState>,
+    locale: Locale,
     ValidatedQuery(query): ValidatedQuery<PaginationQuery>,
 ) -> Result<Json<ListResponse>, ApiError> {
+    let locale = locale.for_account(&identity.account);
     let limit = query.limit().ok_or_else(invalid_pagination)?;
     let offset = query.offset().ok_or_else(invalid_pagination)?;
-    let MatchPage { items, next_cursor } = state
+    let MatchPage {
+        mut items,
+        next_cursor,
+    } = state
         .service
         .list(
             identity.account.user_id,
@@ -126,6 +132,11 @@ async fn list(
         )
         .await
         .map_err(match_error)?;
+    let catalog = locale.catalog(false).await?;
+    for item in &mut items {
+        catalog.trait_names(&mut item.other_user.traits, locale.language);
+        catalog.answers(&mut item.other_user.profile_answers, locale.language);
+    }
     Ok(Json(ListResponse {
         matches: items,
         next_cursor,

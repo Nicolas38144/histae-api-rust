@@ -33,8 +33,13 @@ STRIPE_PORTAL_RETURN_URL=https://www.histae.com/billing/return
 
 Conserver le marqueur littéral `{CHECKOUT_SESSION_ID}` : Stripe le remplace lors du retour.
 Le domaine canonique est `www.histae.com` ; `histae.com` reste redirigé vers celui-ci.
-Caddy ajoute le slash final aux chemins statiques en conservant les paramètres. Le navigateur choisit
-ensuite la première langue prise en charge dans ses préférences (`fr`, `en`, `es`, `it`), puis rejoint
+Les nouvelles demandes de l’API transmettent `locale` à Stripe et sélectionnent directement le chemin
+localisé correspondant à `Accept-Language`, puis à la préférence du compte, pour ces trois URL Histae.
+Une URL personnalisée reste inchangée. Les reprises Checkout conservent leur langue et leurs URL initiales,
+y compris les anciennes tentatives sans paramètre `locale`. Voir [Internationalisation](internationalization.md).
+
+Caddy ajoute le slash final aux chemins statiques en conservant les paramètres. Lorsqu’un ancien lien
+sans langue est utilisé, le navigateur choisit la première langue prise en charge dans ses préférences (`fr`, `en`, `es`, `it`), puis rejoint
 la page localisée correspondante. Exemple : italien → `/it/billing/success/`. Le français sert de secours
 si aucune préférence n'est prise en charge. La redirection transmet la chaîne de paramètres telle
 quelle, sans lire l'identifiant Stripe, avec `location.replace` pour éviter une boucle via le bouton Retour.

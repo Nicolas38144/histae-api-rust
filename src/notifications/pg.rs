@@ -12,6 +12,7 @@ type DeviceTuple = (
     Option<String>,
     DateTime<Utc>,
     Option<DateTime<Utc>>,
+    Option<String>,
 );
 
 #[derive(Clone)]
@@ -48,8 +49,8 @@ impl PgNotificationRepository {
 
                     let row = sqlx::query_as::<_, DeviceTuple>(
                         "INSERT INTO device_token
-                           (id, user_id, session_id, token, platform, app_version, created_at, last_used_at)
-                         SELECT $1, $2, id, $4, $5, $6, clock_timestamp(), clock_timestamp()
+                           (id, user_id, session_id, token, platform, app_version, created_at, last_used_at, language)
+                         SELECT $1, $2, id, $4, $5, $6, clock_timestamp(), clock_timestamp(), $7
                          FROM refresh_token_family
                          WHERE id = $3 AND user_id = $2
                            AND revoked_at IS NULL AND expires_at > clock_timestamp()
@@ -58,8 +59,9 @@ impl PgNotificationRepository {
                            session_id = EXCLUDED.session_id,
                            platform = EXCLUDED.platform,
                            app_version = EXCLUDED.app_version,
+                           language = EXCLUDED.language,
                            last_used_at = clock_timestamp()
-                         RETURNING id, session_id, platform, app_version, created_at, last_used_at",
+                         RETURNING id, session_id, platform, app_version, created_at, last_used_at, language",
                     )
                     .bind(Uuid::new_v4())
                     .bind(user_id)
@@ -67,6 +69,7 @@ impl PgNotificationRepository {
                     .bind(registration.token)
                     .bind(registration.platform.as_str())
                     .bind(registration.app_version)
+                    .bind(registration.language.map(|language| language.as_str()))
                     .fetch_optional(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
@@ -81,7 +84,7 @@ impl PgNotificationRepository {
         user_id: Uuid,
     ) -> Result<Vec<DeviceRecord>, DatabaseError> {
         sqlx::query_as::<_, DeviceTuple>(
-            "SELECT id, session_id, platform, app_version, created_at, last_used_at
+            "SELECT id, session_id, platform, app_version, created_at, last_used_at, language
              FROM device_token
              WHERE user_id = $1
              ORDER BY last_used_at DESC NULLS LAST, id",
@@ -134,12 +137,17 @@ impl DeviceStore for PgNotificationRepository {
 }
 
 fn map_device(row: DeviceTuple) -> Result<DeviceRecord, DatabaseError> {
-    let (id, session_id, platform, app_version, created_at, last_used_at) = row;
+    let (id, session_id, platform, app_version, created_at, last_used_at, language) = row;
     Ok(DeviceRecord {
         id,
         session_id,
         platform: DevicePlatform::parse(&platform).ok_or(DatabaseError::QueryFailed)?,
         app_version,
+        language: language
+            .map(|value| {
+                crate::localization::Language::parse(&value).ok_or(DatabaseError::QueryFailed)
+            })
+            .transpose()?,
         created_at,
         last_used_at,
     })

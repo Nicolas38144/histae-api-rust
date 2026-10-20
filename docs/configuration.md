@@ -247,3 +247,13 @@ leur ajouter arbitrairement `--check-config`.
 Le fournisseur est laissé désactivé dans le `.env` local. Les identifiants de test Android/iOS y sont présents pour préparer une intégration, avec le libellé `continuation_credit`. Les publicités nécessitent la configuration AdMob SSV, les choix UMP et le parcours mobile décrits dans le [guide](continuation-and-rewards.md). Aucun secret AdMob partagé n’est requis. Les clés ECDSA sont téléchargées uniquement depuis l’URL HTTPS officielle Google, qui n’est pas configurable.
 
 Le catalogue SQL utilise encore `subscription_plan.weekly_continuation_limit` comme allocation de crédits gratuits (3 pour Free, `NULL` pour Premium). La projection HTTP distingue cette allocation dans `weekly_included_credits` du plafond `weekly_continuation_limit` de 6 continuations Free confirmées. Le wallet et les verrous font autorité pour les réservations et débits. Les paramètres de pool PostgreSQL restent inchangés.
+
+## URL des documents traduits
+
+Les langues API sont `fr`, `en`, `es`, `it`. Pour les URL juridiques Histae, les chemins localisés sont
+sélectionnés automatiquement. Pour un hébergement personnalisé, les suffixes `_EN`, `_ES`, `_IT` sont
+acceptés sur `TERMS_OF_SERVICE_URL`, `PRIVACY_POLICY_URL`, `SENSITIVE_DATA_CONSENT_URL` et
+`LOCATION_CONSENT_URL` (douze valeurs facultatives, HTTPS en production). Sans traduction configurée,
+l’URL française est conservée et `document_language` vaut `fr`.
+Les versions et `LEGAL_REVIEW_REFERENCE` gardent leurs exigences existantes.
+Voir [Internationalisation](internationalization.md) pour la préférence du compte, les appareils et les consentements.

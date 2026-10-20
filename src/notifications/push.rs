@@ -1,3 +1,4 @@
+use crate::localization::{Language, copy};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
@@ -41,6 +42,16 @@ pub trait PushSender: Send + Sync {
         kind: NotificationType,
         data: BTreeMap<String, String>,
     ) -> PushFuture<'a>;
+
+    fn send_in<'a>(
+        &'a self,
+        token: &'a str,
+        kind: NotificationType,
+        data: BTreeMap<String, String>,
+        _language: Language,
+    ) -> PushFuture<'a> {
+        self.send(token, kind, data)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -203,12 +214,13 @@ impl PushService {
         token: &str,
         kind: NotificationType,
         data: BTreeMap<String, String>,
+        language: Language,
     ) -> Result<(), PushDeliveryError> {
         if self.inner.config.provider == PushProvider::Disabled {
             return Ok(());
         }
         let access_token = self.google_access_token().await?;
-        let (title, message) = kind.copy();
+        let (title, message) = copy::notification(language, kind);
         let mut public_data = data;
         public_data.insert("type".to_owned(), kind.as_str().to_owned());
         let request = json!({
@@ -301,7 +313,17 @@ impl PushSender for PushService {
         kind: NotificationType,
         data: BTreeMap<String, String>,
     ) -> PushFuture<'a> {
-        Box::pin(self.send_inner(token, kind, data))
+        Box::pin(self.send_inner(token, kind, data, Language::Fr))
+    }
+
+    fn send_in<'a>(
+        &'a self,
+        token: &'a str,
+        kind: NotificationType,
+        data: BTreeMap<String, String>,
+        language: Language,
+    ) -> PushFuture<'a> {
+        Box::pin(self.send_inner(token, kind, data, language))
     }
 }
 
@@ -610,7 +632,12 @@ mod tests {
             .await
             .unwrap_or_else(|_| unreachable!());
         service
-            .send("generated-token", NotificationType::NewMessage, data)
+            .send_in(
+                "generated-token",
+                NotificationType::NewMessage,
+                data,
+                Language::It,
+            )
             .await
             .unwrap_or_else(|_| unreachable!());
         assert_eq!(
@@ -623,6 +650,18 @@ mod tests {
         );
         let sent = transport.json.lock().unwrap_or_else(|_| unreachable!());
         assert_eq!(sent.len(), 2);
+        assert_eq!(
+            sent[0]
+                .pointer("/message/notification/title")
+                .and_then(Value::as_str),
+            Some("Nouveau message")
+        );
+        assert_eq!(
+            sent[1]
+                .pointer("/message/notification/title")
+                .and_then(Value::as_str),
+            Some("Nuovo messaggio")
+        );
         assert_eq!(
             sent[0]
                 .pointer("/message/data/type")

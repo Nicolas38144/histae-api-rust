@@ -1,3 +1,4 @@
+use crate::localization::Language;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -35,6 +36,7 @@ pub struct DeviceRecord {
     pub session_id: Option<Uuid>,
     pub platform: DevicePlatform,
     pub app_version: Option<String>,
+    pub language: Option<Language>,
     pub created_at: DateTime<Utc>,
     pub last_used_at: Option<DateTime<Utc>>,
 }
@@ -44,6 +46,7 @@ pub struct DeviceRegistration {
     pub token: String,
     pub platform: DevicePlatform,
     pub app_version: Option<String>,
+    pub language: Option<Language>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -52,6 +55,7 @@ pub struct PublicDevice {
     pub session_id: Option<Uuid>,
     pub platform: DevicePlatform,
     pub app_version: Option<String>,
+    pub language: Option<Language>,
     pub created_at: String,
     pub last_used_at: Option<String>,
 }
@@ -63,6 +67,7 @@ impl From<DeviceRecord> for PublicDevice {
             session_id: value.session_id,
             platform: value.platform,
             app_version: value.app_version,
+            language: value.language,
             created_at: wire_timestamp(value.created_at),
             last_used_at: value.last_used_at.map(wire_timestamp),
         }
@@ -161,24 +166,6 @@ impl NotificationType {
             Self::NewMessage => "new_message",
             Self::BillingPaymentFailed => "billing_payment_failed",
             Self::SubscriptionTrialEnding => "subscription_trial_ending",
-        }
-    }
-
-    pub const fn copy(self) -> (&'static str, &'static str) {
-        match self {
-            Self::NewMatch => ("Nouveau match", "Vous avez un nouveau match sur Histae."),
-            Self::NewMessage => (
-                "Nouveau message",
-                "Vous avez reçu un nouveau message sur Histae.",
-            ),
-            Self::BillingPaymentFailed => (
-                "Paiement à vérifier",
-                "Votre paiement Premium a échoué. Vérifiez votre moyen de paiement.",
-            ),
-            Self::SubscriptionTrialEnding => (
-                "Essai Premium",
-                "Votre période d’essai Premium se termine bientôt.",
-            ),
         }
     }
 }

@@ -1,4 +1,5 @@
 use super::{domain::*, store::OtpStore};
+use crate::localization::Language;
 use crate::{
     config::SecretString,
     identity::mobile::sweego::{SmsDelivery, SmsMessage},
@@ -82,6 +83,16 @@ impl OtpService {
         phone_input: &str,
         idempotency_input: Option<&str>,
     ) -> Result<(), OtpError> {
+        self.send_in(phone_input, idempotency_input, Language::Fr)
+            .await
+    }
+
+    pub async fn send_in(
+        &self,
+        phone_input: &str,
+        idempotency_input: Option<&str>,
+        language: Language,
+    ) -> Result<(), OtpError> {
         let phone = normalize_phone(phone_input).ok_or(OtpError::InvalidPhone)?;
         let idempotency_key = normalize_idempotency_key(idempotency_input)?;
         let code = generate_otp()?;
@@ -95,6 +106,7 @@ impl OtpService {
         let start = self
             .store
             .begin(BeginOtpDelivery {
+                language,
                 id: delivery_id,
                 phone_hash: phone_hash.clone(),
                 otp_hash,
@@ -121,6 +133,7 @@ impl OtpService {
         let receipt = match self
             .delivery
             .send_otp(SmsMessage {
+                language,
                 phone,
                 region: self.region.to_string(),
                 code,

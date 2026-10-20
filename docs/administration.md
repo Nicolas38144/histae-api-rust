@@ -139,3 +139,10 @@ WebAuthn à la place du navigateur ; voir [les instructions d’import](../postm
 ## Crédits de continuation
 
 La fiche utilisateur conserve la consultation auditée et affiche `continuation_quota` : crédits gratuits, stock publicitaire, réservations et plafond hebdomadaire. L’onglet Plans distingue les trois crédits gratuits du maximum de six continuations Free et affiche si les récompenses AdMob sont activées. Premium ne consomme aucun crédit et retire les publicités. Le statut `awaiting_continuation` est présenté comme une discussion en pause. Voir [Règles](continuation-and-rewards.md).
+
+## Traductions du catalogue
+
+Les écrans Traits et Questions de profil permettent de gérer l’anglais, l’espagnol et l’italien.
+Le champ principal reste français ; les indicateurs EN/ES/IT signalent les traductions disponibles.
+Vider une traduction la supprime et rétablit le repli français. Les droits et protections d’origine restent
+identiques à ceux des modifications du catalogue. Voir [Internationalisation](internationalization.md).

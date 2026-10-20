@@ -357,6 +357,7 @@ impl AppConfig {
         };
 
         let legal = legal_config(source, environment)?;
+        let legal_translations = legal_translations_config(source, environment)?;
         let trust_proxy = trust_proxy(&source.or("TRUST_PROXY", "false")?, environment)?;
         let cors_origins = web_origins(
             &source.or(
@@ -642,6 +643,7 @@ impl AppConfig {
             photo_moderation,
             admin_auth,
             legal,
+            legal_translations,
             trust_proxy,
             cors_origins,
             maintenance_mode,

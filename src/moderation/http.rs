@@ -1,3 +1,4 @@
+use crate::localization::http::Locale;
 use std::fmt;
 
 use axum::extract::Extension;
@@ -139,10 +140,12 @@ impl ApiDto for AccessQuery {
 async fn detail(
     AdminIdentity(identity): AdminIdentity,
     Extension(state): Extension<ModerationHttpState>,
+    locale: Locale,
     ValidatedPath(path): ValidatedPath<CasePath>,
     ValidatedQuery(query): ValidatedQuery<AccessQuery>,
 ) -> Result<Json<super::domain::ModerationDetail>, ApiError> {
-    state
+    let locale = locale.resolve(identity.user_id).await?;
+    let mut detail = state
         .service
         .detail(
             path.id,
@@ -151,8 +154,18 @@ async fn detail(
             query.reason.as_deref().unwrap_or_default(),
         )
         .await
-        .map(Json)
-        .map_err(moderation_error)
+        .map_err(moderation_error)?;
+    let catalog = locale.catalog(false).await?;
+    if let Some(prompt) = &mut detail.question {
+        if let Some(entry) = catalog
+            .questions
+            .values()
+            .find(|entry| entry.base == *prompt)
+        {
+            *prompt = entry.name(locale.language).to_owned();
+        }
+    }
+    Ok(Json(detail))
 }
 
 #[derive(Clone, Copy, Debug)]

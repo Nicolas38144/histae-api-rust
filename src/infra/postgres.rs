@@ -214,6 +214,19 @@ impl Database {
         if !visibility_ready {
             return Err(DatabaseError::SchemaObjectsMissing);
         }
+        let languages_ready: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.user_account') AND attname='preferred_language' AND atttypid='text'::regtype AND attnotnull AND NOT attisdropped)
+              AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.device_token') AND attname='language' AND NOT attisdropped)
+              AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.user_consent') AND attname='document_language' AND NOT attisdropped)
+              AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.otp_verification') AND attname='language' AND NOT attisdropped)
+              AND to_regclass(current_schema() || '.trait_translation') IS NOT NULL
+              AND to_regclass(current_schema() || '.profile_question_translation') IS NOT NULL
+              AND to_regclass(current_schema() || '.subscription_plan_translation') IS NOT NULL
+              AND to_regclass(current_schema() || '.subscription_plan_feature_translation') IS NOT NULL"
+        ).fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
+        if !languages_ready {
+            return Err(DatabaseError::SchemaObjectsMissing);
+        }
         let credits_ready: bool = sqlx::query_scalar(
             "SELECT to_regclass(current_schema() || '.continuation_wallet') IS NOT NULL
                 AND to_regclass(current_schema() || '.continuation_reservation') IS NOT NULL

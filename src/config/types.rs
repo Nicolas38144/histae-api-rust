@@ -277,6 +277,7 @@ pub struct AppConfig {
     pub photo_moderation: PhotoModerationConfig,
     pub admin_auth: AdminAuthConfig,
     pub legal: LegalConfig,
+    pub legal_translations: crate::localization::legal::LegalTranslations,
     pub trust_proxy: TrustProxy,
     pub cors_origins: Vec<String>,
     pub maintenance_mode: MaintenanceMode,

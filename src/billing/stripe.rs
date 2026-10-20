@@ -1,3 +1,4 @@
+use crate::localization::{Language, legal::localized_histae_url};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
@@ -22,6 +23,9 @@ const STRIPE_ENDPOINT: &str = "https://api.stripe.com/v1/";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CheckoutInput {
+    // Old persisted attempts must keep omitting locale on Stripe retries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<Language>,
     pub user_id: Uuid,
     pub customer_id: String,
     pub price_id: String,
@@ -103,6 +107,15 @@ pub trait StripeGateway: Send + Sync {
         customer_id: &str,
         idempotency_key: String,
     ) -> StripeFuture<'_, StripePortalSession>;
+
+    fn create_portal_session_in(
+        &self,
+        customer_id: &str,
+        idempotency_key: String,
+        _language: Language,
+    ) -> StripeFuture<'_, StripePortalSession> {
+        self.create_portal_session(customer_id, idempotency_key)
+    }
 
     fn delete_customer(
         &self,
@@ -359,6 +372,9 @@ impl StripeGateway for StripeClient {
                     input.expires_at.timestamp().to_string(),
                 ),
             ];
+            if let Some(language) = input.locale {
+                form.push(("locale".to_owned(), language.as_str().to_owned()));
+            }
             if input.automatic_tax {
                 form.push(("customer_update[address]".to_owned(), "auto".to_owned()));
             }
@@ -388,6 +404,15 @@ impl StripeGateway for StripeClient {
         customer_id: &str,
         idempotency_key: String,
     ) -> StripeFuture<'_, StripePortalSession> {
+        self.create_portal_session_in(customer_id, idempotency_key, Language::Fr)
+    }
+
+    fn create_portal_session_in(
+        &self,
+        customer_id: &str,
+        idempotency_key: String,
+        language: Language,
+    ) -> StripeFuture<'_, StripePortalSession> {
         let customer_id = customer_id.to_owned();
         Box::pin(async move {
             let return_url = self
@@ -395,6 +420,7 @@ impl StripeGateway for StripeClient {
                 .portal_return_url
                 .clone()
                 .ok_or(StripeError::InvalidConfiguration)?;
+            let return_url = localized_histae_url(&return_url, language).unwrap_or(return_url);
             let value = self
                 .request(
                     Method::POST,
@@ -402,6 +428,7 @@ impl StripeGateway for StripeClient {
                     vec![
                         ("customer".to_owned(), customer_id),
                         ("return_url".to_owned(), return_url),
+                        ("locale".to_owned(), language.as_str().to_owned()),
                     ],
                     Some(&idempotency_key),
                 )

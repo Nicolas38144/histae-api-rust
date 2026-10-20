@@ -34,6 +34,7 @@ impl AccountRole {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActiveAccount {
+    pub preferred_language: crate::localization::Language,
     pub user_id: Uuid,
     pub role: AccountRole,
     pub is_banned: bool,

@@ -159,6 +159,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
                 user_id,
                 sessions[0],
                 DeviceRegistration {
+            language: None,
                     token: format!("provider-token-{user_id}"),
                     platform: DevicePlatform::Ios,
                     app_version: Some("1.0.0".to_owned()),
@@ -171,6 +172,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
                 user_id,
                 sessions[0],
                 DeviceRegistration {
+            language: None,
                     token: format!("provider-token-{user_id}"),
                     platform: DevicePlatform::Android,
                     app_version: Some("2.0.0".to_owned()),
@@ -188,6 +190,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
                 user_id,
                 sessions[1],
                 DeviceRegistration {
+            language: None,
                     token: format!("provider-revoked-{user_id}"),
                     platform: DevicePlatform::Ios,
                     app_version: None,
@@ -223,6 +226,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
                     user_id,
                     sessions[1],
                     DeviceRegistration {
+            language: None,
                         token: format!("provider-rejected-{user_id}"),
                         platform: DevicePlatform::Ios,
                         app_version: None,
@@ -423,7 +427,11 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
         .bind(user_id)
         .fetch_one(&mut *query_connection)
         .await?;
-        assert!(delivery_repository.find_deliverable(invoice_job).await?.is_some());
+        assert_eq!(delivery_repository.find_deliverable(invoice_job).await?.expect("pending").language, histae_api_rust::localization::Language::Fr);
+        sqlx::query("UPDATE user_account SET preferred_language='es' WHERE user_id=$1").bind(user_id).execute(&mut *query_connection).await?;
+        assert_eq!(delivery_repository.find_deliverable(invoice_job).await?.expect("pending").language, histae_api_rust::localization::Language::Es);
+        sqlx::query("UPDATE device_token SET language='it' WHERE user_id=$1").bind(user_id).execute(&mut *query_connection).await?;
+        assert_eq!(delivery_repository.find_deliverable(invoice_job).await?.expect("pending").language, histae_api_rust::localization::Language::It);
         sqlx::query("UPDATE billing_invoice SET status = 'paid', amount_remaining = 0 WHERE stripe_invoice_id = $1")
             .bind(&invoice_reference)
             .execute(&mut *query_connection)

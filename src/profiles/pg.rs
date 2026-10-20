@@ -301,7 +301,7 @@ impl ProfileStore for PgProfileRepository {
             let rows = sqlx::query(
                 r#"
                 SELECT DISTINCT ON (consent_type)
-                    consent_type, granted, document_version, granted_at
+                    consent_type, granted, document_version, document_language, granted_at
                 FROM user_consent
                 WHERE user_id = $1
                 ORDER BY consent_type, event_sequence DESC
@@ -322,6 +322,11 @@ impl ProfileStore for PgProfileRepository {
                         document_version: row
                             .try_get("document_version")
                             .map_err(map_sqlx_error)?,
+                        document_language: crate::localization::Language::parse(
+                            &row.try_get::<String, _>("document_language")
+                                .map_err(map_sqlx_error)?,
+                        )
+                        .ok_or(DatabaseError::QueryFailed)?,
                         granted_at: row.try_get("granted_at").map_err(map_sqlx_error)?,
                     })
                 })
@@ -392,9 +397,9 @@ impl ProfileStore for PgProfileRepository {
                                 r#"
                                 INSERT INTO user_consent (
                                     user_id, consent_type, granted, document_version,
-                                    ip_address, user_agent, granted_at, withdrawn_at
+                                    ip_address, user_agent, document_language, granted_at, withdrawn_at
                                 ) VALUES (
-                                    $1, $2, $3, $4, $5, $6, clock_timestamp(),
+                                    $1, $2, $3, $4, $5, $6, $7, clock_timestamp(),
                                     CASE WHEN $3 THEN NULL ELSE clock_timestamp() END
                                 )
                                 "#,
@@ -405,6 +410,7 @@ impl ProfileStore for PgProfileRepository {
                             .bind(&change.document_version)
                             .bind((!ip_address.is_empty()).then_some(ip_address.as_str()))
                             .bind((!user_agent.is_empty()).then_some(user_agent.as_str()))
+                            .bind(change.document_language.as_str())
                             .execute(&mut *connection)
                             .await
                             .map_err(map_sqlx_error)?;

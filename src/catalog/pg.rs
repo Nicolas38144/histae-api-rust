@@ -1,4 +1,6 @@
+use crate::localization::{catalog::TranslationPatch, pg::save_translations};
 use chrono::{DateTime, Utc};
+use sqlx::Acquire as _;
 use sqlx::{PgConnection, Postgres, QueryBuilder, Row as _};
 use uuid::Uuid;
 
@@ -84,29 +86,46 @@ impl CatalogStore for PgCatalogRepository {
         })
     }
 
-    fn create_trait(&self, trait_value: Trait) -> CatalogStoreFuture<'_, ()> {
+    fn create_trait(
+        &self,
+        trait_value: Trait,
+        translations: TranslationPatch,
+    ) -> CatalogStoreFuture<'_, ()> {
         Box::pin(async move {
-            let mut connection = self.database.acquire().await?;
+            let mut lease = self.database.acquire().await?;
+            let mut connection = lease.begin().await.map_err(map_sqlx_error)?;
             sqlx::query("INSERT INTO trait (id, name) VALUES ($1, $2)")
                 .bind(trait_value.id)
-                .bind(trait_value.name)
+                .bind(&trait_value.name)
                 .execute(&mut *connection)
                 .await
-                .map(|_| ())
-                .map_err(map_sqlx_error)
+                .map_err(map_sqlx_error)?;
+            save_translations(&mut connection, false, trait_value.id, &translations).await?;
+            connection.commit().await.map_err(map_sqlx_error)
         })
     }
 
-    fn update_trait(&self, id: Uuid, name: String) -> CatalogStoreFuture<'_, bool> {
+    fn update_trait(
+        &self,
+        id: Uuid,
+        name: String,
+        translations: TranslationPatch,
+    ) -> CatalogStoreFuture<'_, bool> {
         Box::pin(async move {
-            let mut connection = self.database.acquire().await?;
-            sqlx::query("UPDATE trait SET name = $2 WHERE id = $1")
+            let mut lease = self.database.acquire().await?;
+            let mut connection = lease.begin().await.map_err(map_sqlx_error)?;
+            let updated = sqlx::query("UPDATE trait SET name = $2 WHERE id = $1")
                 .bind(id)
                 .bind(name)
                 .execute(&mut *connection)
                 .await
                 .map(|result| result.rows_affected() == 1)
-                .map_err(map_sqlx_error)
+                .map_err(map_sqlx_error)?;
+            if updated {
+                save_translations(&mut connection, false, id, &translations).await?;
+            }
+            connection.commit().await.map_err(map_sqlx_error)?;
+            Ok(updated)
         })
     }
 
@@ -295,9 +314,11 @@ impl CatalogStore for PgCatalogRepository {
         id: Uuid,
         code: String,
         input: ProfileQuestionInput,
+        translations: TranslationPatch,
     ) -> CatalogStoreFuture<'_, AdminProfileQuestionRow> {
         Box::pin(async move {
-            let mut connection = self.database.acquire().await?;
+            let mut lease = self.database.acquire().await?;
+            let mut connection = lease.begin().await.map_err(map_sqlx_error)?;
             let row = sqlx::query(
                 r#"
                 INSERT INTO profile_question (id, code, prompt, category, display_order)
@@ -314,7 +335,10 @@ impl CatalogStore for PgCatalogRepository {
             .fetch_one(&mut *connection)
             .await
             .map_err(map_sqlx_error)?;
-            admin_question_row(row)
+            let result = admin_question_row(row)?;
+            save_translations(&mut connection, true, id, &translations).await?;
+            connection.commit().await.map_err(map_sqlx_error)?;
+            Ok(result)
         })
     }
 
@@ -322,9 +346,14 @@ impl CatalogStore for PgCatalogRepository {
         &self,
         id: Uuid,
         patch: ProfileQuestionPatch,
-    ) -> CatalogStoreFuture<'_, Option<AdminProfileQuestionRow>> {
+        translations: TranslationPatch,
+    ) -> CatalogStoreFuture<
+        '_,
+        Option<crate::localization::catalog::Translated<AdminProfileQuestionRow>>,
+    > {
         Box::pin(async move {
-            let mut connection = self.database.acquire().await?;
+            let mut lease = self.database.acquire().await?;
+            let mut connection = lease.begin().await.map_err(map_sqlx_error)?;
             let category = patch.category.map(ProfileQuestionCategory::as_str);
             let row = sqlx::query(
                 r#"
@@ -344,7 +373,22 @@ impl CatalogStore for PgCatalogRepository {
             .fetch_optional(&mut *connection)
             .await
             .map_err(map_sqlx_error)?;
-            row.map(admin_question_row).transpose()
+            let result = if let Some(row) = row {
+                let value = admin_question_row(row)?;
+                save_translations(&mut connection, true, id, &translations).await?;
+                // The row lock remains held until this complete response snapshot is read.
+                let names: sqlx::types::Json<crate::localization::catalog::Translations> = sqlx::query_scalar(
+                    "SELECT COALESCE(jsonb_object_agg(language,prompt),'{}'::jsonb) || jsonb_build_object('fr',$2::text) FROM profile_question_translation WHERE question_id=$1")
+                    .bind(id).bind(&value.question.prompt).fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
+                Some(crate::localization::catalog::Translated {
+                    value,
+                    translations: names.0,
+                })
+            } else {
+                None
+            };
+            connection.commit().await.map_err(map_sqlx_error)?;
+            Ok(result)
         })
     }
 

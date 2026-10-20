@@ -121,6 +121,7 @@ impl MobileSessionStore for AuthStore {
         let onboarded = self.onboarded;
         Box::pin(async move {
             Ok(Some(ActiveAccount {
+                preferred_language: histae_api_rust::localization::Language::Fr,
                 user_id: user_id(),
                 role: AccountRole::User,
                 is_banned: false,

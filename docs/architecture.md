@@ -127,3 +127,11 @@ La création d’un match et le blocage partagent un verrou transactionnel sur l
 avant les verrous de ligne. Un blocage attend ainsi le commit d’un match en cours de création avant de le
 clôturer. Les opérations mobiles vérifient également le blocage à l’accès : un ancien match incohérent
 ne permet ni lecture, ni message, ni révélation ou continuation.
+
+## Langues
+
+Le module `localization` sépare les codes et projections sans I/O, le contrat de stockage,
+le dépôt PostgreSQL, le service de cache et l’adaptation HTTP. Les handlers résolvent la langue après
+l’authentification ; les services de chaque domaine gardent leurs invariants et les dépôts leurs transactions.
+Les traductions des catalogues n’affectent ni les règles d’éligibilité ni les curseurs. Voir
+[Internationalisation](internationalization.md) pour les responsabilités détaillées et la stratégie de repli.

@@ -1,4 +1,5 @@
 use crate::infra::postgres::DatabaseError;
+use crate::localization::Language;
 use serde::Serialize;
 use std::time::Duration;
 use uuid::Uuid;
@@ -44,6 +45,7 @@ pub enum OtpDeliveryStart {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BeginOtpDelivery {
+    pub language: Language,
     pub id: Uuid,
     pub phone_hash: String,
     pub otp_hash: String,

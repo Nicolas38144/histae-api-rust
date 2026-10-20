@@ -9,7 +9,7 @@ Importer l’un des fichiers JSON avec **Import → Files** :
 - [Collection française](postman_collection_fr.json).
 - [Collection anglaise](postman_collection_en.json).
 
-Chaque collection contient 111 requêtes correspondant au contrat HTTP. Aucun script Python ou générateur
+Chaque collection contient 113 requêtes correspondant au contrat HTTP. Aucun script Python ou générateur
 n’est nécessaire pour l’import. Les collections incluent déjà quelques actions après réponse pour stocker
 les tokens et challenges ; elles ne fabriquent ni preuve WebAuthn ni signature de fournisseur.
 
@@ -23,6 +23,7 @@ Configurer l’onglet **Variables** de la collection importée :
 
 | Variable | Valeur / usage |
 | --- | --- |
+| `language` | `fr`, `en`, `es` ou `it` ; en-tête `Accept-Language` sur les réponses localisées ; désactiver cet en-tête pour tester la préférence du compte |
 | `baseUrl` | `http://127.0.0.1:8080` sur le serveur, `http://<IP_LAN_SERVEUR>:8080` sur le LAN, ou domaine HTTPS API ; sans `/api` ni slash final |
 | `phoneNumber`, `otp` | Téléphone français E.164 `+33…` et code reçu |
 | `accessToken`, `refreshToken` | Remplis après vérification OTP ou refresh réussi |
@@ -44,7 +45,7 @@ résolues avant l’envoi. Après les essais, supprimer les tokens/cookies/jeton
 
 1. Tester `/health/live`, puis `/health/ready`.
 2. Envoyer l’OTP, vérifier le code et obtenir les deux tokens.
-3. Lire les documents de consentement puis accepter leurs versions courantes.
+3. Définir la préférence avec `PATCH /api/users/me/language`, puis lire les documents de consentement puis accepter leurs versions courantes.
 4. Compléter le profil et les consentements sensible/localisation avant les données concernées.
 5. Tester catalogues, photo, feed, swipes, matchs et messages avec plusieurs comptes fictifs.
 6. Tester ensuite les erreurs, révocations et effacements sur des comptes jetables.
@@ -89,3 +90,11 @@ Les codes API doivent être interprétés par `error.code`, pas par le texte du 
 Lire le quota, puis utiliser `PATCH /api/matches/:id/continue` avec le coût explicite configuré. Deux comptes Free consomment chacun un crédit après leurs deux accords ; la première acceptation réserve sans débit. Les messages sont suspendus dans la seconde fenêtre de 24 heures, avec historique accessible. Un refus ou une expiration libère les réservations. Le stock publicitaire persiste entre les semaines, avec un plafond de trois ; Free confirme au plus six continuations par semaine UTC.
 
 Le dossier de récompenses prépare, lit et annule une intention propriétaire. La requête webhook nécessite une vraie preuve AdMob ; les collections ne génèrent aucune signature. Le fournisseur désactivé renvoie `503 advertising_disabled`, comme le `.env` local par défaut. Voir [Activation et tests](../docs/continuation-and-rewards.md).
+
+## Parcours multilingue
+
+Voir [Internationalisation](../docs/internationalization.md). Vérifier les quatre langues du catalogue,
+les champs `translations` des traits/questions admin, les URL documentaires et la langue acceptée,
+l’exception `language` des appareils, puis Checkout/portail. Les prix, UUID, catégories, réponses personnelles
+et curseurs ne changent pas. Un changement de langue avec une même clé OTP est un conflit ; une reprise
+Checkout conserve la langue de la tentative originale.

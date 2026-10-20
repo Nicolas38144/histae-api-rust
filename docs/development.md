@@ -104,7 +104,7 @@ Ouvrir `http://localhost:5173` pour conserver l’origine WebAuthn locale. Le pr
 
 ## Tester les routes
 
-- [Postman](../postman/README.md) : collections JSON française et anglaise, 109 requêtes chacune.
+- [Postman](../postman/README.md) : collections JSON française et anglaise, 113 requêtes chacune.
 - [Accès LAN](container-deployment.md#acces-lan) : publier uniquement le port API nécessaire.
 - [Tests automatisés](../tests/README.md) : choisir les suites selon les dépendances disponibles.
 - [Smoke](../scripts/smoke-api.sh) : santé, guards, validation et route inexistante ; URL loopback uniquement.

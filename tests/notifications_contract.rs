@@ -167,6 +167,7 @@ impl DeviceStore for FakeDeviceStore {
 
 fn device() -> DeviceRecord {
     DeviceRecord {
+        language: None,
         id: Uuid::new_v4(),
         session_id: Some(session_id()),
         platform: DevicePlatform::Android,
@@ -196,6 +197,7 @@ fn jwt_config() -> JwtConfig {
 
 fn app(store: FakeDeviceStore, onboarded: bool) -> (axum::Router, String) {
     let account = ActiveAccount {
+        preferred_language: histae_api_rust::localization::Language::Fr,
         user_id: user_id(),
         role: AccountRole::User,
         is_banned: false,
@@ -286,6 +288,7 @@ async fn registers_a_device_with_the_exact_public_projection_and_pre_trim_valida
             "session_id": session_id(),
             "platform": "android",
             "app_version": "1.2.3",
+            "language": null,
             "created_at": "2026-09-27T12:00:00.000Z",
             "last_used_at": "2026-09-27T12:01:02.000Z"
         })

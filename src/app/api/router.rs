@@ -185,6 +185,7 @@ impl ApiResources {
             Arc::clone(&clock),
             Arc::clone(&photo_urls),
         );
+        let profile = profile.with_legal_translations(config.legal_translations.clone());
         let catalog =
             CatalogService::new(Arc::new(PgCatalogRepository::new(self.database.clone())))
                 .with_advertising(config.advertising.enabled);
@@ -308,7 +309,21 @@ impl ApiResources {
             config.rate_limit.billing.clone(),
             config.rate_limit.billing_webhook.clone(),
         );
+        let localization = crate::localization::LocalizationService::new(Arc::new(
+            crate::localization::PgLocalizationRepository::new(self.database.clone()),
+        ));
         let routes = health_routes()
+            .merge(crate::localization::http::routes(
+                crate::localization::http::LanguageHttpState {
+                    service: localization.clone(),
+                    limiter: limiter.clone(),
+                    policy: crate::config::LimitPolicy {
+                        max: 60,
+                        window: std::time::Duration::from_secs(60),
+                    },
+                },
+                mobile_auth.clone(),
+            ))
             .merge(advertising_routes(advertising, mobile_auth.clone()))
             .merge(mobile_auth_routes(mobile_auth.clone()))
             .merge(otp_routes(OtpHttpState::new(
@@ -456,7 +471,8 @@ impl ApiResources {
                 Arc::new(crate::http::lifecycle::SafeHttpObserver),
             ])),
         )
-        .map_err(|_| "http_configuration_invalid")?;
+        .map_err(|_| "http_configuration_invalid")?
+        .with_localization(localization);
         Ok(build_router(routes, http_state))
     }
 }

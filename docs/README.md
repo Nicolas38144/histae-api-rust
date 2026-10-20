@@ -26,6 +26,7 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Parcours Stripe](billing.md) : configuration, Checkout, Premium, renouvellements, reprises et revenus.
 - [Continuations et récompenses](continuation-and-rewards.md) : fenêtres, crédits, confidentialité des choix et activation AdMob.
 - [Audit fonctionnel](feature-audit.md) : corrections, contrôles actuels et validations fournisseur restantes.
+- [Internationalisation](internationalization.md) : langues, traductions des catalogues, documents, notifications et Stripe.
 - [Contrat HTTP](http-contract.md) : routes, entrées, réponses, permissions et idempotence.
 - [Postman](../postman/README.md) : import des JSON et parcours de test.
 - [Supervision](observability.md) : Prometheus, Grafana, alertes et runbooks.

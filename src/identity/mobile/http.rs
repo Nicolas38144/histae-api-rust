@@ -1,3 +1,4 @@
+use crate::localization::http::Locale;
 use axum::body::Bytes;
 use axum::extract::{Extension, FromRequestParts};
 use axum::http::request::Parts;
@@ -123,6 +124,7 @@ async fn send_otp(
     Extension(state): Extension<OtpHttpState>,
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
     headers: HeaderMap,
+    locale: Locale,
     ValidatedJson(body): ValidatedJson<SendOtpBody>,
 ) -> Result<(StatusCode, Json<SendOtpResponse>), ApiError> {
     let phone_key = state
@@ -151,7 +153,11 @@ async fn send_otp(
         single_header(&headers, header::HeaderName::from_static("idempotency-key"));
     state
         .otp
-        .send(&body.phone_number, idempotency_key.as_deref())
+        .send_in(
+            &body.phone_number,
+            idempotency_key.as_deref(),
+            locale.anonymous().language,
+        )
         .await
         .map_err(otp_error)?;
     Ok((

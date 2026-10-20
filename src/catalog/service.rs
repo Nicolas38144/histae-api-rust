@@ -1,3 +1,4 @@
+use crate::localization::{Language, catalog::TranslationPatch};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -108,11 +109,25 @@ impl CatalogService {
     }
 
     pub async fn create_trait(&self, name: String) -> Result<Trait, CatalogError> {
+        self.create_translated_trait(name, TranslationPatch::new())
+            .await
+    }
+
+    pub async fn create_translated_trait(
+        &self,
+        name: String,
+        translations: TranslationPatch,
+    ) -> Result<Trait, CatalogError> {
         let trait_value = Trait {
             id: Uuid::new_v4(),
             name: normalize_trait(&name)?,
         };
-        match self.store.create_trait(trait_value.clone()).await {
+        let translations = normalize_translations(translations, Some(&trait_value.name), false)?;
+        match self
+            .store
+            .create_trait(trait_value.clone(), translations)
+            .await
+        {
             Ok(()) => Ok(trait_value),
             Err(DatabaseError::Constraint(ConstraintKind::Unique)) => {
                 Err(CatalogError::TraitConflict)
@@ -122,8 +137,19 @@ impl CatalogService {
     }
 
     pub async fn update_trait(&self, id: Uuid, name: String) -> Result<(), CatalogError> {
+        self.update_translated_trait(id, name, TranslationPatch::new())
+            .await
+    }
+
+    pub async fn update_translated_trait(
+        &self,
+        id: Uuid,
+        name: String,
+        translations: TranslationPatch,
+    ) -> Result<(), CatalogError> {
         let name = normalize_trait(&name)?;
-        match self.store.update_trait(id, name).await {
+        let translations = normalize_translations(translations, Some(&name), false)?;
+        match self.store.update_trait(id, name, translations).await {
             Ok(true) => Ok(()),
             Ok(false) => Err(CatalogError::TraitNotFound),
             Err(DatabaseError::Constraint(ConstraintKind::Unique)) => {
@@ -205,10 +231,24 @@ impl CatalogService {
         &self,
         input: ProfileQuestionInput,
     ) -> Result<AdminProfileQuestion, CatalogError> {
+        self.create_translated_question(input, TranslationPatch::new())
+            .await
+    }
+
+    pub async fn create_translated_question(
+        &self,
+        input: ProfileQuestionInput,
+        translations: TranslationPatch,
+    ) -> Result<AdminProfileQuestion, CatalogError> {
         let input = normalize_question(input)?;
+        let translations = normalize_translations(translations, Some(&input.prompt), true)?;
         let id = Uuid::new_v4();
         let code = format!("custom_{}", id.simple());
-        match self.store.create_question(id, code, input).await {
+        match self
+            .store
+            .create_question(id, code, input, translations)
+            .await
+        {
             Ok(row) => Ok(row.into()),
             Err(DatabaseError::Constraint(ConstraintKind::Unique)) => {
                 Err(CatalogError::QuestionConflict)
@@ -220,16 +260,41 @@ impl CatalogService {
     pub async fn update_question(
         &self,
         id: Uuid,
-        mut patch: ProfileQuestionPatch,
+        patch: ProfileQuestionPatch,
     ) -> Result<AdminProfileQuestion, CatalogError> {
-        if !patch.supplied {
+        self.update_translated_question(id, patch, TranslationPatch::new())
+            .await
+            .map(|result| result.value)
+    }
+
+    pub async fn update_translated_question(
+        &self,
+        id: Uuid,
+        mut patch: ProfileQuestionPatch,
+        translations: TranslationPatch,
+    ) -> Result<crate::localization::catalog::Translated<AdminProfileQuestion>, CatalogError> {
+        if !patch.supplied && translations.is_empty() {
             return Err(CatalogError::MissingQuestionFields);
+        }
+        if patch.prompt.is_none() {
+            patch.prompt = translations.get(&Language::Fr).cloned().flatten();
         }
         if let Some(prompt) = patch.prompt {
             patch.prompt = Some(normalize_question_prompt(&prompt)?);
         }
-        match self.store.update_question(id, patch).await {
-            Ok(Some(row)) => Ok(row.into()),
+        match self
+            .store
+            .update_question(
+                id,
+                patch.clone(),
+                normalize_translations(translations, patch.prompt.as_deref(), true)?,
+            )
+            .await
+        {
+            Ok(Some(row)) => Ok(crate::localization::catalog::Translated {
+                value: row.value.into(),
+                translations: row.translations,
+            }),
             Ok(None) => Err(CatalogError::QuestionNotFound),
             Err(DatabaseError::Constraint(ConstraintKind::Unique)) => {
                 Err(CatalogError::QuestionConflict)
@@ -247,9 +312,46 @@ impl CatalogService {
     }
 }
 
+pub(crate) fn normalize_translations(
+    mut translations: TranslationPatch,
+    canonical: Option<&str>,
+    question: bool,
+) -> Result<TranslationPatch, CatalogError> {
+    for (language, value) in &mut translations {
+        if let Some(text) = value {
+            *text = if question {
+                normalize_question_prompt(text)?
+            } else {
+                normalize_trait(text)?
+            };
+            if has_control_character(text) {
+                return Err(if question {
+                    CatalogError::InvalidQuestionPayload
+                } else {
+                    CatalogError::InvalidTrait
+                });
+            }
+            if *language == Language::Fr && canonical.is_some_and(|canonical| canonical != text) {
+                return Err(if question {
+                    CatalogError::InvalidQuestionPayload
+                } else {
+                    CatalogError::InvalidTrait
+                });
+            }
+        } else if *language == Language::Fr {
+            return Err(if question {
+                CatalogError::InvalidQuestionPayload
+            } else {
+                CatalogError::InvalidTrait
+            });
+        }
+    }
+    Ok(translations)
+}
+
 fn normalize_trait(name: &str) -> Result<String, CatalogError> {
     let normalized = javascript_trim(name);
-    if normalized.is_empty() || utf8_len(normalized) > 100 {
+    if normalized.is_empty() || utf8_len(normalized) > 100 || has_control_character(normalized) {
         return Err(CatalogError::InvalidTrait);
     }
     Ok(normalized.to_owned())
@@ -356,6 +458,10 @@ mod tests {
             Ok("Curieux".to_owned())
         );
         assert_eq!(normalize_trait(""), Err(CatalogError::InvalidTrait));
+        assert_eq!(
+            normalize_trait("Curieux\nCalme"),
+            Err(CatalogError::InvalidTrait)
+        );
         assert_eq!(
             normalize_trait(&"é".repeat(51)),
             Err(CatalogError::InvalidTrait)

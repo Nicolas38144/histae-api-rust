@@ -26,6 +26,7 @@ fn config(endpoint: Url, provider: SmsProvider) -> SmsConfig {
 
 fn message() -> SmsMessage {
     SmsMessage {
+        language: histae_api_rust::localization::Language::Fr,
         phone: "+33600000000".to_owned(),
         region: "FR".to_owned(),
         code: "123456".to_owned(),
@@ -219,4 +220,32 @@ async fn provider_failures_update_only_aggregated_metrics() {
         counters.last_error_code.as_deref(),
         Some("sms_delivery_failed")
     );
+}
+
+#[tokio::test]
+async fn sends_localized_codes_without_changing_sms_delivery_metadata() {
+    use histae_api_rust::localization::Language;
+    for (language, expected) in [
+        (Language::En, "your verification code"),
+        (Language::Es, "tu codigo de verificacion"),
+        (Language::It, "il tuo codice di verifica"),
+    ] {
+        let (endpoint, captured) = server(
+            200,
+            br#"{"transaction_id":"transaction-1","swg_uids":{"+33600000000":"message-1"}}"#
+                .to_vec(),
+        )
+        .await;
+        let service = SweegoSmsService::new(config(endpoint, SmsProvider::Sweego)).expect("client");
+        let mut input = message();
+        input.language = language;
+        service.send_otp(input).await.expect("receipt");
+        let request = captured.await.expect("server");
+        let body: Value = serde_json::from_slice(request_body(&request)).expect("JSON");
+        let text = body["message-txt"].as_str().expect("text");
+        assert!(text.contains(expected));
+        assert!(text.contains("123456"));
+        assert_eq!(body["recipients"][0]["region"], "FR");
+        assert_eq!(body["campaign-type"], "transac");
+    }
 }

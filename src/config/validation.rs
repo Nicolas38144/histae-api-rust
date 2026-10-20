@@ -572,3 +572,78 @@ pub(super) fn limit(
         window: duration(&source.or(window_name, default_window)?, window_name)?,
     })
 }
+
+pub(super) fn legal_translations_config(
+    source: &EnvironmentSource,
+    environment: Environment,
+) -> Result<crate::localization::legal::LegalTranslations, ConfigError> {
+    use crate::localization::Language;
+    use crate::profiles::domain::ConsentType::*;
+    let mut result = crate::localization::legal::LegalTranslations::default();
+    for (kind, language, key) in [
+        (
+            TermsOfServiceAcceptance,
+            Language::En,
+            "TERMS_OF_SERVICE_URL_EN",
+        ),
+        (
+            TermsOfServiceAcceptance,
+            Language::Es,
+            "TERMS_OF_SERVICE_URL_ES",
+        ),
+        (
+            TermsOfServiceAcceptance,
+            Language::It,
+            "TERMS_OF_SERVICE_URL_IT",
+        ),
+        (
+            PrivacyNoticeAcknowledgement,
+            Language::En,
+            "PRIVACY_POLICY_URL_EN",
+        ),
+        (
+            PrivacyNoticeAcknowledgement,
+            Language::Es,
+            "PRIVACY_POLICY_URL_ES",
+        ),
+        (
+            PrivacyNoticeAcknowledgement,
+            Language::It,
+            "PRIVACY_POLICY_URL_IT",
+        ),
+        (
+            SensitiveDataConsent,
+            Language::En,
+            "SENSITIVE_DATA_CONSENT_URL_EN",
+        ),
+        (
+            SensitiveDataConsent,
+            Language::Es,
+            "SENSITIVE_DATA_CONSENT_URL_ES",
+        ),
+        (
+            SensitiveDataConsent,
+            Language::It,
+            "SENSITIVE_DATA_CONSENT_URL_IT",
+        ),
+        (LocationConsent, Language::En, "LOCATION_CONSENT_URL_EN"),
+        (LocationConsent, Language::Es, "LOCATION_CONSENT_URL_ES"),
+        (LocationConsent, Language::It, "LOCATION_CONSENT_URL_IT"),
+    ] {
+        let value = source.or(key, "")?;
+        if value.is_empty() {
+            continue;
+        }
+        let url = Url::parse(&value).map_err(|_| ConfigError::invalid(key))?;
+        if url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || (url.scheme() != "https"
+                && !(environment == Environment::Development && url.scheme() == "http"))
+        {
+            return Err(ConfigError::invalid(key));
+        }
+        result.urls.insert((kind, language), url);
+    }
+    Ok(result)
+}

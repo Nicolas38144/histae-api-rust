@@ -1,3 +1,4 @@
+use crate::localization::Language;
 use axum::extract::Extension;
 use axum::http::StatusCode;
 use axum::routing::{delete, get};
@@ -41,6 +42,7 @@ struct RegisterDeviceBody {
     push_token: String,
     platform: DevicePlatform,
     app_version: Option<String>,
+    language: Option<Language>,
 }
 
 impl ApiDto for RegisterDeviceBody {
@@ -80,12 +82,13 @@ async fn register_device(
 ) -> Result<(StatusCode, Json<PublicDevice>), ApiError> {
     state
         .service
-        .register(
+        .register_in(
             identity.account.user_id,
             identity.session_id,
             body.push_token,
             body.platform,
             body.app_version,
+            body.language,
         )
         .await
         .map(|device| (StatusCode::CREATED, Json(device)))
@@ -143,6 +146,7 @@ mod tests {
     #[test]
     fn validates_before_service_trimming_like_class_validator() {
         let valid_with_whitespace = RegisterDeviceBody {
+            language: None,
             push_token: "                    ".to_owned(),
             platform: DevicePlatform::Ios,
             app_version: Some(String::new()),
@@ -150,6 +154,7 @@ mod tests {
         assert!(valid_with_whitespace.is_valid());
         assert!(
             !RegisterDeviceBody {
+                language: None,
                 push_token: "short".to_owned(),
                 platform: DevicePlatform::Android,
                 app_version: None,
@@ -158,6 +163,7 @@ mod tests {
         );
         assert!(
             !RegisterDeviceBody {
+                language: None,
                 push_token: "x".repeat(20),
                 platform: DevicePlatform::Android,
                 app_version: Some("x".repeat(51)),

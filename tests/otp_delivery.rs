@@ -72,6 +72,7 @@ fn local_config() -> Result<PostgresConfig, FixtureError> {
 
 fn begin(phone_hash: &str, otp_hash: &str, idempotency_key: Uuid) -> BeginOtpDelivery {
     BeginOtpDelivery {
+        language: histae_api_rust::localization::Language::Fr,
         id: Uuid::new_v4(),
         phone_hash: phone_hash.to_owned(),
         otp_hash: otp_hash.to_owned(),
@@ -104,6 +105,7 @@ async fn otp_repository_serializes_idempotency_callbacks_and_consumption()
     let key = Uuid::new_v4();
     let first = begin(&phone_hash, "otp-hash", key);
     let second = BeginOtpDelivery {
+        language: histae_api_rust::localization::Language::Fr,
         id: Uuid::new_v4(),
         ..first.clone()
     };
@@ -130,6 +132,7 @@ async fn otp_repository_serializes_idempotency_callbacks_and_consumption()
     );
     let conflict = repository
         .begin(BeginOtpDelivery {
+            language: histae_api_rust::localization::Language::Fr,
             id: Uuid::new_v4(),
             phone_hash: other_phone_hash.clone(),
             ..first.clone()

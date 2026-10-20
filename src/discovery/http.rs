@@ -1,3 +1,4 @@
+use crate::localization::http::Locale;
 use axum::extract::Extension;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
@@ -158,6 +159,7 @@ impl ApiDto for FeedQuery {
 async fn feed(
     OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<DiscoveryHttpState>,
+    locale: Locale,
     ValidatedQuery(query): ValidatedQuery<FeedQuery>,
 ) -> Result<Json<FeedPage>, ApiError> {
     state
@@ -169,7 +171,8 @@ async fn feed(
             "feed_rate_limit_exceeded",
         )
         .await?;
-    state
+    let locale = locale.for_account(&identity.account);
+    let mut page = state
         .service
         .feed(
             identity.account.user_id,
@@ -177,8 +180,15 @@ async fn feed(
             query.cursor.as_deref(),
         )
         .await
-        .map(Json)
-        .map_err(discovery_error)
+        .map_err(discovery_error)?;
+    let catalog = locale.catalog(false).await?;
+    for profile in &mut page.profiles {
+        catalog.trait_names(&mut profile.traits, locale.language);
+        for answer in &mut profile.profile_answers {
+            catalog.question(answer.question_id, &mut answer.question, locale.language);
+        }
+    }
+    Ok(Json(page))
 }
 
 #[derive(Deserialize)]

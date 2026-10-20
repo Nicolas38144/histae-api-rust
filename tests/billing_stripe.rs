@@ -171,6 +171,7 @@ async fn checkout_uses_server_selected_price_and_urls_without_a_trial() {
     let attempt_id = Uuid::new_v4();
     let session = client
         .create_checkout_session(CheckoutInput {
+            locale: None,
             user_id,
             customer_id: format!("cus_{}", Uuid::new_v4().simple()),
             price_id: "price_annual_contract".to_owned(),
@@ -234,6 +235,7 @@ async fn checkout_rejects_an_old_trial_request_before_contacting_stripe() {
     .expect("test configuration");
     let result = client
         .create_checkout_session(CheckoutInput {
+            locale: None,
             user_id: Uuid::new_v4(),
             customer_id: "cus_Legacy".into(),
             price_id: "price_monthly_contract".into(),
@@ -349,4 +351,66 @@ async fn incomplete_or_misrouted_provider_lists_never_allow_another_subscription
         );
         captured.await.expect("server");
     }
+}
+
+#[tokio::test]
+async fn localized_stripe_sessions_keep_original_persisted_retry_parameters() {
+    use histae_api_rust::localization::Language;
+    let expires_at = Utc::now() + TimeDelta::minutes(30);
+    let input = CheckoutInput {
+        locale: Some(Language::Es),
+        user_id: Uuid::new_v4(),
+        customer_id: "cus_fixture".into(),
+        price_id: "price_fixture".into(),
+        billing_period: BillingPeriod::Annual,
+        trial_days: 0,
+        expires_at,
+        idempotency_key: "localization-fixture".into(),
+        success_url: "https://www.histae.com/es/billing/success?session_id={CHECKOUT_SESSION_ID}"
+            .into(),
+        cancel_url: "https://www.histae.com/es/billing/cancel".into(),
+        automatic_tax: false,
+        allow_promotion_codes: false,
+    };
+    let (endpoint, captured) = capture_one(format!(
+        r#"{{"id":"cs_fixture","url":"https://checkout.stripe.test/fixture","expires_at":{}}}"#,
+        expires_at.timestamp()
+    ))
+    .await;
+    StripeClient::with_endpoint(config(), endpoint)
+        .expect("client")
+        .create_checkout_session(input.clone())
+        .await
+        .expect("checkout");
+    let request = captured.await.expect("server");
+    let (_, _, form) = request_parts(&request);
+    assert_eq!(form.get("locale").map(String::as_str), Some("es"));
+    assert_eq!(form.get("success_url"), Some(&input.success_url));
+    let mut legacy = serde_json::to_value(&input).expect("serialize");
+    legacy.as_object_mut().expect("object").remove("locale");
+    let restored: CheckoutInput = serde_json::from_value(legacy).expect("legacy retry");
+    assert_eq!(restored.locale, None);
+    assert!(
+        !serde_json::to_value(restored)
+            .expect("serialize")
+            .as_object()
+            .expect("object")
+            .contains_key("locale")
+    );
+    let mut config = config();
+    config.portal_return_url = Some("https://www.histae.com/billing/return".into());
+    let (endpoint, captured) =
+        capture_one(r#"{"url":"https://billing.stripe.test/fixture"}"#.into()).await;
+    StripeClient::with_endpoint(config, endpoint)
+        .expect("client")
+        .create_portal_session_in("cus_fixture", "portal-fixture".into(), Language::It)
+        .await
+        .expect("portal");
+    let request = captured.await.expect("server");
+    let (_, _, form) = request_parts(&request);
+    assert_eq!(form.get("locale").map(String::as_str), Some("it"));
+    assert_eq!(
+        form.get("return_url").map(String::as_str),
+        Some("https://www.histae.com/it/billing/return")
+    );
 }

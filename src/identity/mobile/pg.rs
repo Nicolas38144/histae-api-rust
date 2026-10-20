@@ -269,7 +269,7 @@ impl MobileSessionRepository {
         terms_version: &str,
         privacy_version: &str,
     ) -> Result<Option<ActiveAccount>, DatabaseError> {
-        let row = sqlx::query_as::<_, (Uuid, String, bool, bool)>(
+        let row = sqlx::query_as::<_, (Uuid, String, bool, bool, String)>(
             "SELECT account.user_id, account.role, account.is_banned,
                (
                  account.role <> 'user'
@@ -289,7 +289,7 @@ impl MobileSessionRepository {
                        AND document_version = $3
                    )
                  )
-               ) AS onboarding_complete
+               ) AS onboarding_complete, account.preferred_language
              FROM user_account AS account
              WHERE account.user_id = $1 AND account.deleted_at IS NULL
                AND EXISTS (
@@ -306,14 +306,18 @@ impl MobileSessionRepository {
         .fetch_optional(self.database.pool())
         .await
         .map_err(map_sqlx_error)?;
-        row.map(|(user_id, role, is_banned, onboarding_complete)| {
-            Ok(ActiveAccount {
-                user_id,
-                role: AccountRole::parse(&role).map_err(|_| DatabaseError::QueryFailed)?,
-                is_banned,
-                onboarding_complete,
-            })
-        })
+        row.map(
+            |(user_id, role, is_banned, onboarding_complete, language)| {
+                Ok(ActiveAccount {
+                    user_id,
+                    role: AccountRole::parse(&role).map_err(|_| DatabaseError::QueryFailed)?,
+                    is_banned,
+                    onboarding_complete,
+                    preferred_language: crate::localization::Language::parse(&language)
+                        .ok_or(DatabaseError::QueryFailed)?,
+                })
+            },
+        )
         .transpose()
     }
 

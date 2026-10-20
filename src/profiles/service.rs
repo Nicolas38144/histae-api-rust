@@ -1,3 +1,4 @@
+use crate::localization::{Language, legal::LegalTranslations};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
@@ -49,6 +50,7 @@ impl From<DatabaseError> for ProfileError {
 pub struct ProfileService {
     store: Arc<dyn ProfileStore>,
     legal: LegalConfig,
+    legal_translations: LegalTranslations,
     clock: Arc<dyn Clock>,
     photo_urls: Arc<dyn ProfilePhotoUrlProvider>,
     moderator: TextModerator,
@@ -64,10 +66,16 @@ impl ProfileService {
         Self {
             store,
             legal,
+            legal_translations: LegalTranslations::default(),
             clock,
             photo_urls,
             moderator: TextModerator,
         }
+    }
+
+    pub fn with_legal_translations(mut self, documents: LegalTranslations) -> Self {
+        self.legal_translations = documents;
+        self
     }
 
     pub async fn profile(&self, user_id: Uuid) -> Result<PublicProfile, ProfileError> {
@@ -218,6 +226,14 @@ impl ProfileService {
     }
 
     pub async fn consents(&self, user_id: Uuid) -> Result<ConsentState, ProfileError> {
+        self.consents_in(user_id, Language::Fr).await
+    }
+
+    pub async fn consents_in(
+        &self,
+        user_id: Uuid,
+        language: Language,
+    ) -> Result<ConsentState, ProfileError> {
         let current = self.store.current_consents(user_id).await?;
         let by_type = current
             .into_iter()
@@ -236,12 +252,19 @@ impl ProfileService {
             .into_iter()
             .map(|consent_type| {
                 let current = by_type.get(&consent_type);
+                let (document_url, document_language) = self.legal_translations.resolve(
+                    consent_type,
+                    &consent_type.document_url(&self.legal),
+                    language,
+                );
                 PublicConsent {
                     consent_type,
                     granted: current.is_some_and(|consent| consent.granted),
                     document_version: current.map(|consent| consent.document_version.clone()),
                     required_document_version: consent_type.version(&self.legal).to_owned(),
-                    document_url: consent_type.document_url(&self.legal),
+                    document_url,
+                    document_language,
+                    accepted_document_language: current.map(|consent| consent.document_language),
                     updated_at: current.map(|consent| {
                         consent
                             .granted_at
@@ -264,6 +287,18 @@ impl ProfileService {
         ip_address: String,
         user_agent: String,
     ) -> Result<ConsentState, ProfileError> {
+        self.update_consents_in(user_id, changes, ip_address, user_agent, Language::Fr)
+            .await
+    }
+
+    pub async fn update_consents_in(
+        &self,
+        user_id: Uuid,
+        changes: Vec<ConsentChange>,
+        ip_address: String,
+        user_agent: String,
+        language: Language,
+    ) -> Result<ConsentState, ProfileError> {
         let unique = changes
             .iter()
             .map(|change| change.consent_type)
@@ -282,6 +317,14 @@ impl ProfileService {
                 consent_type: change.consent_type,
                 granted: change.granted,
                 document_version: change.consent_type.version(&self.legal).to_owned(),
+                document_language: self
+                    .legal_translations
+                    .resolve(
+                        change.consent_type,
+                        &change.consent_type.document_url(&self.legal),
+                        language,
+                    )
+                    .1,
             })
             .collect();
         if !self
@@ -291,7 +334,7 @@ impl ProfileService {
         {
             return Err(ProfileError::AccountNotFound);
         }
-        self.consents(user_id).await
+        self.consents_in(user_id, language).await
     }
 
     fn apply_write(&self, outcome: WriteOutcome) -> Result<(), ProfileError> {

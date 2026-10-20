@@ -21,12 +21,21 @@ pub const JSON_BODY_LIMIT: usize = 1024 * 1024;
 
 #[derive(Clone)]
 pub struct HttpState {
+    pub(crate) localization: Option<crate::localization::LocalizationService>,
     readiness: Readiness,
     lifecycle: LifecycleState,
     cors_origins: Arc<[HeaderValue]>,
 }
 
 impl HttpState {
+    pub fn with_localization(
+        mut self,
+        localization: crate::localization::LocalizationService,
+    ) -> Self {
+        self.localization = Some(localization);
+        self
+    }
+
     pub fn new(
         readiness: Readiness,
         environment: Environment,
@@ -66,6 +75,7 @@ impl HttpState {
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
+            localization: None,
             readiness,
             lifecycle,
             cors_origins: cors_origins.into(),
@@ -98,6 +108,9 @@ pub fn build_router(routes: Router<HttpState>, state: HttpState) -> Router {
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
         .layer(middleware::from_fn(super::body::middleware))
+        .layer(middleware::from_fn(
+            crate::localization::http::response_language,
+        ))
         .layer(DefaultBodyLimit::max(JSON_BODY_LIMIT))
         .layer(middleware::from_fn_with_state(
             lifecycle,
@@ -118,6 +131,7 @@ pub fn build_router(routes: Router<HttpState>, state: HttpState) -> Router {
                 Method::OPTIONS,
             ])
             .allow_headers([
+                HeaderName::from_static("accept-language"),
                 HeaderName::from_static("authorization"),
                 HeaderName::from_static("content-type"),
                 HeaderName::from_static("idempotency-key"),
@@ -177,7 +191,9 @@ async fn normalize_cors_response(
         );
         headers.insert(
             header::ACCESS_CONTROL_ALLOW_HEADERS,
-            HeaderValue::from_static("Authorization, Content-Type, Idempotency-Key, X-Request-ID"),
+            HeaderValue::from_static(
+                "Authorization, Content-Type, Idempotency-Key, X-Request-ID, Accept-Language",
+            ),
         );
         headers.insert(
             header::ACCESS_CONTROL_MAX_AGE,
@@ -193,9 +209,14 @@ async fn normalize_cors_response(
 
     let mut response = next.run(request).await;
     if has_origin {
+        let vary = if response.headers().contains_key(header::CONTENT_LANGUAGE) {
+            "Origin, Accept-Language"
+        } else {
+            "Origin"
+        };
         response
             .headers_mut()
-            .insert(header::VARY, HeaderValue::from_static("Origin"));
+            .insert(header::VARY, HeaderValue::from_static(vary));
         response.headers_mut().insert(
             header::ACCESS_CONTROL_EXPOSE_HEADERS,
             HeaderValue::from_static("Retry-After, X-Request-ID"),

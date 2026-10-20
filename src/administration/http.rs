@@ -1,3 +1,4 @@
+use crate::localization::http::Locale;
 use axum::extract::Extension;
 use axum::http::StatusCode;
 use axum::routing::{get, patch};
@@ -255,10 +256,12 @@ impl ApiDto for AccessQuery {
 async fn user_detail(
     AdminIdentity(identity): AdminIdentity,
     Extension(state): Extension<AdministrationHttpState>,
+    locale: Locale,
     ValidatedPath(path): ValidatedPath<IdPath>,
     ValidatedQuery(query): ValidatedQuery<AccessQuery>,
 ) -> Result<Json<AdminUserDetail>, ApiError> {
-    state
+    let locale = locale.resolve(identity.user_id).await?;
+    let mut detail = state
         .service
         .user_detail(
             path.id().ok_or_else(invalid_user_id)?,
@@ -267,8 +270,12 @@ async fn user_detail(
             query.reason.as_deref().unwrap_or_default(),
         )
         .await
-        .map(Json)
-        .map_err(administration_error)
+        .map_err(administration_error)?;
+    let catalog = locale.catalog(false).await?;
+    for value in &mut detail.traits {
+        catalog.trait_name(value.id, &mut value.name, locale.language);
+    }
+    Ok(Json(detail))
 }
 
 #[derive(Deserialize)]

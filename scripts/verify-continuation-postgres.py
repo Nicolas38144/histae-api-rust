@@ -14,7 +14,7 @@ TESTS = (
     "matches_postgres", "privacy_rights_postgres", "account_erasure_postgres",
     "administration_reports_postgres", "billing_postgres",
     "maintenance_outbox_postgres", "notifications_postgres",
-    "discovery_postgres", "profiles_postgres",
+    "discovery_postgres", "profiles_postgres", "catalog_postgres", "otp_delivery", "localization_postgres",
 )
 
 
@@ -96,27 +96,38 @@ def main():
                   f"INSERT INTO match_init(id,user1_id,user2_id,status,expires_at,continuation_initiator_id) VALUES ('{match_id}',LEAST('{first}'::uuid,'{second}'::uuid),GREATEST('{first}'::uuid,'{second}'::uuid),'awaiting_continuation',clock_timestamp()+INTERVAL '24 hours','{first}'); "
                   f"INSERT INTO match_state(match_id,user_id,continued) VALUES ('{match_id}','{first}',true),('{match_id}','{second}',false); "
                   f"INSERT INTO continuation_usage(user_id,week_start,used_count,free_used_count) VALUES ('{first}',date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date,2,2);")
+            assert query("SELECT NOT EXISTS (SELECT 1 FROM trait CROSS JOIN (VALUES('en'),('es'),('it')) langs(language) WHERE NOT EXISTS (SELECT 1 FROM trait_translation t WHERE t.trait_id=trait.id AND t.language=langs.language)) AND NOT EXISTS (SELECT 1 FROM profile_question CROSS JOIN (VALUES('en'),('es'),('it')) langs(language) WHERE NOT EXISTS (SELECT 1 FROM profile_question_translation t WHERE t.question_id=profile_question.id AND t.language=langs.language));") == "t"
             assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
-            query("DROP TABLE continuation_reservation,advertising_reward_intent,continuation_wallet; ALTER TABLE continuation_usage DROP COLUMN free_used_count; ALTER TABLE user_account DROP COLUMN discovery_paused;", "histae_migrate")
+            query("DROP TABLE continuation_reservation,advertising_reward_intent,continuation_wallet; ALTER TABLE continuation_usage DROP COLUMN free_used_count; ALTER TABLE user_account DROP COLUMN discovery_paused, DROP COLUMN preferred_language; ALTER TABLE device_token DROP COLUMN language; ALTER TABLE user_consent DROP COLUMN document_language; ALTER TABLE otp_verification DROP COLUMN language; DROP TABLE trait_translation, profile_question_translation, subscription_plan_translation, subscription_plan_feature_translation;", "histae_migrate")
+            query("UPDATE profile_question SET prompt='Question personnalisée avant migration ?' WHERE id='51000000-0000-4000-8000-000000000001';")
             def migrate():
                 docker("run", "--rm", "--network", f"container:{name}",
                        "--env-file", str(directory / "migrate.env"), "--user", "1000:1000",
                        "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
                        "--entrypoint", "/app/bin/db-migrate", args.api_image)
             migrate()
+            assert query("SELECT count(*) FROM profile_question_translation WHERE question_id='51000000-0000-4000-8000-000000000001';") == "0"
+            query("UPDATE profile_question SET prompt='À quoi ressemble ton dimanche idéal ?' WHERE id='51000000-0000-4000-8000-000000000001';")
             assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
             assert query(f"SELECT used_count||':'||free_used_count FROM continuation_usage WHERE user_id='{first}';") == "2:2"
             assert query(f"SELECT count(*) FROM match_state WHERE match_id='{match_id}' AND continued;") == "0"
             assert query(f"SELECT continuation_initiator_id IS NULL FROM match_init WHERE id='{match_id}';") == "t"
             query(f"UPDATE match_state SET continued=true WHERE match_id='{match_id}' AND user_id='{first}'; INSERT INTO continuation_reservation(match_id,user_id,source,week_start) VALUES ('{match_id}','{first}','free',date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date);")
-            query(f"UPDATE user_account SET discovery_paused=true WHERE user_id='{first}';")
+            assert query(f"SELECT preferred_language FROM user_account WHERE user_id='{first}';") == "fr"
+            translation_id = query("SELECT trait_id FROM trait_translation WHERE language='en' ORDER BY trait_id LIMIT 1;")
+            assert translation_id
+            query(f"DELETE FROM trait_translation WHERE trait_id='{translation_id}' AND language='en'; UPDATE trait_translation SET name='Admin translation kept' WHERE trait_id='{translation_id}' AND language='it';")
+            query(f"UPDATE user_account SET discovery_paused=true,preferred_language='es' WHERE user_id='{first}';")
             migrate()
             assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "t"
+            assert query(f"SELECT preferred_language FROM user_account WHERE user_id='{first}';") == "es"
+            assert query(f"SELECT count(*) FROM trait_translation WHERE trait_id='{translation_id}' AND language='en';") == "0"
+            assert query(f"SELECT name FROM trait_translation WHERE trait_id='{translation_id}' AND language='it';") == "Admin translation kept"
             assert query(f"SELECT count(*) FROM match_state WHERE match_id='{match_id}' AND continued;") == "1"
             assert query(f"SELECT count(*) FROM continuation_reservation WHERE match_id='{match_id}';") == "1"
             assert query(f"SELECT used_count||':'||free_used_count FROM continuation_usage WHERE user_id='{first}';") == "2:2"
             query(f"DELETE FROM user_account WHERE user_id IN ('{first}','{second}');")
-            print("Legacy quota/pause migrations and repeated upgrade passed.", flush=True)
+            print("Legacy quota/pause/language migrations and repeated upgrade passed.", flush=True)
             port = docker("port", name, "5432/tcp").split(":")[-1]
             runtime.update(POSTGRES_PORT=port, POSTGRES_USER="histae_app", POSTGRES_PASSWORD=app_password)
             environment = os.environ.copy()

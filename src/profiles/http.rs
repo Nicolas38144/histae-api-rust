@@ -1,3 +1,4 @@
+use crate::localization::http::Locale;
 use axum::extract::Extension;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::routing::{get, patch};
@@ -43,22 +44,30 @@ pub fn routes(state: ProfileHttpState, auth: MobileAuthState) -> Router<HttpStat
 async fn get_profile(
     OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<ProfileHttpState>,
+    locale: Locale,
 ) -> Result<Json<super::domain::PublicProfile>, ApiError> {
-    state
+    let locale = locale.for_account(&identity.account);
+    let mut profile = state
         .service
         .profile(identity.account.user_id)
         .await
-        .map(Json)
-        .map_err(profile_error)
+        .map_err(profile_error)?;
+    locale
+        .catalog(false)
+        .await?
+        .answers(&mut profile.profile_answers, locale.language);
+    Ok(Json(profile))
 }
 
 async fn get_consents(
     AuthenticatedMobile(identity): AuthenticatedMobile,
     Extension(state): Extension<ProfileHttpState>,
+    locale: Locale,
 ) -> Result<Json<ConsentState>, ApiError> {
+    let locale = locale.for_account(&identity.account);
     state
         .service
-        .consents(identity.account.user_id)
+        .consents_in(identity.account.user_id, locale.language)
         .await
         .map(Json)
         .map_err(profile_error)
@@ -82,6 +91,7 @@ impl ApiDto for UpdateConsentsBody {
 async fn update_consents(
     AuthenticatedMobile(identity): AuthenticatedMobile,
     Extension(state): Extension<ProfileHttpState>,
+    locale: Locale,
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
     headers: HeaderMap,
     ValidatedJson(body): ValidatedJson<UpdateConsentsBody>,
@@ -91,13 +101,15 @@ async fn update_consents(
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default()
         .to_owned();
+    let locale = locale.for_account(&identity.account);
     state
         .service
-        .update_consents(
+        .update_consents_in(
             identity.account.user_id,
             body.consents,
             client_ip.to_string(),
             user_agent,
+            locale.language,
         )
         .await
         .map(Json)

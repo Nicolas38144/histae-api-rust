@@ -291,3 +291,42 @@ fn advertising_defaults_to_disabled_and_requires_well_formed_ad_units() {
     assert!(config.advertising.enabled);
     assert_eq!(config.advertising.reward_item, "continuation_credit");
 }
+
+#[test]
+fn translated_legal_urls_are_validated_and_report_the_actual_document_language() {
+    use crate::{localization::Language, profiles::domain::ConsentType};
+    let config = AppConfig::from_source(&base(&[(
+        "TERMS_OF_SERVICE_URL_EN",
+        "https://legal.example.org/en/terms",
+    )]))
+    .expect("configuration");
+    assert_eq!(
+        config.legal_translations.resolve(
+            ConsentType::TermsOfServiceAcceptance,
+            "https://legal.example.org/fr/terms",
+            Language::En
+        ),
+        ("https://legal.example.org/en/terms".into(), Language::En)
+    );
+    assert_eq!(
+        config
+            .legal_translations
+            .resolve(
+                ConsentType::TermsOfServiceAcceptance,
+                "https://legal.example.org/fr/terms",
+                Language::It
+            )
+            .1,
+        Language::Fr
+    );
+    for url in [
+        "http://legal.example.org/en/terms",
+        "https://user:password@legal.example.org/en/terms",
+        "file:///tmp/terms",
+    ] {
+        let error = AppConfig::from_source(&base(&[("TERMS_OF_SERVICE_URL_EN", url)]))
+            .expect_err("unsafe URL");
+        assert_eq!(error.variable, "TERMS_OF_SERVICE_URL_EN");
+        assert!(!error.to_string().contains(url));
+    }
+}

@@ -11,7 +11,7 @@ Utiliser des fixtures fictives et des secrets de développement, jamais une base
 | --- | --- | --- |
 | Unitaire | Modules `#[cfg(test)]` de `src/` | Règles, configuration, transports, mocks et cycles de vie |
 | Contrat | `*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, guards et permissions |
-| Inventaire | `route_inventory.rs` | Les 111 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
+| Inventaire | `route_inventory.rs` | Les 113 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
 | PostgreSQL | `*_postgres.rs`, `postgres_compatibility`, `postgres_locks` | SQL, contraintes, verrous, snapshots et concurrence réels |
 | Redis / S3 | `redis_integration`, `media_integration` | Adaptateurs sur services locaux |
 | Codec | `photo_codec.rs`, `fixtures/photos/` | Formats, taille, métadonnées, corruption et arrêt du processus Node |
@@ -179,7 +179,7 @@ SMS n’est utilisé.
 | Migration neuve, upgrade et réexécution | Réussis ; préférence existante conservée |
 | Clippy, tous les targets et toutes les features, warnings refusés | Réussi |
 | rustfmt et `git diff --check` | Réussis |
-| Inventaire Axum, contrat et collections Postman FR/EN | 111 routes cohérentes |
+| Inventaire Axum, contrat et collections Postman FR/EN | 113 routes cohérentes |
 
 Le test de logs AdMob utilise désormais un processus isolé pour éviter les interactions entre son
 subscriber temporaire et le cache Tracing partagé par les tests parallèles. Les assertions de rejet
@@ -205,3 +205,11 @@ La campagne locale emploie le migrateur natif fraîchement compilé avec les mê
 le lanceur maintenu ci-dessus emploie le migrateur de l’image indiquée par `--api-image`.
 Les résultats Flutter avec réponses simulées ne prouvent pas le fonctionnement de cette API.
 Le déploiement exige le passage du migrateur avant le démarrage de la nouvelle API.
+
+## Internationalisation
+
+Les scénarios multilingues sont couverts par `localization_postgres`, les contrats de profil et de session,
+les transports simulés Sweego/Stripe/FCM et les règles de modération. Le runner PostgreSQL inclut ces
+suites, vérifie la couverture initiale des traductions, simule l’ancien schéma puis prouve que les migrations
+répétées conservent les préférences, les modifications et les traductions supprimées. Voir le
+[guide d’internationalisation](../docs/internationalization.md).

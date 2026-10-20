@@ -152,7 +152,9 @@ async fn catalogs_preserve_order_atomic_replacement_counts_and_cascades()
             id: trait_id,
             name: format!("Trait {trait_id}"),
         };
-        repository.create_trait(trait_value.clone()).await?;
+        repository
+            .create_trait(trait_value.clone(), Default::default())
+            .await?;
         repository.add_trait_to_user(user_id, trait_id).await?;
         repository.add_trait_to_user(user_id, trait_id).await?;
         assert_eq!(
@@ -170,6 +172,7 @@ async fn catalogs_preserve_order_atomic_replacement_counts_and_cascades()
                         category: ProfileQuestionCategory::Conversation,
                         display_order: 9_000 + i32::try_from(position)?,
                     },
+                    Default::default(),
                 )
                 .await?;
         }

@@ -12,6 +12,7 @@ pub mod discovery;
 pub mod http;
 pub mod identity;
 pub mod infra;
+pub mod localization;
 pub mod matches;
 pub mod media;
 pub mod moderation;
