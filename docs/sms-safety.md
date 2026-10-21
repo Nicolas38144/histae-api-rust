@@ -45,7 +45,7 @@ n’est garantie qu’après une journée de fonctionnement sous cette protectio
 - Un OTP accepté antérieurement reste valable selon ses règles normales.
 - Une tentative déjà autorisée avant la suspension peut encore aboutir.
 
-Le superadmin peut suspendre ou reprendre depuis **Vue d’ensemble → Protection des SMS Sweego**.
+Le superadmin peut suspendre ou reprendre depuis l’onglet **SMS Sweego** (`/sms-safety`) du dashboard.
 La mutation exige une session WebAuthn récente, l’origine administrateur et la version lue. Elle est
 auditée dans son journal d’accès avec `admin_suspend_sms` ou `admin_resume_sms` ; aucun motif manuel
 n’est exigé. Les autres administrateurs ont uniquement la lecture. Les compteurs restent inchangés

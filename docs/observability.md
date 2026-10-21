@@ -394,8 +394,8 @@ n’est enregistré dans les métriques des dépendances.
 ## Protection des crédits SMS
 
 `HistaeSweegoTrafficSpike` indique un pic absolu ou relatif des tentatives réservées ;
-`HistaeSweegoSendingSuspended` indique l’arrêt global. Consulter **Vue d’ensemble → Protection des SMS
-Sweego**, vérifier le trafic puis suspendre si nécessaire. Les plafonds par numéro (5/heure, 10/24 h
+`HistaeSweegoSendingSuspended` indique l’arrêt global. Consulter l’onglet **SMS Sweego** (`/sms-safety`)
+du dashboard, vérifier le trafic puis suspendre si nécessaire. Les plafonds par numéro (5/heure, 10/24 h
 par défaut) restent appliqués même sans supervision. Une reprise ne réinitialise aucun compteur.
 Le seuil de pic est configurable via `SMS_ALERT_SPIKE_5M`. Le panneau Grafana complète la lecture
 avec les compteurs globaux ; agréger les copies inter-instances avec `max`, pas `sum`.
