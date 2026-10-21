@@ -41,6 +41,7 @@ pub enum OtpDeliveryStart {
     Created(Uuid),
     Existing(OtpDeliveryState, Uuid),
     Conflict,
+    PolicyRejected(super::super::sweego::SmsFailureReason),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

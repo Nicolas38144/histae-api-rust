@@ -13,6 +13,7 @@ pub struct PrivacyMaintenanceResult {
     pub expired_presences: u64,
     pub expired_swipes: u64,
     pub expired_otps: u64,
+    pub expired_sms_attempts: u64,
     pub expired_refresh_tokens: u64,
     pub expired_notifications: u64,
     pub expired_consents: u64,
@@ -48,6 +49,9 @@ impl PrivacyMaintenanceResult {
             .saturating_add(next.expired_presences);
         self.expired_swipes = self.expired_swipes.saturating_add(next.expired_swipes);
         self.expired_otps = self.expired_otps.saturating_add(next.expired_otps);
+        self.expired_sms_attempts = self
+            .expired_sms_attempts
+            .saturating_add(next.expired_sms_attempts);
         self.expired_refresh_tokens = self
             .expired_refresh_tokens
             .saturating_add(next.expired_refresh_tokens);
@@ -97,7 +101,7 @@ impl PrivacyMaintenanceResult {
             .saturating_add(next.expired_mobile_sessions);
     }
 
-    fn counts(self) -> [u64; 21] {
+    fn counts(self) -> [u64; 22] {
         [
             self.stale_presences,
             self.expired_presences,
@@ -120,6 +124,7 @@ impl PrivacyMaintenanceResult {
             self.expired_reward_intents,
             self.expired_continuation_reservations,
             self.expired_continuation_usage,
+            self.expired_sms_attempts,
         ]
     }
 }
@@ -151,7 +156,7 @@ impl PrivacyMaintenanceRepository {
                         return Ok(None);
                     }
                     let limit = i64::from(batch_size);
-                    let mut counts = [0_u64; 21];
+                    let mut counts = [0_u64; 22];
                     for (index, statement) in RETENTION_QUERIES.iter().enumerate() {
                         counts[index] = sqlx::query(statement)
                             .bind(now)
@@ -183,6 +188,7 @@ impl PrivacyMaintenanceRepository {
                         expired_reward_intents: counts[18],
                         expired_continuation_reservations: counts[19],
                         expired_continuation_usage: counts[20],
+                        expired_sms_attempts: counts[21],
                     }))
                 })
             })
@@ -190,7 +196,7 @@ impl PrivacyMaintenanceRepository {
     }
 }
 
-const RETENTION_QUERIES: [&str; 21] = [
+const RETENTION_QUERIES: [&str; 22] = [
     "WITH stale AS (
        SELECT user_id FROM user_presence
        WHERE is_location_fresh = true AND updated_at <= $1 - INTERVAL '1 hour'
@@ -273,6 +279,9 @@ const RETENTION_QUERIES: [&str; 21] = [
     "DELETE FROM advertising_reward_intent WHERE id IN (SELECT id FROM advertising_reward_intent WHERE created_at <= $1 - INTERVAL '90 days' ORDER BY created_at,id LIMIT $2)",
     "DELETE FROM continuation_reservation WHERE (match_id,user_id) IN (SELECT r.match_id,r.user_id FROM continuation_reservation r JOIN match_init m ON m.id=r.match_id WHERE m.status<>'awaiting_continuation' OR m.expires_at<=$1 ORDER BY m.expires_at,r.match_id,r.user_id LIMIT $2 FOR UPDATE OF m SKIP LOCKED)",
     "DELETE FROM continuation_usage WHERE (user_id,week_start) IN (SELECT u.user_id,u.week_start FROM continuation_usage u WHERE u.week_start < ($1 AT TIME ZONE 'UTC')::date - 90 AND NOT EXISTS(SELECT 1 FROM continuation_reservation r WHERE r.user_id=u.user_id AND r.week_start=u.week_start) ORDER BY u.week_start,u.user_id LIMIT $2)",
+    "DELETE FROM sms_send_attempt WHERE delivery_id IN (
+       SELECT delivery_id FROM sms_send_attempt WHERE reserved_at <= $1 - interval '25 hours'
+       ORDER BY reserved_at LIMIT $2)",
 ];
 
 #[derive(Clone)]
@@ -363,6 +372,6 @@ mod tests {
         };
         assert_eq!(result.processed(), 6);
         assert_eq!(result.maximum(), 3);
-        assert_eq!(RETENTION_QUERIES.len(), 21);
+        assert_eq!(RETENTION_QUERIES.len(), 22);
     }
 }

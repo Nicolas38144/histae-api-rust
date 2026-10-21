@@ -48,6 +48,34 @@ fn loads_compatible_defaults_without_exposing_secrets() {
 }
 
 #[test]
+fn sms_budget_defaults_and_emergency_switch_are_bounded() {
+    let config = AppConfig::from_source(&base(&[])).expect("defaults");
+    assert_eq!(config.sms.safety.hourly_per_phone, 5);
+    assert_eq!(config.sms.safety.daily_per_phone, 10);
+    assert!(!config.sms.safety.suspended);
+    assert!(
+        AppConfig::from_source(&base(&[("SMS_SENDING_SUSPENDED", "true")]))
+            .expect("switch")
+            .sms
+            .safety
+            .suspended
+    );
+    for (key, value) in [
+        ("SMS_MAX_PER_PHONE_HOUR", "0"),
+        ("SMS_MAX_PER_PHONE_DAY", "4"),
+        ("SMS_ALERT_SPIKE_5M", "0"),
+        ("SMS_SENDING_SUSPENDED", "yes"),
+    ] {
+        assert_eq!(
+            AppConfig::from_source(&base(&[(key, value)]))
+                .expect_err("invalid policy")
+                .variable,
+            key
+        );
+    }
+}
+
+#[test]
 fn https_admin_origins_use_host_secure_cookies_in_development_and_test() {
     for environment in ["development", "test"] {
         let config = AppConfig::from_source(&base(&[

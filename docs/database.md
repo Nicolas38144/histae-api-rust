@@ -6,7 +6,7 @@
 
 | Fichier | Usage |
 | --- | --- |
-| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 52 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
+| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 54 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
 | [002_insert_postgres.sql](../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
 | [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
 | [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
@@ -43,6 +43,12 @@ Les index de performance sont ensuite construits avec `CONCURRENTLY`, hors de la
 Un verrou advisory sérialise les migrateurs. Un index valide est conservé ; un index invalide laissé par une
 interruption est supprimé puis reconstruit au prochain lancement.
 
+Les tables `sms_send_control` et `sms_send_attempt` protègent les envois Sweego. Le migrateur les
+ajoute aux bases existantes, conserve les suspensions lors des redéploiements et importe à leur
+création les tentatives fournisseur encore présentes dans `otp_verification`. Les OTP déjà purgés
+ne permettent pas de reconstituer l’historique antérieur. La comptabilité HMAC, sans code ni numéro
+en clair, reste indépendante des comptes/sessions et expire après 25 heures via la rétention bornée.
+
 ### PostGIS et mise à jour d’une installation
 
 Les piles dev et production construisent [l’image PostgreSQL](../docker/postgres/Dockerfile) à partir
@@ -64,7 +70,7 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --
 Ajouter l’override proxy s’il est utilisé. En production, employer les fichiers d’environnement et
 Compose de production. La mise à jour de PostgreSQL implique un bref redémarrage ; le migrateur doit
 terminer avant le démarrage de la nouvelle API. Une sauvegarde contenant PostGIS doit être restaurée
-sur un serveur disposant de cette extension. Le test local de restauration compte désormais 53 tables publiques.
+sur un serveur disposant de cette extension. Le test local de restauration compte désormais 55 tables publiques.
 
 Le migrateur ne transforme pas automatiquement une base arbitraire. Modifier le fichier de schéma ne suffit
 pas à modifier une base existante : toute évolution doit aussi avoir son chemin de mise à niveau et ses tests.
@@ -133,8 +139,8 @@ Il effectue un dump au format custom, restaure dans une base temporaire, compare
 public et le nombre de tables, puis supprime base temporaire et archive. Le rôle doit pouvoir créer une base.
 Il choisit Docker direct ou `sudo` selon l’accès disponible.
 
-`Development backup/restore verification passed (53 public tables)` confirme cette restauration technique
-sur le schéma actuel : 52 tables applicatives et la table spatiale de PostGIS.
+`Development backup/restore verification passed (55 public tables)` confirme cette restauration technique
+sur le schéma actuel : 54 tables applicatives et la table spatiale de PostGIS.
 Le script ne conserve pas de sauvegarde, ne compare pas toutes les données et ne teste pas la reprise du S3,
 des certificats ou des fournisseurs.
 

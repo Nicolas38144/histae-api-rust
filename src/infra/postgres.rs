@@ -202,6 +202,16 @@ impl Database {
     pub async fn verify_schema_compatibility(&self) -> Result<(), DatabaseError> {
         let mut connection = self.acquire().await?;
         verify_schema_compatibility_on(&mut connection).await?;
+        let sms_safety_ready: bool = sqlx::query_scalar(
+            "SELECT to_regclass(current_schema() || '.sms_send_control') IS NOT NULL
+                AND to_regclass(current_schema() || '.sms_send_attempt') IS NOT NULL",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(map_sqlx_error)?;
+        if !sms_safety_ready {
+            return Err(DatabaseError::SchemaObjectsMissing);
+        }
         let visibility_ready: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM pg_attribute
              WHERE attrelid=to_regclass(current_schema() || '.user_account')

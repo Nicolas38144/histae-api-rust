@@ -106,6 +106,26 @@
       "targets": [{ "expr": "histae_maintenance_overdue or histae_maintenance_missing or histae_maintenance_work_remaining", "legendFormat": "{{job}}", "refId": "A" }],
       "title": "Maintenance warnings",
       "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "histae-prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "Attempts", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 10, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+      "id": 11,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+      "targets": [{"expr": "max by (window) (histae_sweego_send_attempts)", "legendFormat": "{{window}}", "refId": "A"}],
+      "title": "Sweego allowed send attempts (rolling windows)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "histae-prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+      "id": 12,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "auto", "wideLayout": true},
+      "targets": [{"expr": "max(histae_sweego_sending_suspended)", "legendFormat": "Sending suspended", "refId": "A"}, {"expr": "max(histae_sweego_traffic_spike)", "legendFormat": "Traffic spike", "refId": "B"}],
+      "title": "Sweego sending suspension and traffic spike",
+      "type": "stat"
     }
   ],
   "refresh": "15s",
@@ -117,6 +137,6 @@
   "timezone": "browser",
   "title": "Histae Operations",
   "uid": "histae-operations",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

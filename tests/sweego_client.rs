@@ -11,6 +11,22 @@ use tokio::net::TcpListener;
 use url::Url;
 use uuid::Uuid;
 
+struct AllowSmsGuard;
+impl histae_api_rust::identity::mobile::sms_safety::SmsSendGuard for AllowSmsGuard {
+    fn reserve<'a>(
+        &'a self,
+        _: Uuid,
+        _: &'a str,
+    ) -> histae_api_rust::identity::mobile::sms_safety::SmsPermitFuture<'a> {
+        Box::pin(async { Ok(()) })
+    }
+}
+fn guarded_service(
+    config: SmsConfig,
+) -> Result<SweegoSmsService, histae_api_rust::identity::mobile::sweego::SmsDeliveryError> {
+    SweegoSmsService::new(config, std::sync::Arc::new(AllowSmsGuard))
+}
+
 fn config(endpoint: Url, provider: SmsProvider) -> SmsConfig {
     SmsConfig {
         provider,
@@ -20,6 +36,7 @@ fn config(endpoint: Url, provider: SmsProvider) -> SmsConfig {
         region: "FR".to_owned(),
         timeout: Duration::from_secs(2),
         otp_ttl: Duration::from_secs(601),
+        safety: Default::default(),
         webhook_secret: SecretString::new(String::new()),
     }
 }
@@ -31,6 +48,76 @@ fn message() -> SmsMessage {
         region: "FR".to_owned(),
         code: "123456".to_owned(),
         delivery_id: Uuid::new_v4(),
+    }
+}
+
+#[tokio::test]
+async fn policy_rejections_never_connect_to_sweego_or_count_as_provider_failures() {
+    use histae_api_rust::identity::mobile::sms_safety::{
+        SmsPermitFuture, SmsSendGuard, SmsSendRejection,
+    };
+    struct Reject(SmsSendRejection);
+    impl SmsSendGuard for Reject {
+        fn reserve<'a>(&'a self, _: Uuid, _: &'a str) -> SmsPermitFuture<'a> {
+            Box::pin(async { Err(self.0) })
+        }
+    }
+    for (rejection, reason) in [
+        (
+            SmsSendRejection::HourlyLimit,
+            SmsFailureReason::PhoneHourlyLimit,
+        ),
+        (
+            SmsSendRejection::DailyLimit,
+            SmsFailureReason::PhoneDailyLimit,
+        ),
+        (
+            SmsSendRejection::Suspended,
+            SmsFailureReason::SendingSuspended,
+        ),
+        (
+            SmsSendRejection::Unavailable,
+            SmsFailureReason::SafetyUnavailable,
+        ),
+        (
+            SmsSendRejection::AlreadyReserved,
+            SmsFailureReason::AttemptAlreadyReserved,
+        ),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("fake endpoint");
+        let endpoint = Url::parse(&format!(
+            "http://{}/send",
+            listener.local_addr().expect("address")
+        ))
+        .expect("URL");
+        let metrics =
+            std::sync::Arc::new(histae_api_rust::operations::metrics::OperationalMetrics::new());
+        let service = SweegoSmsService::new(
+            config(endpoint, SmsProvider::Sweego),
+            std::sync::Arc::new(Reject(rejection)),
+        )
+        .expect("HTTP client")
+        .with_metrics(metrics.clone());
+        let error = service
+            .send_otp(message())
+            .await
+            .expect_err("policy rejection");
+        assert_eq!(error.reason, reason);
+        assert_eq!(error.outcome, SmsFailureOutcome::Failed);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), listener.accept())
+                .await
+                .is_err()
+        );
+        assert!(
+            metrics
+                .snapshot()
+                .dependencies
+                .iter()
+                .all(|(_, values)| values.calls == 0)
+        );
     }
 }
 
@@ -97,8 +184,7 @@ fn request_body(request: &[u8]) -> &[u8] {
 async fn sends_the_exact_transactional_payload_once_and_parses_one_receipt() {
     let response = br#"{"transaction_id":"transaction-1","swg_uids":{"+33600000000":"message-1"}}"#;
     let (endpoint, captured) = server(200, response.to_vec()).await;
-    let service =
-        SweegoSmsService::new(config(endpoint, SmsProvider::Sweego)).expect("HTTP client");
+    let service = guarded_service(config(endpoint, SmsProvider::Sweego)).expect("HTTP client");
     let sent = message();
     let delivery_id = sent.delivery_id;
     let receipt = service.send_otp(sent).await.expect("receipt");
@@ -152,8 +238,7 @@ async fn classifies_definitive_and_uncertain_http_failures_without_retrying() {
         ),
     ] {
         let (endpoint, captured) = server(status, b"private-provider-body".to_vec()).await;
-        let service =
-            SweegoSmsService::new(config(endpoint, SmsProvider::Sweego)).expect("HTTP client");
+        let service = guarded_service(config(endpoint, SmsProvider::Sweego)).expect("HTTP client");
         let error = service
             .send_otp(message())
             .await
@@ -173,8 +258,7 @@ async fn classifies_definitive_and_uncertain_http_failures_without_retrying() {
 #[tokio::test]
 async fn bounds_provider_responses_and_fails_closed_when_disabled() {
     let (endpoint, captured) = server(200, vec![b'x'; MAX_SMS_PROVIDER_BODY_BYTES + 1]).await;
-    let service =
-        SweegoSmsService::new(config(endpoint, SmsProvider::Sweego)).expect("HTTP client");
+    let service = guarded_service(config(endpoint, SmsProvider::Sweego)).expect("HTTP client");
     let error = service
         .send_otp(message())
         .await
@@ -183,7 +267,7 @@ async fn bounds_provider_responses_and_fails_closed_when_disabled() {
     assert_eq!(error.reason, SmsFailureReason::ProviderInvalidResponse);
     captured.await.expect("fake server");
 
-    let disabled = SweegoSmsService::new(config(
+    let disabled = guarded_service(config(
         "http://127.0.0.1:9/send".parse().expect("URL"),
         SmsProvider::Disabled,
     ))
@@ -201,7 +285,7 @@ async fn provider_failures_update_only_aggregated_metrics() {
     let (endpoint, captured) = server(503, b"{}".to_vec()).await;
     let metrics =
         std::sync::Arc::new(histae_api_rust::operations::metrics::OperationalMetrics::new());
-    let service = SweegoSmsService::new(config(endpoint, SmsProvider::Sweego))
+    let service = guarded_service(config(endpoint, SmsProvider::Sweego))
         .expect("client")
         .with_metrics(metrics.clone());
     assert!(service.send_otp(message()).await.is_err());
@@ -236,7 +320,7 @@ async fn sends_localized_codes_without_changing_sms_delivery_metadata() {
                 .to_vec(),
         )
         .await;
-        let service = SweegoSmsService::new(config(endpoint, SmsProvider::Sweego)).expect("client");
+        let service = guarded_service(config(endpoint, SmsProvider::Sweego)).expect("client");
         let mut input = message();
         input.language = language;
         service.send_otp(input).await.expect("receipt");

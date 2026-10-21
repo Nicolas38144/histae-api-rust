@@ -63,6 +63,11 @@ Le claim outbox parcourt toute une file : son test crée `histae_outbox_test_<UU
 réel et supprime cette base après fermeture, y compris si une assertion échoue. Le rôle local doit pouvoir
 créer une base ; la file de la base de développement partagée n’est pas nettoyée par ce test.
 
+`sms_safety_postgres` crée également une base privée avec le migrateur réel : il vérifie la concurrence
+sur les plafonds par numéro, la suspension/version/rôle superadmin, la conservation au redéploiement,
+le rejeu OTP refusé et la purge bornée. Ce test exige le compte administrateur de développement pour
+créer/supprimer sa base ; il ne touche pas les compteurs d’une API partagée et ne contacte pas Sweego.
+
 Redis utilise sa base logique et des clés de test ; S3 des objets dédiés. Ne pas arrêter les dépendances
 partagées pour simuler une panne ni remplacer le nettoyage ciblé par une purge Docker globale.
 Pour les garde-fous précis, consulter les fixtures et le [guide de base de données](../docs/database.md).
@@ -213,3 +218,22 @@ les transports simulés Sweego/Stripe/FCM et les règles de modération. Le runn
 suites, vérifie la couverture initiale des traductions, simule l’ancien schéma puis prouve que les migrations
 répétées conservent les préférences, les modifications et les traductions supprimées. Voir le
 [guide d’internationalisation](../docs/internationalization.md).
+
+## Protection SMS (21 octobre 2026)
+
+La fonctionnalité est documentée dans [le guide Sweego](../docs/sms-safety.md). Les scénarios couvrent
+les refus avant tout appel fournisseur, l’indisponibilité PostgreSQL, les pics absolus/relatifs, les
+mutations réservées au superadmin et les versions périmées. Le contrat et les deux collections Postman
+comprennent désormais **115 routes**. Les scénarios Prometheus incluent déclenchement et résolution
+des alertes de pic et de suspension. Les fournisseurs sont simulés ; aucune consommation de SMS.
+
+Vérifications locales réalisées :
+
+- 240 tests Rust ciblés (bibliothèque, contrats HTTP/OTP, inventaire des routes et client Sweego).
+- 10 tests d’intégration PostgreSQL, dans un serveur jetable, dont la migration initiale et répétée,
+  30 réservations concurrentes pour un même numéro et le rejeu OTP après épuisement du quota.
+- Clippy sur toutes les cibles et fonctionnalités avec les avertissements traités comme erreurs.
+- Validation des règles Prometheus avec `promtool`.
+- Dashboard : typecheck, lint, build, 96 tests unitaires/composants et 5 parcours Chromium ciblés.
+
+Ces vérifications ne valident ni un envoi SMS réel ni le déploiement sur le serveur de production.

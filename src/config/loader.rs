@@ -354,7 +354,35 @@ impl AppConfig {
             timeout: sms_timeout,
             otp_ttl,
             webhook_secret: SecretString::new(webhook_secret),
+            safety: SmsSafetyConfig {
+                hourly_per_phone: integer(
+                    &source.or("SMS_MAX_PER_PHONE_HOUR", "5")?,
+                    "SMS_MAX_PER_PHONE_HOUR",
+                    1,
+                    1000,
+                )? as u32,
+                daily_per_phone: integer(
+                    &source.or("SMS_MAX_PER_PHONE_DAY", "10")?,
+                    "SMS_MAX_PER_PHONE_DAY",
+                    1,
+                    10000,
+                )? as u32,
+                spike_per_5_minutes: integer(
+                    &source.or("SMS_ALERT_SPIKE_5M", "20")?,
+                    "SMS_ALERT_SPIKE_5M",
+                    1,
+                    1000000,
+                )? as u32,
+                suspended: boolean(
+                    source.value("SMS_SENDING_SUSPENDED")?.as_deref(),
+                    false,
+                    "SMS_SENDING_SUSPENDED",
+                )?,
+            },
         };
+        if sms.safety.daily_per_phone < sms.safety.hourly_per_phone {
+            return Err(ConfigError::invalid("SMS_MAX_PER_PHONE_DAY"));
+        }
 
         let legal = legal_config(source, environment)?;
         let legal_translations = legal_translations_config(source, environment)?;

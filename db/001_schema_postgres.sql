@@ -69,6 +69,26 @@ CREATE TABLE account_tombstone (
 
 CREATE INDEX idx_account_tombstone_expiry ON account_tombstone USING btree (expires_at, phone_number_hash);
 
+-- BEGIN sms safety
+CREATE TABLE IF NOT EXISTS sms_send_control (
+    singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+    suspended boolean NOT NULL DEFAULT false,
+    version bigint NOT NULL DEFAULT 0 CHECK (version >= 0),
+    updated_at timestamptz
+);
+INSERT INTO sms_send_control(singleton) VALUES (true) ON CONFLICT DO NOTHING;
+
+-- No OTP/user FK: expiring a code or deleting an account must not reset the budget.
+CREATE TABLE IF NOT EXISTS sms_send_attempt (
+    delivery_id uuid PRIMARY KEY,
+    phone_hash text NOT NULL,
+    reserved_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX IF NOT EXISTS idx_sms_attempt_phone_time ON sms_send_attempt(phone_hash, reserved_at);
+CREATE INDEX IF NOT EXISTS idx_sms_attempt_time ON sms_send_attempt(reserved_at, delivery_id);
+COMMENT ON TABLE sms_send_attempt IS 'Provider attempts reserved before dispatch. HMAC phone keys only; retained for at most 25 hours plus maintenance lag.';
+-- END sms safety
+
 CREATE TABLE otp_verification (
     id uuid DEFAULT uuid_generate_v4() NOT NULL,
     phone_number_hash text NOT NULL,
@@ -964,7 +984,7 @@ CREATE TABLE data_access_log (
     action text NOT NULL,
     reason text,
     accessed_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT data_access_log_action_check CHECK ((action = ANY (ARRAY['view_profile'::text, 'view_messages'::text, 'view_matches'::text, 'export_data'::text, 'admin_ban'::text, 'admin_unban'::text, 'admin_promote'::text, 'admin_demote'::text, 'admin_review_report'::text, 'admin_review_dsr'::text, 'admin_reconcile_photo'::text, 'view_moderation_content'::text, 'admin_review_content'::text, 'system_anonymize'::text, 'system_export_portability'::text]))),
+    CONSTRAINT data_access_log_action_check CHECK ((action = ANY (ARRAY['view_profile'::text, 'view_messages'::text, 'view_matches'::text, 'export_data'::text, 'admin_ban'::text, 'admin_unban'::text, 'admin_promote'::text, 'admin_demote'::text, 'admin_suspend_sms'::text, 'admin_resume_sms'::text, 'admin_review_report'::text, 'admin_review_dsr'::text, 'admin_reconcile_photo'::text, 'view_moderation_content'::text, 'admin_review_content'::text, 'system_anonymize'::text, 'system_export_portability'::text]))),
     CONSTRAINT data_access_log_pkey PRIMARY KEY (id),
     CONSTRAINT data_access_log_accessor_id_fkey FOREIGN KEY (accessor_id) REFERENCES user_account(user_id) ON DELETE SET NULL
 );

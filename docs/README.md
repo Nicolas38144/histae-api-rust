@@ -60,3 +60,5 @@ Avec chaque modification, mettre à jour le guide qui possède le sujet, puis se
 Les tableaux du contrat restent compatibles avec `tests/route_inventory.rs`. Les ancres explicites
 des runbooks sont utilisées par les règles Prometheus et doivent rester stables. Les guides décrivent
 les commandes à rejouer pour valider la livraison actuelle.
+
+- [Protection des SMS Sweego](sms-safety.md) : plafonds par numéro, arrêt global et alertes.

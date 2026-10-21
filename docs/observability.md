@@ -387,3 +387,16 @@ Le runtime expose son identité Rust, sa durée de fonctionnement et sa mémoire
 Ces compteurs ne doivent pas être interprétés comme un nombre de requêtes SQL. Une erreur HTTP conserve aussi ses compteurs et un événement sûr
 `http_request_failed`. Les labels restent bornés et aucun payload, SQL, secret ou identifiant client
 n’est enregistré dans les métriques des dépendances.
+
+
+<a id="sms-safety"></a>
+
+## Protection des crédits SMS
+
+`HistaeSweegoTrafficSpike` indique un pic absolu ou relatif des tentatives réservées ;
+`HistaeSweegoSendingSuspended` indique l’arrêt global. Consulter **Vue d’ensemble → Protection des SMS
+Sweego**, vérifier le trafic puis suspendre si nécessaire. Les plafonds par numéro (5/heure, 10/24 h
+par défaut) restent appliqués même sans supervision. Une reprise ne réinitialise aucun compteur.
+Le seuil de pic est configurable via `SMS_ALERT_SPIKE_5M`. Le panneau Grafana complète la lecture
+avec les compteurs globaux ; agréger les copies inter-instances avec `max`, pas `sum`.
+Voir le [guide complet](sms-safety.md) pour le mode secours et les limites de preuve.

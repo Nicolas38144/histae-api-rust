@@ -1,4 +1,5 @@
 use crate::config::{AppConfig, RateLimitStore, SmsProvider};
+use crate::identity::mobile::sms_safety::{PgSmsSafetyStore, SmsSafetyService};
 use crate::identity::mobile::sweego::SweegoWebhookMetrics;
 use crate::infra::{postgres::Database, postgres_locks::AccountActivityPool, redis::RedisService};
 use crate::media::s3::S3ObjectStorage;
@@ -19,6 +20,7 @@ pub(super) struct ApiResources {
     pub(super) persistent_status: Arc<PgOperationalStatus>,
     pub(super) callbacks: Arc<SweegoWebhookMetrics>,
     pub(super) realtime: RealtimeService,
+    pub(super) sms_safety: SmsSafetyService,
 }
 
 impl ApiResources {
@@ -45,11 +47,18 @@ impl ApiResources {
                 .with_metrics(Arc::clone(&metrics)),
         );
         let callbacks = Arc::new(SweegoWebhookMetrics::default());
+        let sms_safety = SmsSafetyService::new(
+            Arc::new(PgSmsSafetyStore::new(database.clone())),
+            config.sms.safety.clone(),
+            config.phone.hash_key.clone(),
+            config.sms.provider == SmsProvider::Sweego,
+        );
         let persistent_status = Arc::new(PgOperationalStatus::new(
             database.clone(),
             Arc::clone(&callbacks),
             config.sms.provider == SmsProvider::Sweego
                 && !config.sms.webhook_secret.expose_secret().is_empty(),
+            sms_safety.clone(),
         ));
         Ok(Self {
             database,
@@ -60,6 +69,7 @@ impl ApiResources {
             persistent_status,
             callbacks,
             realtime,
+            sms_safety,
         })
     }
 
@@ -83,6 +93,7 @@ impl ApiResources {
             persistent_status,
             callbacks,
             realtime,
+            sms_safety,
         } = self;
         drop((
             redis,
@@ -91,6 +102,7 @@ impl ApiResources {
             persistent_status,
             callbacks,
             realtime,
+            sms_safety,
         ));
         activity.close().await;
         database.close().await;

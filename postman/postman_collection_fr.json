@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection issue de docs/http-contract.md (113 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
+    "description": "Collection issue de docs/http-contract.md (115 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -3640,6 +3640,72 @@
               "response": []
             }
           ]
+        },
+        {
+          "name": "Protection SMS",
+          "item": [
+            {
+              "name": "GET /api/admin/sms-safety",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/sms-safety",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "État des protections SMS : limites par numéro, compteurs agrégés, suspension et version. Aucun identifiant de téléphone. Copier version pour la mutation."
+              },
+              "response": []
+            },
+            {
+              "name": "⚠️ PATCH /api/admin/sms-safety",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/sms-safety",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Superadmin et authentification WebAuthn récente. Effet réel : suspend globalement les envois SMS. Utiliser la version du GET précédent ; false pour reprendre. 204 sans corps, 409 si état modifié. Ne pas relancer automatiquement après une réponse perdue.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"suspended\": true,\n  \"version\": {{smsSafetyVersion}}\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
         }
       ]
     },
@@ -3962,6 +4028,11 @@
     {
       "key": "language",
       "value": "fr",
+      "type": "string"
+    },
+    {
+      "key": "smsSafetyVersion",
+      "value": "",
       "type": "string"
     }
   ]

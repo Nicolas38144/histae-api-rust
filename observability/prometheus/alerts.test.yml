@@ -56,3 +56,37 @@ tests:
             exp_annotations:
               summary: The Histae outbox contains dead letters
               runbook_url: docs/observability.md#dead-letters
+
+  - name: a SMS traffic spike alerts immediately and resolves after recovery
+    interval: 1m
+    input_series:
+      - series: histae_sweego_traffic_spike
+        values: 0 1 1 0 0
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: HistaeSweegoTrafficSpike
+        exp_alerts:
+          - exp_labels: { alertname: HistaeSweegoTrafficSpike, severity: warning, component: sweego }
+            exp_annotations:
+              summary: Sweego send attempts exceed the traffic spike threshold
+              runbook_url: docs/observability.md#sms-safety
+      - eval_time: 3m
+        alertname: HistaeSweegoTrafficSpike
+        exp_alerts: []
+
+  - name: SMS suspension is visible until an operator resumes sending
+    interval: 1m
+    input_series:
+      - series: histae_sweego_sending_suspended
+        values: 1 1 0 0
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: HistaeSweegoSendingSuspended
+        exp_alerts:
+          - exp_labels: { alertname: HistaeSweegoSendingSuspended, severity: warning, component: sweego }
+            exp_annotations:
+              summary: Sweego SMS sending is suspended
+              runbook_url: docs/observability.md#sms-safety
+      - eval_time: 2m
+        alertname: HistaeSweegoSendingSuspended
+        exp_alerts: []

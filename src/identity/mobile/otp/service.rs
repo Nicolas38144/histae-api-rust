@@ -18,6 +18,7 @@ pub enum OtpError {
     IdempotencyConflict,
     DeliveryUnavailable,
     DeliveryUnknown,
+    PhoneRateLimited,
     Internal,
 }
 
@@ -31,6 +32,7 @@ impl fmt::Display for OtpError {
             Self::IdempotencyConflict => "idempotency_key_conflict",
             Self::DeliveryUnavailable => "otp_delivery_unavailable",
             Self::DeliveryUnknown => "otp_delivery_unknown",
+            Self::PhoneRateLimited => "otp_rate_limit_exceeded",
             Self::Internal => "internal_error",
         })
     }
@@ -118,6 +120,7 @@ impl OtpService {
             .map_err(|_| OtpError::Internal)?;
         match start {
             OtpDeliveryStart::Conflict => return Err(OtpError::IdempotencyConflict),
+            OtpDeliveryStart::PolicyRejected(reason) => return Err(policy_error(reason)),
             OtpDeliveryStart::Existing(
                 OtpDeliveryState::Pending | OtpDeliveryState::Accepted | OtpDeliveryState::Sent,
                 _,
@@ -155,6 +158,15 @@ impl OtpService {
                     .mark_outcome(delivery_id, phone_hash, state, error.reason)
                     .await
                     .map_err(|_| OtpError::DeliveryUnknown)?;
+                if persisted == OtpDeliveryState::Failed
+                    && matches!(
+                        error.reason,
+                        crate::identity::mobile::sweego::SmsFailureReason::PhoneHourlyLimit
+                            | crate::identity::mobile::sweego::SmsFailureReason::PhoneDailyLimit
+                    )
+                {
+                    return Err(OtpError::PhoneRateLimited);
+                }
                 return match persisted {
                     OtpDeliveryState::Accepted | OtpDeliveryState::Sent => Ok(()),
                     OtpDeliveryState::Unknown => Err(OtpError::DeliveryUnknown),
@@ -194,6 +206,16 @@ impl OtpService {
             return Err(OtpError::InvalidOtp);
         }
         Ok(ConsumedOtp { phone, phone_hash })
+    }
+}
+
+fn policy_error(reason: crate::identity::mobile::sweego::SmsFailureReason) -> OtpError {
+    use crate::identity::mobile::sweego::SmsFailureReason;
+    match reason {
+        SmsFailureReason::PhoneHourlyLimit | SmsFailureReason::PhoneDailyLimit => {
+            OtpError::PhoneRateLimited
+        }
+        _ => OtpError::DeliveryUnavailable,
     }
 }
 

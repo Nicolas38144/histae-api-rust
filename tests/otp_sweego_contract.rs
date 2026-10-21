@@ -428,6 +428,7 @@ fn fixture(otp_limit: u64) -> Fixture {
     };
     let secret = SecretString::new(STANDARD.encode([0x42_u8; 48]));
     let sms = SmsConfig {
+        safety: Default::default(),
         provider: SmsProvider::Sweego,
         endpoint: "https://api.sweego.test/send".parse().expect("URL"),
         api_key: SecretString::new("fixture-api-key".to_owned()),

@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use crate::administration::metrics::{AdminOperationsProvider, MetricsFuture};
 use crate::identity::mobile::otp::{OtpDeliverySnapshot, OtpRepository, OtpStore};
+use crate::identity::mobile::sms_safety::{SmsSafetyService, SmsSafetySnapshot};
 use crate::identity::mobile::sweego::SweegoWebhookMetrics;
 use crate::infra::postgres::{Database, DatabaseError, PoolStats, map_sqlx_error};
 use crate::operations::maintenance::{MaintenanceSnapshot, PgMaintenanceStatusRepository};
@@ -32,6 +33,7 @@ pub struct PersistentSnapshot {
     pub notification_push: QueueSnapshot,
     pub billing_reconciliation: QueueSnapshot,
     pub otp: OtpDeliverySnapshot,
+    pub sms_safety: SmsSafetySnapshot,
     pub webhook_enabled: bool,
     pub callbacks: BTreeMap<&'static str, u64>,
     pub maintenance: Vec<MaintenanceSnapshot>,
@@ -50,6 +52,7 @@ pub struct PgOperationalStatus {
     maintenance: PgMaintenanceStatusRepository,
     callbacks: Arc<SweegoWebhookMetrics>,
     webhook_enabled: bool,
+    sms_safety: SmsSafetyService,
 }
 
 impl PgOperationalStatus {
@@ -57,6 +60,7 @@ impl PgOperationalStatus {
         database: Database,
         callbacks: Arc<SweegoWebhookMetrics>,
         webhook_enabled: bool,
+        sms_safety: SmsSafetyService,
     ) -> Self {
         Self {
             otp: OtpRepository::new(database.clone()),
@@ -64,6 +68,7 @@ impl PgOperationalStatus {
             database,
             callbacks,
             webhook_enabled,
+            sms_safety,
         }
     }
 }
@@ -97,6 +102,7 @@ impl PersistentStatus for PgOperationalStatus {
                 notification_push: push,
                 billing_reconciliation: billing,
                 otp: self.otp.snapshot().await?,
+                sms_safety: self.sms_safety.snapshot().await?,
                 webhook_enabled: self.webhook_enabled,
                 callbacks: self.callbacks.snapshot(),
                 maintenance: self.maintenance.list().await?,
@@ -265,6 +271,7 @@ impl OperationalStatusView {
                 "webhook_enabled": persistent.webhook_enabled,
                 "callbacks": persistent.callbacks,
             },
+            "sms_safety": persistent.sms_safety,
             "maintenance": maintenance,
         }))
     }
@@ -471,6 +478,7 @@ mod tests {
                     retention: "otp_expiry",
                     handset_delivery: "not_confirmed",
                 },
+                sms_safety: SmsSafetySnapshot::default(),
                 webhook_enabled: false,
                 callbacks: BTreeMap::new(),
                 maintenance: Vec::new(),

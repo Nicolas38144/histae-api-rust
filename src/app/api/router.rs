@@ -122,7 +122,7 @@ impl ApiResources {
 
         let otp_repository = Arc::new(OtpRepository::new(self.database.clone()));
         let sms: Arc<dyn SmsDelivery> = Arc::new(
-            SweegoSmsService::new(config.sms.clone())
+            SweegoSmsService::new(config.sms.clone(), Arc::new(self.sms_safety.clone()))
                 .map_err(|_| "sms_client_invalid")?
                 .with_metrics(Arc::clone(&self.metrics)),
         );
@@ -338,6 +338,10 @@ impl ApiResources {
                 config.rate_limit.sms_webhook.clone(),
             )))
             .merge(admin_auth_routes(admin_auth.clone()))
+            .merge(crate::identity::mobile::sms_safety::http::routes(
+                self.sms_safety.clone(),
+                admin_auth.clone(),
+            ))
             .merge(profile_routes(
                 ProfileHttpState::new(profile),
                 mobile_auth.clone(),

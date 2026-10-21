@@ -206,6 +206,16 @@ async fn operational_queues_equal_independent_counts() -> Result<(), Box<dyn std
         database.clone(),
         std::sync::Arc::new(SweegoWebhookMetrics::default()),
         false,
+        histae_api_rust::identity::mobile::sms_safety::SmsSafetyService::new(
+            std::sync::Arc::new(
+                histae_api_rust::identity::mobile::sms_safety::PgSmsSafetyStore::new(
+                    database.clone(),
+                ),
+            ),
+            Default::default(),
+            SecretString::new("test-sms-key".into()),
+            false,
+        ),
     );
     let snapshot = repository.snapshot().await?;
     let mut connection = database.acquire().await?;

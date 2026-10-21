@@ -286,6 +286,12 @@ fn otp_error(error: OtpError) -> ApiError {
             "otp_delivery_unavailable",
             "The verification code could not be delivered.",
         ),
+        OtpError::PhoneRateLimited => ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "otp_rate_limit_exceeded",
+            "Too many verification code requests. Please try again later.",
+        )
+        .with_retry_after(60),
         OtpError::DeliveryUnknown => ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "otp_delivery_unknown",

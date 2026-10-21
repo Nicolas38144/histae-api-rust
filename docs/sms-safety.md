@@ -1,0 +1,87 @@
+# Protection des SMS Sweego
+
+[Index](README.md) · [Contrat](http-contract.md#protection-des-envois-sms) · [Supervision](observability.md#sms-safety)
+
+## Limites et comptabilité
+
+La configuration par défaut autorise **5 tentatives par numéro sur une heure et 10 sur 24 heures**.
+Les deux fenêtres sont glissantes ; elles ne se réinitialisent pas à minuit. Le numéro normalisé
+E.164 est remplacé par son HMAC avec la clé téléphone existante. Le contrôle s’applique à chaque
+requête Sweego, avant le réseau, après la validation et les limites IP/numéro déjà présentes.
+
+```dotenv
+SMS_MAX_PER_PHONE_HOUR=5
+SMS_MAX_PER_PHONE_DAY=10
+SMS_ALERT_SPIKE_5M=20
+SMS_SENDING_SUSPENDED=false
+```
+
+Les plafonds doivent être positifs et le plafond quotidien doit être au moins égal au plafond horaire.
+Ce sont des limites **par numéro**, pas un budget cumulé pour tous les numéros ni une lecture du solde
+Sweego. La réservation compte une tentative d’envoi ; les tarifs/crédits réellement débités restent
+ceux du fournisseur. Les textes OTP actuels restent courts et chaque requête a un seul destinataire.
+
+Une réservation PostgreSQL sérialise les décisions d’un même numéro entre instances. Elle est
+validée avant le POST fournisseur ; elle reste consommée après un timeout, une réponse invalide,
+un refus fournisseur ou un arrêt du processus. Aucun remboursement automatique ne peut permettre
+un nouvel envoi dont le précédent aurait été facturé. Un même UUID de livraison déjà réservé ne
+peut pas déclencher un second appel. Les rejeux OTP existants ne réservent rien de plus.
+
+L’expiration d’un OTP, la déconnexion et la suppression du compte ne réinitialisent pas les compteurs.
+Seuls l’UUID technique, le HMAC et la date de réservation sont conservés ; aucune donnée de message,
+numéro en clair ou clé fournisseur n’entre dans ces tables, les réponses admin ou les labels métriques.
+La maintenance RGPD supprime ces lignes après **25 heures**, avec son retard de planification éventuel ;
+un nettoyage borné accompagne aussi les réservations. La maintenance doit rester planifiée.
+
+Au premier déploiement, le migrateur importe les tentatives encore présentes dans les OTP locaux.
+Il ne peut pas reconstituer les OTP déjà supprimés : une fenêtre initiale complète de 24 heures
+n’est garantie qu’après une journée de fonctionnement sous cette protection.
+
+## Blocage et arrêt d’urgence
+
+- Plafond atteint : `429 otp_rate_limit_exceeded`, sans appel Sweego. `Retry-After: 60` demande d’attendre
+  au moins une minute ; le quota peut rester épuisé plus longtemps.
+- Contrôle indisponible ou envois suspendus : `503 otp_delivery_unavailable`, sans appel Sweego.
+- Un OTP accepté antérieurement reste valable selon ses règles normales.
+- Une tentative déjà autorisée avant la suspension peut encore aboutir.
+
+Le superadmin peut suspendre ou reprendre depuis **Vue d’ensemble → Protection des SMS Sweego**.
+La mutation exige une session WebAuthn récente, l’origine administrateur et la version lue. Elle est
+auditée dans son journal d’accès avec `admin_suspend_sms` ou `admin_resume_sms` ; aucun motif manuel
+n’est exigé. Les autres administrateurs ont uniquement la lecture. Les compteurs restent inchangés
+lors d’une reprise. Une réponse perdue est résolue par une lecture, sans mutation automatique.
+
+L’état manuel est partagé et survit aux redémarrages. En secours, définir `SMS_SENDING_SUSPENDED=true`
+dans le `.env` de l’API et redéployer toutes ses instances. La configuration force l’arrêt, même si le dashboard demande
+une reprise. Remettre la variable à `false`, redéployer puis vérifier la suspension manuelle avant
+la reprise. Un redémarrage ne nécessite aucun effacement ni remise à zéro de données.
+
+## Alertes et dépendances
+
+Le dashboard relit le statut toutes les 30 secondes. Un pic est signalé lorsque les réservations
+globales atteignent `SMS_ALERT_SPIKE_5M` sur cinq minutes (20 par défaut), ou lorsque leur cadence est
+au moins quatre fois celle de l’heure précédente : au moins cinq tentatives récentes et douze dans
+la fenêtre de référence de 65 à 5 minutes avant la collecte. Le seuil absolu couvre un démarrage sans
+historique. Les refus locaux ne sont pas comptés comme des appels Sweego en échec.
+
+Prometheus déclenche `HistaeSweegoTrafficSpike` et `HistaeSweegoSendingSuspended`. La détection dépend
+de la collecte et de l’évaluation ; l’état des envois est bloqué directement dans l’API, sans attendre
+les métriques. Les alertes restent visibles dans Prometheus/Alertmanager ; le destinataire existant
+ne transmet pas d’e-mail. Aucun e-mail ou SMS d’alerte n’est envoyé par cette fonctionnalité.
+Le pic avertit l’opérateur ; il ne déclenche pas une suspension globale automatique.
+
+Les jauges `histae_sweego_send_attempts{window="5m|1h|24h"}` sont partagées entre les instances qui
+lisent la même base : utiliser `max` pour une vue commune, jamais la somme de ces copies.
+La protection reste active lorsque Prometheus, Alertmanager ou Grafana sont arrêtés. Leurs services
+sont facultatifs pour les plafonds et la suspension ; l’API et PostgreSQL sont requis.
+
+## Livraison et vérification
+
+Reconstruire l’image puis exécuter le migrateur avant la nouvelle API. Le script centralisé effectue
+ces étapes : depuis la racine Histae, `sudo bash histae-scripts/reset-api.sh --production` (ou `--dev`).
+Déployer ensuite le dashboard compatible. Aucune modification du client mobile n’est nécessaire :
+les refus utilisent les codes existants `otp_rate_limit_exceeded` et `otp_delivery_unavailable`.
+
+Les tests utilisent des fournisseurs simulés et une instance PostgreSQL jetable : concurrence sur
+un numéro, indépendance entre numéros, fenêtres glissantes, idempotence, suspension/version/autorisation,
+conservation au redéploiement, purge et échec du contrôle. Ils ne consomment aucun crédit Sweego.

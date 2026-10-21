@@ -20,6 +20,7 @@ use uuid::{Uuid, Variant};
 use crate::config::{SecretString, SmsConfig, SmsProvider};
 
 use super::otp::{OtpStore, SmsDeliveryEvent, SmsEventKind, SmsEventOutcome};
+use super::sms_safety::{SmsSendGuard, SmsSendRejection};
 
 pub const MAX_SMS_PROVIDER_BODY_BYTES: usize = 16_384;
 
@@ -32,6 +33,11 @@ pub enum SmsFailureReason {
     ProviderInvalidResponse,
     DeliveryUnknown,
     ProviderUndelivered,
+    PhoneHourlyLimit,
+    PhoneDailyLimit,
+    SendingSuspended,
+    SafetyUnavailable,
+    AttemptAlreadyReserved,
 }
 
 impl SmsFailureReason {
@@ -44,6 +50,24 @@ impl SmsFailureReason {
             Self::ProviderInvalidResponse => "provider_invalid_response",
             Self::DeliveryUnknown => "delivery_unknown",
             Self::ProviderUndelivered => "provider_undelivered",
+            Self::PhoneHourlyLimit => "sms_phone_hourly_limit",
+            Self::PhoneDailyLimit => "sms_phone_daily_limit",
+            Self::SendingSuspended => "sms_sending_suspended",
+            Self::SafetyUnavailable => "sms_safety_unavailable",
+            Self::AttemptAlreadyReserved => "sms_attempt_already_reserved",
+        }
+    }
+}
+
+impl SmsFailureReason {
+    pub(crate) fn policy_rejection(code: &str) -> Option<Self> {
+        match code {
+            "sms_phone_hourly_limit" => Some(Self::PhoneHourlyLimit),
+            "sms_phone_daily_limit" => Some(Self::PhoneDailyLimit),
+            "sms_sending_suspended" => Some(Self::SendingSuspended),
+            "sms_safety_unavailable" => Some(Self::SafetyUnavailable),
+            "sms_attempt_already_reserved" => Some(Self::AttemptAlreadyReserved),
+            _ => None,
         }
     }
 }
@@ -111,10 +135,11 @@ pub struct SweegoSmsService {
     metrics: crate::operations::metrics::DependencyMetrics,
     config: SmsConfig,
     client: reqwest::Client,
+    guard: Arc<dyn SmsSendGuard>,
 }
 
 impl SweegoSmsService {
-    pub fn new(config: SmsConfig) -> Result<Self, SmsDeliveryError> {
+    pub fn new(config: SmsConfig, guard: Arc<dyn SmsSendGuard>) -> Result<Self, SmsDeliveryError> {
         let client = reqwest::Client::builder()
             .redirect(Policy::none())
             .timeout(config.timeout)
@@ -124,6 +149,7 @@ impl SweegoSmsService {
             config,
             client,
             metrics: Default::default(),
+            guard,
         })
     }
 
@@ -136,6 +162,21 @@ impl SweegoSmsService {
     }
 
     async fn deliver(&self, message: SmsMessage) -> Result<SmsDeliveryReceipt, SmsDeliveryError> {
+        if self.config.provider != SmsProvider::Sweego {
+            return Err(SmsDeliveryError::failed(SmsFailureReason::NotConfigured));
+        }
+        self.guard
+            .reserve(message.delivery_id, &message.phone)
+            .await
+            .map_err(|reason| {
+                SmsDeliveryError::failed(match reason {
+                    SmsSendRejection::HourlyLimit => SmsFailureReason::PhoneHourlyLimit,
+                    SmsSendRejection::DailyLimit => SmsFailureReason::PhoneDailyLimit,
+                    SmsSendRejection::Suspended => SmsFailureReason::SendingSuspended,
+                    SmsSendRejection::AlreadyReserved => SmsFailureReason::AttemptAlreadyReserved,
+                    SmsSendRejection::Unavailable => SmsFailureReason::SafetyUnavailable,
+                })
+            })?;
         self.metrics
             .observe("sweego", "sms_delivery_failed", self.deliver_inner(message))
             .await
@@ -145,9 +186,6 @@ impl SweegoSmsService {
         &self,
         message: SmsMessage,
     ) -> Result<SmsDeliveryReceipt, SmsDeliveryError> {
-        if self.config.provider != SmsProvider::Sweego {
-            return Err(SmsDeliveryError::failed(SmsFailureReason::NotConfigured));
-        }
         let minutes = self.config.otp_ttl.as_secs().div_ceil(60);
         let payload = SweegoRequest {
             channel: "sms",

@@ -60,8 +60,8 @@ impl OtpRepository {
                     .execute(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
-                    let existing = sqlx::query_as::<_, (Uuid, String, String, String)>(
-                        "SELECT id, phone_number_hash, delivery_status, language
+                    let existing = sqlx::query_as::<_, (Uuid, String, String, String, Option<String>)>(
+                        "SELECT id, phone_number_hash, delivery_status, language, delivery_error_code
                          FROM otp_verification WHERE idempotency_key = $1",
                     )
                     .bind(input.idempotency_key)
@@ -71,6 +71,10 @@ impl OtpRepository {
                     .ok_or(DatabaseError::QueryFailed)?;
                     if existing.1 != input.phone_hash || existing.3 != input.language.as_str() {
                         return Ok(OtpDeliveryStart::Conflict);
+                    }
+                    if existing.2 == "failed"
+                        && let Some(reason) = existing.4.as_deref().and_then(SmsFailureReason::policy_rejection) {
+                        return Ok(OtpDeliveryStart::PolicyRejected(reason));
                     }
                     Ok(OtpDeliveryStart::Existing(
                         OtpDeliveryState::parse(&existing.2)?,

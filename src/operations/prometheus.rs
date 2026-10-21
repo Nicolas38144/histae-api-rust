@@ -320,6 +320,46 @@ fn render_persistent(
         f64::from(snapshot.webhook_enabled),
         "",
     );
+    let safety = &snapshot.sms_safety;
+    gauge(
+        out,
+        "histae_sweego_sending_suspended",
+        "Whether SMS dispatch is suspended by configuration or an operator.",
+        f64::from(safety.suspended),
+        "",
+    );
+    gauge(
+        out,
+        "histae_sweego_traffic_spike",
+        "Whether allowed SMS attempts exceed the absolute or relative spike threshold.",
+        f64::from(safety.traffic_spike && safety.provider_enabled),
+        "",
+    );
+    for (window, value) in [
+        ("5m", safety.sends_last_5_minutes),
+        ("1h", safety.sends_last_hour),
+        ("24h", safety.sends_last_24_hours),
+    ] {
+        gauge(
+            out,
+            "histae_sweego_send_attempts",
+            "Global reserved provider attempts in a rolling window; shared across instances.",
+            value as f64,
+            &format!("window=\"{window}\""),
+        );
+    }
+    for (window, value) in [
+        ("1h", safety.hourly_limit_per_phone),
+        ("24h", safety.daily_limit_per_phone),
+    ] {
+        gauge(
+            out,
+            "histae_sweego_phone_limit",
+            "Maximum provider attempts per phone in a rolling window.",
+            f64::from(value),
+            &format!("window=\"{window}\""),
+        );
+    }
     for (outcome, value) in &snapshot.callbacks {
         counter(
             out,

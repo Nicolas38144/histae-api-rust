@@ -119,6 +119,11 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         sqlx::query("UPDATE match_state SET continued = false WHERE match_id IN (SELECT id FROM match_init WHERE status = 'awaiting_continuation')")
             .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
     }
+    let sms_safety_new: bool =
+        sqlx::query_scalar("SELECT to_regclass(current_schema() || '.sms_send_attempt') IS NULL")
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(map_sqlx_error)?;
     let localization_new: bool =
         sqlx::query_scalar("SELECT to_regclass(current_schema() || '.trait_translation') IS NULL")
             .fetch_one(&mut *transaction)
@@ -126,6 +131,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
             .map_err(map_sqlx_error)?;
     for (source, name) in [
         (SCHEMA, "localization"),
+        (SCHEMA, "sms safety"),
         (SCHEMA, "continuation credits"),
         (SCHEMA, "continuation guards"),
         (SCHEMA, "account anonymization"),
@@ -140,6 +146,17 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
             .execute(sqlx::raw_sql(schema_section(source, name)?))
             .await
             .map_err(map_sqlx_error)?;
+    }
+    if sms_safety_new {
+        // Import the attempts still available locally at first activation only.
+        // Missing historical OTPs cannot be reconstructed after their retention expired.
+        sqlx::query("INSERT INTO sms_send_attempt(delivery_id, phone_hash, reserved_at)
+            SELECT id, phone_number_hash, created_at FROM otp_verification
+            WHERE provider='sweego' AND created_at > clock_timestamp() - interval '25 hours'
+              AND (delivery_status IN ('pending','accepted','sent','unknown')
+                   OR delivery_error_code IN ('provider_rejected','provider_unavailable','provider_network_error','provider_invalid_response','provider_undelivered'))
+            ON CONFLICT DO NOTHING")
+            .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
     }
     let reward_index: Option<String> = sqlx::query_scalar(
         "SELECT pg_get_indexdef(to_regclass(current_schema() || '.idx_advertising_reward_owner'))",
@@ -184,7 +201,9 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
          WHERE conrelid = to_regclass(current_schema() || '.data_access_log')
            AND conname = 'data_access_log_action_check'
            AND pg_get_constraintdef(oid) LIKE '%admin_promote%'
-           AND pg_get_constraintdef(oid) LIKE '%admin_demote%')",
+           AND pg_get_constraintdef(oid) LIKE '%admin_demote%'
+           AND pg_get_constraintdef(oid) LIKE '%admin_suspend_sms%'
+           AND pg_get_constraintdef(oid) LIKE '%admin_resume_sms%')",
     )
     .fetch_one(&mut *transaction)
     .await
@@ -199,6 +218,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
              CHECK (action IN (
                'view_profile', 'view_messages', 'view_matches', 'export_data',
                'admin_ban', 'admin_unban', 'admin_promote', 'admin_demote',
+               'admin_suspend_sms', 'admin_resume_sms',
                'admin_review_report', 'admin_review_dsr', 'admin_reconcile_photo',
                'view_moderation_content', 'admin_review_content',
                'system_anonymize', 'system_export_portability'))",

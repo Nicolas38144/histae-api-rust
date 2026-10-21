@@ -180,6 +180,28 @@ Les périodes historiques au niveau de l’abonnement et les références histor
 
 Événements traités : `checkout.session.completed`, `checkout.session.expired`, `customer.subscription.created|updated|deleted|paused|resumed`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.finalization_failed`, `customer.deleted`. Les événements de facture/abonnement plus anciens que l’état connu sont ignorés. Erreurs : `invalid_stripe_signature`, `stripe_mode_mismatch`, `invalid_stripe_event`, `billing_webhook_rate_limit_exceeded`.
 
+### Protection des envois SMS
+
+Les plafonds concernent les **tentatives d’appel fournisseur par numéro normalisé**, partagées entre
+instances : 5 sur une heure et 10 sur 24 heures par défaut, en fenêtres glissantes. Les limites IP et
+numéro existantes restent appliquées. Les rejeux d’une même demande ne consomment pas de nouvelle
+réservation ; une réponse fournisseur perdue ou un échec n’est jamais remboursé. Le plafond renvoie
+`429 otp_rate_limit_exceeded` avec `Retry-After: 60` (délai minimum avant une nouvelle vérification).
+Une suspension ou un contrôle de budget indisponible empêche l’appel fournisseur et renvoie
+`503 otp_delivery_unavailable`. Les mêmes échecs sont conservés sur le rejeu tant que la demande existe.
+Aucun OTP accepté précédemment n’est invalidé par ces refus locaux.
+
+| Méthode | Route | Entrée → résultat |
+| --- | --- | --- |
+| GET | `/api/admin/sms-safety` | Session admin → `200` état global, limites par numéro, compteurs agrégés 5 min/1 h/24 h, pic de trafic et `version`. Aucun numéro ni hash exposé. |
+| PATCH | `/api/admin/sms-safety` | **Superadmin, récente** ; `{ suspended: boolean, version: integer >= 0 }` → `204`, modification globale auditée. `409 resource_changed` si la version a changé. |
+
+La reprise conserve les compteurs. `SMS_SENDING_SUSPENDED=true` impose l’arrêt même si la suspension
+manuelle est levée. Les autorisations déjà accordées peuvent encore aboutir. Après une réponse de
+mutation perdue, relire le GET avant toute nouvelle décision ; ne pas rejouer automatiquement la mutation.
+Les métriques et le dashboard ne sont pas nécessaires à l’application des protections.
+Voir [configuration et exploitation](sms-safety.md).
+
 ### Webhook Sweego
 
 | Méthode | Route | Entrée → résultat |

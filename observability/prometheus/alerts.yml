@@ -147,3 +147,18 @@ groups:
         annotations:
           summary: Maintenance job {{ $labels.job }} repeatedly reaches its work budget
           runbook_url: docs/observability.md#maintenance
+
+  - name: histae-sms-safety
+    rules:
+      - alert: HistaeSweegoTrafficSpike
+        expr: histae_sweego_traffic_spike == 1
+        labels: { severity: warning, component: sweego }
+        annotations:
+          summary: Sweego send attempts exceed the traffic spike threshold
+          runbook_url: docs/observability.md#sms-safety
+      - alert: HistaeSweegoSendingSuspended
+        expr: histae_sweego_sending_suspended == 1
+        labels: { severity: warning, component: sweego }
+        annotations:
+          summary: Sweego SMS sending is suspended
+          runbook_url: docs/observability.md#sms-safety
