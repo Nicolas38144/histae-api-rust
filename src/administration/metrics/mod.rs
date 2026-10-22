@@ -11,3 +11,6 @@ pub use domain::{
 pub use pg::PgAdminMetricsRepository;
 pub use service::AdminMetricsService;
 pub use store::{AdminMetricsStore, AdminOperationsProvider, MetricsFuture};
+
+#[cfg(feature = "webauthn-probe")]
+pub(crate) use pg::REVENUE_CTES_SQL;

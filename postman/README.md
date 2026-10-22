@@ -9,7 +9,7 @@ Importer l’un des fichiers JSON avec **Import → Files** :
 - [Collection française](postman_collection_fr.json).
 - [Collection anglaise](postman_collection_en.json).
 
-Chaque collection contient 113 requêtes correspondant au contrat HTTP. Aucun script Python ou générateur
+Chaque collection contient 130 requêtes correspondant au contrat HTTP. Aucun script Python ou générateur
 n’est nécessaire pour l’import. Les collections incluent déjà quelques actions après réponse pour stocker
 les tokens et challenges ; elles ne fabriquent ni preuve WebAuthn ni signature de fournisseur.
 
@@ -98,3 +98,14 @@ les champs `translations` des traits/questions admin, les URL documentaires et l
 l’exception `language` des appareils, puis Checkout/portail. Les prix, UUID, catégories, réponses personnelles
 et curseurs ne changent pas. Un changement de langue avec une même clé OTP est un conflit ; une reprise
 Checkout conserve la langue de la tentative originale.
+
+## Stores et paiement du site
+
+La section correspondante couvre les intentions/vérifications natives, webhooks Apple/Google, rapports
+admin et session web OTP. Renseigner `storeProvider`, IDs/receipts réels de test et signatures valides.
+Les placeholders ne donnent jamais Premium. Ne pas exporter les purchaseTokens ni cookies.
+Pour le site, configurer `webBillingOrigin` exact, deux clés UUIDv4 distinctes `webBillingOtpKey` et
+`webBillingCheckoutKey`, puis `webBillingCookie` (ou le gestionnaire de cookies Postman). Le challenge
+est mémorisé après 202. Le cookie web est distinct du cookie admin et du Bearer mobile.
+Les anciennes routes Stripe mobiles renvoient 410. Le template financier du JSON est synthétique : ne pas
+l’importer comme chiffre réel. Voir [le guide](../docs/store-billing.md).

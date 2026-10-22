@@ -162,3 +162,27 @@ groups:
         annotations:
           summary: Sweego SMS sending is suspended
           runbook_url: docs/observability.md#sms-safety
+
+  - name: histae-store-billing
+    rules:
+      - alert: HistaeStorePurchasesUnacknowledged
+        expr: histae_store_billing_unacknowledged > 0
+        for: 15m
+        labels: { severity: critical, component: billing }
+        annotations:
+          summary: Google Play purchases still await acknowledgment
+          runbook_url: docs/store-billing.md#exploitation
+      - alert: HistaeStoreReconciliationStale
+        expr: histae_store_billing_stale > 0
+        for: 30m
+        labels: { severity: warning, component: billing }
+        annotations:
+          summary: Store subscriptions have not been verified for twelve hours
+          runbook_url: docs/store-billing.md#exploitation
+      - alert: HistaeStoreBillingDeadLetters
+        expr: histae_outbox_queue_events{queue="store_billing",status="dead_letter"} > 0
+        for: 1m
+        labels: { severity: critical, component: billing }
+        annotations:
+          summary: Store billing verification contains failed jobs
+          runbook_url: docs/store-billing.md#exploitation

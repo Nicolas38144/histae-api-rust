@@ -30,6 +30,12 @@ x-development-environment: &development-environment
   METRICS_ENABLED: "true"
 
 services:
+  store-verifier:
+    environment:
+      ENV: development
+    dns:
+      - ${HISTAE_API_DNS_SERVER:-1.1.1.1}
+
   migrate:
     environment:
       <<: *development-environment

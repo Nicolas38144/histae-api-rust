@@ -183,6 +183,27 @@ pub struct BillingConfig {
 }
 
 #[derive(Clone, Debug)]
+pub struct StoreBillingConfig {
+    pub apple_enabled: bool,
+    pub google_enabled: bool,
+    pub apple_monthly_product: String,
+    pub apple_annual_product: String,
+    pub google_product: String,
+    pub google_monthly_plan: String,
+    pub google_annual_plan: String,
+    pub verifier_url: Url,
+    pub verifier_token: SecretString,
+    pub production: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct WebBillingConfig {
+    pub enabled: bool,
+    pub origin: String,
+    pub secure_cookie: bool,
+}
+
+#[derive(Clone, Debug)]
 pub struct ObjectStorageConfig {
     pub endpoint: Url,
     pub region: String,
@@ -292,6 +313,8 @@ pub struct AppConfig {
     pub redis: RedisConfig,
     pub push: PushConfig,
     pub billing: BillingConfig,
+    pub store_billing: StoreBillingConfig,
+    pub web_billing: WebBillingConfig,
     pub advertising: AdvertisingConfig,
     pub object_storage: ObjectStorageConfig,
     pub photo_moderation: PhotoModerationConfig,

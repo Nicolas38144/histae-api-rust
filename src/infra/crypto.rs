@@ -1,6 +1,6 @@
 use std::fmt;
 
-use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -72,6 +72,51 @@ pub fn hmac_sha256(value: &str, key: &SecretString) -> Result<String, CryptoErro
 pub fn sha256_hex(value: &[u8]) -> String {
     use sha2::Digest as _;
     hex_lower(&Sha256::digest(value))
+}
+
+/// Purpose-bound encryption for provider references; ciphertexts cannot be
+/// substituted for phone ciphertexts even though the key is shared.
+pub fn seal_secret(
+    value: &str,
+    key: &SecretString,
+    purpose: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
+    let mut nonce = [0_u8; GCM_NONCE_BYTES];
+    getrandom::fill(&mut nonce).map_err(|_| CryptoError::RandomUnavailable)?;
+    let key = parse_phone_key(key)?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| CryptoError::InvalidKey)?;
+    let encrypted = cipher
+        .encrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: value.as_bytes(),
+                aad: purpose,
+            },
+        )
+        .map_err(|_| CryptoError::EncryptionFailed)?;
+    Ok([nonce.as_slice(), encrypted.as_slice()].concat())
+}
+
+pub fn open_secret(
+    value: &[u8],
+    key: &SecretString,
+    purpose: &[u8],
+) -> Result<String, CryptoError> {
+    if value.len() < GCM_NONCE_BYTES + 16 {
+        return Err(CryptoError::EncryptionFailed);
+    }
+    let key = parse_phone_key(key)?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| CryptoError::InvalidKey)?;
+    let bytes = cipher
+        .decrypt(
+            Nonce::from_slice(&value[..GCM_NONCE_BYTES]),
+            Payload {
+                msg: &value[GCM_NONCE_BYTES..],
+                aad: purpose,
+            },
+        )
+        .map_err(|_| CryptoError::EncryptionFailed)?;
+    String::from_utf8(bytes).map_err(|_| CryptoError::EncryptionFailed)
 }
 
 fn parse_phone_key_bytes(value: &str) -> Result<[u8; AES_KEY_BYTES], CryptoError> {

@@ -46,6 +46,7 @@ pub struct OutboxEventDispatcher {
     account_erase: Arc<dyn OutboxHandler>,
     billing_subscription: Arc<dyn OutboxHandler>,
     billing_customer: Arc<dyn OutboxHandler>,
+    store_billing: Option<Arc<dyn OutboxHandler>>,
 }
 
 impl OutboxEventDispatcher {
@@ -62,7 +63,13 @@ impl OutboxEventDispatcher {
             account_erase,
             billing_subscription,
             billing_customer,
+            store_billing: None,
         }
+    }
+
+    pub fn with_store_billing(mut self, handler: Arc<dyn OutboxHandler>) -> Self {
+        self.store_billing = Some(handler);
+        self
     }
 }
 
@@ -78,6 +85,14 @@ impl OutboxDispatcher for OutboxEventDispatcher {
             OutboxEventType::BillingCustomerReconcile => {
                 self.billing_customer.handle(event, worker_id)
             }
+            OutboxEventType::StoreNotification
+            | OutboxEventType::StoreReconcile
+            | OutboxEventType::StoreAcknowledge => match &self.store_billing {
+                Some(handler) => handler.handle(event, worker_id),
+                None => {
+                    Box::pin(async { Err(DispatchFailure::transient("store_handler_unavailable")) })
+                }
+            },
             OutboxEventType::Unsupported(_) => {
                 Box::pin(async { Err(DispatchFailure::transient("handler_failed")) })
             }

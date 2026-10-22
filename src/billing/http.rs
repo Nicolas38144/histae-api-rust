@@ -1,4 +1,3 @@
-use crate::localization::{Language, http::Locale};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -8,14 +7,13 @@ use axum::extract::Extension;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use super::domain::{BillingPeriod, CheckoutSessionView, SubscriptionView};
+use super::domain::SubscriptionView;
 use super::service::{BillingError, BillingService};
 use super::webhook::{StripeWebhookError, StripeWebhookService};
 use crate::config::LimitPolicy;
 use crate::http::error::ApiError;
-use crate::http::extract::{ApiDto, ValidatedJson};
 use crate::http::lifecycle::ClientIp;
 use crate::http::rate_limit::RateLimiter;
 use crate::http::router::HttpState;
@@ -24,21 +22,11 @@ use crate::identity::mobile::http::{MobileAuthState, OnboardedMobile};
 #[derive(Clone)]
 pub struct BillingHttpState {
     service: Arc<dyn BillingUseCases>,
-    limiter: RateLimiter,
-    policy: LimitPolicy,
 }
 
 impl BillingHttpState {
-    pub fn new(
-        service: Arc<dyn BillingUseCases>,
-        limiter: RateLimiter,
-        policy: LimitPolicy,
-    ) -> Self {
-        Self {
-            service,
-            limiter,
-            policy,
-        }
+    pub fn new(service: Arc<dyn BillingUseCases>) -> Self {
+        Self { service }
     }
 }
 
@@ -47,78 +35,11 @@ pub type BillingHttpFuture<'a, T> =
 
 pub trait BillingUseCases: Send + Sync {
     fn subscription(&self, user_id: uuid::Uuid) -> BillingHttpFuture<'_, SubscriptionView>;
-
-    fn create_checkout(
-        &self,
-        user_id: uuid::Uuid,
-        billing_period: BillingPeriod,
-        idempotency_key: Option<&str>,
-    ) -> BillingHttpFuture<'_, CheckoutSessionView>;
-
-    fn create_portal(&self, user_id: uuid::Uuid) -> BillingHttpFuture<'_, String>;
-    fn create_checkout_in(
-        &self,
-        user_id: uuid::Uuid,
-        period: BillingPeriod,
-        key: Option<&str>,
-        _language: Language,
-    ) -> BillingHttpFuture<'_, CheckoutSessionView> {
-        self.create_checkout(user_id, period, key)
-    }
-    fn create_portal_in(
-        &self,
-        user_id: uuid::Uuid,
-        _language: Language,
-    ) -> BillingHttpFuture<'_, String> {
-        self.create_portal(user_id)
-    }
 }
 
 impl BillingUseCases for BillingService {
     fn subscription(&self, user_id: uuid::Uuid) -> BillingHttpFuture<'_, SubscriptionView> {
         Box::pin(BillingService::subscription(self, user_id))
-    }
-
-    fn create_checkout(
-        &self,
-        user_id: uuid::Uuid,
-        billing_period: BillingPeriod,
-        idempotency_key: Option<&str>,
-    ) -> BillingHttpFuture<'_, CheckoutSessionView> {
-        let idempotency_key = idempotency_key.map(str::to_owned);
-        Box::pin(async move {
-            BillingService::create_checkout(
-                self,
-                user_id,
-                billing_period,
-                idempotency_key.as_deref(),
-            )
-            .await
-        })
-    }
-
-    fn create_portal(&self, user_id: uuid::Uuid) -> BillingHttpFuture<'_, String> {
-        Box::pin(BillingService::create_portal(self, user_id))
-    }
-    fn create_checkout_in(
-        &self,
-        user_id: uuid::Uuid,
-        period: BillingPeriod,
-        key: Option<&str>,
-        language: Language,
-    ) -> BillingHttpFuture<'_, CheckoutSessionView> {
-        let key = key.map(str::to_owned);
-        Box::pin(async move {
-            BillingService::create_checkout_in(self, user_id, period, key.as_deref(), language)
-                .await
-        })
-    }
-    fn create_portal_in(
-        &self,
-        user_id: uuid::Uuid,
-        language: Language,
-    ) -> BillingHttpFuture<'_, String> {
-        Box::pin(BillingService::create_portal_in(self, user_id, language))
     }
 }
 
@@ -195,80 +116,22 @@ async fn subscription(
         .map_err(billing_error)
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CreateCheckoutBody {
-    billing_period: BillingPeriod,
+// Kept as authenticated tombstones so older mobile clients receive an explicit
+// upgrade response instead of opening a web payment flow from a store build.
+async fn create_checkout(_identity: OnboardedMobile) -> Result<StatusCode, ApiError> {
+    Err(web_only_error())
 }
 
-impl ApiDto for CreateCheckoutBody {
-    const ERROR_CODE: &'static str = "invalid_checkout_payload";
-    const ERROR_MESSAGE: &'static str = "The Checkout request body is invalid.";
-
-    fn is_valid(&self) -> bool {
-        true
-    }
+async fn create_portal(_identity: OnboardedMobile) -> Result<StatusCode, ApiError> {
+    Err(web_only_error())
 }
 
-async fn create_checkout(
-    OnboardedMobile(identity): OnboardedMobile,
-    Extension(state): Extension<BillingHttpState>,
-    locale: Locale,
-    headers: HeaderMap,
-    ValidatedJson(body): ValidatedJson<CreateCheckoutBody>,
-) -> Result<(StatusCode, Json<CheckoutSessionView>), ApiError> {
-    let user_id = identity.account.user_id;
-    let locale = locale.for_account(&identity.account);
-    state
-        .limiter
-        .enforce(
-            "billing",
-            &user_id.hyphenated().to_string(),
-            &state.policy,
-            "billing_rate_limit_exceeded",
-        )
-        .await?;
-    let idempotency_key = single_header(&headers, "idempotency-key");
-    state
-        .service
-        .create_checkout_in(
-            user_id,
-            body.billing_period,
-            idempotency_key,
-            locale.language,
-        )
-        .await
-        .map(|session| (StatusCode::CREATED, Json(session)))
-        .map_err(billing_error)
-}
-
-#[derive(Serialize)]
-struct PortalResponse {
-    url: String,
-}
-
-async fn create_portal(
-    OnboardedMobile(identity): OnboardedMobile,
-    Extension(state): Extension<BillingHttpState>,
-    locale: Locale,
-) -> Result<(StatusCode, Json<PortalResponse>), ApiError> {
-    let user_id = identity.account.user_id;
-    let locale = locale.for_account(&identity.account);
-    state
-        .limiter
-        .enforce(
-            "billing",
-            &user_id.hyphenated().to_string(),
-            &state.policy,
-            "billing_rate_limit_exceeded",
-        )
-        .await?;
-    state
-        .service
-        .create_portal_in(user_id, locale.language)
-        .await
-        .map(|url| (StatusCode::CREATED, Json(PortalResponse { url })))
-        .map_err(billing_error)
+fn web_only_error() -> ApiError {
+    ApiError::new(
+        StatusCode::GONE,
+        "billing_web_only",
+        "Stripe purchases and management are available on the Histae website.",
+    )
 }
 
 fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
@@ -277,7 +140,7 @@ fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     values.next().is_none().then_some(value)
 }
 
-fn billing_error(error: BillingError) -> ApiError {
+pub(crate) fn billing_error(error: BillingError) -> ApiError {
     match error {
         BillingError::InvalidIdempotencyKey => ApiError::new(
             StatusCode::BAD_REQUEST,

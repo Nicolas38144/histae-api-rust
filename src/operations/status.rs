@@ -26,12 +26,20 @@ pub struct QueueSnapshot {
     pub oldest_pending_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct StoreBillingSnapshot {
+    pub queue: QueueSnapshot,
+    pub unacknowledged: i64,
+    pub stale: i64,
+}
+
 #[derive(Clone, Debug)]
 pub struct PersistentSnapshot {
     pub postgres_pool: PoolStats,
     pub outbox: QueueSnapshot,
     pub notification_push: QueueSnapshot,
     pub billing_reconciliation: QueueSnapshot,
+    pub store_billing: StoreBillingSnapshot,
     pub otp: OtpDeliverySnapshot,
     pub sms_safety: SmsSafetySnapshot,
     pub webhook_enabled: bool,
@@ -87,20 +95,29 @@ impl PersistentStatus for PgOperationalStatus {
             let mut all = QueueSnapshot::default();
             let mut push = QueueSnapshot::default();
             let mut billing = QueueSnapshot::default();
+            let mut stores = StoreBillingSnapshot::default();
             for (event_type, status, count, oldest_pending) in rows {
                 accumulate_queue(&mut all, &status, count, oldest_pending);
                 if event_type == "notification.push" {
                     accumulate_queue(&mut push, &status, count, oldest_pending);
                 }
-                if event_type.starts_with("billing.") {
+                if event_type.starts_with("billing.store.") {
+                    accumulate_queue(&mut stores.queue, &status, count, oldest_pending);
+                }
+                if event_type.starts_with("billing.") && !event_type.starts_with("billing.store.") {
                     accumulate_queue(&mut billing, &status, count, oldest_pending);
                 }
             }
+            let (unacknowledged, stale): (i64, i64) = sqlx::query_as("SELECT count(*) FILTER(WHERE NOT acknowledged),count(*) FILTER(WHERE verified_at<clock_timestamp()-interval '12 hours' AND expires_at>clock_timestamp()) FROM billing_store_subscription WHERE user_id IS NOT NULL AND NOT superseded")
+                .fetch_one(self.database.pool()).await.map_err(map_sqlx_error)?;
+            stores.unacknowledged = unacknowledged;
+            stores.stale = stale;
             Ok(PersistentSnapshot {
                 postgres_pool: self.database.pool_stats(),
                 outbox: all,
                 notification_push: push,
                 billing_reconciliation: billing,
+                store_billing: stores,
                 otp: self.otp.snapshot().await?,
                 sms_safety: self.sms_safety.snapshot().await?,
                 webhook_enabled: self.webhook_enabled,
@@ -252,6 +269,11 @@ impl OperationalStatusView {
                 "oldest_pending_at": persistent.outbox.oldest_pending_at.map(date_time),
                 "notification_push": queue_value(&persistent.notification_push),
                 "billing_reconciliation": queue_value(&persistent.billing_reconciliation),
+            },
+            "store_billing": {
+                "queue": queue_value(&persistent.store_billing.queue),
+                "unacknowledged": persistent.store_billing.unacknowledged,
+                "stale": persistent.store_billing.stale,
             },
             "sms_delivery": {
                 "states": {
@@ -462,6 +484,7 @@ mod tests {
                 outbox: empty_queue(),
                 notification_push: empty_queue(),
                 billing_reconciliation: empty_queue(),
+                store_billing: StoreBillingSnapshot::default(),
                 otp: OtpDeliverySnapshot {
                     states: OtpDeliveryStates {
                         pending: 0,

@@ -111,10 +111,7 @@ impl AdministrationStore for PgAdministrationStore {
                     + (SELECT count(*) FROM match_init WHERE user2_id = account.user_id))::int AS matches_count,
                   to_char(account.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS cursor_at
                   FROM page account
-                  LEFT JOIN user_subscription subscription ON subscription.user_id = account.user_id AND (subscription.plan='free'
-    OR (subscription.provider IS NULL AND (subscription.current_period_ends_at IS NULL OR subscription.current_period_ends_at > clock_timestamp()))
-    OR (subscription.provider='stripe' AND subscription.status IN ('trialing','active','past_due')
-        AND subscription.current_period_ends_at > clock_timestamp()))
+                  LEFT JOIN effective_user_subscription subscription ON subscription.user_id = account.user_id AND (subscription.plan='free' OR subscription.access_granted)
                   ORDER BY account.created_at DESC, account.user_id DESC");
             let rows = query
                 .build()
@@ -675,10 +672,7 @@ LEFT JOIN user_profile AS profile ON profile.user_id = account.user_id
 LEFT JOIN user_preferences AS preferences ON preferences.user_id = account.user_id
 LEFT JOIN user_presence AS presence ON presence.user_id = account.user_id
 LEFT JOIN user_photo AS photo ON photo.user_id = profile.user_id AND photo.status = 'ready'
-LEFT JOIN user_subscription AS subscription ON subscription.user_id = account.user_id AND (subscription.plan='free'
-    OR (subscription.provider IS NULL AND (subscription.current_period_ends_at IS NULL OR subscription.current_period_ends_at > clock_timestamp()))
-    OR (subscription.provider='stripe' AND subscription.status IN ('trialing','active','past_due')
-        AND subscription.current_period_ends_at > clock_timestamp()))
+LEFT JOIN effective_user_subscription AS subscription ON subscription.user_id = account.user_id AND (subscription.plan='free' OR subscription.access_granted)
 WHERE account.user_id = $1 AND account.deleted_at IS NULL
 "#;
 

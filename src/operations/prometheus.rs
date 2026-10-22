@@ -229,6 +229,21 @@ fn render_persistent(
     otp_ttl: Duration,
     now: DateTime<Utc>,
 ) {
+    render_queue(out, "store_billing", &snapshot.store_billing.queue, now);
+    gauge(
+        out,
+        "histae_store_billing_unacknowledged",
+        "Google purchases awaiting acknowledgment.",
+        snapshot.store_billing.unacknowledged as f64,
+        "",
+    );
+    gauge(
+        out,
+        "histae_store_billing_stale",
+        "Unexpired store subscriptions not verified for twelve hours.",
+        snapshot.store_billing.stale as f64,
+        "",
+    );
     for (state, value) in [
         ("total", snapshot.postgres_pool.total),
         ("idle", snapshot.postgres_pool.idle),

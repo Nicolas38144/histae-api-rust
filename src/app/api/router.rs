@@ -225,6 +225,39 @@ impl ApiResources {
             self.activity.clone(),
             Arc::clone(&clock),
         ));
+        let native_billing = crate::billing::stores::StoreBillingService::new(
+            crate::billing::stores::pg::StoreRepository::new(
+                self.database.clone(),
+                config.phone.encryption_key.clone(),
+            ),
+            Arc::new(
+                crate::billing::stores::StoreVerifier::new(config.store_billing.clone())
+                    .map_err(|_| "store_verifier_invalid")?,
+            ),
+            config.store_billing.clone(),
+        )
+        .with_events(delivery.clone());
+        let store_state = crate::billing::stores::http::StoreHttpState {
+            service: native_billing,
+            limiter: limiter.clone(),
+            policy: config.rate_limit.billing.clone(),
+            webhook_policy: config.rate_limit.billing_webhook.clone(),
+        };
+        let web_state = crate::billing::web::http::WebBillingState {
+            service: crate::billing::web::WebBillingService::new(
+                crate::billing::web::WebBillingRepository::new(
+                    self.database.clone(),
+                    config.legal.clone(),
+                ),
+                otp.clone(),
+                billing.clone(),
+            ),
+            catalog: catalog.clone(),
+            config: config.web_billing.clone(),
+            limiter: limiter.clone(),
+            otp_policy: config.rate_limit.otp.clone(),
+            billing_policy: config.rate_limit.billing.clone(),
+        };
         let reconciliation = BillingReconciliationService::new(
             Arc::new(PgBillingReconciliationStore::new(self.database.clone())),
             stripe.clone(),
@@ -313,6 +346,22 @@ impl ApiResources {
             crate::localization::PgLocalizationRepository::new(self.database.clone()),
         ));
         let routes = health_routes()
+            .merge(crate::billing::stores::administration::routes(
+                crate::billing::stores::administration::StoreAdminState {
+                    repository: crate::billing::stores::pg::StoreRepository::new(
+                        self.database.clone(),
+                        config.phone.encryption_key.clone(),
+                    ),
+                    config: config.store_billing.clone(),
+                },
+                admin_auth.clone(),
+            ))
+            .merge(crate::billing::stores::http::routes(
+                store_state.clone(),
+                mobile_auth.clone(),
+            ))
+            .merge(crate::billing::stores::http::webhook_routes(store_state))
+            .merge(crate::billing::web::http::routes(web_state))
             .merge(crate::localization::http::routes(
                 crate::localization::http::LanguageHttpState {
                     service: localization.clone(),
@@ -386,7 +435,7 @@ impl ApiResources {
                 mobile_auth.clone(),
             ))
             .merge(billing_routes(
-                BillingHttpState::new(billing, limiter.clone(), config.rate_limit.billing.clone()),
+                BillingHttpState::new(billing),
                 mobile_auth.clone(),
             ))
             .merge(stripe_webhook_routes(StripeWebhookHttpState::new(

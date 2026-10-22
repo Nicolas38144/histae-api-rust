@@ -514,6 +514,113 @@ CREATE TABLE user_subscription (
 
 CREATE INDEX idx_user_subscription_plan_updated ON user_subscription USING btree (plan, updated_at);
 
+-- BEGIN store billing
+CREATE TABLE IF NOT EXISTS billing_store_account (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id uuid UNIQUE REFERENCES user_account(user_id) ON DELETE SET NULL,
+    google_account_id text NOT NULL UNIQUE CHECK (google_account_id ~ '^[0-9a-f]{64}$'),
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE TABLE IF NOT EXISTS billing_store_subscription (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id uuid REFERENCES user_account(user_id) ON DELETE SET NULL,
+    account_id uuid NOT NULL REFERENCES billing_store_account(id),
+    provider text NOT NULL CHECK (provider IN ('app_store','google_play')),
+    original_id text NOT NULL,
+    reference_encrypted bytea NOT NULL,
+    environment text NOT NULL CHECK (environment IN ('production','sandbox')),
+    product_id text NOT NULL,
+    base_plan_id text,
+    transaction_id text NOT NULL,
+    billing_period text NOT NULL CHECK (billing_period IN ('monthly','annual')),
+    status text NOT NULL CHECK (status IN ('pending','active','grace_period','past_due','on_hold','paused','canceled','expired','revoked')),
+    starts_at timestamptz NOT NULL,
+    expires_at timestamptz NOT NULL,
+    auto_renew boolean NOT NULL,
+    acknowledged boolean NOT NULL DEFAULT false,
+    superseded boolean NOT NULL DEFAULT false,
+    verified_at timestamptz NOT NULL,
+    next_check_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    UNIQUE(provider, environment, original_id)
+);
+ALTER TABLE billing_store_subscription ADD COLUMN IF NOT EXISTS superseded boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_store_subscription_user ON billing_store_subscription(user_id, expires_at DESC);
+CREATE INDEX IF NOT EXISTS idx_store_subscription_due ON billing_store_subscription(next_check_at, id) WHERE user_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS billing_store_notification (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    provider text NOT NULL CHECK (provider IN ('app_store','google_play')),
+    provider_event_id text NOT NULL,
+    reference_encrypted bytea,
+    received_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    processed_at timestamptz,
+    UNIQUE(provider, provider_event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_store_notification_received ON billing_store_notification(received_at, id);
+CREATE TABLE IF NOT EXISTS billing_store_finance (
+    provider text NOT NULL CHECK (provider IN ('app_store','google_play')),
+    report_id text NOT NULL,
+    row_id text NOT NULL,
+    paid_at timestamptz NOT NULL,
+    currency text NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+    gross_cents bigint NOT NULL,
+    net_cents bigint,
+    imported_by uuid REFERENCES user_account(user_id) ON DELETE SET NULL,
+    imported_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY(provider, report_id, row_id)
+);
+CREATE INDEX IF NOT EXISTS idx_store_finance_paid ON billing_store_finance(paid_at, provider, currency);
+CREATE OR REPLACE FUNCTION effective_subscription_at(p_user_id uuid, p_at timestamptz)
+RETURNS TABLE (
+    user_id uuid, plan text, provider text, provider_subscription_id text, provider_price_id text,
+    billing_period text, status text, cancel_at_period_end boolean,
+    current_period_starts_at timestamptz, current_period_ends_at timestamptz,
+    trial_ends_at timestamptz, canceled_at timestamptz, access_granted boolean,
+    provider_event_created_at timestamptz, updated_at timestamptz
+) LANGUAGE sql STABLE AS $body$
+SELECT DISTINCT ON (c.user_id) c.* FROM (
+    SELECT s.user_id, s.plan, s.provider, s.provider_subscription_id, s.provider_price_id,
+        s.billing_period, s.status, s.cancel_at_period_end, s.current_period_starts_at,
+        s.current_period_ends_at, s.trial_ends_at, s.canceled_at,
+        COALESCE(s.plan='premium' AND (
+          (s.provider IS NULL AND (s.current_period_ends_at IS NULL OR s.current_period_ends_at>p_at))
+          OR (s.provider='stripe' AND s.status IN ('trialing','active','past_due') AND s.current_period_ends_at>p_at)
+        ), false) AS access_granted, s.provider_event_created_at, s.updated_at
+    FROM user_subscription s WHERE p_user_id IS NULL OR s.user_id=p_user_id
+    UNION ALL
+    SELECT s.user_id, 'premium', s.provider, s.original_id, s.product_id, s.billing_period, s.status,
+        NOT s.auto_renew, s.starts_at, s.expires_at, NULL::timestamptz,
+        CASE WHEN NOT s.auto_renew THEN s.verified_at END,
+        s.starts_at<=p_at AND s.expires_at>p_at AND (s.status IN ('active','grace_period') OR (s.provider='google_play' AND s.status='canceled')), s.verified_at, s.verified_at
+    FROM billing_store_subscription s WHERE s.user_id IS NOT NULL AND NOT s.superseded AND (p_user_id IS NULL OR s.user_id=p_user_id)
+) c ORDER BY c.user_id, c.access_granted DESC, (c.status IN ('pending','incomplete','trialing','active','grace_period','past_due','on_hold','paused','unpaid')) DESC NULLS LAST, (c.plan='premium') DESC, c.current_period_ends_at DESC NULLS FIRST, c.updated_at DESC, c.provider NULLS FIRST;
+$body$;
+CREATE OR REPLACE VIEW effective_user_subscription AS
+SELECT * FROM effective_subscription_at(NULL, statement_timestamp());
+-- END store billing
+
+-- BEGIN web billing
+CREATE TABLE IF NOT EXISTS web_billing_challenge (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    idempotency_key uuid NOT NULL UNIQUE,
+    requested_user_id uuid NOT NULL,
+    user_id uuid REFERENCES user_account(user_id) ON DELETE CASCADE,
+    phone_hash text NOT NULL,
+    language text NOT NULL,
+    attempts smallint NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 5),
+    consumed boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    expires_at timestamptz NOT NULL DEFAULT clock_timestamp()+interval '10 minutes'
+);
+CREATE INDEX IF NOT EXISTS idx_web_challenge_expiry ON web_billing_challenge(expires_at, id);
+CREATE TABLE IF NOT EXISTS web_billing_session (
+    token_hash text PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES user_account(user_id) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    expires_at timestamptz NOT NULL DEFAULT clock_timestamp()+interval '30 minutes'
+);
+CREATE INDEX IF NOT EXISTS idx_web_session_expiry ON web_billing_session(expires_at);
+-- END web billing
+
 CREATE TABLE billing_customer (
     user_id uuid NOT NULL,
     stripe_customer_id text NOT NULL,
@@ -984,7 +1091,7 @@ CREATE TABLE data_access_log (
     action text NOT NULL,
     reason text,
     accessed_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT data_access_log_action_check CHECK ((action = ANY (ARRAY['view_profile'::text, 'view_messages'::text, 'view_matches'::text, 'export_data'::text, 'admin_ban'::text, 'admin_unban'::text, 'admin_promote'::text, 'admin_demote'::text, 'admin_suspend_sms'::text, 'admin_resume_sms'::text, 'admin_review_report'::text, 'admin_review_dsr'::text, 'admin_reconcile_photo'::text, 'view_moderation_content'::text, 'admin_review_content'::text, 'system_anonymize'::text, 'system_export_portability'::text]))),
+    CONSTRAINT data_access_log_action_check CHECK ((action = ANY (ARRAY['view_profile'::text, 'view_messages'::text, 'view_matches'::text, 'export_data'::text, 'admin_ban'::text, 'admin_unban'::text, 'admin_promote'::text, 'admin_demote'::text, 'admin_suspend_sms'::text, 'admin_resume_sms'::text, 'admin_import_store_finance'::text, 'admin_review_report'::text, 'admin_review_dsr'::text, 'admin_reconcile_photo'::text, 'view_moderation_content'::text, 'admin_review_content'::text, 'system_anonymize'::text, 'system_export_portability'::text]))),
     CONSTRAINT data_access_log_pkey PRIMARY KEY (id),
     CONSTRAINT data_access_log_accessor_id_fkey FOREIGN KEY (accessor_id) REFERENCES user_account(user_id) ON DELETE SET NULL
 );
@@ -1215,6 +1322,10 @@ BEGIN
   DELETE FROM notification WHERE user_id = p_user_id;
   DELETE FROM user_block WHERE blocker_id = p_user_id OR blocked_id = p_user_id;
   DELETE FROM user_subscription WHERE user_id = p_user_id;
+  DELETE FROM web_billing_session WHERE user_id = p_user_id;
+  DELETE FROM web_billing_challenge WHERE user_id = p_user_id OR requested_user_id = p_user_id;
+  UPDATE billing_store_subscription SET user_id=NULL, reference_encrypted=''::bytea WHERE user_id=p_user_id;
+  UPDATE billing_store_account SET user_id=NULL WHERE user_id=p_user_id;
   DELETE FROM continuation_reservation WHERE user_id = p_user_id
     OR match_id IN (SELECT id FROM match_init WHERE user1_id = p_user_id OR user2_id = p_user_id);
   DELETE FROM advertising_reward_intent WHERE user_id = p_user_id;
@@ -1386,7 +1497,9 @@ LANGUAGE plpgsql AS $$
 DECLARE owner_id uuid;
 BEGIN
   owner_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.user_id ELSE NEW.user_id END;
-  PERFORM pg_advisory_xact_lock(hashtextextended(owner_id::text, 86302004));
+  IF owner_id IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended(owner_id::text, 86302004));
+  END IF;
   IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END;
@@ -1399,6 +1512,9 @@ DO $$ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_continuation_subscription' AND tgrelid = 'user_subscription'::regclass) THEN
     CREATE TRIGGER trg_continuation_subscription BEFORE INSERT OR UPDATE OR DELETE ON user_subscription FOR EACH ROW EXECUTE FUNCTION fct_lock_continuation_subscription();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_continuation_store_subscription' AND tgrelid = 'billing_store_subscription'::regclass) THEN
+    CREATE TRIGGER trg_continuation_store_subscription BEFORE INSERT OR UPDATE OR DELETE ON billing_store_subscription FOR EACH ROW EXECUTE FUNCTION fct_lock_continuation_subscription();
   END IF;
 END $$;
 -- END continuation guards

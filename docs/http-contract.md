@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **113 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **130 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -425,15 +425,61 @@ SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
-| GET | `/api/users/me/subscription` | `200` avec l’état d’abonnement public. |
-| POST | `/api/users/me/subscription/checkout` | `{ billing_period: monthly ou annual }` + clé d’idempotence → `201 { session_id, url, expires_at }`. |
-| POST | `/api/users/me/subscription/portal` | Aucun corps → `201 { url }`. |
+| GET | `/api/users/me/subscription` | `200` état effectif commun Stripe / Apple / Google. |
+| POST | `/api/users/me/subscription/checkout` | Route retirée : `410 billing_web_only` après authentification mobile. |
+| POST | `/api/users/me/subscription/portal` | Route retirée : `410 billing_web_only` après authentification mobile. |
+| GET | `/api/billing/store-products` | Query `provider=app_store|google_play` → `200 { provider, offers: [{ billing_period, product_id, base_plan_id }] }` ; public, aucun prix natif. |
+| POST | `/api/users/me/subscription/purchase-intents` | `{ provider: app_store|google_play }` → `200 { provider, account_binding, offers }`, compte onboardé. |
+| POST | `/api/users/me/subscription/apple/verify` | `{ reference: transactionId }` → `204` après preuve serveur ; relire l’abonnement. |
+| POST | `/api/users/me/subscription/google-play/verify` | `{ reference: purchaseToken }` → `204` après preuve serveur ; relire l’abonnement. |
+| POST | `/api/billing/apple/webhook` | `{ signedPayload }` JWS Notifications V2 Apple → `200 { received: true }`. |
+| POST | `/api/billing/google-play/webhook` | Enveloppe Pub/Sub + `Authorization: Bearer <JWT OIDC>` → `200 { received: true }`. |
 
-L’état expose `plan, provider, status, access_granted, billing_period`, dates de période/essai/annulation, `cancel_at_period_end, customer_portal_available`. `trialing, active, past_due` ouvrent l’accès uniquement pendant une période Stripe connue et non expirée. Une fin de période absente n’ouvre aucun droit Stripe. Les listes, fiches et compteurs administratifs exposent ce même plan effectif.
+État : `plan, provider, status, access_granted, billing_period`, dates de période/essai/annulation,
+`cancel_at_period_end, customer_portal_available, management_url`. `provider` : `stripe|app_store|google_play|null`.
+`management_url` : lien officiel du store ou `null`. `plan` vaut Free si aucun droit courant, même si un historique
+Premium existe. Ne jamais déduire les droits du SDK, d’un webhook reçu, d’un redirect ou de `status` seul.
+États natifs : `pending, active, grace_period, past_due, on_hold, paused, canceled, expired, revoked`.
+Les états Stripe historiques sont conservés. Les protections de consentement et la limite 10/min/compte s’appliquent.
+Un achat possède un compte immuable ; un reçu d’un autre compte renvoie `409 store_purchase_account_conflict`.
+Autres erreurs : `503 store_unavailable`, `422 invalid_store_purchase`, `409 subscription_already_active`.
+Voir [achats stores](store-billing.md) pour les états, acquittements, restauration et notifications.
 
-**Checkout.** Utiliser l’URL retournée et `expires_at` (35 minutes à la préparation, avec une marge sur le minimum Stripe de 30 minutes). Une seule session peut être créée/ouverte par utilisateur. Une création Checkout incertaine réserve aussi cette place jusqu’à son expiration ; reprendre avec la même clé et les mêmes paramètres persistés, sans nouvelle clé. Un abonnement Stripe non terminé bloque un nouvel achat même si ses droits Premium ont expiré localement ; le portail permet de gérer cet abonnement. Les clients Stripe existants sont également contrôlés chez Stripe avant un nouveau Checkout pour couvrir les webhooks manquants. Les nouvelles souscriptions ne proposent aucun essai. Le catalogue ne contient plus de champ `trial_days` ; les abonnements historiques `trialing` restent pris en charge jusqu’à leur échéance. Le retour sur l’URL de succès **ne prouve pas à lui seul l’activation Premium** : relire l’abonnement, mis à jour par webhook signé. Ne jamais envoyer Product ID, Price ID, montant, devise, durée d’essai ou Customer ID. Le portail exige un client Stripe déjà lié. Voir le [parcours Stripe](billing.md). Checkout et portail : 10/min/utilisateur. Tant qu’une création Customer reste incertaine, une nouvelle clé est refusée ; seule la clé d’origine peut rejouer le `POST` dans la fenêtre sûre de 23 heures, puis la réconciliation procède uniquement en lecture.
+### Paiement du site
 
-Erreurs : `billing_unavailable`, `stripe_request_failed`, `subscription_already_active`, `checkout_already_in_progress`, `billing_customer_reconciliation_required`, `idempotency_key_reused`, `idempotency_key_consumed`, `billing_customer_not_found`, `billing_rate_limit_exceeded`.
+Session distincte des JWT mobiles et du cookie administrateur. Origin exact obligatoire sur toutes les mutations.
+Cookie HttpOnly host-only, Secure en HTTPS, SameSite Strict ; session trente minutes. Réponses `no-store`.
+
+| Méthode | Route | Entrée → résultat |
+| --- | --- | --- |
+| POST | `/api/web/billing/otp/send` | `{ user_id: UUIDv4, phone_number }` + `Idempotency-Key: UUIDv4` → `202 { challenge_id, expires_at, message }` générique ; SMS seulement si les deux correspondent à un compte actif. |
+| POST | `/api/web/billing/otp/verify` | `{ challenge_id, phone_number, otp: six chiffres }` → `204` + cookie ; cinq essais maximum, code lié au challenge. |
+| GET | `/api/web/billing/session` | Cookie web → `200 { user_id, onboarding_complete, subscription }` ; sinon `401 web_authentication_failed`. |
+| DELETE | `/api/web/billing/session` | Cookie web + Origin → `204` et cookie expiré. |
+| GET | `/api/web/billing/plans` | Catalogue public du site, localisé, même forme que `/api/plans`. |
+| POST | `/api/web/billing/checkout` | Cookie web, Origin, clé UUIDv4, `{ billing_period: monthly|annual }` → `201 { session_id, url, expires_at }`. |
+| POST | `/api/web/billing/portal` | Cookie web + Origin → `201 { url }` du portail Stripe. |
+
+Aucun compte créé par ce parcours. Limites OTP par IP et téléphone partagées avec le mobile et les protections
+Sweego. Les réponses d’envoi restent génériques même en cas d’envoi non confirmé. Le code ne donne pas de JWT mobile.
+Avant paiement : compte actif, non banni et consentements courants ; `403 onboarding_incomplete` sinon.
+`403 invalid_web_request_origin` si Origin incorrect, `503 web_billing_unavailable` si désactivé.
+Une réponse Checkout perdue se reprend avec la même clé et la même période. Expiration à 35 minutes à la préparation ;
+respecter `expires_at`. Clé consommée : relire les droits avant de préparer une autre intention.
+Les états non terminés connus d’un fournisseur bloquent un second achat, même sans accès Premium.
+Les erreurs et procédures Stripe existantes restent décrites dans [le guide Stripe](billing.md).
+
+### Administration des achats natifs
+
+| Méthode | Route | Entrée → résultat |
+| --- | --- | --- |
+| GET | `/api/admin/store-billing` | Cookie admin ; `period` selon les périodes de revenus → `200 { enabled, sources, period, finance, recent, pending_notifications, dead_letters, finance_basis }`. |
+| POST | `/api/admin/store-billing/finance` | Cookie superadmin récent + Origin, `{ provider, report_id, rows: [{ row_id, paid_at, currency, gross_cents, net_cents }] }` → `204`, import atomique et audité. |
+
+Rapports normalisés, au plus 1 000 lignes, IDs stables 1–128 caractères alphanumériques/`_.:-`, dates avec fuseau non
+futures, monnaie en majuscules, montants signés entiers bornés à 10¹² centièmes par ligne. Net inconnu : `null`.
+Un rejeu identique est idempotent ; même clé avec d’autres valeurs → `409 finance_report_conflict`, rollback global.
+Aucune estimation à partir des abonnés ; devises séparées ; Stripe conserve ses factures payées séparément.
 
 <a id="droits-effacement-et-surete"></a>
 

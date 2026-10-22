@@ -38,6 +38,26 @@ impl BillingPeriod {
 #[serde(rename_all = "snake_case")]
 pub enum SubscriptionProvider {
     Stripe,
+    AppStore,
+    GooglePlay,
+}
+
+impl SubscriptionProvider {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "stripe" => Some(Self::Stripe),
+            "app_store" => Some(Self::AppStore),
+            "google_play" => Some(Self::GooglePlay),
+            _ => None,
+        }
+    }
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Stripe => "stripe",
+            Self::AppStore => "app_store",
+            Self::GooglePlay => "google_play",
+        }
+    }
 }
 
 /// A price previously accepted for this exact Stripe subscription. This lets
@@ -103,7 +123,7 @@ pub struct SubscriptionRow {
 pub struct SubscriptionView {
     pub plan: &'static str,
     pub provider: Option<SubscriptionProvider>,
-    pub status: Option<StripeSubscriptionStatus>,
+    pub status: Option<String>,
     pub access_granted: bool,
     pub billing_period: Option<BillingPeriod>,
     pub cancel_at_period_end: bool,
@@ -112,6 +132,7 @@ pub struct SubscriptionView {
     pub trial_ends_at: Option<String>,
     pub canceled_at: Option<String>,
     pub customer_portal_available: bool,
+    pub management_url: Option<String>,
 }
 
 impl SubscriptionView {
@@ -128,15 +149,14 @@ impl SubscriptionView {
             trial_ends_at: None,
             canceled_at: None,
             customer_portal_available,
+            management_url: None,
         }
     }
 
     pub fn from_row(row: SubscriptionRow, now: DateTime<Utc>, portal: bool) -> Self {
         let within_period = match row.provider {
             None => row.current_period_ends_at.is_none_or(|end| end > now),
-            Some(SubscriptionProvider::Stripe) => {
-                row.current_period_ends_at.is_some_and(|end| end > now)
-            }
+            Some(_) => row.current_period_ends_at.is_some_and(|end| end > now),
         };
         let provider_grants = row.provider.is_none_or(|_| {
             row.status
@@ -146,7 +166,9 @@ impl SubscriptionView {
         Self {
             plan: if access_granted { "premium" } else { "free" },
             provider: row.provider,
-            status: row.status,
+            status: row
+                .status
+                .map(|status| super::webhook::status_name(status).to_owned()),
             access_granted,
             billing_period: row.billing_period,
             cancel_at_period_end: row.cancel_at_period_end,
@@ -155,6 +177,7 @@ impl SubscriptionView {
             trial_ends_at: row.trial_ends_at.map(wire_timestamp),
             canceled_at: row.canceled_at.map(wire_timestamp),
             customer_portal_available: portal,
+            management_url: None,
         }
     }
 }

@@ -58,6 +58,8 @@ pub(super) async fn record(
     .fetch_all(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
+    sqlx::query("SELECT id FROM billing_store_subscription WHERE user_id=ANY($1) ORDER BY user_id,id FOR SHARE")
+        .bind(participants.to_vec()).fetch_all(&mut *connection).await.map_err(map_sqlx_error)?;
     for participant in participants {
         super::credits::lock_wallet(connection, participant).await?;
     }

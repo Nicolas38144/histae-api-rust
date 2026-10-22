@@ -99,3 +99,21 @@ Les versions, secrets et données de production ne doivent pas être remplacés 
 
 Cette campagne ne relance pas les benchmarks et ne valide pas le tunnel distant, les paiements/SMS/publicités
 réels ou la conformité juridique. Ces étapes restent dans la [feuille de route production](../roadmap-production.md).
+
+## Complément — achats multicanaux, 22 octobre 2026
+
+Ce complément couvre aussi `histae-app`, contrairement au périmètre historique du 15 octobre ci-dessus.
+Le parcours courant est décrit dans [Achats Apple/Google et site](store-billing.md) : stores natifs dans
+l’app, Stripe sur le site après UUID/téléphone/OTP, droits serveur communs au compte et rapports
+financiers distincts dans le dashboard. Le contrat et Postman FR/EN comptent désormais 130 routes.
+
+Les contrôles ont corrigé les risques de projection Stripe écrasant des droits natifs, de réattribution
+à un autre compte, de rejeu d’un token remplacé, de validation hors environnement et de dates de
+période non respectées. Les sessions du site ne sont pas des JWT mobiles ; les OTP sont liés à leur
+challenge et les tentatives consommées atomiquement. Les imports contradictoires sont entièrement
+annulés dans la transaction, avec relecture du rôle superadmin.
+
+Les responsabilités sont séparées entre services/ports Rust, adaptateurs PostgreSQL/HTTP,
+vérificateur privé officiel et SDK natifs Flutter. Les résultats datés, scénarios et limites sont dans
+[Tests](../tests/README.md#achats-multicanaux). Les essais sur appareils et fournisseurs, la publication
+juridique et le déploiement final restent ouverts dans [la feuille de route](../roadmap-production.md#prod-08--achats-natifs-et-stripe-sur-le-site).

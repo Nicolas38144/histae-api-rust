@@ -11,7 +11,7 @@ Utiliser des fixtures fictives et des secrets de développement, jamais une base
 | --- | --- | --- |
 | Unitaire | Modules `#[cfg(test)]` de `src/` | Règles, configuration, transports, mocks et cycles de vie |
 | Contrat | `*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, guards et permissions |
-| Inventaire | `route_inventory.rs` | Les 113 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
+| Inventaire | `route_inventory.rs` | Les 130 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
 | PostgreSQL | `*_postgres.rs`, `postgres_compatibility`, `postgres_locks` | SQL, contraintes, verrous, snapshots et concurrence réels |
 | Redis / S3 | `redis_integration`, `media_integration` | Adaptateurs sur services locaux |
 | Codec | `photo_codec.rs`, `fixtures/photos/` | Formats, taille, métadonnées, corruption et arrêt du processus Node |
@@ -237,3 +237,98 @@ Vérifications locales réalisées :
 - Dashboard : typecheck, lint, build, 96 tests unitaires/composants et 5 parcours Chromium ciblés.
 
 Ces vérifications ne valident ni un envoi SMS réel ni le déploiement sur le serveur de production.
+
+<a id="achats-multicanaux"></a>
+
+## Achats Apple/Google et Stripe web — 22 octobre 2026
+
+Le [guide de facturation](../docs/store-billing.md) décrit les nouveaux contrats, les variables,
+la livraison et les essais fournisseur restant nécessaires. L’API et Postman FR/EN comprennent
+**130 routes**. Les anciennes routes mobiles Stripe Checkout/portail sont des refus authentifiés
+`410 billing_web_only` ; le site utilise sa propre session OTP.
+
+### Résultats locaux
+
+| Vérification | Résultat |
+| --- | --- |
+| Rust bibliothèque + contrats billing/webhooks/OTP + inventaire | 237 tests réussis (221 + 2 + 5 + 7 + 2) |
+| Binaires Rust, contrôle sans features par défaut, rustfmt et Clippy tous targets/features avec `-D warnings` | Réussis |
+| Migration PostgreSQL fraîche, répétée et upgrade quota/pause/langue | Réussies avec le migrateur natif et les rôles limités |
+| Régressions PostgreSQL Stripe, matchs/continuations, maintenance, export et effacement | 29 tests réussis |
+| Nouvelle suite PostgreSQL des achats natifs, OTP web et import financier | 6 tests réussis |
+| Vérificateur Node privé | 5 tests réussis ; image Docker construite |
+| Flutter | Analyse sans problème ; 236 tests réussis après refactoring et ajout de l’UUID |
+| Site | TypeScript, lint, export statique et 4 tests navigateur/DTO réussis |
+| Dashboard | TypeScript, lint et build ; 98 tests initiaux, puis 12 contrôles ciblés et 2 parcours Chromium stores réussis après refactoring |
+| Compose dev/production et deux Caddyfiles modifiés | Configurations valides ; clés privées réservées au vérificateur |
+| Alertes Prometheus | Règles valides ; déclenchement et résolution des trois alertes stores vérifiés |
+
+Les 35 tests PostgreSQL ont été rejoués ensemble dans un serveur jetable, avec simulation
+d’un ancien schéma sans tables de stores et conservation d’une projection Stripe, sans accès à la base partagée. Les fichiers de logs locaux ne constituent pas des artefacts
+à versionner : garder les commandes et preuves synthétiques ci-dessous, sans secrets.
+
+### Scénarios prouvés
+
+- Les droits Stripe et natifs restent indépendants ; début de période inclusif et fin exclusive.
+  Une observation fournisseur ancienne ne remplace pas la nouvelle ; un token Google remplacé
+  reste exclu même s’il est rejoué.
+- La liaison opaque ne permet pas de réattribuer un achat à un autre compte. L’effacement coupe
+  les références et sessions sans recréer un lien lors d’une restauration.
+- L’acquittement Google est durable. Produit/environnement invalides sont refusés avant écriture ;
+  un JWS Apple forgé est rejeté par la bibliothèque officielle et ses certificats de confiance.
+- UUID/téléphone incorrects ne créent aucun compte. Les cinq tentatives d’un challenge sont
+  consommées atomiquement ; son OTP ne peut servir ni au mobile ni à un autre challenge.
+  Les sessions expirent et vérifient l’état courant du compte.
+- Le site exige l’OTP avant paiement, reprend une réponse Checkout perdue avec la même clé,
+  refuse les redirections non autorisées et ne propose pas de second achat Stripe à un abonné natif.
+- L’import financier vérifie le rôle superadmin courant, accepte un rejeu identique et annule tout
+  le rapport si une ligne contredit une ligne existante ; le dashboard exige une confirmation.
+
+### Refactoring du parcours et identifiant du profil
+
+Le service web est testé avec OTP et persistance réels, fournisseur SMS fictif et Stripe désactivé :
+aucun SMS pour un couple UUID/téléphone incorrect, code inutilisable sur le mobile, exactement une
+session lors de deux confirmations concurrentes, onboarding requis pour payer et refus après ban.
+Les handlers ne possèdent plus ce workflow ; les projections web et administratives sont typées.
+
+Flutter vérifie l’UUID copiable/sélectionnable dans quatre langues et à 200 %, ainsi que le refus
+localisé d’une copie impossible. Les tests de vie privée, logout et vidéo ont confirmé le défilement
+du profil avec la nouvelle zone de sélection. Les contrôleurs et fixtures d’achat utilisent des
+valeurs immuables, sans types du SDK ; seul l’adaptateur natif les manipule.
+
+Les contrôles frontend ciblent aussi les réponses admin malformées (erreur localisée contrôlée),
+les totaux par devise et les nets inconnus. Les parcours de confirmation d’import et les quatre
+parcours web passent avec les nouveaux hooks/composants. Les tests n’appellent aucun fournisseur réel.
+
+### Rejouer les contrôles ciblés
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --lib --test billing_contract --test billing_webhook_contract \
+  --test otp_sweego_contract --test route_inventory
+cargo build --locked --bin db-migrate
+python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
+  --test store_billing_postgres --test billing_postgres --test matches_postgres \
+  --test maintenance_outbox_postgres --test privacy_rights_postgres --test account_erasure_postgres
+npm --prefix services/store-verifier test
+```
+
+L’option `--native-migrator` teste le binaire fraîchement compilé via le port loopback jetable ;
+omettre cette option pour employer le migrateur de l’image API reconstruite. Ajouter
+`--sudo-docker` après `sudo -v` si nécessaire. Les tests HTTP factices exigent le droit d’ouvrir
+un listener loopback. Aucune commande de cette section ne doit viser une base de production.
+
+Dans les dépôts clients : `flutter analyze` et `flutter test` ; site `pnpm typecheck`, `pnpm lint`,
+`pnpm build`, `pnpm test` ; dashboard `pnpm check`, `pnpm test:unit` et
+`pnpm exec playwright test tests/e2e/store-billing.spec.ts`.
+
+### Limites
+
+Aucun SMS ni paiement réel, achat Sandbox/Play test, build Android signé ou build iOS n’a été effectué.
+Le SDK Flutter temporaire a permis l’analyse et les tests Dart/widgets sur ce poste, pas une validation
+native des stores. Les tests navigateur interceptent l’API ; les tests PostgreSQL vérifient séparément
+ses transactions réelles avec des fournisseurs simulés. Les credentials/produits, notifications réelles,
+réconciliation fournisseur, essais sur appareils et déploiement derrière Cloudflare restent à valider.
+Les fournisseurs natifs et `BILLING_ENABLED` mobile restent désactivés avant cette configuration.
+Les brouillons juridiques mis à jour exigent une validation avant publication.

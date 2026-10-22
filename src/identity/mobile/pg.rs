@@ -583,6 +583,13 @@ async fn revoke_families(
     .execute(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
+    if session_id.is_none() {
+        sqlx::query("DELETE FROM web_billing_session WHERE user_id=$1")
+            .bind(user_id)
+            .execute(&mut *connection)
+            .await
+            .map_err(map_sqlx_error)?;
+    }
     Ok(families.rows_affected())
 }
 

@@ -54,6 +54,7 @@ pub struct OtpService {
     region: Arc<str>,
     provider_timeout: Duration,
     otp_ttl: Duration,
+    hash_context: Option<Uuid>,
 }
 
 impl OtpService {
@@ -72,12 +73,28 @@ impl OtpService {
             region: region.into(),
             provider_timeout,
             otp_ttl,
+            hash_context: None,
         }
     }
 
     pub fn rate_limit_key(&self, phone_input: &str, invalid: OtpError) -> Result<String, OtpError> {
         let phone = normalize_phone(phone_input).ok_or(invalid)?;
         hmac_sha256(&phone, &self.hash_key).map_err(|_| OtpError::Internal)
+    }
+
+    /// A website code is bound to its opaque challenge and cannot authenticate
+    /// a mobile login or a different website challenge.
+    pub fn for_web_challenge(&self, challenge: Uuid) -> Self {
+        let mut scoped = self.clone();
+        scoped.hash_context = Some(challenge);
+        scoped
+    }
+
+    fn code_hash(&self, code: &str) -> Result<String, OtpError> {
+        let input = self
+            .hash_context
+            .map_or_else(|| code.to_owned(), |id| format!("web-billing:{id}:{code}"));
+        hmac_sha256(&input, &self.hash_key).map_err(|_| OtpError::Internal)
     }
 
     pub async fn send(
@@ -99,7 +116,7 @@ impl OtpService {
         let idempotency_key = normalize_idempotency_key(idempotency_input)?;
         let code = generate_otp()?;
         let phone_hash = hmac_sha256(&phone, &self.hash_key).map_err(|_| OtpError::Internal)?;
-        let otp_hash = hmac_sha256(&code, &self.hash_key).map_err(|_| OtpError::Internal)?;
+        let otp_hash = self.code_hash(&code)?;
         let delivery_id = random_uuid_v4()?;
         let settlement = self
             .provider_timeout
@@ -196,7 +213,7 @@ impl OtpService {
             return Err(OtpError::InvalidOtpRequest);
         }
         let phone_hash = hmac_sha256(&phone, &self.hash_key).map_err(|_| OtpError::Internal)?;
-        let otp_hash = hmac_sha256(otp, &self.hash_key).map_err(|_| OtpError::Internal)?;
+        let otp_hash = self.code_hash(otp)?;
         if !self
             .store
             .consume(phone_hash.clone(), otp_hash)

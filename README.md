@@ -5,7 +5,9 @@ Redis les quotas et le relais SSE, et un stockage compatible S3 les photos priv�
 outbox et les maintenances sont exécutés séparément.
 
 Le dépôt contient son schéma PostgreSQL, ses binaires, son image Docker et ses services locaux.
-Le codec photo utilise un processus Node/Sharp autonome, livré dans l’image API.
+Le codec photo utilise un processus Node/Sharp autonome, livré dans l’image API. Le service privé
+`store-verifier` vérifie les achats natifs via les bibliothèques officielles Apple/Google ; Stripe
+sert uniquement aux achats sur le site. Voir le [guide de facturation](docs/store-billing.md).
 
 ## Organisation
 
@@ -23,7 +25,7 @@ src/
   matches/          # Matchs, messages et expiration
   media/            # Photos, codec et stockage objet
   moderation/       # Modération de texte et de photos
-  billing/          # Stripe, webhooks et réconciliation
+  billing/          # Stripe web, achats Apple/Google, droits et réconciliation
   notifications/    # Notifications durables, push et SSE
   privacy/          # Consentements, droits, export et effacement
   reports/          # Signalements
@@ -34,13 +36,12 @@ src/
 tests/             # Contrats HTTP et intégrations, nommés par fonctionnalité
 db/                # Schéma PostgreSQL consolidé, données initiales et script de suppression
 docker/            # Configuration des services conteneurisés
-services/          # Service autonome de modération photo
+services/          # Modération photo et vérification privée Apple/Google
 tools/             # Codec photo et génération de ses fixtures
 scripts/           # Smoke, restauration et données de charge de développement
   install-debian-13.sh # Prérequis de développement Debian 13
 observability/     # Supervision privée
 docs/              # Architecture, contrat HTTP et exploitation
-  migration/       # Historique S03–S29 et décisions de migration
 ```
 
 Les responsabilités et règles de dépendance sont décrites dans [docs/architecture.md](docs/architecture.md). Les tests suivent [tests/README.md](tests/README.md).
@@ -76,7 +77,8 @@ L’[index des guides](docs/README.md) permet de choisir une procédure par usag
 | Initialiser et sauvegarder PostgreSQL | [Base de données](docs/database.md) |
 | Enrôler une passkey et gérer les administrateurs | [Administration](docs/administration.md) |
 | Exécuter les workers et planifier la maintenance | [Exploitation](docs/operations.md) |
-| Intégrer les 115 routes et leurs autorisations | [Contrat HTTP](docs/http-contract.md) |
+| Intégrer les 130 routes et leurs autorisations | [Contrat HTTP](docs/http-contract.md) |
+| Intégrer achats mobiles Apple/Google et paiement Stripe sur le site | [Facturation multicanal](docs/store-billing.md) |
 | Intégrer français, anglais, espagnol et italien | [Internationalisation](docs/internationalization.md) |
 | Importer les collections française ou anglaise | [Postman](postman/README.md) |
 | Diagnostiquer les alertes et les requêtes lentes | [Supervision](docs/observability.md), [SQL](docs/sql-performance.md) |

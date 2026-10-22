@@ -655,6 +655,7 @@ impl AppConfig {
             admin_auth: limit(source, "RATE_LIMIT_ADMIN_AUTH", 10, "5m")?,
         };
 
+        let (store_billing, web_billing) = super::stores::load(source, environment)?;
         Ok(Self {
             environment,
             port,
@@ -666,6 +667,8 @@ impl AppConfig {
             redis,
             push,
             billing,
+            store_billing,
+            web_billing,
             advertising,
             object_storage,
             photo_moderation,

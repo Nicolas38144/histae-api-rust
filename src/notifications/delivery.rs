@@ -340,6 +340,20 @@ impl BillingRealtimePublisher for MobileDeliveryService {
     }
 }
 
+impl crate::billing::stores::StoreEvents for MobileDeliveryService {
+    fn subscription_changed(&self, user_id: Uuid) -> crate::billing::stores::StoreFuture<'_, ()> {
+        Box::pin(async move {
+            self.deliver(
+                &[user_id],
+                MobileEventType::SubscriptionUpdated,
+                serde_json::Map::new(),
+            )
+            .await;
+            Ok(())
+        })
+    }
+}
+
 fn json_value(id: Uuid) -> Value {
     Value::String(id.hyphenated().to_string())
 }

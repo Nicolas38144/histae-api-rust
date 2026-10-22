@@ -1,8 +1,8 @@
 # Histae API — feuille de route de production
 
-Dernière mise à jour : **15 octobre 2026**, après intégration des dépôts `histae-scripts` et
-`histae-reverse-proxy`, correction des procédures de déploiement, ajout du préparateur production
-et simplification de la configuration Stripe aux deux identifiants de prix Premium.
+Dernière mise à jour : **22 octobre 2026**, après ajout des achats natifs Apple/Google,
+du paiement Stripe sur le site par UUID/téléphone/OTP et du suivi financier des stores.
+Les essais fournisseur sur appareils et la validation du déploiement final restent ouverts.
 
 Cette feuille de route suit les raccordements, décisions et preuves qui restent nécessaires avant le
 déploiement final de Histae et son ouverture aux utilisateurs. Les guides liés décrivent les procédures ;
@@ -35,7 +35,7 @@ Les validations locales documentées restent utiles, mais ne clôturent pas une 
 | PROD-05 | Modération automatique et revue humaine utilisables | Démarrage / ouverture | PROD-04, PROD-09 |
 | PROD-06 | Domaines, tunnel et confiance proxy corrects | Ouverture | PROD-01 |
 | PROD-07 | OTP Sweego et callbacks réels | Démarrage / ouverture | PROD-06 |
-| PROD-08 | Stripe live et parcours Premium complets | Démarrage / ouverture | PROD-06, PROD-10 |
+| PROD-08 | Stripe web, achats natifs et droits Premium | Démarrage / ouverture | PROD-06, PROD-10 |
 | PROD-09 | Administration WebAuthn et récupération | Ouverture | PROD-02, PROD-06, PROD-07 |
 | PROD-10 | Outbox permanente et maintenance planifiée | Ouverture | PROD-02, PROD-03, PROD-04 |
 | PROD-11 | Supervision production et alertes reçues | Ouverture | PROD-06, PROD-09, PROD-10 |
@@ -234,63 +234,49 @@ sans téléphone ni OTP dans les traces conservées.
 Références : [Configuration OTP](docs/configuration.md#groupes-de-variables),
 [Webhook Sweego](docs/http-contract.md#webhook-sweego).
 
-## PROD-08 — Stripe et Premium
+## PROD-08 — Achats natifs et Stripe sur le site
 
-Le validateur actuel impose `BILLING_PROVIDER=stripe` et une clé live en production. Un lancement avec
-la facturation désactivée nécessiterait une évolution explicite de cette règle et de ses tests.
+Stripe reste obligatoire dans la configuration de production actuelle pour le site. Apple et Google
+sont désactivés par défaut ; leur activation nécessite les étapes suivantes. Aucun essai gratuit
+n’est proposé.
 
-- [ ] Configurer le compte Stripe, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-  `STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID` avec les identifiants `price_…`
-  correspondant au catalogue : 5 EUR/mois ou 48 EUR/an, sans période d'essai. Le produit reste chez Stripe ;
-  son identifiant n'est plus requis dans le `.env`.
-- [ ] Vérifier l'accord entre catalogue PostgreSQL, catalogue du site, dashboard et paramètres Stripe.
-- [x] Exposer Free, Premium Mensuel et Premium Annuel dans `GET /api/plans` via `offers`, et rendre
-  trois cartes dans le dashboard et l'app. Les prix viennent de PostgreSQL ; `plans` garde les deux
-  niveaux de droits Free/Premium. Les contrôles de paiement et d'éligibilité restent côté API.
-  Validation locale du 18 octobre 2026 : 33 tests Flutter ciblés et analyse réussis ; trois tests
-  dashboard ciblés, TypeScript, lint et build réussis. Les tests Rust `catalog_offers` sont ajoutés
-  mais restent à exécuter avec Cargo avant livraison, l'outillage Rust étant absent de cet hôte.
-- [x] Exiger le contrat courant `plans` + `offers` dans l'app et le dashboard ; rejeter l'ancienne
-  réponse sans reconstruire de cartes localement. Exiger aussi `subscription_offers` dans la vue
-  d'ensemble, en conservant un compteur explicite pour les accès Premium sans périodicité.
-- [x] Retirer les offres d'essai de l'API, du dashboard, du site (quatre langues) et de l'app.
-  Retirer `trial_days` du contrat HTTP et des modèles clients, ainsi que la colonne et sa contrainte du schéma initial
-  et du catalogue existant, puis créer les nouvelles sessions Checkout sans essai. Les abonnements
-  historiques et leurs échéances sont conservés.
-  Validation du contrat courant : 39 tests Flutter ciblés et analyse réussis ; 17 tests dashboard ciblés,
-  TypeScript, lint et build réussis ; site compilé, lint/typecheck et contrôle des pages exportées
-  dans les quatre langues réussis. Les tests Rust/SQL restent à exécuter, faute de Cargo et de
-  PostgreSQL disponibles sur cet hôte. Aucun script shell testé, aucune commande Git exécutée.
-- [ ] Redéployer les sources à jour de l'API et du dashboard depuis le bon `HISTAE_ROOT`, puis
-  vérifier `offers` dans `/api/plans`, `subscription_offers` dans les métriques et les trois cartes
-  dans la nouvelle compilation Flutter. Cette mise à jour ne nécessite pas d'effacement des données ;
-  un nettoyage volontaire des seules données de développement reste indépendant. Exécuter aussi
-  les tests PostgreSQL `admin_metrics_postgres` sur la base
-  de développement dédiée avant livraison.
-- [x] Préparer les pages statiques de retour succès/annulation/portail dans `histae-site`, dans les
-  quatre langues, avec trois entrées `https://www.histae.com/billing/…` choisissant la langue du
-  navigateur, et aligner les trois URL du `.env` local API/Flutter sur ces entrées.
-  Le retour est manuel dans l'app ; seul le GET d'abonnement authentifié confirme les droits.
-- [ ] Publier le site, reporter les trois URL dans le `.env` du serveur et recréer l'API. Vérifier les
-  redirections HTTPS vers `www`, le choix des langues (dont italien et langue non prise en charge),
-  la conservation du paramètre de succès et les en-têtes de confidentialité.
-- [ ] Configurer Checkout et le portail client, puis valider le retour dans Flutter sur téléphone,
-  y compris annulation, portail sans changement, webhook retardé et fermeture complète de l'app.
-  Le retour de succès contient `{CHECKOUT_SESSION_ID}` ; `BILLING_ENABLED=false` reste en place
-  avant la validation en mode test et une compilation adaptée à la distribution retenue.
-- [ ] Enregistrer POST `/api/billing/stripe/webhook` et les événements pris en charge par le contrat,
-  en préservant le corps brut et `Stripe-Signature`.
-- [ ] Valider d'abord en sandbox les paiements, essai, renouvellement, échec, résiliation, rejeu,
-  ordre des événements, réconciliation et effacement ; terminer par la validation live contrôlée
-  du périmètre retenu et documenter les résultats.
-- [ ] Vérifier que le client relit l'état serveur et que les droits Premium ne reposent pas uniquement
-  sur la redirection de paiement.
+- [x] Implémenter les vérifications serveur Apple/Google, la liaison immuable au compte Histae,
+  les droits indépendants de Stripe, la restauration et l’acquittement Google durable.
+- [x] Ajouter le parcours site UUID + téléphone correspondant → OTP → session cookie → Stripe.
+  Les anciennes routes mobiles Checkout/portail refusent désormais avec `410 billing_web_only`.
+- [x] Afficher les prix du SDK dans Flutter, ajouter achats/restauration/gestion native et conserver
+  les catalogues de fonctionnalités traduits. Les prix Stripe ne sont pas des prix de store.
+- [x] Ajouter le suivi des stores et les rapports financiers normalisés dans le dashboard,
+  avec import réservé au superadmin et totaux séparés par fournisseur/devise.
+- [x] Exécuter les validations locales avec doubles fournisseur, PostgreSQL jetable et navigateurs.
+  Résultats et limites : [Tests](tests/README.md#achats-multicanaux).
+- [ ] Configurer les produits dans les consoles (pris en charge par le propriétaire du projet) :
+  deux produits Apple dans un groupe sans partage familial, un produit Google avec deux base plans,
+  sans essais/offres promotionnelles pour le parcours implémenté. Vérifier les prix des stores.
+- [ ] Renseigner les identifiants et credentials serveur Apple/Google, les accès Play Developer API,
+  les notifications Apple V2 et le push RTDN/PubSub avec OIDC ; aucun secret dans Flutter.
+- [ ] Configurer les deux Prices Stripe du site (5 EUR/mois et 48 EUR/an), le portail client,
+  les retours HTTPS et le webhook `/api/billing/stripe/webhook` avec sa signature.
+- [ ] Déployer migrateur, API, worker, maintenance et vérificateur privé, puis site/proxy/dashboard.
+  Vérifier `/api/web/billing/*` sur la même origine que le site, sans cache Cloudflare ni journalisation
+  du corps/cookie ; les callbacks fournisseur doivent passer sans challenge navigateur.
+- [ ] Tester UUID/téléphone incorrects sans SMS, OTP invalide/rejoué, expiration/logout global,
+  reprise après réponse perdue et achat/gestion Stripe en environnement test.
+- [ ] Tester sur appareils Sandbox/Play test/TestFlight : achat, restauration, renouvellement,
+  grâce, hold, annulation, remboursement, webhook retardé, app fermée et panne réseau.
+  Vérifier refus de réattribution, rejeu d’un token remplacé et absence de double facturation.
+- [ ] Activer `BILLING_ENABLED` dans la compilation Flutter seulement après ces essais ;
+  séparer strictement les comptes, secrets et environnements test/live.
+- [ ] Vérifier les alertes d’acquittement/réconciliation, un import de rapport réellement normalisé,
+  les remboursements et la séparation des devises/revenus Stripe.
+- [ ] Faire valider les textes de vente/confidentialité actualisés, les rétentions des preuves
+  et rapports ainsi que les procédures de résiliation et d’effacement, puis publier les versions approuvées.
 
-**Clôture :** produit/prix et parcours clients sont cohérents ; les événements Stripe mettent à jour
-les droits, la réconciliation reprend les écarts et l'effacement conserve ses checkpoints.
+**Clôture :** les achats et événements réels sont validés sur chaque canal activé ; les droits sont
+confirmés par le serveur, les incidents repris et la gestion/résiliation expliquée aux utilisateurs.
 
-Références : [Tarifs et Stripe](docs/configuration.md#tarifs-du-catalogue-et-stripe),
-[Contrat Stripe](docs/http-contract.md#webhook-stripe), [Livraison](docs/production-readiness.md).
+Références : [Guide des achats](docs/store-billing.md), [Stripe](docs/billing.md),
+[Contrat](docs/http-contract.md#abonnement), [Livraison](docs/production-readiness.md).
 
 ## PROD-09 — Administration WebAuthn
 

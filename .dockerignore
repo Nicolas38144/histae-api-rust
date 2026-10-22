@@ -13,3 +13,5 @@ docs
 *.key
 **/__pycache__
 **/.pytest_cache
+
+services/store-verifier/node_modules

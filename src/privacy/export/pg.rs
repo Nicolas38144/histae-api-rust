@@ -106,7 +106,7 @@ impl PgDataExportStore {
                              to_char(provider_event_created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END,
                            'updated_at', to_char(updated_at AT TIME ZONE 'UTC',
                              'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'))
-                         FROM user_subscription WHERE user_id = $1",
+                         FROM effective_user_subscription WHERE user_id = $1",
                         user_id,
                     )
                     .await?;
@@ -136,6 +136,11 @@ impl PgDataExportStore {
                          FROM device_token WHERE user_id=$1
                            AND ($2::timestamptz IS NULL OR (created_at,id)>($2::timestamptz,$3::uuid))
                          ORDER BY created_at,id LIMIT $4").await?;
+                    self.write_uuid_timestamp_pages(&mut transaction, writer, "store_subscriptions", user_id, page_size,
+                        "SELECT to_jsonb(s)-'user_id'-'reference_encrypted'-'account_id' AS value,
+                            verified_at::text AS cursor_at,id AS cursor_id FROM billing_store_subscription s WHERE user_id=$1
+                            AND ($2::timestamptz IS NULL OR (verified_at,id)>($2::timestamptz,$3::uuid))
+                            ORDER BY verified_at,id LIMIT $4").await?;
                     self.write_mobile_sessions(&mut transaction, writer, user_id, page_size)
                         .await?;
                     let discovery_rows = self

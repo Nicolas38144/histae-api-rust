@@ -1,4 +1,5 @@
 mod domain;
+#[cfg(feature = "webauthn-probe")]
 pub mod http;
 mod pg;
 mod service;

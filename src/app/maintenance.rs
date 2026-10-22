@@ -50,6 +50,15 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
             tracker,
             config.billing.clone(),
         );
+        if config.store_billing.apple_enabled || config.store_billing.google_enabled {
+            crate::billing::stores::pg::StoreRepository::new(
+                database.clone(),
+                config.phone.encryption_key.clone(),
+            )
+            .schedule()
+            .await
+            .map_err(|_| "store_reconciliation_schedule_failed")?;
+        }
         let now = Utc::now();
         let (match_result, privacy_result, photo_result, billing_result) = tokio::join!(
             matches.run_once(now),

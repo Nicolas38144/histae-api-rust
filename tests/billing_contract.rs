@@ -1,14 +1,13 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
-use histae_api_rust::billing::domain::{BillingPeriod, CheckoutSessionView, SubscriptionView};
+use histae_api_rust::billing::domain::SubscriptionView;
 use histae_api_rust::billing::http::{
     BillingHttpFuture, BillingHttpState, BillingUseCases, routes,
 };
-use histae_api_rust::billing::service::BillingError;
 use histae_api_rust::config::{Environment, JwtConfig, LimitPolicy, SecretString, TrustProxy};
 use histae_api_rust::http::health::{DependencyProbe, ProbeFuture, Readiness};
 use histae_api_rust::http::rate_limit::RateLimiter;
@@ -21,7 +20,6 @@ use histae_api_rust::identity::mobile::http::MobileAuthState;
 use histae_api_rust::identity::mobile::service::MobileAuthService;
 use histae_api_rust::identity::mobile::store::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::tokens::{NewRefreshToken, TokenService};
-use histae_api_rust::infra::postgres::DatabaseError;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use uuid::Uuid;
@@ -119,62 +117,16 @@ impl MobileSessionStore for AuthStore {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct CheckoutCall {
-    user_id: Uuid,
-    period: BillingPeriod,
-    idempotency_key: Option<String>,
-}
-
 #[derive(Clone)]
-struct FakeBilling {
-    checkout_error: Option<BillingError>,
-    calls: Arc<Mutex<Vec<CheckoutCall>>>,
-}
-
+struct FakeBilling;
 impl FakeBilling {
     fn successful() -> Self {
-        Self {
-            checkout_error: None,
-            calls: Arc::new(Mutex::new(Vec::new())),
-        }
+        Self
     }
 }
-
 impl BillingUseCases for FakeBilling {
     fn subscription(&self, _user_id: Uuid) -> BillingHttpFuture<'_, SubscriptionView> {
         Box::pin(async { Ok(SubscriptionView::free(false)) })
-    }
-
-    fn create_checkout(
-        &self,
-        user_id: Uuid,
-        billing_period: BillingPeriod,
-        idempotency_key: Option<&str>,
-    ) -> BillingHttpFuture<'_, CheckoutSessionView> {
-        let error = self.checkout_error;
-        let key = idempotency_key.map(str::to_owned);
-        if let Ok(mut calls) = self.calls.lock() {
-            calls.push(CheckoutCall {
-                user_id,
-                period: billing_period,
-                idempotency_key: key,
-            });
-        }
-        Box::pin(async move {
-            if let Some(error) = error {
-                return Err(error);
-            }
-            Ok(CheckoutSessionView {
-                session_id: "cs_test_contract".to_owned(),
-                url: "https://checkout.stripe.test/session".to_owned(),
-                expires_at: "2026-09-29T12:30:00.000Z".to_owned(),
-            })
-        })
-    }
-
-    fn create_portal(&self, _user_id: Uuid) -> BillingHttpFuture<'_, String> {
-        Box::pin(async { Ok("https://billing.stripe.test/portal".to_owned()) })
     }
 }
 
@@ -189,7 +141,7 @@ fn jwt_config() -> JwtConfig {
     }
 }
 
-fn app(service: Arc<dyn BillingUseCases>, billing_max: u64) -> (axum::Router, String) {
+fn app(service: Arc<dyn BillingUseCases>) -> (axum::Router, String) {
     let tokens = TokenService::new(jwt_config());
     let auth = MobileAuthService::new(
         tokens.clone(),
@@ -204,12 +156,8 @@ fn app(service: Arc<dyn BillingUseCases>, billing_max: u64) -> (axum::Router, St
         max: 100,
         window: Duration::from_secs(60),
     };
-    let billing_policy = LimitPolicy {
-        max: billing_max,
-        window: Duration::from_secs(60),
-    };
     let auth_state = MobileAuthState::new(auth, limiter.clone(), global_policy.clone());
-    let billing_state = BillingHttpState::new(service, limiter.clone(), billing_policy);
+    let billing_state = BillingHttpState::new(service);
     let readiness = Readiness::new(Arc::new(Probe), Arc::new(Probe), Arc::new(Probe));
     let http_state = HttpState::new(
         readiness,
@@ -238,7 +186,7 @@ async fn json_response(response: axum::response::Response) -> Value {
 
 #[tokio::test]
 async fn requires_mobile_authentication() {
-    let (app, _) = app(Arc::new(FakeBilling::successful()), 10);
+    let (app, _) = app(Arc::new(FakeBilling::successful()));
     let response = app
         .oneshot(
             Request::builder()
@@ -252,12 +200,10 @@ async fn requires_mobile_authentication() {
 }
 
 #[tokio::test]
-async fn exposes_subscription_checkout_and_portal_contracts() {
+async fn exposes_effective_subscription_but_retires_mobile_stripe_mutations() {
     let billing = FakeBilling::successful();
-    let calls = Arc::clone(&billing.calls);
-    let (app, token) = app(Arc::new(billing), 10);
-
-    let subscription = app
+    let (app, token) = app(Arc::new(billing));
+    let response = app
         .clone()
         .oneshot(authenticated(
             "/api/users/me/subscription",
@@ -267,181 +213,33 @@ async fn exposes_subscription_checkout_and_portal_contracts() {
             None,
         ))
         .await
-        .unwrap_or_else(|_| unreachable!());
-    assert_eq!(subscription.status(), StatusCode::OK);
-    assert_eq!(
-        json_response(subscription).await,
-        json!({
-            "plan":"free","provider":null,"status":null,"access_granted":false,
-            "billing_period":null,"cancel_at_period_end":false,
-            "current_period_starts_at":null,"current_period_ends_at":null,
-            "trial_ends_at":null,"canceled_at":null,"customer_portal_available":false
-        })
-    );
-
-    let key = Uuid::new_v4().hyphenated().to_string();
-    let checkout = app
-        .clone()
-        .oneshot(authenticated(
-            "/api/users/me/subscription/checkout",
-            "POST",
-            &token,
-            Some(json!({"billing_period":"annual"})),
-            Some(&key),
-        ))
-        .await
-        .unwrap_or_else(|_| unreachable!());
-    assert_eq!(checkout.status(), StatusCode::CREATED);
-    assert_eq!(
-        json_response(checkout).await,
-        json!({
-            "session_id":"cs_test_contract",
-            "url":"https://checkout.stripe.test/session",
-            "expires_at":"2026-09-29T12:30:00.000Z"
-        })
-    );
-    {
-        let recorded = calls.lock().unwrap_or_else(|_| unreachable!());
-        assert_eq!(recorded.len(), 1);
-        assert_eq!(recorded[0].user_id, user_id());
-        assert_eq!(recorded[0].period, BillingPeriod::Annual);
-        assert_eq!(recorded[0].idempotency_key.as_deref(), Some(key.as_str()));
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_response(response).await;
+    assert_eq!(body["plan"], "free");
+    assert_eq!(body["access_granted"], false);
+    assert!(body["management_url"].is_null());
+    for path in [
+        "/api/users/me/subscription/checkout",
+        "/api/users/me/subscription/portal",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(authenticated(
+                path,
+                "POST",
+                &token,
+                Some(json!({"billing_period":"annual"})),
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::GONE);
+        assert_eq!(
+            json_response(response).await["error"]["code"],
+            "billing_web_only"
+        );
     }
-
-    let portal = app
-        .oneshot(authenticated(
-            "/api/users/me/subscription/portal",
-            "POST",
-            &token,
-            None,
-            None,
-        ))
-        .await
-        .unwrap_or_else(|_| unreachable!());
-    assert_eq!(portal.status(), StatusCode::CREATED);
-    assert_eq!(
-        json_response(portal).await,
-        json!({"url":"https://billing.stripe.test/portal"})
-    );
-}
-
-#[tokio::test]
-async fn rejects_unknown_fields_and_maps_missing_resources() {
-    let missing = FakeBilling {
-        checkout_error: Some(BillingError::AccountNotFound),
-        calls: Arc::new(Mutex::new(Vec::new())),
-    };
-    let (app, token) = app(Arc::new(missing), 10);
-    let key = Uuid::new_v4().hyphenated().to_string();
-    let invalid = app
-        .clone()
-        .oneshot(authenticated(
-            "/api/users/me/subscription/checkout",
-            "POST",
-            &token,
-            Some(json!({"billing_period":"monthly","price_id":"price_client"})),
-            Some(&key),
-        ))
-        .await
-        .unwrap_or_else(|_| unreachable!());
-    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(
-        json_response(invalid).await["error"]["code"],
-        "invalid_checkout_payload"
-    );
-
-    let missing_response = app
-        .oneshot(authenticated(
-            "/api/users/me/subscription/checkout",
-            "POST",
-            &token,
-            Some(json!({"billing_period":"monthly"})),
-            Some(&key),
-        ))
-        .await
-        .unwrap_or_else(|_| unreachable!());
-    assert_eq!(missing_response.status(), StatusCode::NOT_FOUND);
-    assert_eq!(
-        json_response(missing_response).await["error"]["code"],
-        "account_not_found"
-    );
-}
-
-#[tokio::test]
-async fn enforces_the_dedicated_billing_rate_limit() {
-    let (app, token) = app(Arc::new(FakeBilling::successful()), 1);
-    let first = app
-        .clone()
-        .oneshot(authenticated(
-            "/api/users/me/subscription/portal",
-            "POST",
-            &token,
-            None,
-            None,
-        ))
-        .await
-        .unwrap_or_else(|_| unreachable!());
-    assert_eq!(first.status(), StatusCode::CREATED);
-    let second = app
-        .oneshot(authenticated(
-            "/api/users/me/subscription/portal",
-            "POST",
-            &token,
-            None,
-            None,
-        ))
-        .await
-        .unwrap_or_else(|_| unreachable!());
-    assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(
-        json_response(second).await["error"]["code"],
-        "billing_rate_limit_exceeded"
-    );
-}
-
-#[tokio::test]
-async fn maps_invalid_idempotency_and_database_failures_without_details() {
-    let invalid_key = FakeBilling {
-        checkout_error: Some(BillingError::InvalidIdempotencyKey),
-        calls: Arc::new(Mutex::new(Vec::new())),
-    };
-    let (invalid_app, token) = app(Arc::new(invalid_key), 10);
-    let invalid = invalid_app
-        .oneshot(authenticated(
-            "/api/users/me/subscription/checkout",
-            "POST",
-            &token,
-            Some(json!({"billing_period":"monthly"})),
-            None,
-        ))
-        .await
-        .unwrap_or_else(|_| unreachable!());
-    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(
-        json_response(invalid).await["error"]["code"],
-        "invalid_idempotency_key"
-    );
-
-    let database_failure = FakeBilling {
-        checkout_error: Some(BillingError::Database(DatabaseError::QueryFailed)),
-        calls: Arc::new(Mutex::new(Vec::new())),
-    };
-    let (database_app, token) = app(Arc::new(database_failure), 10);
-    let database = database_app
-        .oneshot(authenticated(
-            "/api/users/me/subscription/checkout",
-            "POST",
-            &token,
-            Some(json!({"billing_period":"monthly"})),
-            Some(&Uuid::new_v4().hyphenated().to_string()),
-        ))
-        .await
-        .unwrap_or_else(|_| unreachable!());
-    assert_eq!(database.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(
-        json_response(database).await,
-        json!({"error":{"code":"internal_error","message":"The request could not be completed."}})
-    );
 }
 
 fn authenticated(

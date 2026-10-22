@@ -14,6 +14,11 @@ pub struct PrivacyMaintenanceResult {
     pub expired_swipes: u64,
     pub expired_otps: u64,
     pub expired_sms_attempts: u64,
+    pub expired_web_challenges: u64,
+    pub expired_web_sessions: u64,
+    pub expired_store_notifications: u64,
+    pub expired_store_subscriptions: u64,
+    pub expired_store_accounts: u64,
     pub expired_refresh_tokens: u64,
     pub expired_notifications: u64,
     pub expired_consents: u64,
@@ -99,9 +104,24 @@ impl PrivacyMaintenanceResult {
         self.expired_mobile_sessions = self
             .expired_mobile_sessions
             .saturating_add(next.expired_mobile_sessions);
+        self.expired_web_challenges = self
+            .expired_web_challenges
+            .saturating_add(next.expired_web_challenges);
+        self.expired_web_sessions = self
+            .expired_web_sessions
+            .saturating_add(next.expired_web_sessions);
+        self.expired_store_notifications = self
+            .expired_store_notifications
+            .saturating_add(next.expired_store_notifications);
+        self.expired_store_subscriptions = self
+            .expired_store_subscriptions
+            .saturating_add(next.expired_store_subscriptions);
+        self.expired_store_accounts = self
+            .expired_store_accounts
+            .saturating_add(next.expired_store_accounts);
     }
 
-    fn counts(self) -> [u64; 22] {
+    fn counts(self) -> [u64; 27] {
         [
             self.stale_presences,
             self.expired_presences,
@@ -125,6 +145,11 @@ impl PrivacyMaintenanceResult {
             self.expired_continuation_reservations,
             self.expired_continuation_usage,
             self.expired_sms_attempts,
+            self.expired_web_challenges,
+            self.expired_web_sessions,
+            self.expired_store_notifications,
+            self.expired_store_subscriptions,
+            self.expired_store_accounts,
         ]
     }
 }
@@ -156,7 +181,7 @@ impl PrivacyMaintenanceRepository {
                         return Ok(None);
                     }
                     let limit = i64::from(batch_size);
-                    let mut counts = [0_u64; 22];
+                    let mut counts = [0_u64; 27];
                     for (index, statement) in RETENTION_QUERIES.iter().enumerate() {
                         counts[index] = sqlx::query(statement)
                             .bind(now)
@@ -189,6 +214,11 @@ impl PrivacyMaintenanceRepository {
                         expired_continuation_reservations: counts[19],
                         expired_continuation_usage: counts[20],
                         expired_sms_attempts: counts[21],
+                        expired_web_challenges: counts[22],
+                        expired_web_sessions: counts[23],
+                        expired_store_notifications: counts[24],
+                        expired_store_subscriptions: counts[25],
+                        expired_store_accounts: counts[26],
                     }))
                 })
             })
@@ -196,7 +226,7 @@ impl PrivacyMaintenanceRepository {
     }
 }
 
-const RETENTION_QUERIES: [&str; 22] = [
+const RETENTION_QUERIES: [&str; 27] = [
     "WITH stale AS (
        SELECT user_id FROM user_presence
        WHERE is_location_fresh = true AND updated_at <= $1 - INTERVAL '1 hour'
@@ -282,6 +312,11 @@ const RETENTION_QUERIES: [&str; 22] = [
     "DELETE FROM sms_send_attempt WHERE delivery_id IN (
        SELECT delivery_id FROM sms_send_attempt WHERE reserved_at <= $1 - interval '25 hours'
        ORDER BY reserved_at LIMIT $2)",
+    "DELETE FROM web_billing_challenge WHERE id IN (SELECT id FROM web_billing_challenge WHERE expires_at <= $1 ORDER BY expires_at,id LIMIT $2)",
+    "DELETE FROM web_billing_session WHERE token_hash IN (SELECT token_hash FROM web_billing_session WHERE expires_at <= $1 ORDER BY expires_at,token_hash LIMIT $2)",
+    "DELETE FROM billing_store_notification WHERE id IN (SELECT id FROM billing_store_notification WHERE processed_at <= $1 - interval '7 days' OR received_at <= $1 - interval '90 days' ORDER BY received_at,id LIMIT $2)",
+    "DELETE FROM billing_store_subscription WHERE id IN (SELECT id FROM billing_store_subscription WHERE expires_at <= $1 - interval '400 days' AND next_check_at <= $1 ORDER BY expires_at,id LIMIT $2)",
+    "DELETE FROM billing_store_account WHERE id IN (SELECT a.id FROM billing_store_account a WHERE a.user_id IS NULL AND a.created_at <= $1 - interval '400 days' AND NOT EXISTS(SELECT 1 FROM billing_store_subscription s WHERE s.account_id=a.id) ORDER BY a.created_at,a.id LIMIT $2)",
 ];
 
 #[derive(Clone)]
@@ -372,6 +407,6 @@ mod tests {
         };
         assert_eq!(result.processed(), 6);
         assert_eq!(result.maximum(), 3);
-        assert_eq!(RETENTION_QUERIES.len(), 22);
+        assert_eq!(RETENTION_QUERIES.len(), 27);
     }
 }

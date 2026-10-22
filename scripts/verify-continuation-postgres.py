@@ -14,7 +14,7 @@ TESTS = (
     "matches_postgres", "privacy_rights_postgres", "account_erasure_postgres",
     "administration_reports_postgres", "billing_postgres",
     "maintenance_outbox_postgres", "notifications_postgres",
-    "discovery_postgres", "profiles_postgres", "catalog_postgres", "otp_delivery", "localization_postgres",
+    "discovery_postgres", "profiles_postgres", "catalog_postgres", "otp_delivery", "localization_postgres", "store_billing_postgres",
 )
 
 
@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--api-image", default="histae-api:local")
     parser.add_argument("--postgres-image", default="histae-postgres:18.6-postgis3.6.4")
     parser.add_argument("--test", action="append", choices=TESTS)
+    parser.add_argument("--native-migrator", type=Path, help="Use a freshly built local db-migrate binary over the published loopback port")
     parser.add_argument("--sudo-docker", action="store_true", help="Use sudo for Docker only, keep Cargo unprivileged")
     args = parser.parse_args()
     docker_command = ["sudo", "docker"] if args.sudo_docker else ["docker"]
@@ -78,18 +79,27 @@ def main():
                 time.sleep(1)
             else:
                 raise RuntimeError("Isolated PostgreSQL readiness timed out")
-            # Use the shipped binary and the limited migrator, with TCP/SCRAM.
+            port = docker("port", name, "5432/tcp").split(":")[-1]
+            def migrate():
+                if args.native_migrator:
+                    environment = os.environ.copy()
+                    environment.update(runtime, POSTGRES_PORT=port)
+                    result = subprocess.run([str(args.native_migrator.resolve())], cwd=ROOT, env=environment)
+                    if result.returncode:
+                        raise RuntimeError("Native migration verification failed")
+                else:
+                    docker("run", "--rm", "--network", f"container:{name}",
+                           "--env-file", str(directory / "migrate.env"), "--user", "1000:1000",
+                           "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+                           "--entrypoint", "/app/bin/db-migrate", args.api_image)
             for _ in range(2):
-                docker("run", "--rm", "--network", f"container:{name}",
-                       "--env-file", str(directory / "migrate.env"), "--user", "1000:1000",
-                       "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-                       "--entrypoint", "/app/bin/db-migrate", args.api_image)
+                migrate()
             def query(statement, role="histae_app"):
                 return docker("exec", "-i", name, "sh", "-ec",
                     'case "$1" in histae_app) export PGPASSWORD="$HISTAE_BOOTSTRAP_APP_PASSWORD" ;; histae_migrate) export PGPASSWORD="$HISTAE_BOOTSTRAP_MIGRATE_PASSWORD" ;; *) exit 2 ;; esac; exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d histae-dev',
                     "sh", role, input_text=statement)
 
-            # Simulate the pre-credit/pre-pause schema, then prove the upgrade and
+            # Simulate the pre-store/pre-credit/pre-pause schema, then prove the upgrade and
             # that a repeated migration preserves choices made under the new rules.
             first, second, match_id = [str(uuid.uuid4()) for _ in range(3)]
             query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{first}','legacy-credit-first',''::bytea),('{second}','legacy-credit-second',''::bytea); "
@@ -98,16 +108,15 @@ def main():
                   f"INSERT INTO continuation_usage(user_id,week_start,used_count,free_used_count) VALUES ('{first}',date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date,2,2);")
             assert query("SELECT NOT EXISTS (SELECT 1 FROM trait CROSS JOIN (VALUES('en'),('es'),('it')) langs(language) WHERE NOT EXISTS (SELECT 1 FROM trait_translation t WHERE t.trait_id=trait.id AND t.language=langs.language)) AND NOT EXISTS (SELECT 1 FROM profile_question CROSS JOIN (VALUES('en'),('es'),('it')) langs(language) WHERE NOT EXISTS (SELECT 1 FROM profile_question_translation t WHERE t.question_id=profile_question.id AND t.language=langs.language));") == "t"
             assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
+            query(f"INSERT INTO user_subscription(user_id,plan,provider,provider_subscription_id,status) VALUES ('{first}','free','stripe','sub_LegacyStoreMigration','canceled') ON CONFLICT(user_id) DO UPDATE SET plan='free',provider='stripe',provider_subscription_id='sub_LegacyStoreMigration',status='canceled';")
+            query("DROP VIEW effective_user_subscription; DROP FUNCTION effective_subscription_at(uuid,timestamptz); DROP TABLE billing_store_subscription,billing_store_notification,billing_store_finance,billing_store_account,web_billing_challenge,web_billing_session;", "histae_migrate")
             query("DROP TABLE continuation_reservation,advertising_reward_intent,continuation_wallet; ALTER TABLE continuation_usage DROP COLUMN free_used_count; ALTER TABLE user_account DROP COLUMN discovery_paused, DROP COLUMN preferred_language; ALTER TABLE device_token DROP COLUMN language; ALTER TABLE user_consent DROP COLUMN document_language; ALTER TABLE otp_verification DROP COLUMN language; DROP TABLE trait_translation, profile_question_translation, subscription_plan_translation, subscription_plan_feature_translation;", "histae_migrate")
             query("UPDATE profile_question SET prompt='Question personnalisée avant migration ?' WHERE id='51000000-0000-4000-8000-000000000001';")
-            def migrate():
-                docker("run", "--rm", "--network", f"container:{name}",
-                       "--env-file", str(directory / "migrate.env"), "--user", "1000:1000",
-                       "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-                       "--entrypoint", "/app/bin/db-migrate", args.api_image)
             migrate()
             assert query("SELECT count(*) FROM profile_question_translation WHERE question_id='51000000-0000-4000-8000-000000000001';") == "0"
             query("UPDATE profile_question SET prompt='À quoi ressemble ton dimanche idéal ?' WHERE id='51000000-0000-4000-8000-000000000001';")
+            assert query("SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename IN ('billing_store_account','billing_store_subscription','billing_store_notification','billing_store_finance','web_billing_challenge','web_billing_session');") == "6"
+            assert query(f"SELECT provider||':'||provider_subscription_id FROM effective_user_subscription WHERE user_id='{first}';") == "stripe:sub_LegacyStoreMigration"
             assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
             assert query(f"SELECT used_count||':'||free_used_count FROM continuation_usage WHERE user_id='{first}';") == "2:2"
             assert query(f"SELECT count(*) FROM match_state WHERE match_id='{match_id}' AND continued;") == "0"
@@ -127,7 +136,7 @@ def main():
             assert query(f"SELECT count(*) FROM continuation_reservation WHERE match_id='{match_id}';") == "1"
             assert query(f"SELECT used_count||':'||free_used_count FROM continuation_usage WHERE user_id='{first}';") == "2:2"
             query(f"DELETE FROM user_account WHERE user_id IN ('{first}','{second}');")
-            print("Legacy quota/pause/language migrations and repeated upgrade passed.", flush=True)
+            print("Legacy billing/quota/pause/language migrations and repeated upgrade passed.", flush=True)
             port = docker("port", name, "5432/tcp").split(":")[-1]
             runtime.update(POSTGRES_PORT=port, POSTGRES_USER="histae_app", POSTGRES_PASSWORD=app_password)
             environment = os.environ.copy()

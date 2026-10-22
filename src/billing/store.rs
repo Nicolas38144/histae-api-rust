@@ -53,6 +53,18 @@ impl fmt::Display for BillingStoreError {
 impl std::error::Error for BillingStoreError {}
 
 pub trait BillingStore: Send + Sync {
+    fn effective_subscription_for_user(
+        &self,
+        user_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> BillingStoreFuture<'_, Option<super::domain::SubscriptionView>> {
+        Box::pin(async move {
+            Ok(self
+                .subscription_for_user(user_id)
+                .await?
+                .map(|row| super::domain::SubscriptionView::from_row(row, now, false)))
+        })
+    }
     fn prepare_checkout_request(
         &self,
         attempt_id: Uuid,

@@ -204,7 +204,10 @@ impl Database {
         verify_schema_compatibility_on(&mut connection).await?;
         let sms_safety_ready: bool = sqlx::query_scalar(
             "SELECT to_regclass(current_schema() || '.sms_send_control') IS NOT NULL
-                AND to_regclass(current_schema() || '.sms_send_attempt') IS NOT NULL",
+                AND to_regclass(current_schema() || '.sms_send_attempt') IS NOT NULL
+                AND to_regclass(current_schema() || '.billing_store_subscription') IS NOT NULL
+                AND to_regclass(current_schema() || '.effective_user_subscription') IS NOT NULL
+                AND to_regclass(current_schema() || '.web_billing_session') IS NOT NULL",
         )
         .fetch_one(&mut *connection)
         .await

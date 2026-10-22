@@ -400,3 +400,7 @@ par défaut) restent appliqués même sans supervision. Une reprise ne réinitia
 Le seuil de pic est configurable via `SMS_ALERT_SPIKE_5M`. Le panneau Grafana complète la lecture
 avec les compteurs globaux ; agréger les copies inter-instances avec `max`, pas `sum`.
 Voir le [guide complet](sms-safety.md) pour le mode secours et les limites de preuve.
+
+## Achats natifs
+
+File outbox `store_billing`, acquittements Google et relectures en retard : [runbook](store-billing.md#operations).

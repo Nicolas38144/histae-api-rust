@@ -6,7 +6,7 @@
 
 | Fichier | Usage |
 | --- | --- |
-| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 54 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
+| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 60 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
 | [002_insert_postgres.sql](../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
 | [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
 | [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
@@ -70,7 +70,7 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --
 Ajouter l’override proxy s’il est utilisé. En production, employer les fichiers d’environnement et
 Compose de production. La mise à jour de PostgreSQL implique un bref redémarrage ; le migrateur doit
 terminer avant le démarrage de la nouvelle API. Une sauvegarde contenant PostGIS doit être restaurée
-sur un serveur disposant de cette extension. Le test local de restauration compte désormais 55 tables publiques.
+sur un serveur disposant de cette extension. Le schéma actuel comporte 61 tables publiques ; le test de restauration doit retrouver ce nombre.
 
 Le migrateur ne transforme pas automatiquement une base arbitraire. Modifier le fichier de schéma ne suffit
 pas à modifier une base existante : toute évolution doit aussi avoir son chemin de mise à niveau et ses tests.
@@ -139,8 +139,8 @@ Il effectue un dump au format custom, restaure dans une base temporaire, compare
 public et le nombre de tables, puis supprime base temporaire et archive. Le rôle doit pouvoir créer une base.
 Il choisit Docker direct ou `sudo` selon l’accès disponible.
 
-`Development backup/restore verification passed (55 public tables)` confirme cette restauration technique
-sur le schéma actuel : 54 tables applicatives et la table spatiale de PostGIS.
+`Development backup/restore verification passed (61 public tables)` confirme cette restauration technique
+sur le schéma actuel : 60 tables applicatives et la table spatiale de PostGIS.
 Le script ne conserve pas de sauvegarde, ne compare pas toutes les données et ne teste pas la reprise du S3,
 des certificats ou des fournisseurs.
 
@@ -209,3 +209,14 @@ clés étrangères en cascade aux traits, questions, plans et fonctionnalités. 
 installations existantes et insère les traductions initiales sans remplacer les textes déjà présents.
 L’effacement réinitialise la langue du compte ; l’export inclut les préférences et la langue documentaire.
 Voir [Internationalisation](internationalization.md).
+
+## Projections de paiement et sessions du site
+
+`user_subscription` conserve Stripe et les attributions manuelles. `billing_store_account` / `_subscription`
+portent les liaisons et projections natives ; `_notification` est l’inbox dédupliquée, `_finance` les
+lignes financières importées. `effective_subscription_at` et `effective_user_subscription` réunissent les
+sources sans permettre à une projection de supprimer les droits valides d’une autre.
+`web_billing_challenge` et `web_billing_session` ne créent aucun compte. Le migrateur introduit ces objets
+sur les bases existantes sans réinitialisation. Les mots de passe des rôles PostgreSQL restent inchangés.
+Les nouveaux objets suivent les grants par défaut du migrateur ; le runtime ne possède pas le schéma.
+Voir [rétention et effacement](store-billing.md#donnees-personnelles).

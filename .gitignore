@@ -5,3 +5,5 @@
 /.maintenance-*.lock
 /tools/photo-codec/node_modules/
 **/__pycache__/
+
+/services/store-verifier/node_modules/

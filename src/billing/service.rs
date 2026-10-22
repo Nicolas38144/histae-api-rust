@@ -103,14 +103,18 @@ impl BillingService {
 
     pub async fn subscription(&self, user_id: Uuid) -> Result<SubscriptionView, BillingError> {
         let (subscription, customer) = tokio::join!(
-            self.store.subscription_for_user(user_id),
+            self.store
+                .effective_subscription_for_user(user_id, self.clock.now()),
             self.store.customer_for_user(user_id)
         );
         let subscription = subscription.map_err(map_store_error)?;
         let customer = customer.map_err(map_store_error)?;
         let portal = self.config.provider == BillingProvider::Stripe && customer.is_some();
         Ok(match subscription {
-            Some(row) => SubscriptionView::from_row(row, self.clock.now(), portal),
+            Some(mut view) => {
+                view.customer_portal_available = portal;
+                view
+            }
             None => SubscriptionView::free(portal),
         })
     }

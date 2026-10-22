@@ -1,11 +1,17 @@
 name: histae-api-rust
 
+x-store-secret-suppression: &store-secret-suppression
+  APP_STORE_PRIVATE_KEY: ""
+  GOOGLE_PLAY_PRIVATE_KEY: ""
+  GOOGLE_PLAY_CLIENT_EMAIL: ""
+
 x-runtime-service: &runtime-service
   image: ${HISTAE_API_IMAGE:-histae-api-rust:local}
   build:
     context: .
   env_file:
     - ${HISTAE_ENV_FILE:-.env}
+  environment: *store-secret-suppression
   init: true
   user: "1000:1000"
   read_only: true
@@ -20,10 +26,57 @@ x-runtime-service: &runtime-service
     options: { max-size: 10m, max-file: "5" }
 
 services:
+  # Official Apple/Google cryptographic adapters; no public port or database access.
+  store-verifier:
+    image: ${HISTAE_STORE_VERIFIER_IMAGE:-histae-store-verifier:local}
+    build: ./services/store-verifier
+    init: true
+    user: "1000:1000"
+    read_only: true
+    tmpfs: [/tmp:size=32m,noexec,nosuid,nodev]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    networks: [backend]
+    expose: ["8080"]
+    mem_limit: 256m
+    cpus: 1.0
+    pids_limit: 64
+    environment:
+      ENV: ${ENV:-development}
+      STORE_VERIFIER_TOKEN: ${STORE_VERIFIER_TOKEN:-}
+      APP_STORE_ENABLED: ${APP_STORE_ENABLED:-false}
+      APP_STORE_ENVIRONMENT: ${APP_STORE_ENVIRONMENT:-}
+      APP_STORE_APP_ID: ${APP_STORE_APP_ID:-}
+      APP_STORE_BUNDLE_ID: ${APP_STORE_BUNDLE_ID:-}
+      APP_STORE_ISSUER_ID: ${APP_STORE_ISSUER_ID:-}
+      APP_STORE_KEY_ID: ${APP_STORE_KEY_ID:-}
+      APP_STORE_PRIVATE_KEY: ${APP_STORE_PRIVATE_KEY:-}
+      APP_STORE_PREMIUM_MONTHLY_PRODUCT_ID: ${APP_STORE_PREMIUM_MONTHLY_PRODUCT_ID:-}
+      APP_STORE_PREMIUM_ANNUAL_PRODUCT_ID: ${APP_STORE_PREMIUM_ANNUAL_PRODUCT_ID:-}
+      GOOGLE_PLAY_ENABLED: ${GOOGLE_PLAY_ENABLED:-false}
+      GOOGLE_PLAY_CLIENT_EMAIL: ${GOOGLE_PLAY_CLIENT_EMAIL:-}
+      GOOGLE_PLAY_PRIVATE_KEY: ${GOOGLE_PLAY_PRIVATE_KEY:-}
+      GOOGLE_PLAY_PACKAGE_NAME: ${GOOGLE_PLAY_PACKAGE_NAME:-}
+      GOOGLE_PLAY_PREMIUM_PRODUCT_ID: ${GOOGLE_PLAY_PREMIUM_PRODUCT_ID:-}
+      GOOGLE_PLAY_MONTHLY_BASE_PLAN_ID: ${GOOGLE_PLAY_MONTHLY_BASE_PLAN_ID:-}
+      GOOGLE_PLAY_ANNUAL_BASE_PLAN_ID: ${GOOGLE_PLAY_ANNUAL_BASE_PLAN_ID:-}
+      GOOGLE_PLAY_PUBSUB_AUDIENCE: ${GOOGLE_PLAY_PUBSUB_AUDIENCE:-}
+      GOOGLE_PLAY_PUBSUB_SERVICE_ACCOUNT: ${GOOGLE_PLAY_PUBSUB_SERVICE_ACCOUNT:-}
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "5" }
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
   migrate:
     <<: *runtime-service
     entrypoint: [/app/bin/db-migrate]
-    environment: { MAINTENANCE_MODE: disabled, METRICS_ENABLED: "false" }
+    environment: { <<: *store-secret-suppression, MAINTENANCE_MODE: disabled, METRICS_ENABLED: "false" }
     restart: "no"
     pids_limit: 128
     mem_limit: 1g
@@ -33,6 +86,7 @@ services:
     <<: *runtime-service
     entrypoint: [/app/bin/api]
     environment:
+      <<: *store-secret-suppression
       PORT: "8080"
       MAINTENANCE_MODE: disabled
       METRICS_HOST: 0.0.0.0
@@ -59,7 +113,7 @@ services:
   outbox-worker:
     <<: *runtime-service
     entrypoint: [/app/bin/outbox]
-    environment: { MAINTENANCE_MODE: worker, METRICS_ENABLED: "false" }
+    environment: { <<: *store-secret-suppression, MAINTENANCE_MODE: worker, METRICS_ENABLED: "false" }
     depends_on:
       migrate: { condition: service_completed_successfully }
     restart: unless-stopped
@@ -71,7 +125,7 @@ services:
     <<: *runtime-service
     profiles: [jobs]
     entrypoint: [/app/bin/maintenance]
-    environment: { MAINTENANCE_MODE: worker, METRICS_ENABLED: "false" }
+    environment: { <<: *store-secret-suppression, MAINTENANCE_MODE: worker, METRICS_ENABLED: "false" }
     depends_on:
       migrate: { condition: service_completed_successfully }
     restart: "no"

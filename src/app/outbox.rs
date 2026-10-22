@@ -79,19 +79,36 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
     let reconciliation = BillingReconciliationService::new(
         reconciliation_store,
         stripe,
-        delivery,
+        delivery.clone(),
         Arc::new(activity.clone()),
         Arc::new(SystemClock),
         config.billing.clone(),
     );
+    let native_billing = Arc::new(
+        crate::billing::stores::StoreBillingService::new(
+            crate::billing::stores::pg::StoreRepository::new(
+                database.clone(),
+                config.phone.encryption_key.clone(),
+            ),
+            Arc::new(
+                crate::billing::stores::StoreVerifier::new(config.store_billing.clone())
+                    .map_err(|_| "store_verifier_invalid")?,
+            ),
+            config.store_billing.clone(),
+        )
+        .with_events(delivery.clone()),
+    );
     let billing_handler = Arc::new(BillingReconciliationHandler::new(reconciliation));
-    let dispatcher = Arc::new(OutboxEventDispatcher::new(
-        photo_handler,
-        push_handler,
-        erasure,
-        billing_handler.clone(),
-        billing_handler,
-    ));
+    let dispatcher = Arc::new(
+        OutboxEventDispatcher::new(
+            photo_handler,
+            push_handler,
+            erasure,
+            billing_handler.clone(),
+            billing_handler,
+        )
+        .with_store_billing(native_billing),
+    );
     let tracker = MaintenanceTracker::new(Arc::new(PgMaintenanceStatusRepository::new(
         database.clone(),
     )));

@@ -357,18 +357,9 @@ pub(super) async fn effective_plan_on(
          FROM subscription_plan AS plan
          WHERE plan.code = COALESCE((
            SELECT subscription.plan
-           FROM user_subscription AS subscription
-           WHERE subscription.user_id = $1
-             AND (
-               subscription.plan = 'free'
-               OR (
-                 (subscription.provider IS NULL AND (subscription.current_period_ends_at IS NULL
-                      OR subscription.current_period_ends_at > $2))
-                 OR (subscription.provider = 'stripe'
-                     AND subscription.status IN ('trialing', 'active', 'past_due')
-                     AND subscription.current_period_ends_at > $2)
-               )
-             )
+           FROM effective_subscription_at($1, $2) AS subscription
+           WHERE subscription.access_granted OR subscription.plan='free'
+             OR (subscription.provider IS NULL AND (subscription.current_period_ends_at IS NULL OR subscription.current_period_ends_at>$2))
          ), 'free')",
     )
     .bind(user_id)

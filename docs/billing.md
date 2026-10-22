@@ -1,4 +1,4 @@
-# Parcours des abonnements Stripe
+# Abonnements Stripe sur le site
 
 [Index](README.md) · [Configuration](configuration.md#tarifs-du-catalogue-et-stripe) · [Contrat HTTP](http-contract.md#abonnement)
 
@@ -57,17 +57,9 @@ sitemap, tout comme les trois points d'entrée, avec `Referrer-Policy: no-referr
 `Cache-Control: no-store` dans le Caddyfile du site.
 Le domaine et le CDN de production doivent conserver ces protections.
 
-Dans le `.env` public Flutter, `BILLING_SUCCESS_URL`, `BILLING_CANCEL_URL` et
-`BILLING_PORTAL_RETURN_URL` reprennent respectivement ces trois valeurs, sans clé secrète Stripe.
-L'app ouvre l'URL Checkout/portail fournie par l'API ; ces champs publics ne remplacent pas les
-paramètres serveur. Aucun app link ou lien universel n'est nécessaire pour ce retour manuel.
-La reprise au premier plan et le bouton de vérification relisent
-`GET /api/users/me/subscription` : `access_granted` reste l'autorité sur les droits Premium.
-Le `.env` mobile conserve `BILLING_ENABLED=false` pour la version courante. Après publication des
-pages, préparer une compilation de test distincte avec `BILLING_ENABLED=true` et l'API de développement
-configurée avec les clés et prix Stripe test. Valider les retours sur téléphone avant d'activer les
-ventes de la version de production. Un changement du `.env` embarqué exige une nouvelle compilation
-de l'app. Les clés test restent dans l'environnement de développement.
+Les applications utilisent désormais les achats Apple/Google. Stripe est réservé au site :
+voir le [guide des achats et de la connexion OTP](store-billing.md). Les anciennes routes mobiles
+Checkout/portail répondent `410 billing_web_only`.
 
 La distinction entre redirection et confirmation serveur suit le
 [guide Stripe Checkout](https://docs.stripe.com/payments/checkout/custom-success-page?payment-ui=stripe-hosted).
@@ -80,10 +72,10 @@ Free (0 EUR, sans périodicité), Premium Mensuel (5 EUR/mois) et Premium Annuel
 Les deux offres Premium ont les mêmes droits, sans période d’essai. Les montants
 affichés restent ceux de l'API ; les cartes n'embarquent pas de prix métier en dur.
 
-Après le choix d'une offre Premium, le client envoie sa `billing_period`, avec son Bearer et une clé UUID v4 :
+Après connexion UUID + téléphone et OTP sur le site, le navigateur envoie sa `billing_period`, avec le cookie de session web, son Origin exact et une clé UUID v4 :
 
 ```http
-POST /api/users/me/subscription/checkout
+POST /api/web/billing/checkout
 Idempotency-Key: <uuid-v4-de-cette-tentative>
 Content-Type: application/json
 
@@ -168,7 +160,7 @@ Stripe renouvelle et prélève l’abonnement selon son Price ; l’API ne lance
 Les événements de facture et d’abonnement mettent à jour les droits. En cas d’échec ou d’action bancaire
 requise, une notification durable peut demander à l’utilisateur de corriger le paiement.
 
-`POST /api/users/me/subscription/portal` renvoie une URL du portail pour le Customer lié : les actions
+`POST /api/web/billing/portal` renvoie une URL du portail pour le Customer lié : les actions
 disponibles dépendent de sa configuration Stripe. Une annulation en fin de période conserve Premium
 jusqu’à l’échéance tant que le statut y ouvre droit. Une annulation effective le retire.
 

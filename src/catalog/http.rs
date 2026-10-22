@@ -101,9 +101,16 @@ async fn list_plans(
     Extension(state): Extension<CatalogHttpState>,
     locale: Locale,
 ) -> Result<Json<PlanCatalog>, ApiError> {
+    localized_plans(&state.service, locale).await.map(Json)
+}
+
+pub(crate) async fn localized_plans(
+    service: &CatalogService,
+    locale: Locale,
+) -> Result<PlanCatalog, ApiError> {
     let locale = locale.anonymous();
     let catalog = locale.catalog(false).await?;
-    let mut plans = state.service.plans().await.map_err(catalog_error)?;
+    let mut plans = service.plans().await.map_err(catalog_error)?;
     for plan in &mut plans {
         if let Some(entry) = catalog.plans.get(&plan.code) {
             plan.display_name = entry.name(locale.language).to_owned();
@@ -140,7 +147,7 @@ async fn list_plans(
             }
         }
     }
-    Ok(Json(response))
+    Ok(response)
 }
 
 #[derive(Serialize)]

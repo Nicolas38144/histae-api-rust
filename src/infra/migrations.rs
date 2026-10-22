@@ -132,6 +132,8 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
     for (source, name) in [
         (SCHEMA, "localization"),
         (SCHEMA, "sms safety"),
+        (SCHEMA, "store billing"),
+        (SCHEMA, "web billing"),
         (SCHEMA, "continuation credits"),
         (SCHEMA, "continuation guards"),
         (SCHEMA, "account anonymization"),
@@ -203,7 +205,8 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
            AND pg_get_constraintdef(oid) LIKE '%admin_promote%'
            AND pg_get_constraintdef(oid) LIKE '%admin_demote%'
            AND pg_get_constraintdef(oid) LIKE '%admin_suspend_sms%'
-           AND pg_get_constraintdef(oid) LIKE '%admin_resume_sms%')",
+           AND pg_get_constraintdef(oid) LIKE '%admin_resume_sms%'
+           AND pg_get_constraintdef(oid) LIKE '%admin_import_store_finance%')",
     )
     .fetch_one(&mut *transaction)
     .await
@@ -218,7 +221,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
              CHECK (action IN (
                'view_profile', 'view_messages', 'view_matches', 'export_data',
                'admin_ban', 'admin_unban', 'admin_promote', 'admin_demote',
-               'admin_suspend_sms', 'admin_resume_sms',
+               'admin_suspend_sms', 'admin_resume_sms', 'admin_import_store_finance',
                'admin_review_report', 'admin_review_dsr', 'admin_reconcile_photo',
                'view_moderation_content', 'admin_review_content',
                'system_anonymize', 'system_export_portability'))",

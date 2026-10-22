@@ -1732,7 +1732,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ billing_period: monthly ou annual } + clé d’idempotence → 201 { session_id, url, expires_at }.\n\nPostman génère un nouvel UUID v4 pour chaque nouvelle tentative. Si la réponse est perdue ou la création Customer incertaine, rejouer avec la clé initiale relevée dans la console Postman : une nouvelle clé peut être refusée.\n\nExpiration Checkout : utiliser expires_at (35 minutes après préparation). Reprendre une requête incertaine avec la même Idempotency-Key ; ses paramètres sont persistés. Un abonnement Stripe non terminé bloque un nouvel achat, même avant réception du webhook ; utiliser le portail client lorsqu’il est disponible."
+                "description": "Route mobile retirée : 410 billing_web_only après authentification. Utiliser le parcours natif dans l’application ou la session OTP du site."
               },
               "response": []
             },
@@ -1762,7 +1762,7 @@
                     }
                   ]
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nAucun corps → 201 { url }."
+                "description": "Route mobile retirée : 410 billing_web_only après authentification. Utiliser le parcours natif dans l’application ou la session OTP du site."
               },
               "response": []
             }
@@ -3847,6 +3847,562 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "Achats stores et paiement du site",
+      "item": [
+        {
+          "name": "GET /api/billing/store-products",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/billing/store-products?provider={{storeProvider}}",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Catalogue technique natif. Prix localisés lus dans le SDK du store, pas dans cette réponse."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/users/me/subscription/purchase-intents",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/users/me/subscription/purchase-intents",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Prépare les identifiants opaques de liaison au compte. Refus si un abonnement ou Checkout doit encore être résolu. Retour 200.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"{{storeProvider}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/users/me/subscription/apple/verify",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/users/me/subscription/apple/verify",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "⚠️ Vérification serveur d’une transaction Apple réelle, liée à ce compte. Retour 204 ; relire l’abonnement. Aucun ID fabriqué ne donne Premium.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference\": \"{{appleTransactionId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/users/me/subscription/google-play/verify",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/users/me/subscription/google-play/verify",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "⚠️ Vérification serveur d’un purchaseToken Google réel, lié à ce compte. Retour 204 ; relire l’abonnement. Token sensible : ne pas exporter.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference\": \"{{googlePurchaseToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/billing/apple/webhook",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/billing/apple/webhook",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Notification V2 JWS signée par Apple ; le placeholder échoue. Dédupliquée, relue depuis le fournisseur puis traitée via outbox.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"signedPayload\": \"{{appleSignedPayload}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/billing/google-play/webhook",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/billing/google-play/webhook",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{googlePubsubOidcToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Notification Pub/Sub authentifiée par un JWT OIDC valide (audience, émetteur et compte de service). Le placeholder échoue.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": {\n    \"messageId\": \"{{googleMessageId}}\",\n    \"data\": \"{{googlePubsubData}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/admin/store-billing",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/admin/store-billing?period=last_30_days",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{adminCookie}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{adminOrigin}}"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Cookie administrateur requis. Sources natives et chiffres issus des rapports importés ; Stripe reste séparé."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/admin/store-billing/finance",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/admin/store-billing/finance",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{adminCookie}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{adminOrigin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "⚠️ Superadmin avec authentification récente. EXEMPLE SYNTHÉTIQUE : remplacer par des lignes normalisées d’un vrai rapport avant import. Montants signés en centimes, devises séparées, 1000 lignes maximum. Rejouer le même rapport/ligne/valeurs est idempotent ; modifier une ligne existante renvoie 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"{{storeProvider}}\",\n  \"report_id\": \"{{storeReportId}}\",\n  \"rows\": [\n    {\n      \"row_id\": \"example-row\",\n      \"paid_at\": \"2026-10-01T00:00:00Z\",\n      \"currency\": \"EUR\",\n      \"gross_cents\": 500,\n      \"net_cents\": null\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/web/billing/otp/send",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/web/billing/otp/send",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{webBillingOtpKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "⚠️ Peut envoyer un SMS si UUID ET téléphone correspondent à un compte actif. Réponse générique 202. Nouvelle intention : nouvelle clé ; réponse perdue : conserver et rejouer la même webBillingOtpKey. Aucun compte créé.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{targetUserId}}\",\n  \"phone_number\": \"{{phoneNumber}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 202) { pm.collectionVariables.set(\"webBillingChallengeId\", pm.response.json().challenge_id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/web/billing/otp/verify",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/web/billing/otp/verify",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Valide le code de CE challenge (5 essais maximum) et pose un cookie HttpOnly pour 30 minutes. Le code ne permet pas une connexion mobile. Le gestionnaire de cookies Postman peut conserver le cookie ; renseigner webBillingCookie manuellement si nécessaire.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challenge_id\": \"{{webBillingChallengeId}}\",\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"otp\": \"{{otp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/web/billing/session",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/web/billing/session",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{webBillingCookie}}"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Session de paiement du site uniquement, avec cookie webBillingCookie. Un JWT mobile ou un cookie admin ne convient pas."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/web/billing/session",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/web/billing/session",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{webBillingCookie}}"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Ferme uniquement la session de paiement courante. Origin exact obligatoire."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/web/billing/plans",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/web/billing/plans",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Offres Stripe du site localisées via Accept-Language. Pas de secret ni de prix natif."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/web/billing/checkout",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/web/billing/checkout",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{webBillingCookie}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{webBillingCheckoutKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "⚠️ Crée une session Stripe uniquement après OTP et consentements courants. Nouvelle intention : nouvelle webBillingCheckoutKey ; réponse incertaine : rejouer la même clé et la même période. Ne donne pas accès avant confirmation fournisseur. Retour 201.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"billing_period\": \"monthly\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/web/billing/portal",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/web/billing/portal",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{webBillingCookie}}"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "⚠️ Ouvre le portail Stripe du compte authentifié par cookie web. Retour 201. Les achats Apple/Google se gèrent dans leur store."
+          },
+          "response": []
+        }
+      ]
     }
   ],
   "variable": [
@@ -4032,6 +4588,71 @@
     },
     {
       "key": "smsSafetyVersion",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "storeProvider",
+      "value": "google_play",
+      "type": "string"
+    },
+    {
+      "key": "appleTransactionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "googlePurchaseToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "appleSignedPayload",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "googleMessageId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "googlePubsubData",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "googlePubsubOidcToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "storeReportId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "webBillingOrigin",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "webBillingCookie",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "webBillingChallengeId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "webBillingOtpKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "webBillingCheckoutKey",
       "value": "",
       "type": "string"
     }

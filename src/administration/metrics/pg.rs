@@ -138,7 +138,7 @@ fn revenue_from_row(row: &PgRow, period: RevenuePeriod) -> Result<AdminRevenue, 
 
 // $1 is the period in both callers. Capture the anchor once, including the Paris
 // calendar boundaries; revenue intentionally also includes deleted accounts.
-const REVENUE_CTES_SQL: &str = r#"
+pub(crate) const REVENUE_CTES_SQL: &str = r#"
 WITH anchor AS MATERIALIZED (
   SELECT clock_timestamp() AS now_utc
 ), bounds AS (
@@ -180,10 +180,7 @@ const METRICS_SQL: &str = r#"
       OR (terms.user_id IS NOT NULL AND privacy.user_id IS NOT NULL))::bigint AS onboarded,
     count(*) FILTER (WHERE account.created_at >= now() - INTERVAL '30 days')::bigint AS created_last_30_days
   FROM user_account account
-  LEFT JOIN user_subscription subscription ON subscription.user_id = account.user_id AND (subscription.plan='free'
-    OR (subscription.provider IS NULL AND (subscription.current_period_ends_at IS NULL OR subscription.current_period_ends_at > clock_timestamp()))
-    OR (subscription.provider='stripe' AND subscription.status IN ('trialing','active','past_due')
-        AND subscription.current_period_ends_at > clock_timestamp()))
+  LEFT JOIN effective_user_subscription subscription ON subscription.user_id = account.user_id AND (subscription.plan='free' OR subscription.access_granted)
   LEFT JOIN user_consent terms ON terms.user_id = account.user_id
     AND terms.consent_type = 'terms_of_service_acceptance' AND terms.granted
     AND terms.withdrawn_at IS NULL AND terms.document_version = $2

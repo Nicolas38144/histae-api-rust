@@ -258,3 +258,8 @@ acceptés sur `TERMS_OF_SERVICE_URL`, `PRIVACY_POLICY_URL`, `SENSITIVE_DATA_CONS
 l’URL française est conservée et `document_language` vaut `fr`.
 Les versions et `LEGAL_REVIEW_REFERENCE` gardent leurs exigences existantes.
 Voir [Internationalisation](internationalization.md) pour la préférence du compte, les appareils et les consentements.
+
+## Achats natifs et session de paiement web
+
+Voir [la liste des nouvelles variables, leurs valeurs par défaut et leur activation](store-billing.md#configuration-et-activation).
+Les secrets Apple/Google sont réservés au service privé ; Stripe reste nécessaire au site.

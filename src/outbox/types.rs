@@ -11,6 +11,9 @@ pub enum OutboxEventType {
     AccountErase,
     BillingSubscriptionReconcile,
     BillingCustomerReconcile,
+    StoreNotification,
+    StoreReconcile,
+    StoreAcknowledge,
     Unsupported(String),
 }
 
@@ -22,6 +25,9 @@ impl OutboxEventType {
             "account.erase" => Self::AccountErase,
             "billing.subscription.reconcile" => Self::BillingSubscriptionReconcile,
             "billing.customer.reconcile" => Self::BillingCustomerReconcile,
+            "billing.store.notification" => Self::StoreNotification,
+            "billing.store.reconcile" => Self::StoreReconcile,
+            "billing.store.acknowledge" => Self::StoreAcknowledge,
             _ => Self::Unsupported(value),
         }
     }
@@ -33,6 +39,9 @@ impl OutboxEventType {
             Self::AccountErase => "account.erase",
             Self::BillingSubscriptionReconcile => "billing.subscription.reconcile",
             Self::BillingCustomerReconcile => "billing.customer.reconcile",
+            Self::StoreNotification => "billing.store.notification",
+            Self::StoreReconcile => "billing.store.reconcile",
+            Self::StoreAcknowledge => "billing.store.acknowledge",
             Self::Unsupported(value) => value,
         }
     }

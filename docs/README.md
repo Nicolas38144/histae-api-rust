@@ -23,6 +23,7 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Rôles PostgreSQL](postgres-roles.md) : comptes séparés, mots de passe dans `.env`, installation et conversion dev.
 - [Administration](administration.md) : premier superadmin, enrôlement, sessions et rôles.
 - [Exploitation](operations.md) : processus, passes de maintenance et incidents de démarrage.
+- [Achats Apple / Google et paiement web](store-billing.md) : configuration, OTP du site, restaurations, rapports et exploitation.
 - [Parcours Stripe](billing.md) : configuration, Checkout, Premium, renouvellements, reprises et revenus.
 - [Continuations et récompenses](continuation-and-rewards.md) : fenêtres, crédits, confidentialité des choix et activation AdMob.
 - [Audit fonctionnel](feature-audit.md) : corrections, contrôles actuels et validations fournisseur restantes.

@@ -37,7 +37,7 @@ transaction. `infra/` fournit les mécanismes communs, pas un repository génér
 | `profiles`, `catalog`, `discovery` | Profils/préférences, traits/questions/plans, feed et swipes |
 | `matches` | Matchs, continuation, messages et échéances |
 | `media`, `moderation` | Photos privées, codec, stockage et modération de contenus |
-| `billing`, `advertising`, `notifications` | Stripe/réconciliation, récompenses AdMob, notifications durables, push et SSE |
+| `billing`, `advertising`, `notifications` | Stripe web, achats Apple/Google et réconciliation, récompenses AdMob, notifications durables, push et SSE |
 | `privacy`, `reports`, `administration` | Consentements/droits/effacement, signalements et gestion admin |
 | `outbox`, `operations`, `shared` | Effets durables, suivi/metrics/logs et fonctions partagées |
 
@@ -56,7 +56,7 @@ L’API est répartie en trois fichiers :
 - `src/app/api/router.rs` construit explicitement les services et monte les routeurs ;
 - `src/app/api/mod.rs` gère les listeners HTTP/métriques et l’arrêt.
 
-`src/app/outbox.rs` assemble les cinq handlers d’effets ; `src/app/maintenance.rs` assemble une passe bornée de
+`src/app/outbox.rs` assemble les handlers d’effets ; `src/app/maintenance.rs` assemble une passe bornée de
 maintenance. Ces compositions restent explicites et distinctes, car leurs besoins et cycles de vie diffèrent.
 Les binaires de migration et de bootstrap ne passent pas par le démarrage de l’API.
 
@@ -71,7 +71,10 @@ en mémoire ne remplace jamais un verrou transactionnel distribué. Les futures 
 - `identity/pg_guards.rs` porte les verrous de compte/consentement des transactions de matchs et de récompenses, ainsi que le verrou ordonné par paire partagé entre création de match et blocage.
 - `identity/admin/webauthn.rs` encapsule la vérification cryptographique.
 - `billing/reconcile/` sépare modèles, ports, service, fournisseur Stripe, PostgreSQL, HTTP et worker.
-- `billing/webhook/pg.rs` isole la projection transactionnelle des événements signés.
+- `billing/webhook/pg.rs` isole la projection transactionnelle des événements Stripe signés.
+- `billing/stores/` sépare règles, ports fournisseur/persistance, service, transactions PostgreSQL, transport HTTP, administration et worker. `services/store-verifier/` valide les preuves Apple/Google sur le réseau privé ; il ne reçoit aucun accès à PostgreSQL.
+- `billing/web/{domain,store,service,pg}.rs` isole le parcours OTP/session du site, ses ports et ses transactions des JWT mobiles. `web/http/` contient uniquement DTO et sécurité du transport. Le paiement web réutilise le service Stripe, sans ouvrir les anciennes routes mobiles Checkout.
+- `billing/stores/administration/domain.rs` porte le modèle et les invariants des rapports financiers ; `pg.rs` conserve le contrôle transactionnel du rôle superadmin, l’import financier idempotent et son audit. Le transport HTTP impose aussi origine et authentification récente.
 - `matches/pg/{matches,messages,access,continuation,credits}.rs` sépare les repositories et les helpers de verrouillage qui reçoivent
   la connexion de l’appelant.
 - `administration/{photos,metrics}/` sépare règles, contrats et SQL de chaque fonctionnalité.
@@ -135,3 +138,18 @@ le dépôt PostgreSQL, le service de cache et l’adaptation HTTP. Les handlers 
 l’authentification ; les services de chaque domaine gardent leurs invariants et les dépôts leurs transactions.
 Les traductions des catalogues n’affectent ni les règles d’éligibilité ni les curseurs. Voir
 [Internationalisation](internationalization.md) pour les responsabilités détaillées et la stratégie de repli.
+
+## Droits Premium multicanal
+
+Stripe et les stores conservent leurs projections indépendantes. La fonction PostgreSQL
+`effective_subscription_at` résout les droits à une date donnée ; le feed, les matchs, les quotas,
+les métriques et la lecture d’abonnement utilisent cette même projection. Les transactions natives
+partagent les verrous des wallets de continuation. L’expiration est vérifiée même sans webhook.
+
+Le service natif valide produit, environnement et liaison opaque au compte avant toute écriture.
+La persistance refuse réattribution et observation dépassée, exclut les tokens remplacés et inscrit
+l’acquittement Google dans l’outbox après enregistrement des droits. Les callbacks authentifiés
+provoquent une relecture fournisseur ; ils ne dictent pas directement les droits.
+
+Le [guide des achats](store-billing.md) décrit les états, secrets, sessions web, rétentions,
+rapports financiers et validations réelles restantes.
