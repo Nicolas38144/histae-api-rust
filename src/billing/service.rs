@@ -11,7 +11,7 @@ use super::domain::{
     SubscriptionView,
 };
 use super::store::{BeginCheckoutInput, BillingStore, BillingStoreError};
-use super::stripe::{CheckoutInput, StripeGateway};
+use super::stripe::{CheckoutInput, StripeError, StripeGateway};
 use crate::config::{BillingConfig, BillingProvider};
 use crate::infra::postgres::DatabaseError;
 use crate::infra::postgres_locks::{
@@ -246,20 +246,53 @@ impl BillingService {
         let now = self.clock.now();
         let expires_at = now + TimeDelta::minutes(CHECKOUT_TTL_MINUTES);
         let stale_before = now - TimeDelta::seconds(CHECKOUT_CREATION_STALE_SECONDS);
-        let context = match self
+        let input = BeginCheckoutInput {
+            user_id,
+            idempotency_key,
+            billing_period,
+            attempt_id: Uuid::new_v4(),
+            now,
+            expires_at,
+            stale_before,
+        };
+        let mut outcome = self
             .store
-            .begin_checkout(BeginCheckoutInput {
-                user_id,
-                idempotency_key,
-                billing_period,
-                attempt_id: Uuid::new_v4(),
-                now,
-                expires_at,
-                stale_before,
-            })
+            .begin_checkout(input)
             .await
-            .map_err(map_store_error)?
+            .map_err(map_store_error)?;
+        if outcome == BeginCheckoutResult::InProgress
+            && let Some(previous) = self
+                .store
+                .checkout_to_replace(user_id, billing_period, now)
+                .await
+                .map_err(map_store_error)?
         {
+            // The account activity lease serializes formula changes. Stripe
+            // must confirm expiration before the local guard can be released.
+            lease.assert_held()?;
+            self.stripe
+                .expire_checkout_session(&previous.session_id)
+                .await
+                .map_err(|error| match error {
+                    StripeError::Rejected => BillingError::CheckoutAlreadyInProgress,
+                    _ => BillingError::StripeRequestFailed,
+                })?;
+            lease.assert_held()?;
+            if !self
+                .store
+                .mark_checkout_expired(user_id, previous)
+                .await
+                .map_err(map_store_error)?
+            {
+                return Err(BillingError::CheckoutStateConflict);
+            }
+            outcome = self
+                .store
+                .begin_checkout(input)
+                .await
+                .map_err(map_store_error)?;
+        }
+        let context = match outcome {
             BeginCheckoutResult::Created(context) | BeginCheckoutResult::Retry(context) => context,
             BeginCheckoutResult::Replay(session) => return Ok(session.into()),
             BeginCheckoutResult::NotFound => return Err(BillingError::AccountNotFound),

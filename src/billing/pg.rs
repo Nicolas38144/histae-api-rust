@@ -5,8 +5,8 @@ use uuid::Uuid;
 
 use super::domain::{
     BeginCheckoutResult, BillingPeriod, CUSTOMER_CREATE_SAFETY_HOURS, CheckoutContext,
-    CustomerCreation, PersistedCheckoutSession, StripeSubscriptionStatus, SubscriptionProvider,
-    SubscriptionRow,
+    CustomerCreation, PersistedCheckoutSession, ReplaceableCheckout, StripeSubscriptionStatus,
+    SubscriptionProvider, SubscriptionRow,
 };
 use crate::infra::postgres::{Database, map_sqlx_error};
 
@@ -219,6 +219,70 @@ impl PgBillingRepository {
 }
 
 impl BillingStore for PgBillingRepository {
+    fn checkout_to_replace(
+        &self,
+        user_id: Uuid,
+        billing_period: BillingPeriod,
+        now: DateTime<Utc>,
+    ) -> BillingStoreFuture<'_, Option<ReplaceableCheckout>> {
+        Box::pin(async move {
+            let mut connection = self.database.acquire().await?;
+            // Never replace a creating or uncertain attempt. Only a known open
+            // session for another formula can be closed before a new purchase.
+            let row = sqlx::query(
+                "SELECT checkout.id, checkout.stripe_session_id
+                 FROM billing_checkout_session AS checkout
+                 WHERE checkout.user_id = $1 AND checkout.status = 'open'
+                   AND checkout.billing_period <> $2
+                   AND checkout.stripe_session_id IS NOT NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM billing_checkout_session AS other
+                     WHERE other.user_id = $1 AND other.id <> checkout.id
+                       AND (other.status IN ('creating', 'open')
+                         OR (other.status = 'failed'
+                           AND other.stripe_checkout_request IS NOT NULL
+                           AND other.expires_at > $3))
+                   )",
+            )
+            .bind(user_id)
+            .bind(billing_period.as_str())
+            .bind(now)
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(map_sqlx_error)?;
+            row.map(|row| {
+                Ok(ReplaceableCheckout {
+                    attempt_id: row.try_get("id").map_err(map_sqlx_error)?,
+                    session_id: row.try_get("stripe_session_id").map_err(map_sqlx_error)?,
+                })
+            })
+            .transpose()
+        })
+    }
+
+    fn mark_checkout_expired(
+        &self,
+        user_id: Uuid,
+        checkout: ReplaceableCheckout,
+    ) -> BillingStoreFuture<'_, bool> {
+        Box::pin(async move {
+            let mut connection = self.database.acquire().await?;
+            let result = sqlx::query(
+                "UPDATE billing_checkout_session
+                 SET status = 'expired', checkout_url = NULL, updated_at = clock_timestamp()
+                 WHERE user_id = $1 AND id = $2 AND stripe_session_id = $3
+                   AND status IN ('open', 'expired')",
+            )
+            .bind(user_id)
+            .bind(checkout.attempt_id)
+            .bind(checkout.session_id)
+            .execute(&mut *connection)
+            .await
+            .map_err(map_sqlx_error)?;
+            Ok(result.rows_affected() == 1)
+        })
+    }
+
     fn effective_subscription_for_user(
         &self,
         user_id: Uuid,

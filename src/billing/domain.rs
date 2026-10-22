@@ -214,6 +214,12 @@ pub struct CheckoutContext {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplaceableCheckout {
+    pub attempt_id: Uuid,
+    pub session_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BeginCheckoutResult {
     Created(CheckoutContext),
     Retry(CheckoutContext),

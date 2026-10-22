@@ -392,10 +392,27 @@ impl StripeGateway for StripeClient {
 
     fn expire_checkout_session(&self, session_id: &str) -> StripeFuture<'_, ()> {
         let path = format!("checkout/sessions/{session_id}/expire");
+        let retrieve_path = format!("checkout/sessions/{session_id}");
+        let session_id = session_id.to_owned();
         Box::pin(async move {
-            self.request(Method::POST, &path, Vec::new(), None)
-                .await
-                .map(|_| ())
+            let response = match self.request(Method::POST, &path, Vec::new(), None).await {
+                Ok(response) => response,
+                // The expiration response may have been lost, or its webhook
+                // may have arrived first. An already expired session is safe;
+                // a completed session must never release the purchase guard.
+                Err(StripeError::Rejected) => self
+                    .request(Method::GET, &retrieve_path, Vec::new(), None)
+                    .await?,
+                Err(error) => return Err(error),
+            };
+            if response.get("id").and_then(Value::as_str) != Some(session_id.as_str()) {
+                return Err(StripeError::InvalidResponse);
+            }
+            match response.get("status").and_then(Value::as_str) {
+                Some("expired") => Ok(()),
+                Some("open" | "complete") => Err(StripeError::Rejected),
+                _ => Err(StripeError::InvalidResponse),
+            }
         })
     }
 

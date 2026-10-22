@@ -6,7 +6,8 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::domain::{
-    BeginCheckoutResult, BillingPeriod, CustomerCreation, PersistedCheckoutSession, SubscriptionRow,
+    BeginCheckoutResult, BillingPeriod, CustomerCreation, PersistedCheckoutSession,
+    ReplaceableCheckout, SubscriptionRow,
 };
 use super::stripe::CheckoutInput;
 use crate::infra::postgres::DatabaseError;
@@ -83,6 +84,19 @@ pub trait BillingStore: Send + Sync {
         &self,
         input: BeginCheckoutInput,
     ) -> BillingStoreFuture<'_, BeginCheckoutResult>;
+
+    fn checkout_to_replace(
+        &self,
+        user_id: Uuid,
+        billing_period: BillingPeriod,
+        now: DateTime<Utc>,
+    ) -> BillingStoreFuture<'_, Option<ReplaceableCheckout>>;
+
+    fn mark_checkout_expired(
+        &self,
+        user_id: Uuid,
+        checkout: ReplaceableCheckout,
+    ) -> BillingStoreFuture<'_, bool>;
 
     fn begin_customer_creation(&self, attempt_id: Uuid)
     -> BillingStoreFuture<'_, CustomerCreation>;

@@ -99,6 +99,17 @@ Une session ouverte peut être reprise avec sa clé d’origine. Pour un abonnem
 le portail, même si le compte dispose actuellement des droits Free. Le code historique
 `subscription_already_active` décrit également ces états Stripe non terminés.
 
+Quitter la page Stripe ne ferme pas sa session. Si le compte choisit ensuite l’autre périodicité,
+l’API expire d’abord la session ouverte précédente chez Stripe, sous le verrou Checkout, puis
+enregistre sa fermeture avant de préparer le nouveau paiement. Elle ne remplace ni une tentative
+en création ou incertaine, ni une session déjà terminée. Une expiration dont la réponse a été perdue
+est confirmée en lecture chez Stripe avant de libérer la protection locale. Une même clé avec la
+même périodicité continue de reprendre sa session ouverte.
+
+Au retour vers une formule dont la session a été remplacée, sa clé renvoie
+`409 idempotency_key_consumed`. Le site relit les droits puis renouvelle uniquement cette clé,
+avec une seule nouvelle tentative automatique. Une erreur réseau conserve la clé d’origine.
+
 ## 2. Client Stripe et requête durable
 
 Si nécessaire, l’API crée un Customer avec une intention durable et la clé Stripe

@@ -467,6 +467,10 @@ Avant paiement : compte actif, non banni et consentements courants ; `403 onboar
 Une réponse Checkout perdue se reprend avec la même clé et la même période. Expiration à 35 minutes à la préparation ;
 respecter `expires_at`. Clé consommée : relire les droits avant de préparer une autre intention.
 Les états non terminés connus d’un fournisseur bloquent un second achat, même sans accès Premium.
+Changer de périodicité remplace uniquement une session Checkout ouverte et connue : l’API confirme
+son expiration chez Stripe avant de créer la nouvelle. Les sessions terminées, les créations en
+cours et les tentatives incertaines restent protégées. La clé de la formule remplacée devient
+consommée ; après relecture des droits, le site peut utiliser une nouvelle clé pour cette formule.
 Les erreurs et procédures Stripe existantes restent décrites dans [le guide Stripe](billing.md).
 
 ### Administration des achats natifs

@@ -467,6 +467,137 @@ struct RecordingStripe {
     current_subscription: Arc<std::sync::atomic::AtomicBool>,
     clock: MutableClock,
 }
+
+#[derive(Clone, Default)]
+struct SwitchingStripe {
+    created: Arc<std::sync::Mutex<Vec<CheckoutInput>>>,
+    expired: Arc<std::sync::Mutex<Vec<String>>>,
+    completion_won: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl StripeGateway for SwitchingStripe {
+    fn has_current_subscription(&self, _: &str) -> StripeFuture<'_, bool> {
+        Box::pin(async { Ok(false) })
+    }
+
+    fn create_customer(&self, _: Uuid, _: Uuid, _: String) -> StripeFuture<'_, StripeCustomer> {
+        Box::pin(async {
+            Ok(StripeCustomer {
+                id: format!("cus_{}", Uuid::new_v4().simple()),
+                deleted: false,
+            })
+        })
+    }
+
+    fn create_checkout_session(
+        &self,
+        input: CheckoutInput,
+    ) -> StripeFuture<'_, StripeCheckoutSession> {
+        let mut created = self.created.lock().expect("created");
+        assert_eq!(created.len(), self.expired.lock().expect("expired").len());
+        created.push(input.clone());
+        Box::pin(async move {
+            Ok(StripeCheckoutSession {
+                id: format!("cs_{}", Uuid::new_v4().simple()),
+                url: Some("https://checkout.stripe.test/synthetic".into()),
+                expires_at: input.expires_at,
+            })
+        })
+    }
+
+    fn expire_checkout_session(&self, session_id: &str) -> StripeFuture<'_, ()> {
+        let completed = self.completion_won.load(Ordering::SeqCst);
+        if !completed {
+            self.expired.lock().expect("expired").push(session_id.to_owned());
+        }
+        Box::pin(async move {
+            if completed {
+                Err(StripeError::Rejected)
+            } else {
+                Ok(())
+            }
+        })
+    }
+
+    fn create_portal_session(&self, _: &str, _: String) -> StripeFuture<'_, StripePortalSession> {
+        Box::pin(async { Err(StripeError::Rejected) })
+    }
+    fn delete_customer(&self, _: &str, _: String) -> StripeFuture<'_, StripeCustomer> {
+        Box::pin(async { Err(StripeError::Rejected) })
+    }
+    fn retrieve_customer(&self, _: &str) -> StripeFuture<'_, StripeCustomer> {
+        Box::pin(async { Err(StripeError::Rejected) })
+    }
+}
+
+#[tokio::test]
+async fn changing_formula_expires_the_previous_checkout_before_creating_another()
+-> Result<(), Box<dyn std::error::Error>> {
+    let config = postgres_config()?;
+    let database = Database::connect(&config).await?;
+    let activity = AccountActivityPool::connect(&config).await?;
+    let user = Uuid::new_v4();
+    insert_user(&database, user).await?;
+    let provider = SwitchingStripe::default();
+    let service = BillingService::new(
+        Arc::new(PgBillingRepository::new(database.clone())),
+        Arc::new(provider.clone()),
+        billing_config(), activity.clone(), Arc::new(SystemClock),
+    );
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let monthly_key = Uuid::new_v4().to_string();
+        let annual_key = Uuid::new_v4().to_string();
+        let monthly = service.create_checkout(user, BillingPeriod::Monthly, Some(&monthly_key)).await?;
+        assert_eq!(service.create_checkout(user, BillingPeriod::Monthly, Some(&monthly_key)).await?, monthly);
+        assert!(provider.expired.lock().expect("expired").is_empty());
+        let annual = service.create_checkout(user, BillingPeriod::Annual, Some(&annual_key)).await?;
+        assert_eq!(*provider.expired.lock().expect("expired"), vec![monthly.session_id.clone()]);
+        assert_eq!(service.create_checkout(user, BillingPeriod::Monthly, Some(&monthly_key)).await, Err(BillingError::IdempotencyKeyConsumed));
+        let fresh_key = Uuid::new_v4().to_string();
+        service.create_checkout(user, BillingPeriod::Monthly, Some(&fresh_key)).await?;
+        assert_eq!(*provider.expired.lock().expect("expired"), vec![monthly.session_id, annual.session_id]);
+        assert_eq!(provider.created.lock().expect("created").iter().map(|input| input.billing_period).collect::<Vec<_>>(), vec![BillingPeriod::Monthly, BillingPeriod::Annual, BillingPeriod::Monthly]);
+        let mut connection = database.acquire().await?;
+        let open: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_checkout_session WHERE user_id=$1 AND status='open'")
+            .bind(user).fetch_one(&mut *connection).await?;
+        assert_eq!(open, 1);
+        Ok(())
+    }.await;
+    cleanup(&database, &[user]).await?;
+    activity.close().await;
+    database.close().await;
+    result
+}
+
+#[tokio::test]
+async fn completed_checkout_cannot_be_replaced_even_before_its_webhook_arrives()
+-> Result<(), Box<dyn std::error::Error>> {
+    let config = postgres_config()?;
+    let database = Database::connect(&config).await?;
+    let activity = AccountActivityPool::connect(&config).await?;
+    let user = Uuid::new_v4();
+    insert_user(&database, user).await?;
+    let provider = SwitchingStripe::default();
+    let service = BillingService::new(
+        Arc::new(PgBillingRepository::new(database.clone())),
+        Arc::new(provider.clone()),
+        billing_config(), activity.clone(), Arc::new(SystemClock),
+    );
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let monthly_key = Uuid::new_v4().to_string();
+        service.create_checkout(user, BillingPeriod::Monthly, Some(&monthly_key)).await?;
+        provider.completion_won.store(true, Ordering::SeqCst);
+        let annual_key = Uuid::new_v4().to_string();
+        assert_eq!(service.create_checkout(user, BillingPeriod::Annual, Some(&annual_key)).await, Err(BillingError::CheckoutAlreadyInProgress));
+        assert_eq!(provider.created.lock().expect("created").len(), 1);
+        assert!(provider.expired.lock().expect("expired").is_empty());
+        Ok(())
+    }.await;
+    cleanup(&database, &[user]).await?;
+    activity.close().await;
+    database.close().await;
+    result
+}
 impl StripeGateway for RecordingStripe {
     fn has_current_subscription(&self, _: &str) -> StripeFuture<'_, bool> {
         let value = self.current_subscription.load(Ordering::SeqCst);
