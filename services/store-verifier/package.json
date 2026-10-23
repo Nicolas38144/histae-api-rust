@@ -2,6 +2,7 @@
   "name": "histae-store-verifier",
   "version": "1.0.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": { "start": "node src/server.mjs", "test": "node --test" },

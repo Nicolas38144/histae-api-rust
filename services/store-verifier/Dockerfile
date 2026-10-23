@@ -1,6 +1,7 @@
 FROM node:22.22.1-bookworm-slim
 WORKDIR /app
 COPY package*.json ./
+COPY LICENSE.md ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY src ./src
 COPY certificates ./certificates

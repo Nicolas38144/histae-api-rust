@@ -12,7 +12,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential perl nasm pkg-config \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml Cargo.lock LICENSE.md ./
 COPY src ./src
 COPY db ./db
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
@@ -27,6 +27,7 @@ FROM node:22.22.1-bookworm-slim AS runtime
 ENV HISTAE_RUNTIME_ROOT=/app
 ENV PATH=/app/bin:$PATH
 WORKDIR /app
+COPY LICENSE.md THIRD_PARTY_NOTICES.md THIRD_PARTY_LICENSES.json ./
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
@@ -34,7 +35,7 @@ RUN apt-get update \
     && usermod --uid 1000 --gid 1000 node
 COPY --from=builder --chown=1000:1000 /artifacts/ /app/bin/
 COPY --from=codec --chown=1000:1000 /build/tools/photo-codec/node_modules /app/tools/photo-codec/node_modules
-COPY --chown=1000:1000 tools/photo-codec/package.json tools/photo-codec/processor.cjs /app/tools/photo-codec/
+COPY --chown=1000:1000 tools/photo-codec/package.json tools/photo-codec/processor.cjs tools/photo-codec/LICENSE.md /app/tools/photo-codec/
 COPY --chown=1000:1000 tools/photo-codec-runner.cjs /app/tools/photo-codec-runner.cjs
 USER 1000:1000
 EXPOSE 8080 9091

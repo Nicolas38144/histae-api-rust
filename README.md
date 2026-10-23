@@ -103,3 +103,14 @@ pas les essais des fournisseurs, de WebAuthn dans le navigateur, de charge et de
 ## Continuations et récompenses
 
 Le [guide des crédits](docs/continuation-and-rewards.md) décrit la pause de la messagerie, les décisions privées, les réservations des deux participants et la vérification serveur AdMob. Le fournisseur publicitaire est désactivé par défaut ; les interfaces mobiles et les callbacks réels doivent être validés avant son activation. [Résultats des tests](docs/feature-audit.md).
+
+## Source access and licensing
+
+Copyright © 2026 Nicolas GERMANI. Original Histae code is proprietary and publicly available only
+for inspection and security audits. Reuse, modification outside an audit, redistribution and use
+in another project or service are prohibited for commercial and non-commercial purposes without
+prior written permission. See [LICENSE.md](LICENSE.md) for the limited audit permission and
+applicable exceptions. External contributions are not accepted.
+
+Third-party dependencies, SDKs and fonts retain their own licenses; these restrictions do not
+override their rights or notices. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

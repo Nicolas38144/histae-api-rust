@@ -3,6 +3,8 @@ name = "histae-api-rust"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
+license-file = "LICENSE.md"
+publish = false
 autobins = false
 
 # Keep local builds bounded: full incremental snapshots and debug symbols can

@@ -1,0 +1,3398 @@
+{
+  "reviewed_on": "2026-10-23",
+  "repository": "histae-api-rust",
+  "scope": "Declared licenses of resolved packages, including build/test and optional platforms; not a release SBOM or full license-text bundle.",
+  "limitations": [
+    "Registry metadata and local license inspection are not a certification of compliance.",
+    "Native SDKs, complete container contents, model weights and historical grants require separate review.",
+    "Python inventory covers direct pinned requirements only."
+  ],
+  "packages": [
+    {
+      "name": "aead",
+      "version": "0.5.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/aead/0.5.2"
+    },
+    {
+      "name": "aes",
+      "version": "0.8.4",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/aes/0.8.4"
+    },
+    {
+      "name": "aes-gcm",
+      "version": "0.10.3",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/aes-gcm/0.10.3"
+    },
+    {
+      "name": "aho-corasick",
+      "version": "1.1.5",
+      "license": "Unlicense OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/aho-corasick/1.1.5"
+    },
+    {
+      "name": "allocator-api2",
+      "version": "0.2.21",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/allocator-api2/0.2.21"
+    },
+    {
+      "name": "android_system_properties",
+      "version": "0.1.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/android_system_properties/0.1.6"
+    },
+    {
+      "name": "arc-swap",
+      "version": "1.9.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/arc-swap/1.9.2"
+    },
+    {
+      "name": "arrayvec",
+      "version": "0.7.8",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/arrayvec/0.7.8"
+    },
+    {
+      "name": "asn1-rs",
+      "version": "0.6.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/asn1-rs/0.6.2"
+    },
+    {
+      "name": "asn1-rs-derive",
+      "version": "0.5.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/asn1-rs-derive/0.5.1"
+    },
+    {
+      "name": "asn1-rs-impl",
+      "version": "0.2.0",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/asn1-rs-impl/0.2.0"
+    },
+    {
+      "name": "atoi",
+      "version": "2.0.0",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/atoi/2.0.0"
+    },
+    {
+      "name": "atomic-waker",
+      "version": "1.1.2",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/atomic-waker/1.1.2"
+    },
+    {
+      "name": "autocfg",
+      "version": "1.5.1",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/autocfg/1.5.1"
+    },
+    {
+      "name": "aws-lc-rs",
+      "version": "1.18.1",
+      "license": "ISC AND (Apache-2.0 OR ISC)",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/aws-lc-rs/1.18.1"
+    },
+    {
+      "name": "aws-lc-sys",
+      "version": "0.45.0",
+      "license": "ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0)",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/aws-lc-sys/0.45.0"
+    },
+    {
+      "name": "axum",
+      "version": "0.8.9",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/axum/0.8.9"
+    },
+    {
+      "name": "axum-core",
+      "version": "0.5.6",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/axum-core/0.5.6"
+    },
+    {
+      "name": "backon",
+      "version": "1.6.0",
+      "license": "Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/backon/1.6.0"
+    },
+    {
+      "name": "base64",
+      "version": "0.21.7",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/base64/0.21.7"
+    },
+    {
+      "name": "base64",
+      "version": "0.22.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/base64/0.22.1"
+    },
+    {
+      "name": "base64",
+      "version": "0.23.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/base64/0.23.1"
+    },
+    {
+      "name": "base64ct",
+      "version": "1.8.3",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/base64ct/1.8.3"
+    },
+    {
+      "name": "base64urlsafedata",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/base64urlsafedata/0.5.5"
+    },
+    {
+      "name": "bitflags",
+      "version": "2.13.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/bitflags/2.13.2"
+    },
+    {
+      "name": "block-buffer",
+      "version": "0.10.4",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/block-buffer/0.10.4"
+    },
+    {
+      "name": "borsh",
+      "version": "1.8.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/borsh/1.8.1"
+    },
+    {
+      "name": "borsh-derive",
+      "version": "1.8.1",
+      "license": "Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/borsh-derive/1.8.1"
+    },
+    {
+      "name": "bumpalo",
+      "version": "3.20.3",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/bumpalo/3.20.3"
+    },
+    {
+      "name": "byteorder",
+      "version": "1.5.0",
+      "license": "Unlicense OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/byteorder/1.5.0"
+    },
+    {
+      "name": "bytes",
+      "version": "1.12.1",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/bytes/1.12.1"
+    },
+    {
+      "name": "cc",
+      "version": "1.4.7",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/cc/1.4.7"
+    },
+    {
+      "name": "cfg-if",
+      "version": "1.0.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/cfg-if/1.0.5"
+    },
+    {
+      "name": "cfg_aliases",
+      "version": "0.2.2",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/cfg_aliases/0.2.2"
+    },
+    {
+      "name": "chacha20",
+      "version": "0.10.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/chacha20/0.10.2"
+    },
+    {
+      "name": "chrono",
+      "version": "0.4.45",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/chrono/0.4.45"
+    },
+    {
+      "name": "cipher",
+      "version": "0.4.4",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/cipher/0.4.4"
+    },
+    {
+      "name": "cmake",
+      "version": "0.1.58",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/cmake/0.1.58"
+    },
+    {
+      "name": "combine",
+      "version": "4.6.8",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/combine/4.6.8"
+    },
+    {
+      "name": "const-oid",
+      "version": "0.9.6",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/const-oid/0.9.6"
+    },
+    {
+      "name": "cookie",
+      "version": "0.18.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/cookie/0.18.2"
+    },
+    {
+      "name": "cookie_store",
+      "version": "0.22.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/cookie_store/0.22.1"
+    },
+    {
+      "name": "core-foundation",
+      "version": "0.10.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/core-foundation/0.10.1"
+    },
+    {
+      "name": "core-foundation-sys",
+      "version": "0.8.7",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/core-foundation-sys/0.8.7"
+    },
+    {
+      "name": "core_detect",
+      "version": "1.0.0",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/core_detect/1.0.0"
+    },
+    {
+      "name": "cpufeatures",
+      "version": "0.2.17",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/cpufeatures/0.2.17"
+    },
+    {
+      "name": "cpufeatures",
+      "version": "0.3.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/cpufeatures/0.3.1"
+    },
+    {
+      "name": "crc",
+      "version": "3.4.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/crc/3.4.0"
+    },
+    {
+      "name": "crc-catalog",
+      "version": "2.5.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/crc-catalog/2.5.0"
+    },
+    {
+      "name": "crossbeam-queue",
+      "version": "0.3.14",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/crossbeam-queue/0.3.14"
+    },
+    {
+      "name": "crossbeam-utils",
+      "version": "0.8.23",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/crossbeam-utils/0.8.23"
+    },
+    {
+      "name": "crunchy",
+      "version": "0.2.4",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/crunchy/0.2.4"
+    },
+    {
+      "name": "crypto-common",
+      "version": "0.1.7",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/crypto-common/0.1.7"
+    },
+    {
+      "name": "ctr",
+      "version": "0.9.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/ctr/0.9.2"
+    },
+    {
+      "name": "data-encoding",
+      "version": "2.11.1",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/data-encoding/2.11.1"
+    },
+    {
+      "name": "der",
+      "version": "0.7.10",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/der/0.7.10"
+    },
+    {
+      "name": "der-parser",
+      "version": "9.0.0",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/der-parser/9.0.0"
+    },
+    {
+      "name": "deranged",
+      "version": "0.5.8",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/deranged/0.5.8"
+    },
+    {
+      "name": "digest",
+      "version": "0.10.7",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/digest/0.10.7"
+    },
+    {
+      "name": "displaydoc",
+      "version": "0.2.7",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/displaydoc/0.2.7"
+    },
+    {
+      "name": "document-features",
+      "version": "0.2.12",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/document-features/0.2.12"
+    },
+    {
+      "name": "dotenvy",
+      "version": "0.15.7",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/dotenvy/0.15.7"
+    },
+    {
+      "name": "dunce",
+      "version": "1.0.5",
+      "license": "CC0-1.0 OR MIT-0 OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/dunce/1.0.5"
+    },
+    {
+      "name": "either",
+      "version": "1.18.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/either/1.18.0"
+    },
+    {
+      "name": "encoding_rs",
+      "version": "0.8.42",
+      "license": "(Apache-2.0 OR MIT) AND BSD-3-Clause",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/encoding_rs/0.8.42"
+    },
+    {
+      "name": "equivalent",
+      "version": "1.0.2",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/equivalent/1.0.2"
+    },
+    {
+      "name": "errno",
+      "version": "0.3.14",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/errno/0.3.14"
+    },
+    {
+      "name": "etcetera",
+      "version": "0.8.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/etcetera/0.8.0"
+    },
+    {
+      "name": "event-listener",
+      "version": "5.4.2",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/event-listener/5.4.2"
+    },
+    {
+      "name": "fastrand",
+      "version": "2.5.0",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/fastrand/2.5.0"
+    },
+    {
+      "name": "find-msvc-tools",
+      "version": "0.1.13",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/find-msvc-tools/0.1.13"
+    },
+    {
+      "name": "flume",
+      "version": "0.11.1",
+      "license": "Apache-2.0/MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/flume/0.11.1"
+    },
+    {
+      "name": "foldhash",
+      "version": "0.1.5",
+      "license": "Zlib",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/foldhash/0.1.5"
+    },
+    {
+      "name": "foreign-types",
+      "version": "0.3.2",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/foreign-types/0.3.2"
+    },
+    {
+      "name": "foreign-types-shared",
+      "version": "0.1.1",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/foreign-types-shared/0.1.1"
+    },
+    {
+      "name": "form_urlencoded",
+      "version": "1.2.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/form_urlencoded/1.2.2"
+    },
+    {
+      "name": "fs_extra",
+      "version": "1.3.0",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/fs_extra/1.3.0"
+    },
+    {
+      "name": "futures-channel",
+      "version": "0.3.34",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/futures-channel/0.3.34"
+    },
+    {
+      "name": "futures-core",
+      "version": "0.3.34",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/futures-core/0.3.34"
+    },
+    {
+      "name": "futures-executor",
+      "version": "0.3.34",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/futures-executor/0.3.34"
+    },
+    {
+      "name": "futures-intrusive",
+      "version": "0.5.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/futures-intrusive/0.5.0"
+    },
+    {
+      "name": "futures-io",
+      "version": "0.3.34",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/futures-io/0.3.34"
+    },
+    {
+      "name": "futures-macro",
+      "version": "0.3.34",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/futures-macro/0.3.34"
+    },
+    {
+      "name": "futures-sink",
+      "version": "0.3.34",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/futures-sink/0.3.34"
+    },
+    {
+      "name": "futures-task",
+      "version": "0.3.34",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/futures-task/0.3.34"
+    },
+    {
+      "name": "futures-util",
+      "version": "0.3.34",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/futures-util/0.3.34"
+    },
+    {
+      "name": "generic-array",
+      "version": "0.14.7",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/generic-array/0.14.7"
+    },
+    {
+      "name": "getrandom",
+      "version": "0.2.17",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/getrandom/0.2.17"
+    },
+    {
+      "name": "getrandom",
+      "version": "0.3.4",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/getrandom/0.3.4"
+    },
+    {
+      "name": "getrandom",
+      "version": "0.4.3",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/getrandom/0.4.3"
+    },
+    {
+      "name": "ghash",
+      "version": "0.5.1",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/ghash/0.5.1"
+    },
+    {
+      "name": "half",
+      "version": "2.7.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/half/2.7.1"
+    },
+    {
+      "name": "hashbrown",
+      "version": "0.15.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/hashbrown/0.15.5"
+    },
+    {
+      "name": "hashbrown",
+      "version": "0.17.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/hashbrown/0.17.1"
+    },
+    {
+      "name": "hashlink",
+      "version": "0.10.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/hashlink/0.10.0"
+    },
+    {
+      "name": "heck",
+      "version": "0.5.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/heck/0.5.0"
+    },
+    {
+      "name": "hex",
+      "version": "0.4.3",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/hex/0.4.3"
+    },
+    {
+      "name": "hkdf",
+      "version": "0.12.4",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/hkdf/0.12.4"
+    },
+    {
+      "name": "hmac",
+      "version": "0.12.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/hmac/0.12.1"
+    },
+    {
+      "name": "home",
+      "version": "0.5.12",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/home/0.5.12"
+    },
+    {
+      "name": "http",
+      "version": "1.5.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/http/1.5.0"
+    },
+    {
+      "name": "http-body",
+      "version": "1.1.0",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/http-body/1.1.0"
+    },
+    {
+      "name": "http-body-util",
+      "version": "0.1.5",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/http-body-util/0.1.5"
+    },
+    {
+      "name": "httparse",
+      "version": "1.10.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/httparse/1.10.1"
+    },
+    {
+      "name": "httpdate",
+      "version": "1.0.3",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/httpdate/1.0.3"
+    },
+    {
+      "name": "hyper",
+      "version": "1.11.1",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/hyper/1.11.1"
+    },
+    {
+      "name": "hyper-rustls",
+      "version": "0.27.9",
+      "license": "Apache-2.0 OR ISC OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/hyper-rustls/0.27.9"
+    },
+    {
+      "name": "hyper-util",
+      "version": "0.1.20",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/hyper-util/0.1.20"
+    },
+    {
+      "name": "iana-time-zone",
+      "version": "0.1.65",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/iana-time-zone/0.1.65"
+    },
+    {
+      "name": "iana-time-zone-haiku",
+      "version": "0.1.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/iana-time-zone-haiku/0.1.2"
+    },
+    {
+      "name": "icu_collections",
+      "version": "2.3.0",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/icu_collections/2.3.0"
+    },
+    {
+      "name": "icu_locale_core",
+      "version": "2.3.0",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/icu_locale_core/2.3.0"
+    },
+    {
+      "name": "icu_normalizer",
+      "version": "2.3.0",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/icu_normalizer/2.3.0"
+    },
+    {
+      "name": "icu_normalizer_data",
+      "version": "2.3.0",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/icu_normalizer_data/2.3.0"
+    },
+    {
+      "name": "icu_properties",
+      "version": "2.3.0",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/icu_properties/2.3.0"
+    },
+    {
+      "name": "icu_properties_data",
+      "version": "2.3.0",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/icu_properties_data/2.3.0"
+    },
+    {
+      "name": "icu_provider",
+      "version": "2.3.1",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/icu_provider/2.3.1"
+    },
+    {
+      "name": "idna",
+      "version": "1.1.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/idna/1.1.0"
+    },
+    {
+      "name": "idna_adapter",
+      "version": "1.2.2",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/idna_adapter/1.2.2"
+    },
+    {
+      "name": "imagesize",
+      "version": "0.14.0",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/imagesize/0.14.0"
+    },
+    {
+      "name": "indexmap",
+      "version": "2.14.2",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/indexmap/2.14.2"
+    },
+    {
+      "name": "inout",
+      "version": "0.1.4",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/inout/0.1.4"
+    },
+    {
+      "name": "ipnet",
+      "version": "2.12.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/ipnet/2.12.2"
+    },
+    {
+      "name": "itoa",
+      "version": "1.0.18",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/itoa/1.0.18"
+    },
+    {
+      "name": "jni",
+      "version": "0.22.4",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/jni/0.22.4"
+    },
+    {
+      "name": "jni-macros",
+      "version": "0.22.4",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/jni-macros/0.22.4"
+    },
+    {
+      "name": "jni-sys",
+      "version": "0.4.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/jni-sys/0.4.1"
+    },
+    {
+      "name": "jni-sys-macros",
+      "version": "0.4.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/jni-sys-macros/0.4.1"
+    },
+    {
+      "name": "jobserver",
+      "version": "0.1.35",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/jobserver/0.1.35"
+    },
+    {
+      "name": "js-sys",
+      "version": "0.3.105",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/js-sys/0.3.105"
+    },
+    {
+      "name": "jsonwebtoken",
+      "version": "10.4.0",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/jsonwebtoken/10.4.0"
+    },
+    {
+      "name": "lazy_static",
+      "version": "1.5.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/lazy_static/1.5.0"
+    },
+    {
+      "name": "libc",
+      "version": "0.2.189",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/libc/0.2.189"
+    },
+    {
+      "name": "libm",
+      "version": "0.2.16",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/libm/0.2.16"
+    },
+    {
+      "name": "libredox",
+      "version": "0.1.24",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/libredox/0.1.24"
+    },
+    {
+      "name": "libsqlite3-sys",
+      "version": "0.30.1",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/libsqlite3-sys/0.30.1"
+    },
+    {
+      "name": "litemap",
+      "version": "0.8.3",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/litemap/0.8.3"
+    },
+    {
+      "name": "litrs",
+      "version": "1.0.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/litrs/1.0.0"
+    },
+    {
+      "name": "lock_api",
+      "version": "0.4.14",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/lock_api/0.4.14"
+    },
+    {
+      "name": "log",
+      "version": "0.4.34",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/log/0.4.34"
+    },
+    {
+      "name": "lru-slab",
+      "version": "0.1.3",
+      "license": "MIT OR Apache-2.0 OR Zlib",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/lru-slab/0.1.3"
+    },
+    {
+      "name": "matchers",
+      "version": "0.2.0",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/matchers/0.2.0"
+    },
+    {
+      "name": "matchit",
+      "version": "0.8.4",
+      "license": "MIT AND BSD-3-Clause",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/matchit/0.8.4"
+    },
+    {
+      "name": "md-5",
+      "version": "0.10.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/md-5/0.10.6"
+    },
+    {
+      "name": "memchr",
+      "version": "2.8.3",
+      "license": "Unlicense OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/memchr/2.8.3"
+    },
+    {
+      "name": "mime",
+      "version": "0.3.17",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/mime/0.3.17"
+    },
+    {
+      "name": "minimal-lexical",
+      "version": "0.2.1",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/minimal-lexical/0.2.1"
+    },
+    {
+      "name": "mio",
+      "version": "1.2.3",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/mio/1.2.3"
+    },
+    {
+      "name": "multer",
+      "version": "3.1.0",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/multer/3.1.0"
+    },
+    {
+      "name": "multiversion_no_op",
+      "version": "1.0.0",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/multiversion_no_op/1.0.0"
+    },
+    {
+      "name": "nom",
+      "version": "7.1.3",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/nom/7.1.3"
+    },
+    {
+      "name": "num-bigint",
+      "version": "0.4.8",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/num-bigint/0.4.8"
+    },
+    {
+      "name": "num-bigint-dig",
+      "version": "0.8.6",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/num-bigint-dig/0.8.6"
+    },
+    {
+      "name": "num-conv",
+      "version": "0.2.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/num-conv/0.2.2"
+    },
+    {
+      "name": "num-integer",
+      "version": "0.1.47",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/num-integer/0.1.47"
+    },
+    {
+      "name": "num-iter",
+      "version": "0.1.46",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/num-iter/0.1.46"
+    },
+    {
+      "name": "num-traits",
+      "version": "0.2.19",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/num-traits/0.2.19"
+    },
+    {
+      "name": "oid-registry",
+      "version": "0.7.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/oid-registry/0.7.1"
+    },
+    {
+      "name": "once_cell",
+      "version": "1.21.4",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/once_cell/1.21.4"
+    },
+    {
+      "name": "opaque-debug",
+      "version": "0.3.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/opaque-debug/0.3.1"
+    },
+    {
+      "name": "openssl",
+      "version": "0.10.81",
+      "license": "Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/openssl/0.10.81"
+    },
+    {
+      "name": "openssl-macros",
+      "version": "0.1.1",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/openssl-macros/0.1.1"
+    },
+    {
+      "name": "openssl-probe",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/openssl-probe/0.2.1"
+    },
+    {
+      "name": "openssl-src",
+      "version": "300.6.1+3.6.3",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/openssl-src/300.6.1%2B3.6.3"
+    },
+    {
+      "name": "openssl-sys",
+      "version": "0.9.117",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/openssl-sys/0.9.117"
+    },
+    {
+      "name": "parking",
+      "version": "2.2.1",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/parking/2.2.1"
+    },
+    {
+      "name": "parking_lot",
+      "version": "0.12.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/parking_lot/0.12.5"
+    },
+    {
+      "name": "parking_lot_core",
+      "version": "0.9.12",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/parking_lot_core/0.9.12"
+    },
+    {
+      "name": "pastey",
+      "version": "0.1.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/pastey/0.1.1"
+    },
+    {
+      "name": "pem",
+      "version": "3.0.6",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/pem/3.0.6"
+    },
+    {
+      "name": "pem-rfc7468",
+      "version": "0.7.0",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/pem-rfc7468/0.7.0"
+    },
+    {
+      "name": "percent-encoding",
+      "version": "2.3.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/percent-encoding/2.3.2"
+    },
+    {
+      "name": "pin-project-lite",
+      "version": "0.2.17",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/pin-project-lite/0.2.17"
+    },
+    {
+      "name": "pkcs1",
+      "version": "0.7.5",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/pkcs1/0.7.5"
+    },
+    {
+      "name": "pkcs8",
+      "version": "0.10.2",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/pkcs8/0.10.2"
+    },
+    {
+      "name": "pkg-config",
+      "version": "0.3.34",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/pkg-config/0.3.34"
+    },
+    {
+      "name": "plain",
+      "version": "0.2.3",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/plain/0.2.3"
+    },
+    {
+      "name": "polyval",
+      "version": "0.6.2",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/polyval/0.6.2"
+    },
+    {
+      "name": "potential_utf",
+      "version": "0.1.6",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/potential_utf/0.1.6"
+    },
+    {
+      "name": "powerfmt",
+      "version": "0.2.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/powerfmt/0.2.0"
+    },
+    {
+      "name": "ppv-lite86",
+      "version": "0.2.21",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/ppv-lite86/0.2.21"
+    },
+    {
+      "name": "proc-macro-crate",
+      "version": "3.5.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/proc-macro-crate/3.5.0"
+    },
+    {
+      "name": "proc-macro2",
+      "version": "1.0.107",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/proc-macro2/1.0.107"
+    },
+    {
+      "name": "psl-types",
+      "version": "2.0.11",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/psl-types/2.0.11"
+    },
+    {
+      "name": "publicsuffix",
+      "version": "2.3.0",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/publicsuffix/2.3.0"
+    },
+    {
+      "name": "quinn",
+      "version": "0.11.12",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/quinn/0.11.12"
+    },
+    {
+      "name": "quinn-proto",
+      "version": "0.11.18",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/quinn-proto/0.11.18"
+    },
+    {
+      "name": "quinn-udp",
+      "version": "0.5.15",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/quinn-udp/0.5.15"
+    },
+    {
+      "name": "quote",
+      "version": "1.0.47",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/quote/1.0.47"
+    },
+    {
+      "name": "r-efi",
+      "version": "5.3.0",
+      "license": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/r-efi/5.3.0"
+    },
+    {
+      "name": "r-efi",
+      "version": "6.0.0",
+      "license": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/r-efi/6.0.0"
+    },
+    {
+      "name": "rand",
+      "version": "0.10.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rand/0.10.2"
+    },
+    {
+      "name": "rand",
+      "version": "0.8.8",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rand/0.8.8"
+    },
+    {
+      "name": "rand",
+      "version": "0.9.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rand/0.9.5"
+    },
+    {
+      "name": "rand_chacha",
+      "version": "0.3.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rand_chacha/0.3.1"
+    },
+    {
+      "name": "rand_chacha",
+      "version": "0.9.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rand_chacha/0.9.0"
+    },
+    {
+      "name": "rand_core",
+      "version": "0.10.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rand_core/0.10.1"
+    },
+    {
+      "name": "rand_core",
+      "version": "0.6.4",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rand_core/0.6.4"
+    },
+    {
+      "name": "rand_core",
+      "version": "0.9.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rand_core/0.9.5"
+    },
+    {
+      "name": "rand_pcg",
+      "version": "0.10.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rand_pcg/0.10.2"
+    },
+    {
+      "name": "redis",
+      "version": "0.32.7",
+      "license": "BSD-3-Clause",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/redis/0.32.7"
+    },
+    {
+      "name": "redox_syscall",
+      "version": "0.5.18",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/redox_syscall/0.5.18"
+    },
+    {
+      "name": "redox_syscall",
+      "version": "0.9.4",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/redox_syscall/0.9.4"
+    },
+    {
+      "name": "regex",
+      "version": "1.13.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/regex/1.13.1"
+    },
+    {
+      "name": "regex-automata",
+      "version": "0.4.18",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/regex-automata/0.4.18"
+    },
+    {
+      "name": "regex-syntax",
+      "version": "0.8.11",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/regex-syntax/0.8.11"
+    },
+    {
+      "name": "reqwest",
+      "version": "0.13.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/reqwest/0.13.5"
+    },
+    {
+      "name": "ring",
+      "version": "0.17.14",
+      "license": "Apache-2.0 AND ISC",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/ring/0.17.14"
+    },
+    {
+      "name": "rsa",
+      "version": "0.9.10",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rsa/0.9.10"
+    },
+    {
+      "name": "rust_decimal",
+      "version": "1.43.0",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rust_decimal/1.43.0"
+    },
+    {
+      "name": "rustc-hash",
+      "version": "2.1.3",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rustc-hash/2.1.3"
+    },
+    {
+      "name": "rustc_version",
+      "version": "0.4.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rustc_version/0.4.1"
+    },
+    {
+      "name": "rusticata-macros",
+      "version": "4.1.0",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rusticata-macros/4.1.0"
+    },
+    {
+      "name": "rustls",
+      "version": "0.23.45",
+      "license": "Apache-2.0 OR ISC OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rustls/0.23.45"
+    },
+    {
+      "name": "rustls-native-certs",
+      "version": "0.8.4",
+      "license": "Apache-2.0 OR ISC OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rustls-native-certs/0.8.4"
+    },
+    {
+      "name": "rustls-pki-types",
+      "version": "1.15.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rustls-pki-types/1.15.1"
+    },
+    {
+      "name": "rustls-platform-verifier",
+      "version": "0.7.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rustls-platform-verifier/0.7.0"
+    },
+    {
+      "name": "rustls-platform-verifier-android",
+      "version": "0.1.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rustls-platform-verifier-android/0.1.1"
+    },
+    {
+      "name": "rustls-webpki",
+      "version": "0.103.15",
+      "license": "ISC",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rustls-webpki/0.103.15"
+    },
+    {
+      "name": "rustversion",
+      "version": "1.0.23",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/rustversion/1.0.23"
+    },
+    {
+      "name": "ryu",
+      "version": "1.0.23",
+      "license": "Apache-2.0 OR BSL-1.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/ryu/1.0.23"
+    },
+    {
+      "name": "same-file",
+      "version": "1.0.6",
+      "license": "Unlicense/MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/same-file/1.0.6"
+    },
+    {
+      "name": "schannel",
+      "version": "0.1.29",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/schannel/0.1.29"
+    },
+    {
+      "name": "scopeguard",
+      "version": "1.2.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/scopeguard/1.2.0"
+    },
+    {
+      "name": "security-framework",
+      "version": "3.7.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/security-framework/3.7.0"
+    },
+    {
+      "name": "security-framework-sys",
+      "version": "2.17.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/security-framework-sys/2.17.0"
+    },
+    {
+      "name": "semver",
+      "version": "1.0.28",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/semver/1.0.28"
+    },
+    {
+      "name": "serde",
+      "version": "1.0.229",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/serde/1.0.229"
+    },
+    {
+      "name": "serde_cbor_2",
+      "version": "0.13.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/serde_cbor_2/0.13.0"
+    },
+    {
+      "name": "serde_core",
+      "version": "1.0.229",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/serde_core/1.0.229"
+    },
+    {
+      "name": "serde_derive",
+      "version": "1.0.229",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/serde_derive/1.0.229"
+    },
+    {
+      "name": "serde_json",
+      "version": "1.0.151",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/serde_json/1.0.151"
+    },
+    {
+      "name": "serde_path_to_error",
+      "version": "0.1.20",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/serde_path_to_error/0.1.20"
+    },
+    {
+      "name": "serde_urlencoded",
+      "version": "0.7.1",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/serde_urlencoded/0.7.1"
+    },
+    {
+      "name": "sha1",
+      "version": "0.10.7",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/sha1/0.10.7"
+    },
+    {
+      "name": "sha2",
+      "version": "0.10.9",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/sha2/0.10.9"
+    },
+    {
+      "name": "sharded-slab",
+      "version": "0.1.7",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/sharded-slab/0.1.7"
+    },
+    {
+      "name": "shlex",
+      "version": "2.0.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/shlex/2.0.1"
+    },
+    {
+      "name": "signal-hook-registry",
+      "version": "1.4.8",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/signal-hook-registry/1.4.8"
+    },
+    {
+      "name": "signature",
+      "version": "2.2.0",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/signature/2.2.0"
+    },
+    {
+      "name": "simd_cesu8",
+      "version": "1.2.0",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/simd_cesu8/1.2.0"
+    },
+    {
+      "name": "simdutf8",
+      "version": "0.1.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/simdutf8/0.1.5"
+    },
+    {
+      "name": "simple_asn1",
+      "version": "0.6.4",
+      "license": "ISC",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/simple_asn1/0.6.4"
+    },
+    {
+      "name": "slab",
+      "version": "0.4.12",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/slab/0.4.12"
+    },
+    {
+      "name": "smallvec",
+      "version": "1.16.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/smallvec/1.16.1"
+    },
+    {
+      "name": "socket2",
+      "version": "0.6.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/socket2/0.6.5"
+    },
+    {
+      "name": "spin",
+      "version": "0.9.9",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/spin/0.9.9"
+    },
+    {
+      "name": "spki",
+      "version": "0.7.3",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/spki/0.7.3"
+    },
+    {
+      "name": "sqlx",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/sqlx/0.8.6"
+    },
+    {
+      "name": "sqlx-core",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/sqlx-core/0.8.6"
+    },
+    {
+      "name": "sqlx-macros",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/sqlx-macros/0.8.6"
+    },
+    {
+      "name": "sqlx-macros-core",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/sqlx-macros-core/0.8.6"
+    },
+    {
+      "name": "sqlx-mysql",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/sqlx-mysql/0.8.6"
+    },
+    {
+      "name": "sqlx-postgres",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/sqlx-postgres/0.8.6"
+    },
+    {
+      "name": "sqlx-sqlite",
+      "version": "0.8.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/sqlx-sqlite/0.8.6"
+    },
+    {
+      "name": "stable_deref_trait",
+      "version": "1.2.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/stable_deref_trait/1.2.1"
+    },
+    {
+      "name": "stringprep",
+      "version": "0.1.5",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/stringprep/0.1.5"
+    },
+    {
+      "name": "subtle",
+      "version": "2.6.1",
+      "license": "BSD-3-Clause",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/subtle/2.6.1"
+    },
+    {
+      "name": "syn",
+      "version": "2.0.119",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/syn/2.0.119"
+    },
+    {
+      "name": "syn",
+      "version": "3.0.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/syn/3.0.6"
+    },
+    {
+      "name": "sync_wrapper",
+      "version": "1.0.2",
+      "license": "Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/sync_wrapper/1.0.2"
+    },
+    {
+      "name": "synstructure",
+      "version": "0.13.2",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/synstructure/0.13.2"
+    },
+    {
+      "name": "synstructure",
+      "version": "0.14.0",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/synstructure/0.14.0"
+    },
+    {
+      "name": "thiserror",
+      "version": "1.0.69",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/thiserror/1.0.69"
+    },
+    {
+      "name": "thiserror",
+      "version": "2.0.20",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/thiserror/2.0.20"
+    },
+    {
+      "name": "thiserror-impl",
+      "version": "1.0.69",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/thiserror-impl/1.0.69"
+    },
+    {
+      "name": "thiserror-impl",
+      "version": "2.0.20",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/thiserror-impl/2.0.20"
+    },
+    {
+      "name": "thread_local",
+      "version": "1.1.10",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/thread_local/1.1.10"
+    },
+    {
+      "name": "time",
+      "version": "0.3.55",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/time/0.3.55"
+    },
+    {
+      "name": "time-core",
+      "version": "0.1.9",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/time-core/0.1.9"
+    },
+    {
+      "name": "time-macros",
+      "version": "0.2.32",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/time-macros/0.2.32"
+    },
+    {
+      "name": "tinystr",
+      "version": "0.8.4",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tinystr/0.8.4"
+    },
+    {
+      "name": "tinyvec",
+      "version": "1.13.3",
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tinyvec/1.13.3"
+    },
+    {
+      "name": "tokio",
+      "version": "1.53.1",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tokio/1.53.1"
+    },
+    {
+      "name": "tokio-macros",
+      "version": "2.7.2",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tokio-macros/2.7.2"
+    },
+    {
+      "name": "tokio-rustls",
+      "version": "0.26.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tokio-rustls/0.26.5"
+    },
+    {
+      "name": "tokio-stream",
+      "version": "0.1.19",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tokio-stream/0.1.19"
+    },
+    {
+      "name": "tokio-util",
+      "version": "0.7.19",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tokio-util/0.7.19"
+    },
+    {
+      "name": "toml_datetime",
+      "version": "1.1.1+spec-1.1.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/toml_datetime/1.1.1%2Bspec-1.1.0"
+    },
+    {
+      "name": "toml_edit",
+      "version": "0.25.15+spec-1.1.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/toml_edit/0.25.15%2Bspec-1.1.0"
+    },
+    {
+      "name": "toml_parser",
+      "version": "1.1.3+spec-1.1.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/toml_parser/1.1.3%2Bspec-1.1.0"
+    },
+    {
+      "name": "tower",
+      "version": "0.5.3",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tower/0.5.3"
+    },
+    {
+      "name": "tower-http",
+      "version": "0.6.11",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tower-http/0.6.11"
+    },
+    {
+      "name": "tower-layer",
+      "version": "0.3.3",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tower-layer/0.3.3"
+    },
+    {
+      "name": "tower-service",
+      "version": "0.3.3",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tower-service/0.3.3"
+    },
+    {
+      "name": "tracing",
+      "version": "0.1.44",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tracing/0.1.44"
+    },
+    {
+      "name": "tracing-attributes",
+      "version": "0.1.31",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tracing-attributes/0.1.31"
+    },
+    {
+      "name": "tracing-core",
+      "version": "0.1.36",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tracing-core/0.1.36"
+    },
+    {
+      "name": "tracing-subscriber",
+      "version": "0.3.23",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/tracing-subscriber/0.3.23"
+    },
+    {
+      "name": "try-lock",
+      "version": "0.2.5",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/try-lock/0.2.5"
+    },
+    {
+      "name": "typenum",
+      "version": "1.20.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/typenum/1.20.1"
+    },
+    {
+      "name": "unicode-bidi",
+      "version": "0.3.18",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/unicode-bidi/0.3.18"
+    },
+    {
+      "name": "unicode-ident",
+      "version": "1.0.26",
+      "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/unicode-ident/1.0.26"
+    },
+    {
+      "name": "unicode-normalization",
+      "version": "0.1.25",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/unicode-normalization/0.1.25"
+    },
+    {
+      "name": "unicode-properties",
+      "version": "0.1.4",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/unicode-properties/0.1.4"
+    },
+    {
+      "name": "universal-hash",
+      "version": "0.5.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/universal-hash/0.5.1"
+    },
+    {
+      "name": "untrusted",
+      "version": "0.7.1",
+      "license": "ISC",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/untrusted/0.7.1"
+    },
+    {
+      "name": "untrusted",
+      "version": "0.9.0",
+      "license": "ISC",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/untrusted/0.9.0"
+    },
+    {
+      "name": "url",
+      "version": "2.5.8",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/url/2.5.8"
+    },
+    {
+      "name": "utf8_iter",
+      "version": "1.0.4",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/utf8_iter/1.0.4"
+    },
+    {
+      "name": "uuid",
+      "version": "1.26.1",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/uuid/1.26.1"
+    },
+    {
+      "name": "vcpkg",
+      "version": "0.2.15",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/vcpkg/0.2.15"
+    },
+    {
+      "name": "version_check",
+      "version": "0.9.5",
+      "license": "MIT/Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/version_check/0.9.5"
+    },
+    {
+      "name": "walkdir",
+      "version": "2.5.0",
+      "license": "Unlicense/MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/walkdir/2.5.0"
+    },
+    {
+      "name": "want",
+      "version": "0.3.1",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/want/0.3.1"
+    },
+    {
+      "name": "wasi",
+      "version": "0.11.1+wasi-snapshot-preview1",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/wasi/0.11.1%2Bwasi-snapshot-preview1"
+    },
+    {
+      "name": "wasip2",
+      "version": "1.0.4+wasi-0.2.12",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/wasip2/1.0.4%2Bwasi-0.2.12"
+    },
+    {
+      "name": "wasite",
+      "version": "0.1.0",
+      "license": "Apache-2.0 OR BSL-1.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/wasite/0.1.0"
+    },
+    {
+      "name": "wasm-bindgen",
+      "version": "0.2.128",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/wasm-bindgen/0.2.128"
+    },
+    {
+      "name": "wasm-bindgen-futures",
+      "version": "0.4.78",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/wasm-bindgen-futures/0.4.78"
+    },
+    {
+      "name": "wasm-bindgen-macro",
+      "version": "0.2.128",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/wasm-bindgen-macro/0.2.128"
+    },
+    {
+      "name": "wasm-bindgen-macro-support",
+      "version": "0.2.128",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/wasm-bindgen-macro-support/0.2.128"
+    },
+    {
+      "name": "wasm-bindgen-shared",
+      "version": "0.2.128",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/wasm-bindgen-shared/0.2.128"
+    },
+    {
+      "name": "wasm-streams",
+      "version": "0.5.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/wasm-streams/0.5.0"
+    },
+    {
+      "name": "web-sys",
+      "version": "0.3.105",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/web-sys/0.3.105"
+    },
+    {
+      "name": "web-time",
+      "version": "1.1.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/web-time/1.1.0"
+    },
+    {
+      "name": "webauthn-attestation-ca",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/webauthn-attestation-ca/0.5.5"
+    },
+    {
+      "name": "webauthn-rs-core",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/webauthn-rs-core/0.5.5"
+    },
+    {
+      "name": "webauthn-rs-proto",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/webauthn-rs-proto/0.5.5"
+    },
+    {
+      "name": "webpki-root-certs",
+      "version": "1.0.9",
+      "license": "CDLA-Permissive-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/webpki-root-certs/1.0.9"
+    },
+    {
+      "name": "webpki-roots",
+      "version": "0.26.11",
+      "license": "CDLA-Permissive-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/webpki-roots/0.26.11"
+    },
+    {
+      "name": "webpki-roots",
+      "version": "1.0.9",
+      "license": "CDLA-Permissive-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/webpki-roots/1.0.9"
+    },
+    {
+      "name": "whoami",
+      "version": "1.6.1",
+      "license": "Apache-2.0 OR BSL-1.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/whoami/1.6.1"
+    },
+    {
+      "name": "winapi-util",
+      "version": "0.1.11",
+      "license": "Unlicense OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/winapi-util/0.1.11"
+    },
+    {
+      "name": "windows-core",
+      "version": "0.62.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows-core/0.62.2"
+    },
+    {
+      "name": "windows-implement",
+      "version": "0.60.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows-implement/0.60.2"
+    },
+    {
+      "name": "windows-interface",
+      "version": "0.59.3",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows-interface/0.59.3"
+    },
+    {
+      "name": "windows-link",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows-link/0.2.1"
+    },
+    {
+      "name": "windows-result",
+      "version": "0.4.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows-result/0.4.1"
+    },
+    {
+      "name": "windows-strings",
+      "version": "0.5.1",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows-strings/0.5.1"
+    },
+    {
+      "name": "windows-sys",
+      "version": "0.48.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows-sys/0.48.0"
+    },
+    {
+      "name": "windows-sys",
+      "version": "0.52.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows-sys/0.52.0"
+    },
+    {
+      "name": "windows-sys",
+      "version": "0.61.2",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows-sys/0.61.2"
+    },
+    {
+      "name": "windows-targets",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows-targets/0.48.5"
+    },
+    {
+      "name": "windows-targets",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows-targets/0.52.6"
+    },
+    {
+      "name": "windows_aarch64_gnullvm",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_aarch64_gnullvm/0.48.5"
+    },
+    {
+      "name": "windows_aarch64_gnullvm",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_aarch64_gnullvm/0.52.6"
+    },
+    {
+      "name": "windows_aarch64_msvc",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_aarch64_msvc/0.48.5"
+    },
+    {
+      "name": "windows_aarch64_msvc",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_aarch64_msvc/0.52.6"
+    },
+    {
+      "name": "windows_i686_gnu",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_i686_gnu/0.48.5"
+    },
+    {
+      "name": "windows_i686_gnu",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_i686_gnu/0.52.6"
+    },
+    {
+      "name": "windows_i686_gnullvm",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_i686_gnullvm/0.52.6"
+    },
+    {
+      "name": "windows_i686_msvc",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_i686_msvc/0.48.5"
+    },
+    {
+      "name": "windows_i686_msvc",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_i686_msvc/0.52.6"
+    },
+    {
+      "name": "windows_x86_64_gnu",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_x86_64_gnu/0.48.5"
+    },
+    {
+      "name": "windows_x86_64_gnu",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_x86_64_gnu/0.52.6"
+    },
+    {
+      "name": "windows_x86_64_gnullvm",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_x86_64_gnullvm/0.48.5"
+    },
+    {
+      "name": "windows_x86_64_gnullvm",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_x86_64_gnullvm/0.52.6"
+    },
+    {
+      "name": "windows_x86_64_msvc",
+      "version": "0.48.5",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_x86_64_msvc/0.48.5"
+    },
+    {
+      "name": "windows_x86_64_msvc",
+      "version": "0.52.6",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/windows_x86_64_msvc/0.52.6"
+    },
+    {
+      "name": "winnow",
+      "version": "1.0.4",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/winnow/1.0.4"
+    },
+    {
+      "name": "wit-bindgen",
+      "version": "0.57.1",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/wit-bindgen/0.57.1"
+    },
+    {
+      "name": "writeable",
+      "version": "0.6.4",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/writeable/0.6.4"
+    },
+    {
+      "name": "x509-parser",
+      "version": "0.16.0",
+      "license": "MIT OR Apache-2.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/x509-parser/0.16.0"
+    },
+    {
+      "name": "yoke",
+      "version": "0.8.3",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/yoke/0.8.3"
+    },
+    {
+      "name": "yoke-derive",
+      "version": "0.8.3",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/yoke-derive/0.8.3"
+    },
+    {
+      "name": "zerocopy",
+      "version": "0.8.57",
+      "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/zerocopy/0.8.57"
+    },
+    {
+      "name": "zerocopy-derive",
+      "version": "0.8.57",
+      "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/zerocopy-derive/0.8.57"
+    },
+    {
+      "name": "zerofrom",
+      "version": "0.1.8",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/zerofrom/0.1.8"
+    },
+    {
+      "name": "zerofrom-derive",
+      "version": "0.1.8",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/zerofrom-derive/0.1.8"
+    },
+    {
+      "name": "zeroize",
+      "version": "1.9.0",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/zeroize/1.9.0"
+    },
+    {
+      "name": "zeroize_derive",
+      "version": "1.5.0",
+      "license": "Apache-2.0 OR MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/zeroize_derive/1.5.0"
+    },
+    {
+      "name": "zerotrie",
+      "version": "0.2.5",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/zerotrie/0.2.5"
+    },
+    {
+      "name": "zerovec",
+      "version": "0.11.8",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/zerovec/0.11.8"
+    },
+    {
+      "name": "zerovec-derive",
+      "version": "0.11.6",
+      "license": "Unicode-3.0",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/zerovec-derive/0.11.6"
+    },
+    {
+      "name": "zmij",
+      "version": "1.0.23",
+      "license": "MIT",
+      "ecosystem": "Cargo",
+      "metadata_source": "https://crates.io/api/v1/crates/zmij/1.0.23"
+    },
+    {
+      "name": "fastapi",
+      "version": "0.141.1",
+      "license": "MIT",
+      "ecosystem": "PyPI",
+      "metadata_source": "https://pypi.org/pypi/fastapi/0.141.1/json",
+      "scope": "services/photo-moderation"
+    },
+    {
+      "name": "opencv-python-headless",
+      "version": "4.14.0.94",
+      "license": "Apache 2.0",
+      "ecosystem": "PyPI",
+      "metadata_source": "https://pypi.org/pypi/opencv-python-headless/4.14.0.94/json",
+      "scope": "services/photo-moderation"
+    },
+    {
+      "name": "opennsfw-onnx",
+      "version": "0.1.0",
+      "license": "Apache-2.0",
+      "ecosystem": "PyPI",
+      "metadata_source": "https://pypi.org/pypi/opennsfw-onnx/0.1.0/json",
+      "scope": "services/photo-moderation"
+    },
+    {
+      "name": "uvicorn",
+      "version": "0.52.4",
+      "license": "BSD-3-Clause",
+      "ecosystem": "PyPI",
+      "metadata_source": "https://pypi.org/pypi/uvicorn/0.52.4/json",
+      "scope": "services/photo-moderation"
+    },
+    {
+      "name": "@apple/app-store-server-library",
+      "version": "3.1.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "@types/jsonwebtoken",
+      "version": "9.0.10",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40types%2Fjsonwebtoken/9.0.10",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "@types/jsrsasign",
+      "version": "10.5.15",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "@types/ms",
+      "version": "2.1.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40types%2Fms/2.1.0",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "@types/node",
+      "version": "25.9.9",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "@types/node-fetch",
+      "version": "2.6.13",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "agent-base",
+      "version": "7.1.4",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "asynckit",
+      "version": "0.4.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "base64-js",
+      "version": "1.5.1",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/base64-js/1.5.1",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "base64url",
+      "version": "3.0.1",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "bignumber.js",
+      "version": "9.3.1",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "buffer-equal-constant-time",
+      "version": "1.0.1",
+      "license": "BSD-3-Clause",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/buffer-equal-constant-time/1.0.1",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "call-bind-apply-helpers",
+      "version": "1.0.2",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "combined-stream",
+      "version": "1.0.8",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "data-uri-to-buffer",
+      "version": "4.0.1",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "debug",
+      "version": "4.4.3",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/debug/4.4.3",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "delayed-stream",
+      "version": "1.0.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "dunder-proto",
+      "version": "1.0.1",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "ecdsa-sig-formatter",
+      "version": "1.0.11",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/ecdsa-sig-formatter/1.0.11",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "es-define-property",
+      "version": "1.0.1",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "es-errors",
+      "version": "1.3.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "es-object-atoms",
+      "version": "1.1.2",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "es-set-tostringtag",
+      "version": "2.1.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "extend",
+      "version": "3.0.2",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "fetch-blob",
+      "version": "3.2.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "form-data",
+      "version": "4.0.6",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "formdata-polyfill",
+      "version": "4.0.10",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "function-bind",
+      "version": "1.1.2",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "gaxios",
+      "version": "8.3.1",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "gcp-metadata",
+      "version": "9.2.2",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "get-intrinsic",
+      "version": "1.3.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "get-proto",
+      "version": "1.0.1",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "google-auth-library",
+      "version": "11.3.1",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "google-logging-utils",
+      "version": "2.1.0",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "gopd",
+      "version": "1.2.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "has-symbols",
+      "version": "1.1.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "has-tostringtag",
+      "version": "1.0.2",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "hasown",
+      "version": "2.0.4",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "https-proxy-agent",
+      "version": "7.0.6",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "json-bigint",
+      "version": "1.0.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "jsonwebtoken",
+      "version": "9.0.3",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/jsonwebtoken/9.0.3",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "jsrsasign",
+      "version": "11.1.5",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "jwa",
+      "version": "2.0.1",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/jwa/2.0.1",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "jws",
+      "version": "4.0.1",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/jws/4.0.1",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "lodash.includes",
+      "version": "4.3.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/lodash.includes/4.3.0",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "lodash.isboolean",
+      "version": "3.0.3",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/lodash.isboolean/3.0.3",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "lodash.isinteger",
+      "version": "4.0.4",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/lodash.isinteger/4.0.4",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "lodash.isnumber",
+      "version": "3.0.3",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/lodash.isnumber/3.0.3",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "lodash.isplainobject",
+      "version": "4.0.6",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/lodash.isplainobject/4.0.6",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "lodash.isstring",
+      "version": "4.0.1",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/lodash.isstring/4.0.1",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "lodash.once",
+      "version": "4.1.1",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/lodash.once/4.1.1",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "math-intrinsics",
+      "version": "1.1.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "mime-db",
+      "version": "1.52.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "mime-types",
+      "version": "2.1.35",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "ms",
+      "version": "2.1.3",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/ms/2.1.3",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "node-domexception",
+      "version": "1.0.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "node-fetch",
+      "version": "2.7.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "node-fetch",
+      "version": "3.3.2",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "safe-buffer",
+      "version": "5.2.1",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/safe-buffer/5.2.1",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "semver",
+      "version": "7.8.5",
+      "license": "ISC",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/semver/7.8.5",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "tr46",
+      "version": "0.0.3",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "undici-types",
+      "version": "7.24.6",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "web-streams-polyfill",
+      "version": "3.3.3",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "webidl-conversions",
+      "version": "3.0.1",
+      "license": "BSD-2-Clause",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "whatwg-url",
+      "version": "5.0.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "Installed package.json license field",
+      "scope": "histae-api-rust/services/store-verifier"
+    },
+    {
+      "name": "@emnapi/runtime",
+      "version": "1.11.3",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40emnapi%2Fruntime/1.11.3",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/colour",
+      "version": "1.1.0",
+      "license": "MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fcolour/1.1.0",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-darwin-arm64",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-darwin-arm64/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-darwin-x64",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-darwin-x64/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-freebsd-wasm32",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-freebsd-wasm32/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-libvips-darwin-arm64",
+      "version": "1.3.4",
+      "license": "LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-libvips-darwin-arm64/1.3.4",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-libvips-darwin-x64",
+      "version": "1.3.4",
+      "license": "LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-libvips-darwin-x64/1.3.4",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-libvips-linux-arm",
+      "version": "1.3.4",
+      "license": "LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-libvips-linux-arm/1.3.4",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-libvips-linux-arm64",
+      "version": "1.3.4",
+      "license": "LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-libvips-linux-arm64/1.3.4",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-libvips-linux-ppc64",
+      "version": "1.3.4",
+      "license": "LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-libvips-linux-ppc64/1.3.4",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-libvips-linux-riscv64",
+      "version": "1.3.4",
+      "license": "LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-libvips-linux-riscv64/1.3.4",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-libvips-linux-s390x",
+      "version": "1.3.4",
+      "license": "LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-libvips-linux-s390x/1.3.4",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-libvips-linux-x64",
+      "version": "1.3.4",
+      "license": "LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-libvips-linux-x64/1.3.4",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-libvips-linuxmusl-arm64",
+      "version": "1.3.4",
+      "license": "LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-libvips-linuxmusl-arm64/1.3.4",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-libvips-linuxmusl-x64",
+      "version": "1.3.4",
+      "license": "LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-libvips-linuxmusl-x64/1.3.4",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-linux-arm",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-linux-arm/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-linux-arm64",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-linux-arm64/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-linux-ppc64",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-linux-ppc64/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-linux-riscv64",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-linux-riscv64/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-linux-s390x",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-linux-s390x/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-linux-x64",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-linux-x64/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-linuxmusl-arm64",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-linuxmusl-arm64/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-linuxmusl-x64",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-linuxmusl-x64/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-wasm32",
+      "version": "0.35.5",
+      "license": "Apache-2.0 AND LGPL-3.0-or-later AND MIT",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-wasm32/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-webcontainers-wasm32",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-webcontainers-wasm32/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-win32-arm64",
+      "version": "0.35.5",
+      "license": "Apache-2.0 AND LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-win32-arm64/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-win32-ia32",
+      "version": "0.35.5",
+      "license": "Apache-2.0 AND LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-win32-ia32/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "@img/sharp-win32-x64",
+      "version": "0.35.5",
+      "license": "Apache-2.0 AND LGPL-3.0-or-later",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/%40img%2Fsharp-win32-x64/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "detect-libc",
+      "version": "2.1.2",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/detect-libc/2.1.2",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "heic-decode",
+      "version": "2.1.0",
+      "license": "ISC",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/heic-decode/2.1.0",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "libheif-js",
+      "version": "1.23.2",
+      "license": "LGPL-3.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/libheif-js/1.23.2",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "semver",
+      "version": "7.8.5",
+      "license": "ISC",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/semver/7.8.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "sharp",
+      "version": "0.35.5",
+      "license": "Apache-2.0",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/sharp/0.35.5",
+      "scope": "histae-api-rust/tools/photo-codec"
+    },
+    {
+      "name": "tslib",
+      "version": "2.8.1",
+      "license": "0BSD",
+      "ecosystem": "npm",
+      "metadata_source": "https://registry.npmjs.org/tslib/2.8.1",
+      "scope": "histae-api-rust/tools/photo-codec"
+    }
+  ]
+}
