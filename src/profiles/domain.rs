@@ -358,4 +358,5 @@ pub enum WriteOutcome {
     Updated,
     AccountNotFound,
     RequiredConsentMissing,
+    PresenceUpdateLimited,
 }

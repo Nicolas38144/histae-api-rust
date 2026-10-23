@@ -5,7 +5,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{DateTime, TimeDelta, Utc};
 use histae_api_rust::config::{LegalConfig, PostgresConfig, SecretString};
 use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use histae_api_rust::moderation::text::TextModerator;
@@ -166,6 +166,47 @@ async fn fixture(database: &Database, user_id: Uuid) -> Result<(), DatabaseError
     .await
     .map_err(map_sqlx_error)?;
     Ok(())
+}
+
+#[tokio::test]
+async fn presence_is_coarse_and_cell_changes_are_serialized_without_delaying_same_cell_refreshes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&local_config()?).await?;
+    let repository = PgProfileRepository::new(database.clone());
+    let user_id = Uuid::new_v4();
+    fixture(&database, user_id).await?;
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let mut connection = database.acquire().await?;
+        sqlx::query("DELETE FROM user_presence WHERE user_id=$1").bind(user_id).execute(&mut *connection).await?;
+        drop(connection);
+        let now = DateTime::from_timestamp_micros(Utc::now().timestamp_micros()).expect("timestamp");
+        let input = |latitude, longitude, updated_at| PresenceInput { latitude, longitude, updated_at };
+        assert_eq!(repository.upsert_presence(user_id, input(48.856613, 2.352222, now), legal()).await?, WriteOutcome::Updated);
+        let mut connection = database.acquire().await?;
+        let centre: (f64, f64) = sqlx::query_as("SELECT latitude::double precision, longitude::double precision FROM user_presence WHERE user_id=$1")
+            .bind(user_id).fetch_one(&mut *connection).await?;
+        assert_ne!(centre, (48.856613, 2.352222));
+        drop(connection);
+        let later = now + TimeDelta::seconds(299);
+        assert_eq!(repository.upsert_presence(user_id, input(centre.0 + 0.001, centre.1 + 0.001, later), legal()).await?, WriteOutcome::Updated);
+        assert_eq!(repository.upsert_presence(user_id, input(45.76, 4.84, later), legal()).await?, WriteOutcome::PresenceUpdateLimited);
+        let mut connection = database.acquire().await?;
+        let timestamps: (DateTime<Utc>, DateTime<Utc>) = sqlx::query_as("SELECT updated_at, location_changed_at FROM user_presence WHERE user_id=$1")
+            .bind(user_id).fetch_one(&mut *connection).await?;
+        assert_eq!(timestamps, (later, now));
+        drop(connection);
+        let next = now + TimeDelta::seconds(300);
+        let (first, second) = tokio::join!(
+            repository.upsert_presence(user_id, input(45.76, 4.84, next), legal()),
+            repository.upsert_presence(user_id, input(44.84, -0.58, next), legal()),
+        );
+        let results = [first?, second?];
+        assert_eq!(results.iter().filter(|value| **value == WriteOutcome::Updated).count(), 1);
+        assert_eq!(results.iter().filter(|value| **value == WriteOutcome::PresenceUpdateLimited).count(), 1);
+        Ok(())
+    }.await;
+    cleanup(&database, user_id).await?;
+    result
 }
 
 #[tokio::test]

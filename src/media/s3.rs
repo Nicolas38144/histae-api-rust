@@ -201,6 +201,12 @@ impl S3ObjectStorage {
         query.insert("X-Amz-Date", now.format("%Y%m%dT%H%M%SZ").to_string());
         query.insert("X-Amz-Expires", ttl_seconds.to_string());
         query.insert("X-Amz-SignedHeaders", "host".to_owned());
+        // Signed override applies even to existing objects whose metadata still
+        // advertises the former five-minute cache lifetime.
+        query.insert(
+            "response-cache-control",
+            super::domain::PHOTO_CACHE_CONTROL.to_owned(),
+        );
         let canonical_query = query
             .iter()
             .map(|(key, value)| format!("{}={}", aws_encode(key, false), aws_encode(value, false)))
@@ -341,5 +347,29 @@ mod tests {
             "profile-photos/a%20b.webp"
         );
         assert_eq!(aws_encode("a/b", false), "a%2Fb");
+    }
+
+    #[test]
+    fn signed_photo_reads_override_legacy_cache_metadata() {
+        let storage = S3ObjectStorage::new(&ObjectStorageConfig {
+            endpoint: Url::parse("https://storage.example.test").expect("endpoint"),
+            region: "us-east-1".to_owned(),
+            bucket: "photos".to_owned(),
+            access_key: "fixture-access-key".to_owned(),
+            secret_key: crate::config::SecretString::new("fixture-secret-key".to_owned()),
+            force_path_style: true,
+        })
+        .expect("storage");
+        let value = storage
+            .presign(
+                "profile-photos/fixture.webp",
+                super::super::domain::PHOTO_URL_TTL_SECONDS,
+            )
+            .expect("signed URL");
+        let url = Url::parse(&value).expect("URL");
+        let query = url.query_pairs().collect::<BTreeMap<_, _>>();
+        assert_eq!(query["X-Amz-Expires"], "60");
+        assert_eq!(query["response-cache-control"], "private, no-store");
+        assert_eq!(query["X-Amz-Signature"].len(), 64);
     }
 }

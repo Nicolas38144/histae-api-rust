@@ -56,8 +56,11 @@ de PostgreSQL **18.6 / Debian bookworm**, avec PostGIS **3.6.4**. Le volume, `PG
 et la base Debian sont conservés. `HISTAE_POSTGRES_IMAGE` permet de fournir cette image déjà construite.
 
 Sur une base existante, le migrateur active `postgis` dans `public`, puis construit l’index GiST avec
-`CONCURRENTLY`. Il n’ajoute aucune colonne aux présences : l’index porte sur l’expression géographique
-des coordonnées existantes. Les exports et DTO conservent leurs champs. L’activation de l’extension
+`CONCURRENTLY`. L’index porte sur l’expression géographique des centres de zones conservés dans les
+présences. `location_changed_at` borne leurs changements sans empêcher une actualisation dans la même zone.
+À la première migration de confidentialité, les anciennes coordonnées précises sont effacées et les présences
+marquées périmées ; chaque utilisateur doit renvoyer sa position pour retrouver le feed. Les migrations suivantes
+préservent les nouvelles présences. Les exports et DTO conservent leurs champs. L’activation de l’extension
 nécessite un rôle PostgreSQL disposant des droits adaptés ; sur une base gérée extérieurement, faire
 installer PostGIS par son administrateur avant de lancer le migrateur.
 

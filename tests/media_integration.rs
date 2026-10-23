@@ -209,12 +209,19 @@ async fn s3_put_presign_and_idempotent_delete_work_against_local_storage()
         .await
         .map_err(|_| FixtureError("storage_put"))?;
     let signed = storage
-        .signed_get_url(&key, 300)
+        .signed_get_url(&key, histae_api_rust::media::domain::PHOTO_URL_TTL_SECONDS)
         .await
         .map_err(|_| FixtureError("storage_presign"))?;
     let response = reqwest::get(&signed).await?;
     assert!(response.status().is_success());
+    assert_eq!(
+        response.headers()[reqwest::header::CACHE_CONTROL],
+        "private, no-store"
+    );
     assert_eq!(response.bytes().await?.as_ref(), body.as_slice());
+    let tampered = signed.replace("private%2C%20no-store", "public");
+    assert_ne!(tampered, signed);
+    assert!(!reqwest::get(&tampered).await?.status().is_success());
     storage.delete(&key).await?;
     storage.delete(&key).await?;
     assert!(!reqwest::get(&signed).await?.status().is_success());

@@ -33,6 +33,7 @@ pub enum ProfileError {
     InvalidPreferences,
     PreferencesNotFound,
     InvalidPresence,
+    PresenceUpdateLimited,
     InvalidConsentPayload,
     RequiredConsentMissing,
     AccountNotFound,
@@ -210,6 +211,7 @@ impl ProfileService {
         {
             return Err(ProfileError::InvalidPresence);
         }
+        let (latitude, longitude) = super::location::coarse_coordinates(latitude, longitude);
         self.apply_write(
             self.store
                 .upsert_presence(
@@ -342,6 +344,7 @@ impl ProfileService {
             WriteOutcome::Updated => Ok(()),
             WriteOutcome::AccountNotFound => Err(ProfileError::AccountNotFound),
             WriteOutcome::RequiredConsentMissing => Err(ProfileError::RequiredConsentMissing),
+            WriteOutcome::PresenceUpdateLimited => Err(ProfileError::PresenceUpdateLimited),
         }
     }
 }

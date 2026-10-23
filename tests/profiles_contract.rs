@@ -666,6 +666,31 @@ async fn missing_resources_consent_failures_and_late_write_errors_are_stable() {
         "required_consent_missing"
     );
 
+    store.state.lock().expect("state").write_outcome = WriteOutcome::PresenceUpdateLimited;
+    let limited = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            "/api/users/me/presence",
+            Some(&tokens.access_token),
+            r#"{"latitude":48.856613,"longitude":2.352222}"#,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(limited.headers()["retry-after"], "300");
+    assert_eq!(
+        json_body(limited).await["error"]["code"],
+        "presence_update_limited"
+    );
+    let stored = store
+        .state
+        .lock()
+        .expect("state")
+        .last_presence
+        .expect("presence");
+    assert_ne!((stored.latitude, stored.longitude), (48.856613, 2.352222));
+
     {
         let mut state = store.state.lock().expect("state");
         state.write_outcome = WriteOutcome::Updated;

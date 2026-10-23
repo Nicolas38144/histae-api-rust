@@ -80,6 +80,20 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
+    let precise_presence: bool = sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user_presence' AND column_name = 'location_changed_at')")
+        .fetch_one(&mut *transaction).await.map_err(map_sqlx_error)?;
+    sqlx::query("ALTER TABLE user_presence ADD COLUMN IF NOT EXISTS location_changed_at timestamptz NOT NULL DEFAULT now()")
+        .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
+    if precise_presence {
+        // Discard legacy device coordinates once; the next presence submission
+        // is minimised before persistence. Never refresh an old presence here.
+        sqlx::query(
+            "UPDATE user_presence SET latitude=NULL, longitude=NULL, is_location_fresh=false",
+        )
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
+    }
     sqlx::query("ALTER TABLE user_account ADD COLUMN IF NOT EXISTS discovery_paused boolean NOT NULL DEFAULT false")
         .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
     sqlx::raw_sql("ALTER TABLE user_account ADD COLUMN IF NOT EXISTS preferred_language text NOT NULL DEFAULT 'fr' CHECK (preferred_language IN ('fr','en','es','it')); ALTER TABLE device_token ADD COLUMN IF NOT EXISTS language text CHECK (language IN ('fr','en','es','it')); ALTER TABLE user_consent ADD COLUMN IF NOT EXISTS document_language text NOT NULL DEFAULT 'fr' CHECK (document_language IN ('fr','en','es','it')); ALTER TABLE otp_verification ADD COLUMN IF NOT EXISTS language text NOT NULL DEFAULT 'fr' CHECK (language IN ('fr','en','es','it'))")

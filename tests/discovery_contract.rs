@@ -491,7 +491,7 @@ async fn exposes_status_feed_and_created_swipe_contracts() {
     assert_eq!(feed_response.status(), StatusCode::OK);
     let feed = json_response(feed_response).await;
     assert_eq!(feed["profiles"][0]["user_id"], target.to_string());
-    assert_eq!(feed["profiles"][0]["distance_km"], 1.2);
+    assert_eq!(feed["profiles"][0]["distance_km"], 5.0);
 
     let swipe_response = app
         .oneshot(authenticated(
@@ -528,7 +528,7 @@ async fn encrypted_feed_cursors_paginate_without_exposing_precise_distances() {
     assert_eq!(response.status(), StatusCode::OK);
     let page = json_response(response).await;
     assert_eq!(page["profiles"][0]["user_id"], first.to_string());
-    assert_eq!(page["profiles"][0]["distance_km"], 1.2);
+    assert_eq!(page["profiles"][0]["distance_km"], 5.0);
     let cursor = page["next_cursor"].as_str().expect("next cursor");
     let decoded = URL_SAFE_NO_PAD.decode(cursor).expect("base64");
     assert!(serde_json::from_slice::<Value>(&decoded).is_err());
@@ -546,7 +546,7 @@ async fn encrypted_feed_cursors_paginate_without_exposing_precise_distances() {
     assert_eq!(response.status(), StatusCode::OK);
     let next = json_response(response).await;
     assert_eq!(next["profiles"][0]["user_id"], second.to_string());
-    assert_eq!(next["profiles"][0]["distance_km"], 1.2);
+    assert_eq!(next["profiles"][0]["distance_km"], 5.0);
     assert!(next["next_cursor"].is_null());
 
     let mut modified = decoded;

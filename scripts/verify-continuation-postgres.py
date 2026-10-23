@@ -138,10 +138,13 @@ def main():
             assert query("SELECT NOT EXISTS (SELECT 1 FROM trait CROSS JOIN (VALUES('en'),('es'),('it')) langs(language) WHERE NOT EXISTS (SELECT 1 FROM trait_translation t WHERE t.trait_id=trait.id AND t.language=langs.language)) AND NOT EXISTS (SELECT 1 FROM profile_question CROSS JOIN (VALUES('en'),('es'),('it')) langs(language) WHERE NOT EXISTS (SELECT 1 FROM profile_question_translation t WHERE t.question_id=profile_question.id AND t.language=langs.language));") == "t"
             assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
             query(f"INSERT INTO user_subscription(user_id,plan,provider,provider_subscription_id,status) VALUES ('{first}','free','stripe','sub_LegacyStoreMigration','canceled') ON CONFLICT(user_id) DO UPDATE SET plan='free',provider='stripe',provider_subscription_id='sub_LegacyStoreMigration',status='canceled';")
+            query(f"INSERT INTO user_presence(user_id,latitude,longitude,is_location_fresh) VALUES ('{first}',48.856613,2.352222,true);")
+            query("ALTER TABLE user_presence DROP COLUMN location_changed_at;", "histae_migrate")
             query("DROP VIEW effective_user_subscription; DROP FUNCTION effective_subscription_at(uuid,timestamptz); DROP TABLE billing_store_subscription,billing_store_notification,billing_store_finance,billing_store_account,web_billing_challenge,web_billing_session;", "histae_migrate")
             query("DROP TABLE continuation_reservation,advertising_reward_intent,continuation_wallet; ALTER TABLE continuation_usage DROP COLUMN free_used_count; ALTER TABLE user_account DROP COLUMN discovery_paused, DROP COLUMN preferred_language; ALTER TABLE device_token DROP COLUMN language; ALTER TABLE user_consent DROP COLUMN document_language; ALTER TABLE otp_verification DROP COLUMN language; DROP TABLE trait_translation, profile_question_translation, subscription_plan_translation, subscription_plan_feature_translation;", "histae_migrate")
             query("UPDATE profile_question SET prompt='Question personnalisée avant migration ?' WHERE id='51000000-0000-4000-8000-000000000001';")
             migrate()
+            assert query(f"SELECT latitude IS NULL AND longitude IS NULL AND NOT is_location_fresh FROM user_presence WHERE user_id='{first}';") == "t"
             assert query("SELECT count(*) FROM profile_question_translation WHERE question_id='51000000-0000-4000-8000-000000000001';") == "0"
             query("UPDATE profile_question SET prompt='À quoi ressemble ton dimanche idéal ?' WHERE id='51000000-0000-4000-8000-000000000001';")
             assert query("SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename IN ('billing_store_account','billing_store_subscription','billing_store_notification','billing_store_finance','web_billing_challenge','web_billing_session');") == "6"
@@ -156,7 +159,9 @@ def main():
             assert translation_id
             query(f"DELETE FROM trait_translation WHERE trait_id='{translation_id}' AND language='en'; UPDATE trait_translation SET name='Admin translation kept' WHERE trait_id='{translation_id}' AND language='it';")
             query(f"UPDATE user_account SET discovery_paused=true,preferred_language='es' WHERE user_id='{first}';")
+            query(f"UPDATE user_presence SET latitude=89.975,longitude=0,is_location_fresh=true WHERE user_id='{first}';")
             migrate()
+            assert query(f"SELECT latitude=89.975 AND longitude=0 AND is_location_fresh FROM user_presence WHERE user_id='{first}';") == "t"
             assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "t"
             assert query(f"SELECT preferred_language FROM user_account WHERE user_id='{first}';") == "es"
             assert query(f"SELECT count(*) FROM trait_translation WHERE trait_id='{translation_id}' AND language='en';") == "0"

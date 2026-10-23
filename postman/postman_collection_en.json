@@ -724,7 +724,7 @@
                     }
                   }
                 },
-                "description": "{ latitude, longitude } → 200 { message: \"presence updated\" }."
+                "description": "{ latitude, longitude } → 200 { message: \"presence updated\" }. Stores only the centre of an approximately 5 km cell. Cell changes are limited to once every 5 minutes; otherwise 429 presence_update_limited with Retry-After: 300. Same-cell refreshes remain available."
               },
               "response": []
             }
@@ -773,7 +773,7 @@
                     }
                   ]
                 },
-                "description": "Multipart photo + idempotency key → 200 with the owner’s photo URL and moderation state.\n\nPostman generates a new UUID v4 for each upload. If the response is lost, resend the same file with the original key shown in the Postman Console.\n\nChoose a local file for the photo multipart field; maximum size: 500,000 bytes."
+                "description": "Multipart photo + idempotency key → 200 with the owner’s photo URL and moderation state. URL valid for 60 seconds, Cache-Control: private, no-store. A busy or unavailable codec returns 503 photo_processing_unavailable with Retry-After: 5.\n\nPostman generates a new UUID v4 for each upload. If the response is lost, resend the same file with the original key shown in the Postman Console.\n\nChoose a local file for the photo multipart field; maximum size: 500,000 bytes."
               },
               "response": []
             },
@@ -1182,7 +1182,7 @@
                     }
                   ]
                 },
-                "description": "limit, cursor → 200 { profiles, next_cursor }."
+                "description": "limit, cursor → 200 { profiles, next_cursor }. distance_km is approximate, in 5 km steps (minimum 5), calculated between cell centres. The opaque cursor preserves the internal ordering and must be replayed unchanged."
               },
               "response": []
             },

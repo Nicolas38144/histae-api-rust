@@ -58,6 +58,37 @@ pouvoir lire le store pnpm et lancer Node. Vérifier le résultat de chaque suit
 
 ## Isolation
 
+### Localisation et photos — 23 octobre 2026
+
+Vérifications ciblées : **251 tests unitaires/contrats/codec/inventaire**, **28 tests PostgreSQL**
+et **1 test S3 réel** réussis ; Clippy avec toutes les cibles/features et warnings refusés passe.
+Les services PostgreSQL et SeaweedFS 4.45 utilisés pour cette campagne étaient jetables, avec secrets
+temporaires et nettoyage complet. Aucun service ni compte de production n’a été utilisé.
+
+Les tests couvrent : cellules stables aux pôles et à la ligne de changement de date, coordonnées
+minimisées avant stockage, changements concurrents, actualisation dans la même cellule, refus HTTP
+avec `Retry-After`, pagination malgré des distances publiques identiques, consentements/exclusions,
+effacement, file photo bornée avec annulation/timeout, conversion réelle, surcharge `no-store` d’un
+ancien objet S3 et refus d’une URL dont cette surcharge signée a été altérée.
+
+```bash
+cargo test --locked --lib --test discovery_contract --test profiles_contract --test photo_codec --test route_inventory
+cargo build --locked --bin db-migrate
+python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
+  --test profiles_postgres --test discovery_postgres --test matches_postgres \
+  --test privacy_rights_postgres --test account_erasure_postgres
+# Avec S3 local et son bucket déjà initialisés, configuration locale uniquement :
+cargo test --locked --features postgres-integration --test media_integration \
+  s3_put_presign_and_idempotent_delete_work_against_local_storage -- --exact
+```
+
+Le lanceur PostgreSQL vérifie aussi le retrait unique des anciennes coordonnées lors de l’upgrade et
+la conservation des nouvelles présences lors des migrations suivantes. Ajouter `--sudo-docker` si
+nécessaire ; Cargo reste exécuté sans sudo. Les limites de confidentialité et l’ordre de livraison
+sont décrits dans [Confidentialité et capacité photo](../docs/privacy-and-photo-security.md).
+
+### Précautions pour les autres suites
+
 Les fixtures PostgreSQL contrôlent la cible de développement et utilisent des schémas/données isolés.
 Le claim outbox parcourt toute une file : son test crée `histae_outbox_test_<UUID>`, applique le migrateur
 réel et supprime cette base après fermeture, y compris si une assertion échoue. Le rôle local doit pouvoir

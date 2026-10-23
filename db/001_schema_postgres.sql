@@ -234,6 +234,7 @@ CREATE TABLE user_presence (
     longitude numeric(9,6),
     is_location_fresh boolean DEFAULT false NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    location_changed_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT user_presence_pkey PRIMARY KEY (user_id),
     CONSTRAINT user_presence_user_id_fkey FOREIGN KEY (user_id) REFERENCES user_account(user_id) ON DELETE CASCADE
 );

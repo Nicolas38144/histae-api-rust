@@ -19,6 +19,8 @@ pub const MAX_STORED_PHOTO_BYTES: usize = 500_000;
 pub const MAX_PHOTO_PIXELS: u64 = 40_000_000;
 pub const MAX_PHOTO_EDGE: usize = 2_048;
 pub const DEFAULT_CODEC_TIMEOUT: Duration = Duration::from_secs(35);
+pub const DEFAULT_CODEC_QUEUE_TIMEOUT: Duration = Duration::from_secs(5);
+pub const MAX_CODEC_PENDING_REQUESTS: usize = 4;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InvalidPhotoReason {
@@ -47,6 +49,7 @@ pub enum PhotoCodecError {
     PhotoTooLarge,
     CodecTimedOut,
     CodecUnavailable,
+    CodecBusy,
 }
 
 impl fmt::Display for PhotoCodecError {
@@ -56,6 +59,7 @@ impl fmt::Display for PhotoCodecError {
             Self::PhotoTooLarge => formatter.write_str("The uploaded photo is too large."),
             Self::CodecTimedOut => formatter.write_str("The photo codec timed out."),
             Self::CodecUnavailable => formatter.write_str("The photo codec is unavailable."),
+            Self::CodecBusy => formatter.write_str("The photo codec is busy."),
         }
     }
 }
@@ -83,6 +87,8 @@ pub struct PhotoCodec {
     runner_script: PathBuf,
     working_directory: PathBuf,
     timeout: Duration,
+    queue_timeout: Duration,
+    admissions: Semaphore,
     slots: Arc<Semaphore>,
 }
 
@@ -97,6 +103,8 @@ impl PhotoCodec {
             runner_script: root.join("tools").join("photo-codec-runner.cjs"),
             working_directory: root.join("tools").join("photo-codec"),
             timeout: DEFAULT_CODEC_TIMEOUT,
+            queue_timeout: DEFAULT_CODEC_QUEUE_TIMEOUT,
+            admissions: Semaphore::new(1 + MAX_CODEC_PENDING_REQUESTS),
             slots: Arc::new(Semaphore::new(1)),
         }
     }
@@ -112,6 +120,8 @@ impl PhotoCodec {
             runner_script: runner_script.into(),
             working_directory: working_directory.into(),
             timeout,
+            queue_timeout: DEFAULT_CODEC_QUEUE_TIMEOUT,
+            admissions: Semaphore::new(1 + MAX_CODEC_PENDING_REQUESTS),
             slots: Arc::new(Semaphore::new(1)),
         }
     }
@@ -121,10 +131,15 @@ impl PhotoCodec {
         upload: UploadedPhoto<'_>,
     ) -> Result<ProcessedPhoto, PhotoCodecError> {
         validate_upload(&upload)?;
-        let _permit = self
-            .slots
-            .acquire()
+        // Admission covers the active worker and the bounded waiting queue.
+        // Both permits are released on timeout, cancellation and process errors.
+        let _admission = self
+            .admissions
+            .try_acquire()
+            .map_err(|_| PhotoCodecError::CodecBusy)?;
+        let _permit = timeout(self.queue_timeout, self.slots.acquire())
             .await
+            .map_err(|_| PhotoCodecError::CodecBusy)?
             .map_err(|_| PhotoCodecError::CodecUnavailable)?;
 
         let mut child = Command::new(&self.node_executable)
@@ -312,6 +327,65 @@ fn is_heif(body: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_codec() -> PhotoCodec {
+        PhotoCodec::with_process("must-not-start", "unused", ".", Duration::from_secs(1))
+    }
+
+    fn test_upload() -> UploadedPhoto<'static> {
+        UploadedPhoto {
+            filename: "photo.jpg",
+            mime_type: "image/jpeg",
+            body: &[0xff, 0xd8, 0xff],
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_queue_overflow_without_starting_a_process() {
+        let codec = test_codec();
+        let _full = codec
+            .admissions
+            .acquire_many((MAX_CODEC_PENDING_REQUESTS + 1) as u32)
+            .await
+            .expect("admission");
+        assert_eq!(
+            codec.to_webp(test_upload()).await,
+            Err(PhotoCodecError::CodecBusy)
+        );
+    }
+
+    #[tokio::test]
+    async fn bounds_queue_wait_and_releases_admission_after_timeout_and_cancellation() {
+        let mut codec = test_codec();
+        codec.queue_timeout = Duration::from_millis(10);
+        let _active = codec.slots.acquire().await.expect("active worker");
+        assert_eq!(
+            codec.to_webp(test_upload()).await,
+            Err(PhotoCodecError::CodecBusy)
+        );
+        assert_eq!(
+            codec.admissions.available_permits(),
+            1 + MAX_CODEC_PENDING_REQUESTS
+        );
+
+        codec.queue_timeout = Duration::from_secs(60);
+        {
+            let pending = codec.to_webp(test_upload());
+            tokio::pin!(pending);
+            tokio::select! {
+                result = &mut pending => panic!("queue should still be waiting: {result:?}"),
+                () = tokio::time::sleep(Duration::from_millis(10)) => {}
+            }
+            assert_eq!(
+                codec.admissions.available_permits(),
+                MAX_CODEC_PENDING_REQUESTS
+            );
+        }
+        assert_eq!(
+            codec.admissions.available_permits(),
+            1 + MAX_CODEC_PENDING_REQUESTS
+        );
+    }
 
     #[test]
     fn recognises_the_same_container_signatures_as_nest() {

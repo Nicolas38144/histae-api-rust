@@ -724,7 +724,7 @@
                     }
                   }
                 },
-                "description": "{ latitude, longitude } → 200 { message: \"presence updated\" }."
+                "description": "{ latitude, longitude } → 200 { message: \"presence updated\" }. Position stockée sous forme de centre de zone d’environ 5 km. Un changement de zone toutes les 5 minutes ; sinon 429 presence_update_limited avec Retry-After: 300. L’actualisation dans la même zone reste possible."
               },
               "response": []
             }
@@ -773,7 +773,7 @@
                     }
                   ]
                 },
-                "description": "Multipart photo + clé d’idempotence → 200 avec URL propriétaire et modération.\n\nPostman génère un nouvel UUID v4 pour chaque envoi. Si la réponse est perdue, rejouer le même fichier avec la clé initiale relevée dans la console Postman.\n\nChoisir un fichier local pour le champ multipart photo ; taille maximale 500 000 octets."
+                "description": "Multipart photo + clé d’idempotence → 200 avec URL propriétaire et modération. URL valable 60 secondes, Cache-Control: private, no-store. Convertisseur saturé ou indisponible : 503 photo_processing_unavailable avec Retry-After: 5.\n\nPostman génère un nouvel UUID v4 pour chaque envoi. Si la réponse est perdue, rejouer le même fichier avec la clé initiale relevée dans la console Postman.\n\nChoisir un fichier local pour le champ multipart photo ; taille maximale 500 000 octets."
               },
               "response": []
             },
@@ -1182,7 +1182,7 @@
                     }
                   ]
                 },
-                "description": "limit, cursor → 200 { profiles, next_cursor }."
+                "description": "limit, cursor → 200 { profiles, next_cursor }. distance_km est approximative, par paliers de 5 km (minimum 5), calculée entre centres de zones. Le curseur opaque conserve le tri interne et doit être rejoué sans modification."
               },
               "response": []
             },

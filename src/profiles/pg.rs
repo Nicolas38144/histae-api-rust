@@ -255,6 +255,8 @@ impl ProfileStore for PgProfileRepository {
         legal: LegalConfig,
     ) -> ProfileStoreFuture<'_, WriteOutcome> {
         Box::pin(async move {
+            let (latitude, longitude) =
+                super::location::coarse_coordinates(input.latitude, input.longitude);
             self.database
                 .transaction(move |connection| {
                     Box::pin(async move {
@@ -268,27 +270,42 @@ impl ProfileStore for PgProfileRepository {
                         if lock != WriteOutcome::Updated {
                             return Ok(lock);
                         }
-                        sqlx::query(
+                        let result = sqlx::query(
                             r#"
                             INSERT INTO user_presence (
-                                user_id, latitude, longitude, is_location_fresh, updated_at
+                                user_id, latitude, longitude, is_location_fresh, updated_at,
+                                location_changed_at
                             ) VALUES ($1, ($2::double precision)::numeric,
-                                ($3::double precision)::numeric, true, $4)
+                                ($3::double precision)::numeric, true, $4, $4)
                             ON CONFLICT (user_id) DO UPDATE SET
+                                location_changed_at = CASE
+                                    WHEN (user_presence.latitude, user_presence.longitude)
+                                        IS NOT DISTINCT FROM (EXCLUDED.latitude, EXCLUDED.longitude)
+                                    THEN user_presence.location_changed_at ELSE EXCLUDED.updated_at END,
                                 latitude = EXCLUDED.latitude,
                                 longitude = EXCLUDED.longitude,
                                 is_location_fresh = EXCLUDED.is_location_fresh,
                                 updated_at = EXCLUDED.updated_at
+                            WHERE (user_presence.latitude, user_presence.longitude)
+                                    IS NOT DISTINCT FROM (EXCLUDED.latitude, EXCLUDED.longitude)
+                                OR user_presence.latitude IS NULL OR user_presence.longitude IS NULL
+                                OR user_presence.location_changed_at <= EXCLUDED.updated_at
+                                    - make_interval(secs => $5::double precision)
                             "#,
                         )
                         .bind(user_id)
-                        .bind(input.latitude)
-                        .bind(input.longitude)
+                        .bind(latitude)
+                        .bind(longitude)
                         .bind(input.updated_at)
+                        .bind(super::location::LOCATION_CHANGE_INTERVAL_SECONDS as f64)
                         .execute(&mut *connection)
                         .await
                         .map_err(map_sqlx_error)?;
-                        Ok(WriteOutcome::Updated)
+                        Ok(if result.rows_affected() == 1 {
+                            WriteOutcome::Updated
+                        } else {
+                            WriteOutcome::PresenceUpdateLimited
+                        })
                     })
                 })
                 .await

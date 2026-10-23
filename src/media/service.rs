@@ -54,6 +54,7 @@ pub enum PhotoError {
     PhotoTooLarge,
     UpdateConflict,
     StorageUnavailable,
+    ProcessorUnavailable,
     AccountActivity(AccountActivityError),
     Database(DatabaseError),
 }
@@ -162,9 +163,11 @@ impl PhotoService {
                 return Err(match error {
                     PhotoCodecError::InvalidPhoto(reason) => PhotoError::InvalidPhoto(reason),
                     PhotoCodecError::PhotoTooLarge => PhotoError::PhotoTooLarge,
-                    PhotoCodecError::CodecTimedOut | PhotoCodecError::CodecUnavailable => {
+                    PhotoCodecError::CodecTimedOut
+                    | PhotoCodecError::CodecUnavailable
+                    | PhotoCodecError::CodecBusy => {
                         tracing::warn!(event_code = "photo_codec_unavailable");
-                        PhotoError::InvalidPhoto(InvalidPhotoReason::DecodeFailed)
+                        PhotoError::ProcessorUnavailable
                     }
                 });
             }

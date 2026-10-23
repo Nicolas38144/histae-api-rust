@@ -4,9 +4,9 @@ use uuid::Uuid;
 
 use crate::profiles::domain::{ModerationReason, ModerationStatus};
 
-pub const PHOTO_URL_TTL_SECONDS: u32 = 300;
+pub const PHOTO_URL_TTL_SECONDS: u32 = 60;
 pub const PHOTO_IDEMPOTENCY_HOURS: i64 = 24;
-pub const PHOTO_CACHE_CONTROL: &str = "private, max-age=300";
+pub const PHOTO_CACHE_CONTROL: &str = "private, no-store";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UploadPhoto {

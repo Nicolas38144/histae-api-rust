@@ -83,7 +83,10 @@ impl From<DiscoveryCandidateRow> for FeedCandidate {
             age: value.age,
             sex: value.sex,
             bio: value.bio,
-            distance_km: (value.distance_km * 10.0).round() / 10.0,
+            // Keep the numeric contract without publishing sub-kilometre ranges.
+            // Stored locations are coarse cell centres, including for filtering
+            // and ordering; rounding alone would not prevent repeated probing.
+            distance_km: (value.distance_km / 5.0).ceil().max(1.0) * 5.0,
             traits: value.traits,
             profile_answers: value.profile_answers,
         }

@@ -24,6 +24,11 @@ une borne de pagination, un consentement, un verrou ou une règle d’idempotenc
 
 ### Feed dans une zone dense
 
+Les coordonnées utilisées sont des centres de zones d’environ 5 km, après minimisation à l’écriture.
+Dans cette section, « distance exacte » désigne le calcul interne entre ces centres, jamais une distance
+entre positions GPS précises. La réponse publique est réduite à des paliers de 5 km ; le curseur chiffré
+conserve la précision interne nécessaire au tri et à la pagination.
+
 L’index GiST sur les coordonnées existantes préfiltre la fenêtre avec `ST_DWithin` sur la sphère.
 Le rayon commence à 100 mètres, ou après la distance du curseur, puis double jusqu’à obtenir le lot
 ou atteindre la distance maximale du lecteur. Une marge conservatrice du préfiltre évite les omissions

@@ -238,6 +238,12 @@ fn photo_error(error: PhotoError) -> ApiError {
             "photo_storage_unavailable",
             "Photo storage is temporarily unavailable",
         ),
+        PhotoError::ProcessorUnavailable => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "photo_processing_unavailable",
+            "Photo processing is temporarily unavailable.",
+        )
+        .with_retry_after(crate::media::codec::DEFAULT_CODEC_QUEUE_TIMEOUT.as_secs()),
         PhotoError::AccountActivity(error) => ApiError::from(error),
         PhotoError::Database(error) => error.into(),
     }
@@ -246,6 +252,14 @@ fn photo_error(error: PhotoError) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saturation_is_retryable_and_does_not_blame_the_uploaded_image() {
+        use axum::response::IntoResponse;
+        let response = photo_error(PhotoError::ProcessorUnavailable).into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "5");
+    }
 
     #[test]
     fn only_accepts_canonical_uuid_v4_headers() {

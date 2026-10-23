@@ -268,6 +268,12 @@ fn profile_error(error: ProfileError) -> ApiError {
             "invalid_presence",
             "The location does not contain valid coordinates.",
         ),
+        ProfileError::PresenceUpdateLimited => ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "presence_update_limited",
+            "Please wait before changing your location again.",
+        )
+        .with_retry_after(super::location::LOCATION_CHANGE_INTERVAL_SECONDS as u64),
         ProfileError::InvalidConsentPayload => ApiError::new(
             StatusCode::BAD_REQUEST,
             "invalid_consent_payload",
