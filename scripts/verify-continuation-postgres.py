@@ -3,8 +3,10 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import secrets
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -18,9 +20,14 @@ TESTS = (
 )
 
 
+class VerificationError(RuntimeError):
+    """A verification failure whose message contains no credentials or SQL."""
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--api-image", default="histae-api:local")
+    parser.add_argument("--api-image", default="histae-api:local",
+                        help="Locally built API image containing the current migrator")
     parser.add_argument("--postgres-image", default="histae-postgres:18.6-postgis3.6.4")
     parser.add_argument("--test", action="append", choices=TESTS)
     parser.add_argument("--native-migrator", type=Path, help="Use a freshly built local db-migrate binary over the published loopback port")
@@ -31,13 +38,33 @@ def main():
     created = False
     os.umask(0o077)
 
-    def docker(*arguments, input_text=None):
+    def docker(*arguments, input_text=None, failure_message=None):
         result = subprocess.run([*docker_command, *arguments], input=input_text,
                                 text=True, capture_output=True, cwd=ROOT)
         if result.returncode:
             # Never print bootstrap credentials, SQL or container environment.
-            raise RuntimeError(f"Docker verification step failed: {arguments[0]}")
+            codes = sorted(set(re.findall(r"\berror_code=([a-z][a-z0-9_]{0,63})\b",
+                                          result.stdout + result.stderr)))
+            details = f"exit {result.returncode}"
+            if codes:
+                details += f"; error_code={','.join(codes)}"
+            message = failure_message or f"Docker verification step failed: {arguments[0]}"
+            raise VerificationError(f"{message} ({details})")
         return result.stdout.strip()
+
+    # Fail before creating a database or attempting an implicit registry pull.
+    docker("info", "--format", "{{.ServerVersion}}",
+           failure_message="Docker is not accessible; check the daemon and permissions, or use --sudo-docker")
+    docker("image", "inspect", args.postgres_image, "--format", "{{.Id}}",
+           failure_message=f"Required local PostgreSQL image is unavailable: {args.postgres_image}")
+    if args.native_migrator:
+        if not args.native_migrator.is_file() or not os.access(args.native_migrator, os.X_OK):
+            raise VerificationError("Native migrator is missing or not executable; run cargo build --locked --bin db-migrate")
+    else:
+        docker("image", "inspect", args.api_image, "--format", "{{.Id}}",
+               failure_message=f"Required local API image is unavailable: {args.api_image}. "
+                               "Build the current API image and select it with --api-image, or run "
+                               "cargo build --locked --bin db-migrate and use --native-migrator target/debug/db-migrate")
 
     with tempfile.TemporaryDirectory(prefix="histae-continuation-") as temporary:
         directory = Path(temporary)
@@ -53,6 +80,7 @@ def main():
                        POSTGRES_POOL_MAX="4", JWT_SECRET=secrets.token_hex(32),
                        PHONE_ENCRYPTION_KEY=secrets.token_hex(32), PHONE_HASH_KEY=secrets.token_hex(32),
                        RATE_LIMIT_STORE="memory", SMS_PROVIDER="disabled", BILLING_PROVIDER="disabled",
+                       APP_STORE_ENABLED="false", GOOGLE_PLAY_ENABLED="false", WEB_BILLING_ENABLED="false",
                        PUSH_PROVIDER="disabled", PHOTO_MODERATION_PROVIDER="disabled",
                        ADVERTISING_PROVIDER="disabled", METRICS_ENABLED="false",
                        TERMS_OF_SERVICE_VERSION="continuation-test-v1", PRIVACY_POLICY_VERSION="continuation-test-v1",
@@ -63,7 +91,7 @@ def main():
             path.chmod(0o600)
         try:
             print("Starting isolated PostgreSQL for continuation tests…", flush=True)
-            docker("run", "-d", "--name", name, "--network", "bridge",
+            docker("run", "--pull", "never", "-d", "--name", name, "--network", "bridge",
                    "--publish", "127.0.0.1::5432", "--memory", "1g", "--cpus", "2",
                    "--env-file", str(directory / "postgres.env"),
                    "--tmpfs", "/var/lib/postgresql:rw,size=512m",
@@ -86,12 +114,13 @@ def main():
                     environment.update(runtime, POSTGRES_PORT=port)
                     result = subprocess.run([str(args.native_migrator.resolve())], cwd=ROOT, env=environment)
                     if result.returncode:
-                        raise RuntimeError("Native migration verification failed")
+                        raise VerificationError("Native migration verification failed")
                 else:
-                    docker("run", "--rm", "--network", f"container:{name}",
+                    docker("run", "--pull", "never", "--rm", "--network", f"container:{name}",
                            "--env-file", str(directory / "migrate.env"), "--user", "1000:1000",
                            "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-                           "--entrypoint", "/app/bin/db-migrate", args.api_image)
+                           "--entrypoint", "/app/bin/db-migrate", args.api_image,
+                           failure_message=f"Migration with local API image {args.api_image} failed")
             for _ in range(2):
                 migrate()
             def query(statement, role="histae_app"):
@@ -157,4 +186,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except VerificationError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        sys.exit(1)

@@ -134,12 +134,19 @@ Les tests unitaires `advertising::` couvrent aussi la validation d’URL réserv
 Pour ces suites, utiliser le lanceur isolé afin que le worker de la pile dev ne récupère pas les événements des fixtures :
 
 ```bash
-# L’image API doit d’abord être construite depuis le code actuel.
+cargo build --locked --bin db-migrate
 sudo -v
-python3 scripts/verify-continuation-postgres.py --sudo-docker
+python3 scripts/verify-continuation-postgres.py --sudo-docker \
+  --native-migrator target/debug/db-migrate
 ```
 
-Cargo reste exécuté par l’utilisateur courant ; `sudo` s’applique uniquement aux commandes Docker. Avec un accès Docker déjà disponible, omettre `sudo -v` et `--sudo-docker`. Le lanceur crée un PostgreSQL avec une publication sur une adresse loopback et un port aléatoire, teste le migrateur livré sur base neuve et ancienne, puis exécute les suites avec `histae_app`. Ses fixtures, conteneur, tmpfs et mots de passe temporaires sont supprimés à la fin. Il ne se connecte pas au PostgreSQL de la pile dev.
+Cargo reste exécuté par l’utilisateur courant ; `sudo` s’applique uniquement aux commandes Docker. Avec un accès Docker déjà disponible, omettre `sudo -v` et `--sudo-docker`. Le lanceur crée un PostgreSQL avec une publication sur une adresse loopback et un port aléatoire, teste le migrateur fraîchement compilé sur base neuve et ancienne, puis exécute les suites avec `histae_app`. Ses fixtures, conteneur, tmpfs et mots de passe temporaires sont supprimés à la fin. Il ne se connecte pas au PostgreSQL de la pile dev.
+
+Pour vérifier le migrateur de l’image Docker à la place du binaire local, reconstruire cette image depuis
+le code actuel, omettre `--native-migrator` et préciser son nom avec `--api-image` (défaut : `histae-api:local`).
+Les images doivent être disponibles localement : le lanceur les vérifie avant de créer PostgreSQL et ne les
+télécharge pas implicitement. En cas d’échec de migration Docker, seuls le code de sortie et les
+`error_code` structurés sont affichés ; les mots de passe, SQL et environnements restent masqués.
 
 ## Vérifications HTTP derrière Caddy
 

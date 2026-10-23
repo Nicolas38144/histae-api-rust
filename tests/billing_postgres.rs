@@ -508,7 +508,10 @@ impl StripeGateway for SwitchingStripe {
     fn expire_checkout_session(&self, session_id: &str) -> StripeFuture<'_, ()> {
         let completed = self.completion_won.load(Ordering::SeqCst);
         if !completed {
-            self.expired.lock().expect("expired").push(session_id.to_owned());
+            self.expired
+                .lock()
+                .expect("expired")
+                .push(session_id.to_owned());
         }
         Box::pin(async move {
             if completed {
@@ -542,27 +545,69 @@ async fn changing_formula_expires_the_previous_checkout_before_creating_another(
     let service = BillingService::new(
         Arc::new(PgBillingRepository::new(database.clone())),
         Arc::new(provider.clone()),
-        billing_config(), activity.clone(), Arc::new(SystemClock),
+        billing_config(),
+        activity.clone(),
+        Arc::new(SystemClock),
     );
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let monthly_key = Uuid::new_v4().to_string();
         let annual_key = Uuid::new_v4().to_string();
-        let monthly = service.create_checkout(user, BillingPeriod::Monthly, Some(&monthly_key)).await?;
-        assert_eq!(service.create_checkout(user, BillingPeriod::Monthly, Some(&monthly_key)).await?, monthly);
+        let monthly = service
+            .create_checkout(user, BillingPeriod::Monthly, Some(&monthly_key))
+            .await?;
+        assert_eq!(
+            service
+                .create_checkout(user, BillingPeriod::Monthly, Some(&monthly_key))
+                .await?,
+            monthly
+        );
         assert!(provider.expired.lock().expect("expired").is_empty());
-        let annual = service.create_checkout(user, BillingPeriod::Annual, Some(&annual_key)).await?;
-        assert_eq!(*provider.expired.lock().expect("expired"), vec![monthly.session_id.clone()]);
-        assert_eq!(service.create_checkout(user, BillingPeriod::Monthly, Some(&monthly_key)).await, Err(BillingError::IdempotencyKeyConsumed));
+        let annual = service
+            .create_checkout(user, BillingPeriod::Annual, Some(&annual_key))
+            .await?;
+        assert_eq!(
+            *provider.expired.lock().expect("expired"),
+            vec![monthly.session_id.clone()]
+        );
+        assert_eq!(
+            service
+                .create_checkout(user, BillingPeriod::Monthly, Some(&monthly_key))
+                .await,
+            Err(BillingError::IdempotencyKeyConsumed)
+        );
         let fresh_key = Uuid::new_v4().to_string();
-        service.create_checkout(user, BillingPeriod::Monthly, Some(&fresh_key)).await?;
-        assert_eq!(*provider.expired.lock().expect("expired"), vec![monthly.session_id, annual.session_id]);
-        assert_eq!(provider.created.lock().expect("created").iter().map(|input| input.billing_period).collect::<Vec<_>>(), vec![BillingPeriod::Monthly, BillingPeriod::Annual, BillingPeriod::Monthly]);
+        service
+            .create_checkout(user, BillingPeriod::Monthly, Some(&fresh_key))
+            .await?;
+        assert_eq!(
+            *provider.expired.lock().expect("expired"),
+            vec![monthly.session_id, annual.session_id]
+        );
+        assert_eq!(
+            provider
+                .created
+                .lock()
+                .expect("created")
+                .iter()
+                .map(|input| input.billing_period)
+                .collect::<Vec<_>>(),
+            vec![
+                BillingPeriod::Monthly,
+                BillingPeriod::Annual,
+                BillingPeriod::Monthly
+            ]
+        );
         let mut connection = database.acquire().await?;
-        let open: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_checkout_session WHERE user_id=$1 AND status='open'")
-            .bind(user).fetch_one(&mut *connection).await?;
+        let open: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM billing_checkout_session WHERE user_id=$1 AND status='open'",
+        )
+        .bind(user)
+        .fetch_one(&mut *connection)
+        .await?;
         assert_eq!(open, 1);
         Ok(())
-    }.await;
+    }
+    .await;
     cleanup(&database, &[user]).await?;
     activity.close().await;
     database.close().await;
@@ -581,18 +626,28 @@ async fn completed_checkout_cannot_be_replaced_even_before_its_webhook_arrives()
     let service = BillingService::new(
         Arc::new(PgBillingRepository::new(database.clone())),
         Arc::new(provider.clone()),
-        billing_config(), activity.clone(), Arc::new(SystemClock),
+        billing_config(),
+        activity.clone(),
+        Arc::new(SystemClock),
     );
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let monthly_key = Uuid::new_v4().to_string();
-        service.create_checkout(user, BillingPeriod::Monthly, Some(&monthly_key)).await?;
+        service
+            .create_checkout(user, BillingPeriod::Monthly, Some(&monthly_key))
+            .await?;
         provider.completion_won.store(true, Ordering::SeqCst);
         let annual_key = Uuid::new_v4().to_string();
-        assert_eq!(service.create_checkout(user, BillingPeriod::Annual, Some(&annual_key)).await, Err(BillingError::CheckoutAlreadyInProgress));
+        assert_eq!(
+            service
+                .create_checkout(user, BillingPeriod::Annual, Some(&annual_key))
+                .await,
+            Err(BillingError::CheckoutAlreadyInProgress)
+        );
         assert_eq!(provider.created.lock().expect("created").len(), 1);
         assert!(provider.expired.lock().expect("expired").is_empty());
         Ok(())
-    }.await;
+    }
+    .await;
     cleanup(&database, &[user]).await?;
     activity.close().await;
     database.close().await;

@@ -400,9 +400,10 @@ impl StripeGateway for StripeClient {
                 // The expiration response may have been lost, or its webhook
                 // may have arrived first. An already expired session is safe;
                 // a completed session must never release the purchase guard.
-                Err(StripeError::Rejected) => self
-                    .request(Method::GET, &retrieve_path, Vec::new(), None)
-                    .await?,
+                Err(StripeError::Rejected) => {
+                    self.request(Method::GET, &retrieve_path, Vec::new(), None)
+                        .await?
+                }
                 Err(error) => return Err(error),
             };
             if response.get("id").and_then(Value::as_str) != Some(session_id.as_str()) {

@@ -418,11 +418,26 @@ async fn localized_stripe_sessions_keep_original_persisted_retry_parameters() {
 #[tokio::test]
 async fn checkout_expiration_requires_the_matching_session_and_expired_status() {
     for (body, expected) in [
-        (serde_json::json!({"id":"cs_switch", "status":"expired"}), Ok(())),
-        (serde_json::json!({"id":"cs_other", "status":"expired"}), Err(StripeError::InvalidResponse)),
-        (serde_json::json!({"id":"cs_switch", "status":"complete"}), Err(StripeError::Rejected)),
-        (serde_json::json!({"id":"cs_switch", "status":"open"}), Err(StripeError::Rejected)),
-        (serde_json::json!({"id":"cs_switch"}), Err(StripeError::InvalidResponse)),
+        (
+            serde_json::json!({"id":"cs_switch", "status":"expired"}),
+            Ok(()),
+        ),
+        (
+            serde_json::json!({"id":"cs_other", "status":"expired"}),
+            Err(StripeError::InvalidResponse),
+        ),
+        (
+            serde_json::json!({"id":"cs_switch", "status":"complete"}),
+            Err(StripeError::Rejected),
+        ),
+        (
+            serde_json::json!({"id":"cs_switch", "status":"open"}),
+            Err(StripeError::Rejected),
+        ),
+        (
+            serde_json::json!({"id":"cs_switch"}),
+            Err(StripeError::InvalidResponse),
+        ),
     ] {
         let (endpoint, captured) = capture_one(body.to_string()).await;
         let client = StripeClient::with_endpoint(config(), endpoint).expect("client");
@@ -434,13 +449,28 @@ async fn checkout_expiration_requires_the_matching_session_and_expired_status() 
 
 #[tokio::test]
 async fn repeated_expiration_retrieves_state_and_never_accepts_a_completed_checkout() {
-    for (status, expected) in [("expired", Ok(())), ("complete", Err(StripeError::Rejected))] {
+    for (status, expected) in [
+        ("expired", Ok(())),
+        ("complete", Err(StripeError::Rejected)),
+    ] {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
-        let endpoint = Url::parse(&format!("http://{}/v1/", listener.local_addr().expect("address"))).expect("endpoint");
+        let endpoint = Url::parse(&format!(
+            "http://{}/v1/",
+            listener.local_addr().expect("address")
+        ))
+        .expect("endpoint");
         let task = tokio::spawn(async move {
             for (code, body, method) in [
-                ("400 Bad Request", "{}".to_owned(), "POST /v1/checkout/sessions/cs_switch/expire HTTP/1.1"),
-                ("200 OK", serde_json::json!({"id":"cs_switch", "status":status}).to_string(), "GET /v1/checkout/sessions/cs_switch HTTP/1.1"),
+                (
+                    "400 Bad Request",
+                    "{}".to_owned(),
+                    "POST /v1/checkout/sessions/cs_switch/expire HTTP/1.1",
+                ),
+                (
+                    "200 OK",
+                    serde_json::json!({"id":"cs_switch", "status":status}).to_string(),
+                    "GET /v1/checkout/sessions/cs_switch HTTP/1.1",
+                ),
             ] {
                 let (mut socket, _) = listener.accept().await.expect("connection");
                 let mut request = Vec::new();
@@ -451,8 +481,14 @@ async fn repeated_expiration_retrieves_state_and_never_accepts_a_completed_check
                     request.extend_from_slice(&buffer[..read]);
                 }
                 assert!(String::from_utf8_lossy(&request).starts_with(method));
-                let response = format!("HTTP/1.1 {code}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
-                socket.write_all(response.as_bytes()).await.expect("response");
+                let response = format!(
+                    "HTTP/1.1 {code}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("response");
             }
         });
         let client = StripeClient::with_endpoint(config(), endpoint).expect("client");
