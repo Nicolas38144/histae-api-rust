@@ -217,18 +217,6 @@ impl SseHttpState {
             policy: SsePolicy::default(),
         }
     }
-
-    pub fn with_policy(
-        realtime: RealtimeService,
-        sessions: Arc<dyn SessionActivity>,
-        policy: SsePolicy,
-    ) -> Self {
-        Self {
-            realtime,
-            sessions,
-            policy,
-        }
-    }
 }
 
 pub fn routes(state: SseHttpState, auth: MobileAuthState) -> Router<HttpState> {
