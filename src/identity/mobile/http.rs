@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use uuid::{Uuid, Variant, Version};
 
 use super::account::{MobileLoginError, MobileLoginService};
-use super::otp::{OtpError, OtpService};
 use super::otp::requests::{OtpRequestService, RequestError};
+use super::otp::{OtpError, OtpService};
 use super::service::{AuthenticatedMobile as AuthenticatedIdentity, MobileAuthError};
 use super::service::{MobileAuthService, MobileSessionPage, TokenPair};
 use super::sweego::{SweegoWebhookError, SweegoWebhookHeaders, SweegoWebhookService};
@@ -161,20 +161,20 @@ async fn send_otp(
         single_header(&headers, header::HeaderName::from_static("idempotency-key"));
     // Invalid inputs and queued requests consume the same quotas independently
     // of whether an account exists. Eligibility is never queried here.
-    OtpService::validate_idempotency_key(idempotency_key.as_deref()).map_err(otp_error)?;
-    let id = Uuid::parse_str(idempotency_key.as_deref().unwrap_or_default().trim())
-        .map_err(|_| otp_error(OtpError::InvalidIdempotencyKey))?;
+    let id = OtpService::parse_idempotency_key(idempotency_key.as_deref()).map_err(otp_error)?;
     // Exactly the same durable write for both real and suppressed requests.
     // Account eligibility and the provider call only run in the outbox worker.
-    let resend_after_seconds = state.requests.enqueue(
-        &phone, phone_key, id, body.registration, locale.anonymous().language,
-    ).await.map_err(|error| match error {
-        RequestError::Conflict => otp_error(OtpError::IdempotencyConflict),
-        RequestError::Cooldown(seconds) => ApiError::new(
-            StatusCode::TOO_MANY_REQUESTS, "otp_resend_too_soon", "Please wait before requesting another code.",
-        ).with_retry_after(seconds),
-        RequestError::Database(_) => ApiError::internal(),
-    })?;
+    let resend_after_seconds = state
+        .requests
+        .enqueue(
+            &phone,
+            phone_key,
+            id,
+            body.registration,
+            locale.anonymous().language,
+        )
+        .await
+        .map_err(otp_request_error)?;
     Ok((
         StatusCode::ACCEPTED,
         Json(SendOtpResponse {
@@ -268,6 +268,19 @@ fn single_header(headers: &HeaderMap, name: HeaderName) -> Option<String> {
         return None;
     }
     value.to_str().ok().map(str::to_owned)
+}
+
+fn otp_request_error(error: RequestError) -> ApiError {
+    match error {
+        RequestError::Conflict => otp_error(OtpError::IdempotencyConflict),
+        RequestError::Cooldown(seconds) => ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "otp_resend_too_soon",
+            "Please wait before requesting another code.",
+        )
+        .with_retry_after(seconds),
+        RequestError::Database(_) => ApiError::internal(),
+    }
 }
 
 fn otp_error(error: OtpError) -> ApiError {

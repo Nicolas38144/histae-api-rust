@@ -8,7 +8,13 @@ use crate::billing::reconcile::{
 };
 use crate::billing::service::BillingService;
 use crate::billing::stripe::StripeClient;
-use crate::config::AppConfig;
+use crate::config::{AppConfig, SmsProvider};
+use crate::identity::mobile::account::MobileAccountRepository;
+use crate::identity::mobile::otp::{
+    OtpRepository, OtpRequestHandler, OtpService, PgOtpRequestStore,
+};
+use crate::identity::mobile::sms_safety::{PgSmsSafetyStore, SmsSafetyService};
+use crate::identity::mobile::sweego::SweegoSmsService;
 use crate::infra::postgres::Database;
 use crate::infra::postgres_locks::AccountActivityPool;
 use crate::infra::redis::RedisService;
@@ -53,21 +59,28 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
         StripeClient::new(config.billing.clone()).map_err(|_| "stripe_invalid_configuration")?,
     );
     let outbox = Arc::new(PgOutboxRepository::new(database.clone()));
-    let otp_requests = Arc::new(crate::identity::mobile::otp::requests_pg::PgOtpRequestStore::new(database.clone()));
-    let sms_safety = crate::identity::mobile::sms_safety::SmsSafetyService::new(
-        Arc::new(crate::identity::mobile::sms_safety::PgSmsSafetyStore::new(database.clone())),
-        config.sms.safety.clone(), config.phone.hash_key.clone(),
-        config.sms.provider == crate::config::SmsProvider::Sweego,
+    let otp_requests = Arc::new(PgOtpRequestStore::new(database.clone()));
+    let sms_safety = SmsSafetyService::new(
+        Arc::new(PgSmsSafetyStore::new(database.clone())),
+        config.sms.safety.clone(),
+        config.phone.hash_key.clone(),
+        config.sms.provider == SmsProvider::Sweego,
     );
-    let sms = crate::identity::mobile::sweego::SweegoSmsService::new(config.sms.clone(), Arc::new(sms_safety))
+    let sms = SweegoSmsService::new(config.sms.clone(), Arc::new(sms_safety))
         .map_err(|_| "sms_client_invalid")?;
-    let otp = crate::identity::mobile::otp::OtpService::new(
-        Arc::new(crate::identity::mobile::otp::OtpRepository::new(database.clone())), Arc::new(sms),
-        config.phone.hash_key.clone(), config.sms.region.clone(), config.sms.timeout, config.sms.otp_ttl,
+    let otp = OtpService::new(
+        Arc::new(OtpRepository::new(database.clone())),
+        Arc::new(sms),
+        config.phone.hash_key.clone(),
+        config.sms.region.clone(),
+        config.sms.timeout,
+        config.sms.otp_ttl,
     );
-    let otp_handler = Arc::new(crate::identity::mobile::otp::requests::OtpRequestHandler::new(
-        otp_requests, Arc::new(crate::identity::mobile::account::MobileAccountRepository::new(database.clone())),
-        otp, config.phone.encryption_key.clone(),
+    let otp_handler = Arc::new(OtpRequestHandler::new(
+        otp_requests,
+        Arc::new(MobileAccountRepository::new(database.clone())),
+        otp,
+        config.phone.encryption_key.clone(),
     ));
     let photos = Arc::new(PgPhotoRepository::new(database.clone(), (*outbox).clone()));
     let photo_store: Arc<dyn PhotoStore> = photos.clone();

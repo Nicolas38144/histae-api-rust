@@ -64,6 +64,16 @@ impl SmsFailureReason {
 }
 
 impl SmsFailureReason {
+    pub(crate) const fn is_budget_limit(self) -> bool {
+        matches!(
+            self,
+            Self::PhoneHourlyLimit
+                | Self::PhoneDailyLimit
+                | Self::GlobalHourlyLimit
+                | Self::GlobalDailyLimit
+        )
+    }
+
     pub(crate) fn policy_rejection(code: &str) -> Option<Self> {
         match code {
             "sms_phone_hourly_limit" => Some(Self::PhoneHourlyLimit),

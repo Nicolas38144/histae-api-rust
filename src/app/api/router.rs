@@ -43,7 +43,9 @@ use crate::identity::mobile::http::{
     MobileAuthState, OtpHttpState, SweegoHttpState, otp_routes, routes as mobile_auth_routes,
     sweego_routes,
 };
-use crate::identity::mobile::otp::{OtpRepository, OtpService};
+use crate::identity::mobile::otp::{
+    OtpRepository, OtpRequestService, OtpService, PgOtpRequestStore,
+};
 use crate::identity::mobile::pg::MobileSessionRepository;
 use crate::identity::mobile::service::MobileAuthService;
 use crate::identity::mobile::sweego::{SmsDelivery, SweegoSmsService, SweegoWebhookService};
@@ -121,9 +123,11 @@ impl ApiResources {
         );
 
         let otp_repository = Arc::new(OtpRepository::new(self.database.clone()));
-        let otp_requests = crate::identity::mobile::otp::requests::OtpRequestService::new(
-            Arc::new(crate::identity::mobile::otp::requests_pg::PgOtpRequestStore::new(self.database.clone())),
-            config.phone.encryption_key.clone(), config.sms.otp_ttl, config.sms.resend_cooldown,
+        let otp_requests = OtpRequestService::new(
+            Arc::new(PgOtpRequestStore::new(self.database.clone())),
+            config.phone.encryption_key.clone(),
+            config.sms.otp_ttl,
+            config.sms.resend_cooldown,
         );
         let sms: Arc<dyn SmsDelivery> = Arc::new(
             SweegoSmsService::new(config.sms.clone(), Arc::new(self.sms_safety.clone()))

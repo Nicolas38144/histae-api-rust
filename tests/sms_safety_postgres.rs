@@ -297,27 +297,60 @@ async fn check_safety(
 }
 
 async fn assert_global_budget(database: &Database) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query("DELETE FROM sms_send_attempt").execute(database.pool()).await?;
-    let policy = SmsSafetyConfig { hourly_global: 2, daily_global: 3, ..Default::default() };
+    sqlx::query("DELETE FROM sms_send_attempt")
+        .execute(&mut *database.acquire().await?)
+        .await?;
+    let policy = SmsSafetyConfig {
+        hourly_global: 2,
+        daily_global: 3,
+        ..Default::default()
+    };
     let results = join_all((0..30).map(|index| {
         let repository = PgSmsSafetyStore::new(database.clone());
         let policy = policy.clone();
-        async move { repository.reserve(Uuid::new_v4(), format!("different-phone-{index}"), policy).await }
-    })).await.into_iter().collect::<Result<Vec<_>, _>>()?;
+        async move {
+            repository
+                .reserve(Uuid::new_v4(), format!("different-phone-{index}"), policy)
+                .await
+        }
+    }))
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>()?;
     assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 2);
-    assert_eq!(results.iter().filter(|result| **result == Err(SmsSendRejection::GlobalHourlyLimit)).count(), 28);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| **result == Err(SmsSendRejection::GlobalHourlyLimit))
+            .count(),
+        28
+    );
     // Restarting another repository or changing phone cannot reset a global cap.
     sqlx::query("UPDATE sms_send_attempt SET reserved_at=clock_timestamp()-interval '61 minutes'")
-        .execute(database.pool()).await?;
+        .execute(&mut *database.acquire().await?)
+        .await?;
     let restarted = PgSmsSafetyStore::new(database.clone());
-    assert_eq!(restarted.reserve(Uuid::new_v4(), "new-phone".into(), policy.clone()).await?, Ok(()));
-    assert_eq!(restarted.reserve(Uuid::new_v4(), "another-phone".into(), policy).await?, Err(SmsSendRejection::GlobalDailyLimit));
+    assert_eq!(
+        restarted
+            .reserve(Uuid::new_v4(), "new-phone".into(), policy.clone())
+            .await?,
+        Ok(())
+    );
+    assert_eq!(
+        restarted
+            .reserve(Uuid::new_v4(), "another-phone".into(), policy)
+            .await?,
+        Err(SmsSendRejection::GlobalDailyLimit)
+    );
     Ok(())
 }
 
 async fn assert_mobile_queue(database: &Database) -> Result<(), Box<dyn std::error::Error>> {
     use histae_api_rust::{
-        identity::mobile::otp::{requests::{OtpRequestService, OtpRequestStore, RequestError}, requests_pg::PgOtpRequestStore},
+        identity::mobile::otp::{
+            requests::{OtpRequestService, OtpRequestStore, RequestError},
+            requests_pg::PgOtpRequestStore,
+        },
         infra::crypto::hmac_sha256,
         localization::Language,
     };
@@ -325,41 +358,89 @@ async fn assert_mobile_queue(database: &Database) -> Result<(), Box<dyn std::err
     let key = SecretString::new("h".repeat(32));
     let hash = hmac_sha256(phone, &key)?;
     let store = Arc::new(PgOtpRequestStore::new(database.clone()));
-    let service = OtpRequestService::new(store.clone(), key.clone(), Duration::from_secs(600), Duration::from_secs(60));
+    let service = OtpRequestService::new(
+        store.clone(),
+        key.clone(),
+        Duration::from_secs(600),
+        Duration::from_secs(60),
+    );
     let results = join_all((0..30).map(|_| {
         let service = service.clone();
         let hash = hash.clone();
         async move {
             let id = Uuid::new_v4();
-            (id, service.enqueue(phone, hash, id, true, Language::Fr).await)
+            (
+                id,
+                service.enqueue(phone, hash, id, true, Language::Fr).await,
+            )
         }
-    })).await;
-    let accepted: Vec<_> = results.iter().filter(|(_, result)| result.is_ok()).collect();
+    }))
+    .await;
+    let accepted: Vec<_> = results
+        .iter()
+        .filter(|(_, result)| result.is_ok())
+        .collect();
     assert_eq!(accepted.len(), 1);
-    assert_eq!(results.iter().filter(|(_, result)| matches!(result, Err(RequestError::Cooldown(1..=60)))).count(), 29);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|(_, result)| matches!(result, Err(RequestError::Cooldown(1..=60))))
+            .count(),
+        29
+    );
     let id = accepted[0].0;
     let pending = store.pending(id).await?.expect("encrypted request");
-    assert!(!pending.encrypted_phone.windows(phone.len()).any(|window| window == phone.as_bytes()));
+    assert!(
+        !pending
+            .encrypted_phone
+            .windows(phone.len())
+            .any(|window| window == phone.as_bytes())
+    );
     let events: i64 = sqlx::query_scalar("SELECT count(*) FROM outbox_event WHERE event_type='identity.otp.send' AND aggregate_id=$1 AND payload='{}'::jsonb")
-        .bind(id).fetch_one(database.pool()).await?;
+        .bind(id).fetch_one(&mut *database.acquire().await?).await?;
     assert_eq!(events, 1);
     // Same UUID remains idempotent even after erasure of the dispatch payload.
     store.finish(id).await?;
     assert!(store.pending(id).await?.is_none());
-    assert!(service.enqueue(phone, hash.clone(), id, true, Language::Fr).await? <= 60);
-    assert_eq!(service.enqueue(phone, hash.clone(), id, false, Language::Fr).await, Err(RequestError::Conflict));
+    assert!(
+        service
+            .enqueue(phone, hash.clone(), id, true, Language::Fr)
+            .await?
+            <= 60
+    );
+    assert_eq!(
+        service
+            .enqueue(phone, hash.clone(), id, false, Language::Fr)
+            .await,
+        Err(RequestError::Conflict)
+    );
     // Cooldown is durable across new service and repository instances.
-    let restarted = OtpRequestService::new(Arc::new(PgOtpRequestStore::new(database.clone())), key, Duration::from_secs(600), Duration::from_secs(60));
-    assert!(matches!(restarted.enqueue(phone, hash.clone(), Uuid::new_v4(), true, Language::Fr).await, Err(RequestError::Cooldown(_))));
+    let restarted = OtpRequestService::new(
+        Arc::new(PgOtpRequestStore::new(database.clone())),
+        key,
+        Duration::from_secs(600),
+        Duration::from_secs(60),
+    );
+    assert!(matches!(
+        restarted
+            .enqueue(phone, hash.clone(), Uuid::new_v4(), true, Language::Fr)
+            .await,
+        Err(RequestError::Cooldown(_))
+    ));
     sqlx::query("UPDATE mobile_otp_request SET created_at=created_at-interval '61 seconds',resend_at=resend_at-interval '61 seconds' WHERE id=$1")
-        .bind(id).execute(database.pool()).await?;
+        .bind(id).execute(&mut *database.acquire().await?).await?;
     let next = Uuid::new_v4();
-    restarted.enqueue(phone, hash, next, true, Language::Fr).await?;
+    restarted
+        .enqueue(phone, hash, next, true, Language::Fr)
+        .await?;
     assert!(store.pending(next).await?.is_some());
     sqlx::query("UPDATE mobile_otp_request SET created_at=created_at-interval '61 seconds',expires_at=clock_timestamp()-interval '1 second',resend_at=clock_timestamp()-interval '1 second' WHERE id=$1")
-        .bind(next).execute(database.pool()).await?;
+        .bind(next).execute(&mut *database.acquire().await?).await?;
     assert!(store.pending(next).await?.is_none());
-    let retention = PrivacyMaintenanceRepository::new(database.clone()).run_as_leader(chrono::Utc::now(), 1000).await?.expect("maintenance leader");
+    let retention = PrivacyMaintenanceRepository::new(database.clone())
+        .run_as_leader(chrono::Utc::now(), 1000)
+        .await?
+        .expect("maintenance leader");
     assert_eq!(retention.expired_mobile_otp_requests, 1);
     Ok(())
 }

@@ -82,8 +82,8 @@ impl OtpService {
         hmac_sha256(&phone, &self.hash_key).map_err(|_| OtpError::Internal)
     }
 
-    pub fn validate_idempotency_key(input: Option<&str>) -> Result<(), OtpError> {
-        normalize_idempotency_key(input).map(|_| ())
+    pub fn parse_idempotency_key(input: Option<&str>) -> Result<Uuid, OtpError> {
+        normalize_idempotency_key(input)
     }
 
     pub fn canonical_phone(input: &str) -> Result<String, OtpError> {
@@ -183,15 +183,7 @@ impl OtpService {
                     .mark_outcome(delivery_id, phone_hash, state, error.reason)
                     .await
                     .map_err(|_| OtpError::DeliveryUnknown)?;
-                if persisted == OtpDeliveryState::Failed
-                    && matches!(
-                        error.reason,
-                        crate::identity::mobile::sweego::SmsFailureReason::PhoneHourlyLimit
-                            | crate::identity::mobile::sweego::SmsFailureReason::PhoneDailyLimit
-                            | crate::identity::mobile::sweego::SmsFailureReason::GlobalHourlyLimit
-                            | crate::identity::mobile::sweego::SmsFailureReason::GlobalDailyLimit
-                    )
-                {
+                if persisted == OtpDeliveryState::Failed && error.reason.is_budget_limit() {
                     return Err(OtpError::PhoneRateLimited);
                 }
                 return match persisted {
@@ -237,13 +229,10 @@ impl OtpService {
 }
 
 fn policy_error(reason: crate::identity::mobile::sweego::SmsFailureReason) -> OtpError {
-    use crate::identity::mobile::sweego::SmsFailureReason;
-    match reason {
-        SmsFailureReason::PhoneHourlyLimit | SmsFailureReason::PhoneDailyLimit
-        | SmsFailureReason::GlobalHourlyLimit | SmsFailureReason::GlobalDailyLimit => {
-            OtpError::PhoneRateLimited
-        }
-        _ => OtpError::DeliveryUnavailable,
+    if reason.is_budget_limit() {
+        OtpError::PhoneRateLimited
+    } else {
+        OtpError::DeliveryUnavailable
     }
 }
 

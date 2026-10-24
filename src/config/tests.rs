@@ -54,7 +54,10 @@ fn sms_budget_defaults_and_emergency_switch_are_bounded() {
     assert_eq!(config.sms.safety.daily_per_phone, 10);
     assert_eq!(config.sms.safety.hourly_global, 100);
     assert_eq!(config.sms.safety.daily_global, 500);
-    assert_eq!(config.sms.resend_cooldown, std::time::Duration::from_secs(60));
+    assert_eq!(
+        config.sms.resend_cooldown,
+        std::time::Duration::from_secs(60)
+    );
     assert!(!config.sms.safety.suspended);
     assert!(
         AppConfig::from_source(&base(&[("SMS_SENDING_SUSPENDED", "true")]))
@@ -85,7 +88,8 @@ fn sms_budget_defaults_and_emergency_switch_are_bounded() {
 fn resend_cooldown_cannot_outlive_the_code() {
     assert_eq!(
         AppConfig::from_source(&base(&[("OTP_TTL", "60s"), ("OTP_RESEND_COOLDOWN", "61s")]))
-            .expect_err("cooldown longer than code lifetime").variable,
+            .expect_err("cooldown longer than code lifetime")
+            .variable,
         "OTP_RESEND_COOLDOWN"
     );
 }
