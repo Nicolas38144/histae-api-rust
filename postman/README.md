@@ -52,11 +52,16 @@ résolues avant l’envoi. Après les essais, supprimer les tokens/cookies/jeton
 
 ### OTP et idempotence
 
-La collection utilise `{{$guid}}` pour une nouvelle intention d’envoi. `202` signifie demande acceptée,
-sans garantie de livraison au téléphone. Un rejeu avec la même clé ne provoque pas un second SMS.
-Après `503 otp_delivery_unknown`, récupérer la clé réellement envoyée dans la Console Postman et la
-mettre explicitement dans `Idempotency-Key` pour le rejeu. Attendre ; ne pas laisser `{{$guid}}` produire
-une nouvelle clé à chaque retry incertain.
+La collection utilise `{{$guid}}` pour une nouvelle intention d’envoi. Le mobile reçoit un `202`
+générique avec `resend_after_seconds` après mise en file durable. Le worker outbox doit tourner.
+Un numéro déjà connu en inscription (`registration: true`), ou inconnu en connexion, ne reçoit aucun
+SMS et garde la même réponse publique. La vérification reste nécessaire pour ouvrir une session.
+
+Après une réponse perdue, reprendre l’UUID réellement envoyé dans la Console Postman et le mettre
+explicitement dans `Idempotency-Key`, avec les mêmes téléphone, langue et parcours. Ce rejeu ne
+déclenche aucun second SMS et ne prolonge pas le délai. Un nouvel UUID avant le délai partagé
+renvoie `429 otp_resend_too_soon` et `Retry-After`. Ne pas laisser `{{$guid}}` changer la clé à chaque
+retry incertain. Pour un vrai renvoi, attendre le délai puis créer une nouvelle intention explicite.
 
 Après `logout-all`, refaire une connexion avec un nouvel OTP ; le logout n’interdit pas un nouvel envoi.
 Le refresh consomme le dernier token et le remplace : ne pas exécuter deux refresh concurrents ni rejouer

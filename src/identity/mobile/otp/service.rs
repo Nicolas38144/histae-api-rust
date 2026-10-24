@@ -82,6 +82,14 @@ impl OtpService {
         hmac_sha256(&phone, &self.hash_key).map_err(|_| OtpError::Internal)
     }
 
+    pub fn validate_idempotency_key(input: Option<&str>) -> Result<(), OtpError> {
+        normalize_idempotency_key(input).map(|_| ())
+    }
+
+    pub fn canonical_phone(input: &str) -> Result<String, OtpError> {
+        normalize_phone(input).ok_or(OtpError::InvalidPhone)
+    }
+
     /// A website code is bound to its opaque challenge and cannot authenticate
     /// a mobile login or a different website challenge.
     pub fn for_web_challenge(&self, challenge: Uuid) -> Self {
@@ -180,6 +188,8 @@ impl OtpService {
                         error.reason,
                         crate::identity::mobile::sweego::SmsFailureReason::PhoneHourlyLimit
                             | crate::identity::mobile::sweego::SmsFailureReason::PhoneDailyLimit
+                            | crate::identity::mobile::sweego::SmsFailureReason::GlobalHourlyLimit
+                            | crate::identity::mobile::sweego::SmsFailureReason::GlobalDailyLimit
                     )
                 {
                     return Err(OtpError::PhoneRateLimited);
@@ -229,7 +239,8 @@ impl OtpService {
 fn policy_error(reason: crate::identity::mobile::sweego::SmsFailureReason) -> OtpError {
     use crate::identity::mobile::sweego::SmsFailureReason;
     match reason {
-        SmsFailureReason::PhoneHourlyLimit | SmsFailureReason::PhoneDailyLimit => {
+        SmsFailureReason::PhoneHourlyLimit | SmsFailureReason::PhoneDailyLimit
+        | SmsFailureReason::GlobalHourlyLimit | SmsFailureReason::GlobalDailyLimit => {
             OtpError::PhoneRateLimited
         }
         _ => OtpError::DeliveryUnavailable,

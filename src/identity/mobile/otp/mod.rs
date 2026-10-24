@@ -1,5 +1,7 @@
 mod domain;
 mod pg;
+pub mod requests;
+pub mod requests_pg;
 mod service;
 mod store;
 

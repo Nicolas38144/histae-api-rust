@@ -146,6 +146,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
     for (source, name) in [
         (SCHEMA, "localization"),
         (SCHEMA, "sms safety"),
+        (SCHEMA, "mobile otp queue"),
         (SCHEMA, "store billing"),
         (SCHEMA, "web billing"),
         (SCHEMA, "continuation credits"),

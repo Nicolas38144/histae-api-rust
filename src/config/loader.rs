@@ -334,6 +334,9 @@ impl AppConfig {
             "OTP_TTL",
         )?;
         let webhook_secret = source.or("SWEEGO_WEBHOOK_SECRET", "")?;
+        let resend_cooldown = duration(&source.or("OTP_RESEND_COOLDOWN", "60s")?, "OTP_RESEND_COOLDOWN")?;
+        ensure_duration(resend_cooldown, Duration::from_secs(60), Duration::from_secs(300), "OTP_RESEND_COOLDOWN")?;
+        if resend_cooldown > otp_ttl { return Err(ConfigError::invalid("OTP_RESEND_COOLDOWN")); }
         if !webhook_secret.is_empty()
             && (webhook_secret.len() != 64
                 || !webhook_secret
@@ -353,8 +356,11 @@ impl AppConfig {
             region: sms_region,
             timeout: sms_timeout,
             otp_ttl,
+            resend_cooldown,
             webhook_secret: SecretString::new(webhook_secret),
             safety: SmsSafetyConfig {
+                hourly_global: integer(&source.or("SMS_MAX_GLOBAL_HOUR", "100")?, "SMS_MAX_GLOBAL_HOUR", 1, 1000000)? as u32,
+                daily_global: integer(&source.or("SMS_MAX_GLOBAL_DAY", "500")?, "SMS_MAX_GLOBAL_DAY", 1, 10000000)? as u32,
                 hourly_per_phone: integer(
                     &source.or("SMS_MAX_PER_PHONE_HOUR", "5")?,
                     "SMS_MAX_PER_PHONE_HOUR",
@@ -382,6 +388,9 @@ impl AppConfig {
         };
         if sms.safety.daily_per_phone < sms.safety.hourly_per_phone {
             return Err(ConfigError::invalid("SMS_MAX_PER_PHONE_DAY"));
+        }
+        if sms.safety.daily_global < sms.safety.hourly_global {
+            return Err(ConfigError::invalid("SMS_MAX_GLOBAL_DAY"));
         }
 
         let legal = legal_config(source, environment)?;

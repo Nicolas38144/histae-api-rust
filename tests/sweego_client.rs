@@ -36,6 +36,7 @@ fn config(endpoint: Url, provider: SmsProvider) -> SmsConfig {
         region: "FR".to_owned(),
         timeout: Duration::from_secs(2),
         otp_ttl: Duration::from_secs(601),
+        resend_cooldown: Duration::from_secs(60),
         safety: Default::default(),
         webhook_secret: SecretString::new(String::new()),
     }
@@ -75,6 +76,8 @@ async fn policy_rejections_never_connect_to_sweego_or_count_as_provider_failures
             SmsSendRejection::Suspended,
             SmsFailureReason::SendingSuspended,
         ),
+        (SmsSendRejection::GlobalHourlyLimit, SmsFailureReason::GlobalHourlyLimit),
+        (SmsSendRejection::GlobalDailyLimit, SmsFailureReason::GlobalDailyLimit),
         (
             SmsSendRejection::Unavailable,
             SmsFailureReason::SafetyUnavailable,

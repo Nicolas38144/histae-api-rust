@@ -375,6 +375,18 @@ fn render_persistent(
             &format!("window=\"{window}\""),
         );
     }
+    for (window, value) in [
+        ("1h", safety.hourly_limit_global),
+        ("24h", safety.daily_limit_global),
+    ] {
+        gauge(
+            out,
+            "histae_sweego_global_limit",
+            "Maximum global provider attempts in a rolling window.",
+            f64::from(value),
+            &format!("window=\"{window}\""),
+        );
+    }
     for (outcome, value) in &snapshot.callbacks {
         counter(
             out,

@@ -51,6 +51,8 @@ impl SmsSafetyService {
             version: usage.version,
             hourly_limit_per_phone: self.policy.hourly_per_phone,
             daily_limit_per_phone: self.policy.daily_per_phone,
+            hourly_limit_global: self.policy.hourly_global,
+            daily_limit_global: self.policy.daily_global,
             sends_last_5_minutes: usage.last_5_minutes,
             sends_last_hour: usage.last_hour,
             sends_last_24_hours: usage.last_day,

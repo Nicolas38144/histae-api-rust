@@ -11,6 +11,8 @@ pub enum SmsSendRejection {
     Suspended,
     HourlyLimit,
     DailyLimit,
+    GlobalHourlyLimit,
+    GlobalDailyLimit,
     AlreadyReserved,
     Unavailable,
 }
@@ -32,6 +34,8 @@ pub struct SmsSafetySnapshot {
     pub version: i64,
     pub hourly_limit_per_phone: u32,
     pub daily_limit_per_phone: u32,
+    pub hourly_limit_global: u32,
+    pub daily_limit_global: u32,
     pub sends_last_5_minutes: i64,
     pub sends_last_hour: i64,
     pub sends_last_24_hours: i64,

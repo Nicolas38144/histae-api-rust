@@ -123,7 +123,7 @@ Il n’existe pas de mécanisme de retry universel.
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
-| POST | `/api/auth/otp/send` | `{ phone_number }` + clé d’idempotence → `202 { message }`. |
+| POST | `/api/auth/otp/send` | `{ phone_number, registration?: boolean }` + clé d’idempotence → `202 { message, resend_after_seconds }`. `registration` vaut `false` par défaut. |
 | POST | `/api/auth/otp/verify` | `{ phone_number, otp }` → `200 { access_token, refresh_token }`. |
 | POST | `/api/auth/refresh` | `{ refresh_token }` → `200 { access_token, refresh_token }`. |
 | GET | `/api/plans` | `200 { plans: [...], offers: [...] }` ; trois offres commerciales et leurs plans de droits, avec quotas et fonctionnalités. |
@@ -131,19 +131,19 @@ Il n’existe pas de mécanisme de retry universel.
 
 **Inscription avant téléphone.** Le mobile prépare le profil et les préférences en mémoire, puis présente les documents de cette route. Aucun profil ni consentement n’est enregistré avant la vérification OTP. Après authentification, il compare versions, URL et langues aux documents propriétaires avant de sauvegarder les choix explicites, puis le profil et les préférences autorisées. Un changement de document impose une nouvelle présentation et un nouveau choix. La route publique ne crée aucun compte et ne modifie aucun consentement.
 
-**OTP.** Seuls les téléphones français E.164 `+33…` sont acceptés. La vérification consomme le code une seule fois et crée un compte utilisateur si nécessaire. Envoi et vérification : 5/h par IP et numéro pseudonymisé. La validité du code suit `OTP_TTL`.
+**OTP.** Seuls les téléphones français E.164 `+33…` sont acceptés. La vérification consomme le code une seule fois et crée un compte utilisateur si nécessaire après une demande d’inscription. Envoi et vérification : 5/h par IP et numéro pseudonymisé. La validité du code suit `OTP_TTL`.
 
-L’envoi répond `202 { "message": "Verification code request accepted." }` : cela ne prouve pas la livraison du SMS.
-Pendant la rétention de la demande, aucun rejeu identique ne déclenche un second appel fournisseur. Une demande
-rejetée renvoie `503 otp_delivery_unavailable`. Un timeout, une réponse inexploitable ou une attente dépassant
-le timeout fournisseur augmenté de cinq secondes renvoie `503 otp_delivery_unknown`. Un callback signé peut
-confirmer le code initial, jamais réactiver un code consommé, expiré ou remplacé. Attendre puis rejouer la même clé ;
-un nouvel envoi exige une nouvelle intention explicite, avec les limites OTP habituelles. Une clé réutilisée avec
-un autre numéro renvoie `409 idempotency_key_conflict`. Configuration : [variables OTP](configuration.md#groupes-de-variables) ; diagnostic : [Exploitation](operations.md#diagnostic-de-demarrage).
+Pour une inscription, le client envoie `registration: true`. Les deux parcours répondent de manière générique : un numéro déjà enregistré en inscription, ou inconnu en connexion, ouvre le même écran de code, mais ne reçoit aucun SMS. Aucun renseignement sur l’existence du compte ni sur la livraison n’est exposé par cette route.
+
+L’envoi répond `202 { "message": "Verification code request accepted.", "resend_after_seconds": 60 }`. Il confirme uniquement l’écriture durable de la demande et de son événement outbox, dans la même transaction. La route HTTP ne recherche aucun compte et ne contacte pas Sweego. Le worker outbox vérifie l’éligibilité puis traite le SMS éventuel avec l’UUID initial. Une demande déjà remplacée ou expirée est acquittée sans envoi. Le téléphone chiffré est effacé après traitement ; les métadonnées expirent selon `OTP_TTL`, avec nettoyage borné et maintenance RGPD.
+
+Un nouvel UUID pour le même téléphone avant `OTP_RESEND_COOLDOWN` reçoit `429 otp_resend_too_soon` avec `Retry-After`. Ce délai est partagé entre instances et parcours. Un rejeu du même UUID conserve le délai initial sans nouvel envoi et renvoie le nombre de secondes restant. Un autre téléphone, parcours ou langage avec le même UUID renvoie `409 idempotency_key_conflict`. Les quotas IP/téléphone s’appliquent également aux demandes supprimées et aux rejeux. Le mobile distingue cette attente de renvoi des limites de vérification : saisir le code reçu reste possible pendant le compte à rebours.
+
+Le worker conserve les états de livraison et ne répète jamais un appel fournisseur incertain avec la même intention. Un callback signé peut confirmer le code initial, jamais réactiver un code consommé, expiré ou remplacé. Une réponse HTTP perdue se reprend avec le même UUID et les mêmes paramètres ; un nouvel envoi exige une action explicite après le délai. Configuration : [variables OTP](configuration.md#groupes-de-variables) ; diagnostic : [Exploitation](operations.md#diagnostic-de-demarrage).
 
 **Refresh.** Envoyer le dernier refresh sous la forme opaque reçue `jti:secret`, puis enregistrer atomiquement la nouvelle paire de tokens. Le rejeu d’un ancien token authentique non expiré révoque toute sa famille et renvoie `401 invalid_or_expired_refresh_token`. Il n’y a pas de fenêtre de grâce : deux refresh concurrents ou une réponse perdue peuvent imposer une nouvelle connexion OTP. Limite : 30/15 min/IP.
 
-Erreurs utiles : `authentication_required`, `invalid_or_expired_access_token`, `invalid_or_expired_refresh_token`, `invalid_idempotency_key`, `idempotency_key_conflict`, `otp_delivery_unavailable`, `otp_delivery_unknown`, `otp_rate_limit_exceeded`, `refresh_rate_limit_exceeded`. Les durées et clés sont décrites dans [Configuration](configuration.md#groupes-de-variables).
+Erreurs utiles : `authentication_required`, `invalid_or_expired_access_token`, `invalid_or_expired_refresh_token`, `invalid_idempotency_key`, `idempotency_key_conflict`, `otp_resend_too_soon`, `otp_rate_limit_exceeded`, `refresh_rate_limit_exceeded`. Les durées et clés sont décrites dans [Configuration](configuration.md#groupes-de-variables).
 
 **Plans et offres.** `plans` expose les niveaux de droits `free` et `premium`, avec prix du catalogue
 mensuel/annuel, devise, fonctionnalités et quotas (`weekly_included_credits`,
@@ -185,18 +185,13 @@ Les périodes historiques au niveau de l’abonnement et les références histor
 
 ### Protection des envois SMS
 
-Les plafonds concernent les **tentatives d’appel fournisseur par numéro normalisé**, partagées entre
-instances : 5 sur une heure et 10 sur 24 heures par défaut, en fenêtres glissantes. Les limites IP et
-numéro existantes restent appliquées. Les rejeux d’une même demande ne consomment pas de nouvelle
-réservation ; une réponse fournisseur perdue ou un échec n’est jamais remboursé. Le plafond renvoie
-`429 otp_rate_limit_exceeded` avec `Retry-After: 60` (délai minimum avant une nouvelle vérification).
-Une suspension ou un contrôle de budget indisponible empêche l’appel fournisseur et renvoie
-`503 otp_delivery_unavailable`. Les mêmes échecs sont conservés sur le rejeu tant que la demande existe.
-Aucun OTP accepté précédemment n’est invalidé par ces refus locaux.
+Les plafonds concernent les **tentatives d’appel fournisseur** : 5/heure et 10/24 h par numéro, et 100/heure et 500/24 h au total par défaut, en fenêtres glissantes. PostgreSQL sérialise les réservations entre instances. Une réponse perdue ou un échec fournisseur ne rembourse pas de tentative. Les quotas HTTP IP/téléphone restent appliqués avant la mise en file.
+
+Pour le mobile, les refus de budget, la suspension et les états Sweego restent internes au worker : la route conserve son `202` générique. Seuls les quotas HTTP et le délai de renvoi produisent un `429` public. Les autres clients du service OTP, notamment le parcours web, conservent leurs propres codes d’erreur. Aucun OTP déjà accepté n’est invalidé par un refus local d’envoi.
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
-| GET | `/api/admin/sms-safety` | Session admin → `200` état global, limites par numéro, compteurs agrégés 5 min/1 h/24 h, pic de trafic et `version`. Aucun numéro ni hash exposé. |
+| GET | `/api/admin/sms-safety` | Session admin → `200` état global, limites par numéro et globales, compteurs agrégés 5 min/1 h/24 h, pic de trafic et `version`. Aucun numéro ni hash exposé. |
 | PATCH | `/api/admin/sms-safety` | **Superadmin, récente** ; `{ suspended: boolean, version: integer >= 0 }` → `204`, modification globale auditée. `409 resource_changed` si la version a changé. |
 
 La reprise conserve les compteurs. `SMS_SENDING_SUSPENDED=true` impose l’arrêt même si la suspension

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection issue de docs/http-contract.md (115 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
+    "description": "Collection issue de docs/http-contract.md (131 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -40,14 +40,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\"\n}",
+                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"registration\": true\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "{ phone_number } + clé d’idempotence → 202 { message }.\n\nPostman génère un nouvel UUID v4 pour chaque nouvel envoi. Si le premier envoi a été accepté, rejouer la même clé ne renvoie pas de SMS supplémentaire. En cas de 503 otp_delivery_unknown, ne pas relancer avec une nouvelle clé : attendre puis rejouer avec la clé initiale relevée dans la console Postman."
+                "description": "Inscription et connexion répondent 202 {message, resend_after_seconds}, sans révéler le compte ni la livraison. Un numéro connu en inscription, ou inconnu en connexion, ne reçoit aucun SMS. La demande chiffrée passe par le worker outbox, obligatoire ; aucun appel Sweego ni recherche de compte dans HTTP. Un nouvel UUID avant le délai partagé de 60 s renvoie 429 otp_resend_too_soon et Retry-After. Après une réponse perdue, conserver UUID, téléphone, langue et parcours : aucun second SMS ni prolongation du délai. Un renvoi explicite nécessite un nouvel UUID. Les quotas IP/téléphone restent appliqués à toute demande."
               },
               "response": []
             },

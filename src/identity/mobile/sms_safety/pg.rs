@@ -28,9 +28,9 @@ impl SmsSafetyStore for PgSmsSafetyStore {
     ) -> SmsSafetyFuture<'a, Result<(), SmsSendRejection>> {
         Box::pin(async move {
             self.database.transaction(|connection| Box::pin(async move {
-                // Shared control lock: independent phones may reserve concurrently,
-                // while a suspension waits for all previously authorized reservations.
-                let suspended: bool = sqlx::query_scalar("SELECT suspended FROM sms_send_control WHERE singleton FOR SHARE")
+                // Serialize the global budget with suspension and per-phone
+                // reservations; no two instances may consume the last slot.
+                let suspended: bool = sqlx::query_scalar("SELECT suspended FROM sms_send_control WHERE singleton FOR UPDATE")
                     .fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
                 if suspended { return Ok(Err(SmsSendRejection::Suspended)); }
                 sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 5459283))")
@@ -43,6 +43,12 @@ impl SmsSafetyStore for PgSmsSafetyStore {
                 ).bind(&phone_hash).bind(now).fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
                 if counts.1 >= i64::from(policy.daily_per_phone) { return Ok(Err(SmsSendRejection::DailyLimit)); }
                 if counts.0 >= i64::from(policy.hourly_per_phone) { return Ok(Err(SmsSendRejection::HourlyLimit)); }
+                let global: (i64, i64) = sqlx::query_as(
+                    "SELECT count(*) FILTER (WHERE reserved_at > $1 - interval '1 hour'), count(*)
+                     FROM sms_send_attempt WHERE reserved_at > $1 - interval '24 hours'"
+                ).bind(now).fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
+                if global.1 >= i64::from(policy.daily_global) { return Ok(Err(SmsSendRejection::GlobalDailyLimit)); }
+                if global.0 >= i64::from(policy.hourly_global) { return Ok(Err(SmsSendRejection::GlobalHourlyLimit)); }
                 let inserted: Option<Uuid> = sqlx::query_scalar(
                     "INSERT INTO sms_send_attempt(delivery_id, phone_hash, reserved_at) VALUES ($1, $2, $3)
                      ON CONFLICT (delivery_id) DO NOTHING RETURNING delivery_id"

@@ -47,6 +47,7 @@ pub struct OutboxEventDispatcher {
     billing_subscription: Arc<dyn OutboxHandler>,
     billing_customer: Arc<dyn OutboxHandler>,
     store_billing: Option<Arc<dyn OutboxHandler>>,
+    mobile_otp: Option<Arc<dyn OutboxHandler>>,
 }
 
 impl OutboxEventDispatcher {
@@ -64,7 +65,13 @@ impl OutboxEventDispatcher {
             billing_subscription,
             billing_customer,
             store_billing: None,
+            mobile_otp: None,
         }
+    }
+
+    pub fn with_mobile_otp(mut self, handler: Arc<dyn OutboxHandler>) -> Self {
+        self.mobile_otp = Some(handler);
+        self
     }
 
     pub fn with_store_billing(mut self, handler: Arc<dyn OutboxHandler>) -> Self {
@@ -76,6 +83,10 @@ impl OutboxEventDispatcher {
 impl OutboxDispatcher for OutboxEventDispatcher {
     fn dispatch<'a>(&'a self, event: &'a OutboxEvent, worker_id: Uuid) -> DispatchFuture<'a> {
         match &event.event_type {
+            OutboxEventType::MobileOtpSend => match &self.mobile_otp {
+                Some(handler) => handler.handle(event, worker_id),
+                None => Box::pin(async { Err(DispatchFailure::transient("otp_handler_unavailable")) }),
+            },
             OutboxEventType::PhotoDelete => self.photo_delete.handle(event, worker_id),
             OutboxEventType::NotificationPush => self.notification_push.handle(event, worker_id),
             OutboxEventType::AccountErase => self.account_erase.handle(event, worker_id),
@@ -721,6 +732,20 @@ mod tests {
             Err(DispatchFailure::transient("handler_failed"))
         );
         assert_eq!(customer.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn mobile_otp_requires_an_explicit_handler() {
+        let handler = Arc::new(CountingHandler::default());
+        let dispatcher = OutboxEventDispatcher::new(handler.clone(), handler.clone(), handler.clone(), handler.clone(), handler.clone());
+        let mut request = event();
+        request.event_type = OutboxEventType::MobileOtpSend;
+        assert_eq!(dispatcher.dispatch(&request, Uuid::new_v4()).await,
+            Err(DispatchFailure::transient("otp_handler_unavailable")));
+        assert_eq!(handler.calls.load(Ordering::SeqCst), 0);
+        let dispatcher = dispatcher.with_mobile_otp(handler.clone());
+        assert_eq!(dispatcher.dispatch(&request, Uuid::new_v4()).await, Ok(DispatchOutcome::Completed));
+        assert_eq!(handler.calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

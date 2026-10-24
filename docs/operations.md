@@ -7,7 +7,7 @@
 | Binaire / service | Fonction | Cycle de vie |
 | --- | --- | --- |
 | `api` | HTTP métier, SSE et listener métriques privé | Permanent ; maintenance désactivée dans Compose |
-| `outbox` / `outbox-worker` | Effets durables : suppression photo, push, effacement de compte et réconciliation Stripe | Permanent, claims et retries bornés |
+| `outbox` / `outbox-worker` | Effets durables : envois OTP mobiles, suppression photo, push, effacement de compte et réconciliation Stripe | Permanent, claims et retries bornés |
 | `maintenance` | Matchs, photos, rétention RGPD, programmation de réconciliation Stripe | Une passe puis sortie |
 | `db-migrate` / `migrate` | Installation et mise à niveau PostgreSQL | Une exécution puis sortie |
 | `storage-init` | Vérification/création du bucket privé de production | Une exécution puis sortie |
@@ -147,6 +147,6 @@ Tester le chemin proxy seulement après readiness de l’API :
 sudo docker exec reverse-proxy-container sh -c 'wget -qO- "$HISTAE_API_UPSTREAM/health/ready"'
 ```
 
-Une réponse OTP `202` indique l’acceptation fournisseur, pas la livraison au téléphone. Sur
-`503 otp_delivery_unknown`, préserver la clé d’idempotence et suivre le
-[parcours OTP](http-contract.md#connexion-mobile-et-catalogue) ; ne pas générer des envois en boucle.
+Une réponse OTP mobile `202` confirme la mise en file durable, pas l’acceptation fournisseur ni la livraison. Le worker outbox est obligatoire pour l’envoi mobile ; il doit disposer des mêmes clés téléphone, paramètres Sweego et plafonds SMS que l’API. En cas d’absence de SMS, vérifier son état et les événements `identity.otp.send`, puis les budgets et la suspension SMS. Ne jamais afficher ni journaliser les téléphones ou codes.
+
+Pour cette évolution, appliquer le migrateur puis redémarrer l’API **et** le worker avec la même version. Un ancien worker ne sait pas traiter les demandes OTP. Le téléphone en attente est chiffré et effacé après traitement ; une demande expirée est supprimée sans envoi. Voir le [parcours OTP](http-contract.md#connexion-mobile-et-catalogue) pour le rejeu après une réponse perdue.

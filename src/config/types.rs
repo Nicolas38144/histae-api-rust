@@ -119,12 +119,15 @@ pub struct SmsConfig {
     pub region: String,
     pub timeout: Duration,
     pub otp_ttl: Duration,
+    pub resend_cooldown: Duration,
     pub webhook_secret: SecretString,
     pub safety: SmsSafetyConfig,
 }
 
 #[derive(Clone, Debug)]
 pub struct SmsSafetyConfig {
+    pub hourly_global: u32,
+    pub daily_global: u32,
     pub hourly_per_phone: u32,
     pub daily_per_phone: u32,
     pub spike_per_5_minutes: u32,
@@ -134,6 +137,8 @@ pub struct SmsSafetyConfig {
 impl Default for SmsSafetyConfig {
     fn default() -> Self {
         Self {
+            hourly_global: 100,
+            daily_global: 500,
             hourly_per_phone: 5,
             daily_per_phone: 10,
             spike_per_5_minutes: 20,

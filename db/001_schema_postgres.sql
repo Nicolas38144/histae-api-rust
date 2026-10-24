@@ -89,6 +89,24 @@ CREATE INDEX IF NOT EXISTS idx_sms_attempt_time ON sms_send_attempt(reserved_at,
 COMMENT ON TABLE sms_send_attempt IS 'Provider attempts reserved before dispatch. HMAC phone keys only; retained for at most 25 hours plus maintenance lag.';
 -- END sms safety
 
+-- BEGIN mobile otp queue
+CREATE TABLE IF NOT EXISTS mobile_otp_request (
+    id uuid PRIMARY KEY,
+    phone_hash text NOT NULL CHECK (phone_hash ~ '^[a-f0-9]{64}$'),
+    encrypted_phone bytea,
+    registration boolean NOT NULL,
+    language text NOT NULL CHECK (language IN ('fr','en','es','it')),
+    created_at timestamptz NOT NULL,
+    expires_at timestamptz NOT NULL,
+    resend_at timestamptz NOT NULL,
+    CHECK (expires_at > created_at AND resend_at > created_at),
+    CHECK (encrypted_phone IS NULL OR octet_length(encrypted_phone) >= 40)
+);
+CREATE INDEX IF NOT EXISTS idx_mobile_otp_phone_time ON mobile_otp_request(phone_hash, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_mobile_otp_expiry ON mobile_otp_request(expires_at, id);
+COMMENT ON TABLE mobile_otp_request IS 'Short-lived mobile OTP intents for transactional outbox dispatch. Phone encrypted with purpose and request binding, erased after processing or expiry. No OTP plaintext.';
+-- END mobile otp queue
+
 CREATE TABLE otp_verification (
     id uuid DEFAULT uuid_generate_v4() NOT NULL,
     phone_number_hash text NOT NULL,

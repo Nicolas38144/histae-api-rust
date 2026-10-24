@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection based on docs/http-contract.md (115 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/http-contract.md.",
+    "description": "Collection based on docs/http-contract.md (131 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -40,14 +40,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\"\n}",
+                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"registration\": true\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "{ phone_number } + idempotency key → 202 { message }.\n\nPostman generates a new UUID v4 for each new send. If the first send was accepted, replaying the same key does not send another SMS. On 503 otp_delivery_unknown, do not retry with a new key: wait, then replay with the original key shown in the Postman Console."
+                "description": "Both registration and sign-in return generic 202 {message, resend_after_seconds}. A known number in registration, or an unknown number in sign-in, receives no SMS. HTTP queues the encrypted request without looking up accounts or calling Sweego; the outbox worker is required. A new UUID before the shared 60-second cooldown returns 429 otp_resend_too_soon with Retry-After. Replay the same UUID, phone, language and registration flag after a lost response; no duplicate SMS and no deadline extension. Explicit resend requires a new UUID. Phone/IP quotas apply to every request; provider and membership outcomes are never exposed."
               },
               "response": []
             },

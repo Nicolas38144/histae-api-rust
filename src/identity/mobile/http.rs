@@ -11,6 +11,7 @@ use uuid::{Uuid, Variant, Version};
 
 use super::account::{MobileLoginError, MobileLoginService};
 use super::otp::{OtpError, OtpService};
+use super::otp::requests::{OtpRequestService, RequestError};
 use super::service::{AuthenticatedMobile as AuthenticatedIdentity, MobileAuthError};
 use super::service::{MobileAuthService, MobileSessionPage, TokenPair};
 use super::sweego::{SweegoWebhookError, SweegoWebhookHeaders, SweegoWebhookService};
@@ -59,6 +60,7 @@ pub struct OtpHttpState {
     login: MobileLoginService,
     limiter: RateLimiter,
     policy: LimitPolicy,
+    requests: OtpRequestService,
 }
 
 impl OtpHttpState {
@@ -67,12 +69,14 @@ impl OtpHttpState {
         login: MobileLoginService,
         limiter: RateLimiter,
         policy: LimitPolicy,
+        requests: OtpRequestService,
     ) -> Self {
         Self {
             otp,
             login,
             limiter,
             policy,
+            requests,
         }
     }
 }
@@ -111,6 +115,8 @@ pub fn sweego_routes(state: SweegoHttpState) -> Router<HttpState> {
 #[serde(deny_unknown_fields)]
 struct SendOtpBody {
     phone_number: String,
+    #[serde(default)]
+    registration: bool,
 }
 
 impl ApiDto for SendOtpBody {}
@@ -118,6 +124,7 @@ impl ApiDto for SendOtpBody {}
 #[derive(Serialize)]
 struct SendOtpResponse {
     message: &'static str,
+    resend_after_seconds: u64,
 }
 
 async fn send_otp(
@@ -127,9 +134,10 @@ async fn send_otp(
     locale: Locale,
     ValidatedJson(body): ValidatedJson<SendOtpBody>,
 ) -> Result<(StatusCode, Json<SendOtpResponse>), ApiError> {
+    let phone = OtpService::canonical_phone(&body.phone_number).map_err(otp_error)?;
     let phone_key = state
         .otp
-        .rate_limit_key(&body.phone_number, OtpError::InvalidPhone)
+        .rate_limit_key(&phone, OtpError::InvalidPhone)
         .map_err(otp_error)?;
     state
         .limiter
@@ -151,19 +159,27 @@ async fn send_otp(
         .await?;
     let idempotency_key =
         single_header(&headers, header::HeaderName::from_static("idempotency-key"));
-    state
-        .otp
-        .send_in(
-            &body.phone_number,
-            idempotency_key.as_deref(),
-            locale.anonymous().language,
-        )
-        .await
-        .map_err(otp_error)?;
+    // Invalid inputs and queued requests consume the same quotas independently
+    // of whether an account exists. Eligibility is never queried here.
+    OtpService::validate_idempotency_key(idempotency_key.as_deref()).map_err(otp_error)?;
+    let id = Uuid::parse_str(idempotency_key.as_deref().unwrap_or_default().trim())
+        .map_err(|_| otp_error(OtpError::InvalidIdempotencyKey))?;
+    // Exactly the same durable write for both real and suppressed requests.
+    // Account eligibility and the provider call only run in the outbox worker.
+    let resend_after_seconds = state.requests.enqueue(
+        &phone, phone_key, id, body.registration, locale.anonymous().language,
+    ).await.map_err(|error| match error {
+        RequestError::Conflict => otp_error(OtpError::IdempotencyConflict),
+        RequestError::Cooldown(seconds) => ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS, "otp_resend_too_soon", "Please wait before requesting another code.",
+        ).with_retry_after(seconds),
+        RequestError::Database(_) => ApiError::internal(),
+    })?;
     Ok((
         StatusCode::ACCEPTED,
         Json(SendOtpResponse {
             message: "Verification code request accepted.",
+            resend_after_seconds,
         }),
     ))
 }

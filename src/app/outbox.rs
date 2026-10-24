@@ -53,6 +53,22 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
         StripeClient::new(config.billing.clone()).map_err(|_| "stripe_invalid_configuration")?,
     );
     let outbox = Arc::new(PgOutboxRepository::new(database.clone()));
+    let otp_requests = Arc::new(crate::identity::mobile::otp::requests_pg::PgOtpRequestStore::new(database.clone()));
+    let sms_safety = crate::identity::mobile::sms_safety::SmsSafetyService::new(
+        Arc::new(crate::identity::mobile::sms_safety::PgSmsSafetyStore::new(database.clone())),
+        config.sms.safety.clone(), config.phone.hash_key.clone(),
+        config.sms.provider == crate::config::SmsProvider::Sweego,
+    );
+    let sms = crate::identity::mobile::sweego::SweegoSmsService::new(config.sms.clone(), Arc::new(sms_safety))
+        .map_err(|_| "sms_client_invalid")?;
+    let otp = crate::identity::mobile::otp::OtpService::new(
+        Arc::new(crate::identity::mobile::otp::OtpRepository::new(database.clone())), Arc::new(sms),
+        config.phone.hash_key.clone(), config.sms.region.clone(), config.sms.timeout, config.sms.otp_ttl,
+    );
+    let otp_handler = Arc::new(crate::identity::mobile::otp::requests::OtpRequestHandler::new(
+        otp_requests, Arc::new(crate::identity::mobile::account::MobileAccountRepository::new(database.clone())),
+        otp, config.phone.encryption_key.clone(),
+    ));
     let photos = Arc::new(PgPhotoRepository::new(database.clone(), (*outbox).clone()));
     let photo_store: Arc<dyn PhotoStore> = photos.clone();
     let photo_handler = Arc::new(PhotoDeletionHandler::new(photo_store, Arc::clone(&storage)));
@@ -107,7 +123,8 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
             billing_handler.clone(),
             billing_handler,
         )
-        .with_store_billing(native_billing),
+        .with_store_billing(native_billing)
+        .with_mobile_otp(otp_handler),
     );
     let tracker = MaintenanceTracker::new(Arc::new(PgMaintenanceStatusRepository::new(
         database.clone(),
