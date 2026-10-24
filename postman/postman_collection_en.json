@@ -4403,6 +4403,24 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "Public legal documents",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept-Language",
+            "value": "en"
+          }
+        ],
+        "url": "{{baseUrl}}/api/legal/documents",
+        "description": "Current consent document metadata before phone verification. No account or consent history."
+      },
+      "response": []
     }
   ],
   "variable": [

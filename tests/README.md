@@ -11,7 +11,7 @@ Utiliser des fixtures fictives et des secrets de développement, jamais une base
 | --- | --- | --- |
 | Unitaire | Modules `#[cfg(test)]` de `src/` | Règles, configuration, transports, mocks et cycles de vie |
 | Contrat | `*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, guards et permissions |
-| Inventaire | `route_inventory.rs` | Les 130 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
+| Inventaire | `route_inventory.rs` | Les 131 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
 | PostgreSQL | `*_postgres.rs`, `postgres_compatibility`, `postgres_locks` | SQL, contraintes, verrous, snapshots et concurrence réels |
 | Redis / S3 | `redis_integration`, `media_integration` | Adaptateurs sur services locaux |
 | Codec | `photo_codec.rs`, `fixtures/photos/` | Formats, taille, métadonnées, corruption et arrêt du processus Node |
@@ -282,7 +282,7 @@ Ces vérifications ne valident ni un envoi SMS réel ni le déploiement sur le s
 
 Le [guide de facturation](../docs/store-billing.md) décrit les nouveaux contrats, les variables,
 la livraison et les essais fournisseur restant nécessaires. L’API et Postman FR/EN comprennent
-**130 routes**. Les anciennes routes mobiles Stripe Checkout/portail sont des refus authentifiés
+**131 routes**. Les anciennes routes mobiles Stripe Checkout/portail sont des refus authentifiés
 `410 billing_web_only` ; le site utilise sa propre session OTP.
 
 ### Résultats locaux

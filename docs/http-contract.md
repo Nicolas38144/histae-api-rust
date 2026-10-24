@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **130 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **131 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -127,6 +127,9 @@ Il n’existe pas de mécanisme de retry universel.
 | POST | `/api/auth/otp/verify` | `{ phone_number, otp }` → `200 { access_token, refresh_token }`. |
 | POST | `/api/auth/refresh` | `{ refresh_token }` → `200 { access_token, refresh_token }`. |
 | GET | `/api/plans` | `200 { plans: [...], offers: [...] }` ; trois offres commerciales et leurs plans de droits, avec quotas et fonctionnalités. |
+| GET | `/api/legal/documents` | `200 { documents: [{ consent_type, required_document_version, document_url, document_language }] }` ; quatre documents courants, publics et localisés selon `Accept-Language`, sans compte ni preuve de consentement. `Cache-Control: no-store`. |
+
+**Inscription avant téléphone.** Le mobile prépare le profil et les préférences en mémoire, puis présente les documents de cette route. Aucun profil ni consentement n’est enregistré avant la vérification OTP. Après authentification, il compare versions, URL et langues aux documents propriétaires avant de sauvegarder les choix explicites, puis le profil et les préférences autorisées. Un changement de document impose une nouvelle présentation et un nouveau choix. La route publique ne crée aucun compte et ne modifie aucun consentement.
 
 **OTP.** Seuls les téléphones français E.164 `+33…` sont acceptés. La vérification consomme le code une seule fois et crée un compte utilisateur si nécessaire. Envoi et vérification : 5/h par IP et numéro pseudonymisé. La validité du code suit `OTP_TTL`.
 

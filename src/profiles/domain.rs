@@ -339,6 +339,14 @@ pub struct ConsentState {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct PublicLegalDocument {
+    pub consent_type: ConsentType,
+    pub required_document_version: String,
+    pub document_language: Language,
+    pub document_url: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct PublicConsent {
     pub consent_type: ConsentType,
     pub granted: bool,

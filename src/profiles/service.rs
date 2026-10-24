@@ -9,8 +9,8 @@ use uuid::Uuid;
 
 use super::domain::{
     ConsentChange, ConsentState, ConsentType, LookingFor, PreferencesInput, PresenceInput,
-    ProfileInput, PublicConsent, PublicModeration, PublicModerationState, PublicPreferences,
-    PublicProfile, Sex, VersionedConsentChange, WriteOutcome,
+    ProfileInput, PublicConsent, PublicLegalDocument, PublicModeration, PublicModerationState,
+    PublicPreferences, PublicProfile, Sex, VersionedConsentChange, WriteOutcome,
 };
 use super::store::ProfileStore;
 use crate::config::LegalConfig;
@@ -231,6 +231,26 @@ impl ProfileService {
         self.consents_in(user_id, Language::Fr).await
     }
 
+    /// Public configuration only: no account lookup or consent evidence.
+    pub fn legal_documents_in(&self, language: Language) -> Vec<PublicLegalDocument> {
+        ConsentType::ALL
+            .into_iter()
+            .map(|consent_type| {
+                let (document_url, document_language) = self.legal_translations.resolve(
+                    consent_type,
+                    &consent_type.document_url(&self.legal),
+                    language,
+                );
+                PublicLegalDocument {
+                    consent_type,
+                    required_document_version: consent_type.version(&self.legal).to_owned(),
+                    document_url,
+                    document_language,
+                }
+            })
+            .collect()
+    }
+
     pub async fn consents_in(
         &self,
         user_id: Uuid,
@@ -250,22 +270,19 @@ impl ProfileService {
                 })
             })
             .collect::<Vec<_>>();
-        let consents = ConsentType::ALL
+        let consents = self
+            .legal_documents_in(language)
             .into_iter()
-            .map(|consent_type| {
+            .map(|document| {
+                let consent_type = document.consent_type;
                 let current = by_type.get(&consent_type);
-                let (document_url, document_language) = self.legal_translations.resolve(
-                    consent_type,
-                    &consent_type.document_url(&self.legal),
-                    language,
-                );
                 PublicConsent {
                     consent_type,
                     granted: current.is_some_and(|consent| consent.granted),
                     document_version: current.map(|consent| consent.document_version.clone()),
-                    required_document_version: consent_type.version(&self.legal).to_owned(),
-                    document_url,
-                    document_language,
+                    required_document_version: document.required_document_version,
+                    document_url: document.document_url,
+                    document_language: document.document_language,
                     accepted_document_language: current.map(|consent| consent.document_language),
                     updated_at: current.map(|consent| {
                         consent

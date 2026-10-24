@@ -397,6 +397,54 @@ async fn json_body(response: axum::response::Response) -> Value {
 }
 
 #[tokio::test]
+async fn legal_documents_are_public_localized_metadata_without_account_reads() {
+    let store = FakeProfileStore::new();
+    store.state.lock().expect("state").database_error = Some(DatabaseError::QueryFailed);
+    let (app, _) = app(store.clone(), false);
+    for language in ["fr", "en", "es", "it"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/legal/documents")
+                    .header(header::ACCEPT_LANGUAGE, language)
+                    .body(Body::empty())
+                    .expect("public request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(response.headers()[header::CONTENT_LANGUAGE], language);
+        let body = json_body(response).await;
+        let documents = body["documents"].as_array().expect("documents");
+        assert_eq!(documents.len(), 4);
+        for document in documents {
+            assert_eq!(document.as_object().expect("document").len(), 4);
+            assert!(document["consent_type"].is_string());
+            assert!(document["required_document_version"].is_string());
+            assert!(
+                document["document_url"]
+                    .as_str()
+                    .expect("URL")
+                    .starts_with("https://histae.test/")
+            );
+            // Non-Histae hosts keep the configured French document fallback.
+            assert_eq!(document["document_language"], "fr");
+            assert!(document.get("granted").is_none());
+        }
+    }
+    assert!(
+        store
+            .state
+            .lock()
+            .expect("state")
+            .last_consent_changes
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn consents_are_available_during_onboarding_and_keep_the_public_shape() {
     let store = FakeProfileStore::new();
     store.state.lock().expect("state").consents = vec![ConsentRecord {

@@ -26,6 +26,7 @@ impl ProfileHttpState {
 
 pub fn routes(state: ProfileHttpState, auth: MobileAuthState) -> Router<HttpState> {
     Router::new()
+        .route("/api/legal/documents", get(get_legal_documents))
         .route("/api/users/me", get(get_profile))
         .route(
             "/api/users/me/consents",
@@ -39,6 +40,24 @@ pub fn routes(state: ProfileHttpState, auth: MobileAuthState) -> Router<HttpStat
         .route("/api/users/me/presence", patch(update_presence))
         .layer(Extension(state))
         .layer(Extension(auth))
+}
+
+#[derive(Serialize)]
+struct LegalDocumentsResponse {
+    documents: Vec<super::domain::PublicLegalDocument>,
+}
+
+async fn get_legal_documents(
+    Extension(state): Extension<ProfileHttpState>,
+    locale: Locale,
+) -> impl axum::response::IntoResponse {
+    let locale = locale.anonymous();
+    (
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(LegalDocumentsResponse {
+            documents: state.service.legal_documents_in(locale.language),
+        }),
+    )
 }
 
 async fn get_profile(
