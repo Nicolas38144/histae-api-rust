@@ -81,6 +81,7 @@ en mémoire ne remplace jamais un verrou transactionnel distribué. Les futures 
 - `privacy/{rights,export,erasure}/` regroupe les workflows indépendants avec leur transport et leur persistance.
 - `outbox/admin/` sépare les décisions opérateur de leur audit transactionnel.
 - `media/codec.rs` contient l’adaptateur du codec autonome dans `tools/photo-codec/`.
+- `profiles/legal.rs` résout les métadonnées juridiques depuis la configuration et les traductions, sans base, compte, horloge ni photos. Le transport public `/api/legal/documents` reçoit seulement ce catalogue ; lecture des consentements et choix enregistrés réutilisent la même résolution. Ses routes publiques et authentifiées sont assemblées séparément dans `profiles/http.rs`.
 
 Les plateformes et états publicitaires utilisent des enums Serde, tout en conservant les chaînes du contrat HTTP.
 `EffectivePlan.weekly_credits` désigne les crédits inclus ; `ContinuationQuota.weekly_limit` reste le plafond public de continuations.
