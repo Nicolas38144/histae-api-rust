@@ -9,9 +9,10 @@ use uuid::Uuid;
 
 use super::domain::{
     ConsentChange, ConsentState, ConsentType, LookingFor, PreferencesInput, PresenceInput,
-    ProfileInput, PublicConsent, PublicLegalDocument, PublicModeration, PublicModerationState,
-    PublicPreferences, PublicProfile, Sex, VersionedConsentChange, WriteOutcome,
+    ProfileInput, PublicConsent, PublicModeration, PublicModerationState, PublicPreferences,
+    PublicProfile, Sex, VersionedConsentChange, WriteOutcome,
 };
+use super::legal::LegalDocumentCatalog;
 use super::store::ProfileStore;
 use crate::config::LegalConfig;
 use crate::infra::postgres::DatabaseError;
@@ -50,8 +51,7 @@ impl From<DatabaseError> for ProfileError {
 #[derive(Clone)]
 pub struct ProfileService {
     store: Arc<dyn ProfileStore>,
-    legal: LegalConfig,
-    legal_translations: LegalTranslations,
+    legal: LegalDocumentCatalog,
     clock: Arc<dyn Clock>,
     photo_urls: Arc<dyn ProfilePhotoUrlProvider>,
     moderator: TextModerator,
@@ -66,8 +66,7 @@ impl ProfileService {
     ) -> Self {
         Self {
             store,
-            legal,
-            legal_translations: LegalTranslations::default(),
+            legal: LegalDocumentCatalog::new(legal),
             clock,
             photo_urls,
             moderator: TextModerator,
@@ -75,7 +74,7 @@ impl ProfileService {
     }
 
     pub fn with_legal_translations(mut self, documents: LegalTranslations) -> Self {
-        self.legal_translations = documents;
+        self.legal = self.legal.with_translations(documents);
         self
     }
 
@@ -150,7 +149,7 @@ impl ProfileService {
                         bio,
                         bio_moderation,
                     },
-                    self.legal.clone(),
+                    self.legal.config().clone(),
                 )
                 .await?,
         )
@@ -192,7 +191,7 @@ impl ProfileService {
                         max_distance_km: max_distance_km as i32,
                         looking_for,
                     },
-                    self.legal.clone(),
+                    self.legal.config().clone(),
                 )
                 .await?,
         )
@@ -221,7 +220,7 @@ impl ProfileService {
                         longitude,
                         updated_at: self.clock.now(),
                     },
-                    self.legal.clone(),
+                    self.legal.config().clone(),
                 )
                 .await?,
         )
@@ -231,24 +230,8 @@ impl ProfileService {
         self.consents_in(user_id, Language::Fr).await
     }
 
-    /// Public configuration only: no account lookup or consent evidence.
-    pub fn legal_documents_in(&self, language: Language) -> Vec<PublicLegalDocument> {
-        ConsentType::ALL
-            .into_iter()
-            .map(|consent_type| {
-                let (document_url, document_language) = self.legal_translations.resolve(
-                    consent_type,
-                    &consent_type.document_url(&self.legal),
-                    language,
-                );
-                PublicLegalDocument {
-                    consent_type,
-                    required_document_version: consent_type.version(&self.legal).to_owned(),
-                    document_url,
-                    document_language,
-                }
-            })
-            .collect()
+    pub(super) fn legal_documents(&self) -> LegalDocumentCatalog {
+        self.legal.clone()
     }
 
     pub async fn consents_in(
@@ -266,12 +249,13 @@ impl ProfileService {
             .filter(|consent_type| {
                 by_type.get(consent_type).is_none_or(|consent| {
                     !consent.granted
-                        || consent.document_version != consent_type.version(&self.legal)
+                        || consent.document_version != consent_type.version(self.legal.config())
                 })
             })
             .collect::<Vec<_>>();
         let consents = self
-            .legal_documents_in(language)
+            .legal
+            .documents(language)
             .into_iter()
             .map(|document| {
                 let consent_type = document.consent_type;
@@ -332,18 +316,14 @@ impl ProfileService {
         }
         let versioned = changes
             .into_iter()
-            .map(|change| VersionedConsentChange {
-                consent_type: change.consent_type,
-                granted: change.granted,
-                document_version: change.consent_type.version(&self.legal).to_owned(),
-                document_language: self
-                    .legal_translations
-                    .resolve(
-                        change.consent_type,
-                        &change.consent_type.document_url(&self.legal),
-                        language,
-                    )
-                    .1,
+            .map(|change| {
+                let document = self.legal.document(change.consent_type, language);
+                VersionedConsentChange {
+                    consent_type: change.consent_type,
+                    granted: change.granted,
+                    document_version: document.required_document_version,
+                    document_language: document.document_language,
+                }
             })
             .collect();
         if !self

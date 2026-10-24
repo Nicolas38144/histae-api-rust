@@ -401,13 +401,24 @@ async fn legal_documents_are_public_localized_metadata_without_account_reads() {
     let store = FakeProfileStore::new();
     store.state.lock().expect("state").database_error = Some(DatabaseError::QueryFailed);
     let (app, _) = app(store.clone(), false);
-    for language in ["fr", "en", "es", "it"] {
+    for (requested, language) in [
+        (None, "fr"),
+        (Some("fr"), "fr"),
+        (Some("en"), "en"),
+        (Some("es"), "es"),
+        (Some("it"), "it"),
+        (Some("de, it-IT;q=0.8, en;q=0.5"), "it"),
+        (Some("de"), "fr"),
+    ] {
+        let mut request = Request::builder().uri("/api/legal/documents");
+        if let Some(language) = requested {
+            request = request.header(header::ACCEPT_LANGUAGE, language);
+        }
         let response = app
             .clone()
             .oneshot(
-                Request::builder()
-                    .uri("/api/legal/documents")
-                    .header(header::ACCEPT_LANGUAGE, language)
+                request
+                    .header(header::AUTHORIZATION, "Bearer invalid-token")
                     .body(Body::empty())
                     .expect("public request"),
             )
@@ -442,6 +453,51 @@ async fn legal_documents_are_public_localized_metadata_without_account_reads() {
             .last_consent_changes
             .is_empty()
     );
+}
+
+#[tokio::test]
+async fn public_documents_match_the_authenticated_consent_requirements() {
+    let (app, tokens) = app(FakeProfileStore::new(), false);
+    for language in ["fr", "en", "es", "it"] {
+        let public = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/legal/documents")
+                    .header(header::ACCEPT_LANGUAGE, language)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(public.status(), StatusCode::OK);
+        let mut authenticated = request(
+            "GET",
+            "/api/users/me/consents",
+            Some(&tokens.access_token),
+            "",
+        );
+        authenticated
+            .headers_mut()
+            .insert(header::ACCEPT_LANGUAGE, language.parse().expect("language"));
+        let authenticated = app.clone().oneshot(authenticated).await.expect("response");
+        assert_eq!(authenticated.status(), StatusCode::OK);
+        let public = json_body(public).await;
+        let authenticated = json_body(authenticated).await;
+        let documents = public["documents"].as_array().expect("documents");
+        let consents = authenticated["consents"].as_array().expect("consents");
+        assert_eq!(documents.len(), consents.len());
+        for (document, consent) in documents.iter().zip(consents) {
+            for field in [
+                "consent_type",
+                "required_document_version",
+                "document_url",
+                "document_language",
+            ] {
+                assert_eq!(document[field], consent[field], "{language}: {field}");
+            }
+        }
+    }
 }
 
 #[tokio::test]

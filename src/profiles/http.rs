@@ -6,6 +6,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
 use super::domain::{ConsentChange, ConsentState, LookingFor, Sex};
+use super::legal::LegalDocumentCatalog;
 use super::service::{ProfileError, ProfileService};
 use crate::http::error::ApiError;
 use crate::http::extract::{ApiDto, ValidatedJson};
@@ -25,8 +26,10 @@ impl ProfileHttpState {
 }
 
 pub fn routes(state: ProfileHttpState, auth: MobileAuthState) -> Router<HttpState> {
-    Router::new()
+    let public = Router::new()
         .route("/api/legal/documents", get(get_legal_documents))
+        .layer(Extension(state.service.legal_documents()));
+    let authenticated = Router::new()
         .route("/api/users/me", get(get_profile))
         .route(
             "/api/users/me/consents",
@@ -39,7 +42,8 @@ pub fn routes(state: ProfileHttpState, auth: MobileAuthState) -> Router<HttpStat
         )
         .route("/api/users/me/presence", patch(update_presence))
         .layer(Extension(state))
-        .layer(Extension(auth))
+        .layer(Extension(auth));
+    public.merge(authenticated)
 }
 
 #[derive(Serialize)]
@@ -48,14 +52,14 @@ struct LegalDocumentsResponse {
 }
 
 async fn get_legal_documents(
-    Extension(state): Extension<ProfileHttpState>,
+    Extension(documents): Extension<LegalDocumentCatalog>,
     locale: Locale,
 ) -> impl axum::response::IntoResponse {
     let locale = locale.anonymous();
     (
         [(header::CACHE_CONTROL, "no-store")],
         Json(LegalDocumentsResponse {
-            documents: state.service.legal_documents_in(locale.language),
+            documents: documents.documents(locale.language),
         }),
     )
 }
