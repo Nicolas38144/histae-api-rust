@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **131 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **132 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -347,6 +347,7 @@ L’attribution d’un trait existant est idempotente. Une question expose `id, 
 | GET | `/api/matches/me` | `limit, cursor` (offset déprécié) → `200 { matches, next_cursor }`. |
 | GET | `/api/users/me/continuation-quota` | `200` : plan effectif, `used, weekly_credits, free_remaining, advertising_balance, advertising_remaining, reserved, advertising_stock_limit`, `weekly_limit, remaining` pour Free. |
 | PATCH | `/api/matches/:id/reveal` | Aucun corps → `200 { message, photos_revealed }`. |
+| DELETE | `/api/matches/:id/reveal` | Aucun corps → `200 { message, photos_revealed: false }`. Retrait idempotent de son accord, photos masquées pour les deux participants. |
 | PATCH | `/api/matches/:id/continue` | `{ credit_cost: 0 ou 1 }` : coût maximal accepté → `200 { message, match_confirmed }`. |
 | PATCH | `/api/matches/:id/end` | Aucun corps → `200 { message: "match ended", status: "ended" }`. |
 | GET | `/api/matches/:id/messages` | `limit, cursor` (offset déprécié) → `200 { messages, next_cursor }`. |
@@ -691,3 +692,22 @@ Ce contrôle ne prouve ni les schémas JSON, ni les droits, ni les garanties mé
 ### Données de crédits dans la fiche administrateur
 
 `GET /api/admin/users/:userId` conserve ses guards, motif/audit et données existants, avec `continuation_quota` supplémentaire. Cet objet présente les compteurs du compte ciblé et aucune décision individuelle de son partenaire. Le dashboard affiche ses soldes et réservations depuis cette projection. `GET /api/plans` indique si les récompenses publicitaires sont activées ; il décrit les règles sans démarrer de publicité.
+
+### Photo requirements and per-match withdrawal
+
+Discovery requires a current `ready` photo approved by moderation for the viewer and every candidate.
+`GET /api/users/me/discovery-status` includes `photo` in `required_actions` when that requirement is
+missing. Feed and targeted swipe eligibility enforce it on the server; no photo or URL is added to feed DTOs.
+Removing or replacing a photo with one awaiting approval suspends discovery until approval.
+
+`PATCH /api/matches/:id/reveal` records the caller's agreement only when both participants have
+approved photos (`409 photo_required` otherwise). `DELETE` on the same route withdraws the caller's
+agreement under the same match lock and leaves messages, continuation and the other person's agreement
+intact. The two photos disappear from subsequent authorized projections; either person's missing or
+unapproved photo also prevents the asymmetric issue of a partner photo URL. Withdrawal never requires
+retaining a photo. Both commands publish the current `photos_revealed` state through `match.updated`.
+
+Agreement belongs to the match, not to a photo version. Replacing a photo does not reset agreements:
+the newly approved current photo is used on subsequent reads of every mutually authorized match.
+Previously issued signed storage URLs retain their existing maximum 60-second validity; a withdrawal
+cannot recall downloaded bytes. Clients evict displayed images on privacy changes and realtime invalidation.

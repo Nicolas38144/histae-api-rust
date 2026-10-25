@@ -315,6 +315,7 @@ async fn creation_listing_and_reveal_keep_notifications_and_private_photo_rules_
     cleanup(&database, &[first, second], &[]).await?;
     account(&database, first, "First").await?;
     account(&database, second, "Second").await?;
+    approved_photo(&database, first).await?;
     let second_photo = approved_photo(&database, second).await?;
 
     let test_result: Result<(), Box<dyn std::error::Error>> = async {
@@ -346,14 +347,14 @@ async fn creation_listing_and_reveal_keep_notifications_and_private_photo_rules_
 
         assert_eq!(
             repository
-                .record_reveal(match_record.id, first)
+                .record_reveal(match_record.id, first, true)
                 .await
                 .map_err(|_| FixtureError("first_reveal"))?,
             MatchCommandResult::Available(false)
         );
         assert_eq!(
             repository
-                .record_reveal(match_record.id, second)
+                .record_reveal(match_record.id, second, true)
                 .await
                 .map_err(|_| FixtureError("second_reveal"))?,
             MatchCommandResult::Available(true)
@@ -364,6 +365,23 @@ async fn creation_listing_and_reveal_keep_notifications_and_private_photo_rules_
             .map_err(|_| FixtureError("list_after_reveal"))?;
         assert_eq!(after[0].other_photo.as_deref(), Some(second_photo.as_str()));
         assert!(after[0].photos_revealed);
+        assert_eq!(repository.record_reveal(match_record.id, first, false).await?, MatchCommandResult::Available(false));
+        assert_eq!(repository.record_reveal(match_record.id, first, false).await?, MatchCommandResult::Available(false));
+        for participant in [first, second] {
+            let hidden = repository.list_for_user(participant, 20, 0, None).await?;
+            assert!(!hidden[0].photos_revealed);
+            assert!(hidden[0].other_photo.is_none());
+        }
+        assert_eq!(repository.record_reveal(match_record.id, first, true).await?, MatchCommandResult::Available(true));
+        // A replacement remains visible in every mutually authorized match.
+        sqlx::query("DELETE FROM user_photo WHERE user_id=$1")
+            .bind(second).execute(database.acquire().await?.as_mut()).await?;
+        sqlx::query("DELETE FROM content_moderation_case WHERE bio_user_id=$1")
+            .bind(second).execute(database.acquire().await?.as_mut()).await?;
+        let replacement = approved_photo(&database, second).await?;
+        let refreshed = repository.list_for_user(first, 20, 0, None).await?;
+        assert_eq!(refreshed[0].other_photo.as_deref(), Some(replacement.as_str()));
+
         Ok(())
     }
     .await;
@@ -835,7 +853,7 @@ async fn ending_a_match_is_atomic_idempotent_and_revokes_all_mobile_conversation
             assert!(matches.list_for_user(participant, 20, 0, None).await.map_err(|_| FixtureError("ended_list"))?.is_empty());
             assert_eq!(messages.messages_for_user(item.id, participant, 20, 0, None).await.map_err(|_| FixtureError("ended_messages"))?,
                 MatchCommandResult::Unavailable(MatchAvailabilityFailure::InvalidState));
-            assert_eq!(matches.record_reveal(item.id, participant).await.map_err(|_| FixtureError("ended_reveal"))?,
+            assert_eq!(matches.record_reveal(item.id, participant, true).await.map_err(|_| FixtureError("ended_reveal"))?,
                 MatchCommandResult::Unavailable(MatchAvailabilityFailure::InvalidState));
             assert_eq!(matches.record_continuation(item.id, participant, 1).await.map_err(|_| FixtureError("ended_continue"))?, ContinuationResult::InvalidState);
             assert_eq!(messages.create_message(Uuid::new_v4(), item.id, participant, "After closure".to_owned(), Uuid::new_v4())

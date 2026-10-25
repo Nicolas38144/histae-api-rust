@@ -211,3 +211,12 @@ La saturation ou l’indisponibilité renvoie `503 admob_verification_unavailabl
 annonce jusqu’à cinq retries espacés d’une seconde : la grâce applicative de 24 heures accepte une preuve tardive,
 mais ne garantit pas une nouvelle livraison pendant 24 heures. Vérifier ce parcours avec AdMob avant activation.
 Voir le [guide officiel SSV](https://developers.google.com/admob/android/ssv#faq).
+
+## Photo sharing
+
+An approved private profile photo is required for discovery; it never appears in the feed.
+Each match has two independent photo agreements. The app exposes the choice from the conversation
+header, and `DELETE /api/matches/:id/reveal` withdraws the caller's agreement without spending credits
+or removing messages. Both photos and their thumbnails are then hidden. A later agreement can restore
+sharing while the other participant's agreement remains valid. Replacements use the current approved
+photo in all mutually authorized matches; there is no per-match historical copy.

@@ -106,6 +106,7 @@ pub enum MatchError {
     MessageNotFound,
     IdempotencyConflict,
     PhotoStorageUnavailable,
+    PhotoRequired,
     Database(DatabaseError),
 }
 
@@ -115,6 +116,7 @@ impl From<MatchStoreError> for MatchError {
             MatchStoreError::Blocked => Self::Blocked,
             MatchStoreError::ParticipantUnavailable => Self::CandidateNotFound,
             MatchStoreError::ContinuationExpired => Self::Expired,
+            MatchStoreError::PhotoRequired => Self::PhotoRequired,
             MatchStoreError::Database(error) => Self::Database(error),
         }
     }
@@ -248,7 +250,20 @@ impl MatchService {
     }
 
     pub async fn reveal(&self, match_id: Uuid, user_id: Uuid) -> Result<bool, MatchError> {
-        let revealed = match self.store.record_reveal(match_id, user_id).await? {
+        self.set_reveal(match_id, user_id, true).await
+    }
+
+    pub async fn withdraw_reveal(&self, match_id: Uuid, user_id: Uuid) -> Result<bool, MatchError> {
+        self.set_reveal(match_id, user_id, false).await
+    }
+
+    async fn set_reveal(
+        &self,
+        match_id: Uuid,
+        user_id: Uuid,
+        granted: bool,
+    ) -> Result<bool, MatchError> {
+        let revealed = match self.store.record_reveal(match_id, user_id, granted).await? {
             MatchCommandResult::Available(revealed) => revealed,
             MatchCommandResult::Unavailable(reason) => return Err(command_error(reason)),
         };

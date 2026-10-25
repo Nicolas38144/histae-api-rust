@@ -9,7 +9,7 @@ Importer l’un des fichiers JSON avec **Import → Files** :
 - [Collection française](postman_collection_fr.json).
 - [Collection anglaise](postman_collection_en.json).
 
-Chaque collection contient 131 requêtes correspondant au contrat HTTP. Aucun script Python ou générateur
+Chaque collection contient 132 requêtes correspondant au contrat HTTP. Aucun script Python ou générateur
 n’est nécessaire pour l’import. Les collections incluent déjà quelques actions après réponse pour stocker
 les tokens et challenges ; elles ne fabriquent ni preuve WebAuthn ni signature de fournisseur.
 

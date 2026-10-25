@@ -15,6 +15,7 @@ pub enum MatchStoreError {
     Blocked,
     ParticipantUnavailable,
     ContinuationExpired,
+    PhotoRequired,
     Database(DatabaseError),
 }
 
@@ -54,6 +55,7 @@ pub trait MatchStore: Send + Sync {
         &self,
         match_id: Uuid,
         user_id: Uuid,
+        granted: bool,
     ) -> MatchStoreFuture<'_, MatchCommandResult<bool>>;
 
     fn record_end(&self, match_id: Uuid, user_id: Uuid) -> MatchStoreFuture<'_, Option<MatchEnd>>;
@@ -118,6 +120,7 @@ impl std::fmt::Display for MatchStoreError {
             Self::Blocked => "match_blocked",
             Self::ParticipantUnavailable => "participant_unavailable",
             Self::ContinuationExpired => "match_expired",
+            Self::PhotoRequired => "photo_required",
             Self::Database(error) => error.safe_code(),
         })
     }

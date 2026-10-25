@@ -1324,6 +1324,31 @@
               "response": []
             },
             {
+              "name": "DELETE /api/matches/:id/reveal",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/{{matchId}}/reveal",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "No body → 200 { message, photos_revealed: false }. Withdraws only your consent. Both photos are hidden; messages remain available."
+              },
+              "response": []
+            },
+            {
               "name": "PATCH /api/matches/:id/continue",
               "request": {
                 "method": "PATCH",

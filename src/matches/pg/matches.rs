@@ -186,6 +186,7 @@ impl MatchStore for PgMatchRepository {
         &self,
         match_id: Uuid,
         user_id: Uuid,
+        granted: bool,
     ) -> MatchStoreFuture<'_, MatchCommandResult<bool>> {
         Box::pin(async move {
             self.database
@@ -196,22 +197,44 @@ impl MatchStore for PgMatchRepository {
                         {
                             return Ok(MatchCommandResult::Unavailable(reason));
                         }
+                        // The feed requirement also applies to existing matches and to
+                        // accounts that removed their photo after matching. Withdrawal
+                        // never requires either participant to retain a photo.
+                        if granted {
+                            let complete: bool = sqlx::query_scalar(
+                                "SELECT count(*) = 2 FROM user_photo AS photo
+                                 JOIN content_moderation_case AS moderation
+                                   ON moderation.photo_id = photo.id AND moderation.status = 'approved'
+                                 WHERE photo.user_id IN (
+                                   SELECT user1_id FROM match_init WHERE id=$1
+                                   UNION ALL SELECT user2_id FROM match_init WHERE id=$1
+                                 ) AND photo.status = 'ready'",
+                            )
+                            .bind(match_id)
+                            .fetch_one(&mut *connection)
+                            .await
+                            .map_err(map_sqlx_error)?;
+                            if !complete {
+                                return Err(MatchStoreError::PhotoRequired);
+                            }
+                        }
                         let row = sqlx::query(
                             "WITH updated AS (
-                               UPDATE match_state SET revealed = true
+                               UPDATE match_state SET revealed = $3
                                WHERE match_id = $1 AND user_id = $2
                                RETURNING match_id
                              )
                              SELECT EXISTS (SELECT 1 FROM updated) AS updated,
                                COALESCE((
                                  SELECT count(*) = 2
-                                   AND bool_and(state.revealed OR state.user_id = $2)
+                                   AND bool_and(CASE WHEN state.user_id = $2 THEN $3 ELSE state.revealed END)
                                  FROM match_state AS state
                                  WHERE state.match_id = (SELECT match_id FROM updated)
                                ), false) AS revealed",
                         )
                         .bind(match_id)
                         .bind(user_id)
+                        .bind(granted)
                         .fetch_one(&mut *connection)
                         .await
                         .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
@@ -490,6 +513,12 @@ SELECT match_record.id, match_record.user1_id, match_record.user2_id,
     THEN other_profile.bio ELSE NULL END AS other_bio,
   CASE WHEN COALESCE(my_state.revealed, false)
          AND COALESCE(other_state.revealed, false)
+         AND EXISTS (
+           SELECT 1 FROM user_photo AS own_photo
+           JOIN content_moderation_case AS own_moderation
+             ON own_moderation.photo_id = own_photo.id AND own_moderation.status = 'approved'
+           WHERE own_photo.user_id = $1 AND own_photo.status = 'ready'
+         )
     THEN other_photo.object_key ELSE NULL END AS other_photo,
   COALESCE(other_traits.names, ARRAY[]::text[]) AS other_traits,
   COALESCE(other_answers.items, '[]'::jsonb) AS other_profile_answers,

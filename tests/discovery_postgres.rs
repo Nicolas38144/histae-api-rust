@@ -142,6 +142,24 @@ async fn ready_user(
     .execute(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
+    let photo_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO user_photo
+         (id, user_id, object_key, status, mime_type, size_bytes, width, height, sha256)
+         VALUES ($1,$2,$3,'ready','image/webp',128,32,32,$4)",
+    )
+    .bind(photo_id)
+    .bind(user_id)
+    .bind(format!("profile-photos/{user_id}/{photo_id}.webp"))
+    .bind(vec![7_u8; 32])
+    .execute(&mut *connection).await.map_err(map_sqlx_error)?;
+    sqlx::query(
+        "INSERT INTO content_moderation_case
+         (id,user_id,content_type,photo_id,status,policy_version,face_detectable,sharp_enough,content_allowed)
+         VALUES ($1,$2,'photo',$3,'approved','photo-discovery-test',true,true,true)",
+    )
+    .bind(Uuid::new_v4()).bind(user_id).bind(photo_id)
+    .execute(&mut *connection).await.map_err(map_sqlx_error)?;
     for consent_type in ["sensitive_data_consent", "location_consent"] {
         sqlx::query(
             "INSERT INTO user_consent (user_id, consent_type, granted, document_version)
@@ -795,6 +813,36 @@ async fn writes_wait_for_a_concurrent_pause_and_recheck_both_participants()
         Ok(())
     }
     .await;
+    let cleaned = cleanup(&database, &users).await;
+    activity.close().await;
+    database.close().await;
+    result?;
+    cleaned?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn discovery_requires_approved_photos_for_viewer_and_candidate()
+-> Result<(), Box<dyn std::error::Error>> {
+    use histae_api_rust::discovery::domain::DiscoveryRequiredAction;
+    use histae_api_rust::discovery::service::DiscoveryError;
+    let (database, activity, service, _) = services(&postgres_config()?).await?;
+    let users = [Uuid::new_v4(), Uuid::new_v4()];
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        ready_user(&database, users[0], 1, 48.8566).await?;
+        ready_user(&database, users[1], 2, 48.8576).await?;
+        assert_eq!(service.feed(users[0], 20, None).await?.profiles.len(), 1);
+        sqlx::query("UPDATE content_moderation_case SET status='pending' WHERE user_id=$1 AND content_type='photo'")
+            .bind(users[1]).execute(database.acquire().await?.as_mut()).await?;
+        assert!(service.feed(users[0], 20, None).await?.profiles.is_empty());
+        assert!(service.status(users[1]).await?.required_actions.contains(&DiscoveryRequiredAction::Photo));
+        assert_eq!(service.feed(users[1], 20, None).await.unwrap_err(), DiscoveryError::NotReady);
+        assert_eq!(service.swipe(users[0], users[1], SwipeDecision::Like).await.unwrap_err(), DiscoveryError::CandidateNotFound);
+        sqlx::query("DELETE FROM user_photo WHERE user_id=$1")
+            .bind(users[0]).execute(database.acquire().await?.as_mut()).await?;
+        assert!(service.status(users[0]).await?.required_actions.contains(&DiscoveryRequiredAction::Photo));
+        Ok(())
+    }.await;
     let cleaned = cleanup(&database, &users).await;
     activity.close().await;
     database.close().await;

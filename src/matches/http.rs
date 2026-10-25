@@ -36,7 +36,7 @@ impl MatchHttpState {
 pub fn routes(state: MatchHttpState, auth: MobileAuthState) -> Router<HttpState> {
     Router::new()
         .route("/api/matches/me", get(list))
-        .route("/api/matches/{id}/reveal", patch(reveal))
+        .route("/api/matches/{id}/reveal", patch(reveal).delete(withdraw_reveal))
         .route("/api/matches/{id}/continue", patch(continue_match))
         .route("/api/matches/{id}/end", patch(end))
         .route(
@@ -230,6 +230,25 @@ async fn reveal(
 struct ContinueResponse {
     message: &'static str,
     match_confirmed: bool,
+}
+
+async fn withdraw_reveal(
+    OnboardedMobile(identity): OnboardedMobile,
+    Extension(state): Extension<MatchHttpState>,
+    ValidatedPath(path): ValidatedPath<MatchPath>,
+) -> Result<Json<RevealResponse>, ApiError> {
+    let photos_revealed = state
+        .service
+        .withdraw_reveal(
+            path.id().ok_or_else(invalid_match_id)?,
+            identity.account.user_id,
+        )
+        .await
+        .map_err(match_error)?;
+    Ok(Json(RevealResponse {
+        message: "Photo reveal consent withdrawn for this match.",
+        photos_revealed,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -570,6 +589,11 @@ fn match_error(error: MatchError) -> ApiError {
             StatusCode::SERVICE_UNAVAILABLE,
             "photo_storage_unavailable",
             "Photo storage is temporarily unavailable",
+        ),
+        MatchError::PhotoRequired => ApiError::new(
+            StatusCode::CONFLICT,
+            "photo_required",
+            "Both participants need an approved profile photo before revealing photos.",
         ),
         MatchError::Database(error) => ApiError::from(error),
     }

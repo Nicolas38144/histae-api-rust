@@ -162,6 +162,9 @@ impl DiscoveryService {
         if !row.has_preferences {
             required_actions.push(DiscoveryRequiredAction::Preferences);
         }
+        if !row.has_approved_photo {
+            required_actions.push(DiscoveryRequiredAction::Photo);
+        }
         if !row.has_sensitive_consent {
             required_actions.push(DiscoveryRequiredAction::SensitiveDataConsent);
         }
@@ -407,6 +410,7 @@ mod tests {
             paused: false,
             has_profile: false,
             has_sex: false,
+            has_approved_photo: false,
             has_preferences: false,
             has_sensitive_consent: false,
             has_location_consent: false,
@@ -422,6 +426,9 @@ mod tests {
         if !row.has_preferences {
             actions.push(DiscoveryRequiredAction::Preferences);
         }
+        if !row.has_approved_photo {
+            actions.push(DiscoveryRequiredAction::Photo);
+        }
         if !row.has_sensitive_consent {
             actions.push(DiscoveryRequiredAction::SensitiveDataConsent);
         }
@@ -436,6 +443,7 @@ mod tests {
             vec![
                 DiscoveryRequiredAction::Profile,
                 DiscoveryRequiredAction::Preferences,
+                DiscoveryRequiredAction::Photo,
                 DiscoveryRequiredAction::SensitiveDataConsent,
                 DiscoveryRequiredAction::LocationConsent,
                 DiscoveryRequiredAction::FreshPresence,

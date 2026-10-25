@@ -148,6 +148,9 @@ impl DiscoveryRepository for PgDiscoveryRepository {
                 paused: row.try_get("paused").map_err(map_sqlx_error)?,
                 has_profile: row.try_get("has_profile").map_err(map_sqlx_error)?,
                 has_sex: row.try_get("has_sex").map_err(map_sqlx_error)?,
+                has_approved_photo: row
+                    .try_get("has_approved_photo")
+                    .map_err(map_sqlx_error)?,
                 has_preferences: row.try_get("has_preferences").map_err(map_sqlx_error)?,
                 has_sensitive_consent: row
                     .try_get("has_sensitive_consent")
@@ -256,7 +259,12 @@ impl PgSwipeStore {
             .transaction(|connection| {
                 Box::pin(async move {
                     let accounts = sqlx::query(
-                        "SELECT user_id, discovery_paused FROM user_account
+                        "SELECT user_id, discovery_paused,
+                           EXISTS (SELECT 1 FROM user_photo AS photo
+                             JOIN content_moderation_case AS moderation
+                               ON moderation.photo_id = photo.id AND moderation.status = 'approved'
+                             WHERE photo.user_id = user_account.user_id AND photo.status = 'ready') AS has_approved_photo
+                         FROM user_account
                          WHERE user_id=ANY($1) AND deleted_at IS NULL AND NOT is_banned
                          ORDER BY user_id FOR SHARE",
                     )
@@ -271,6 +279,9 @@ impl PgSwipeStore {
                         if account
                             .try_get::<bool, _>("discovery_paused")
                             .map_err(map_sqlx_error)?
+                            || !account
+                                .try_get::<bool, _>("has_approved_photo")
+                                .map_err(map_sqlx_error)?
                         {
                             let id: Uuid = account.try_get("user_id").map_err(map_sqlx_error)?;
                             return Err(if id == actor_id {
@@ -454,6 +465,9 @@ SELECT
   COALESCE((SELECT discovery_paused FROM user_account WHERE user_id=$1), false) AS paused,
   EXISTS (SELECT 1 FROM user_profile WHERE user_id = $1) AS has_profile,
   EXISTS (SELECT 1 FROM user_profile WHERE user_id = $1 AND sex IS NOT NULL) AS has_sex,
+  EXISTS (SELECT 1 FROM user_photo AS photo
+      JOIN content_moderation_case AS moderation ON moderation.photo_id = photo.id AND moderation.status = 'approved'
+      WHERE photo.user_id = $1 AND photo.status = 'ready') AS has_approved_photo,
   EXISTS (SELECT 1 FROM user_preferences WHERE user_id = $1) AS has_preferences,
   EXISTS (SELECT 1 FROM user_consent WHERE user_id = $1
     AND consent_type = 'sensitive_data_consent' AND granted = true
@@ -475,6 +489,9 @@ SELECT EXISTS (
     AND presence.is_location_fresh = true
     AND presence.updated_at > clock_timestamp() - INTERVAL '1 hour'
   WHERE account.user_id = $1 AND account.deleted_at IS NULL AND account.is_banned = false AND NOT account.discovery_paused
+    AND EXISTS (SELECT 1 FROM user_photo AS photo
+      JOIN content_moderation_case AS moderation ON moderation.photo_id = photo.id AND moderation.status = 'approved'
+      WHERE photo.user_id = account.user_id AND photo.status = 'ready')
     AND EXISTS (SELECT 1 FROM user_consent WHERE user_id = account.user_id
       AND consent_type = 'sensitive_data_consent' AND granted = true
       AND withdrawn_at IS NULL AND document_version = $2)
@@ -505,6 +522,9 @@ WITH viewer AS MATERIALIZED (
   WHERE account.user_id = $1 AND account.deleted_at IS NULL AND account.is_banned = false AND NOT account.discovery_paused
     AND presence.is_location_fresh = true
     AND presence.updated_at > statement_timestamp() - INTERVAL '1 hour'
+    AND EXISTS (SELECT 1 FROM user_photo AS photo
+      JOIN content_moderation_case AS moderation ON moderation.photo_id = photo.id AND moderation.status = 'approved'
+      WHERE photo.user_id = account.user_id AND photo.status = 'ready')
     AND EXISTS (SELECT 1 FROM user_consent WHERE user_id = account.user_id
       AND consent_type = 'sensitive_data_consent' AND granted = true
       AND withdrawn_at IS NULL AND document_version = $2)
@@ -582,6 +602,9 @@ const FEED_PAGE_SQL: &str = r#"
     FROM viewer
     JOIN user_profile AS target ON target.user_id = target_presence.user_id
       AND target.sex IS NOT NULL
+      AND EXISTS (SELECT 1 FROM user_photo AS photo
+        JOIN content_moderation_case AS moderation ON moderation.photo_id = photo.id AND moderation.status = 'approved'
+        WHERE photo.user_id = target.user_id AND photo.status = 'ready')
       AND target.birthdate > viewer.oldest_birthdate
       AND target.birthdate <= viewer.youngest_birthdate
       AND ($7::uuid IS NULL OR target.user_id = $7)
@@ -660,6 +683,9 @@ JOIN user_presence AS target_presence
 const CANDIDATE_PAGE_SQL: &str = r#"
 JOIN user_profile AS target ON target.user_id = target_presence.user_id
     AND target.sex IS NOT NULL
+    AND EXISTS (SELECT 1 FROM user_photo AS photo
+      JOIN content_moderation_case AS moderation ON moderation.photo_id = photo.id AND moderation.status = 'approved'
+      WHERE photo.user_id = target.user_id AND photo.status = 'ready')
     AND target.birthdate > viewer.oldest_birthdate
     AND target.birthdate <= viewer.youngest_birthdate
     AND ($7::uuid IS NULL OR target.user_id = $7)

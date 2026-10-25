@@ -165,6 +165,7 @@ impl DiscoveryRepository for FakeRepository {
                 paused: self.paused.load(Ordering::SeqCst),
                 has_profile: ready,
                 has_sex: ready,
+                has_approved_photo: ready,
                 has_preferences: ready,
                 has_sensitive_consent: ready,
                 has_location_consent: ready,
@@ -646,6 +647,7 @@ async fn rejects_discovery_when_prerequisites_are_missing() {
         json!([
             "profile",
             "preferences",
+            "photo",
             "sensitive_data_consent",
             "location_consent",
             "fresh_presence"

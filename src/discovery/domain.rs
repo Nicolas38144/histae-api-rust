@@ -98,6 +98,7 @@ impl From<DiscoveryCandidateRow> for FeedCandidate {
 pub enum DiscoveryRequiredAction {
     Profile,
     Sex,
+    Photo,
     Preferences,
     SensitiveDataConsent,
     LocationConsent,
@@ -110,6 +111,7 @@ pub struct DiscoveryStatusRow {
     pub paused: bool,
     pub has_profile: bool,
     pub has_sex: bool,
+    pub has_approved_photo: bool,
     pub has_preferences: bool,
     pub has_sensitive_consent: bool,
     pub has_location_consent: bool,
