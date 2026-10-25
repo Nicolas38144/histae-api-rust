@@ -82,13 +82,19 @@ Appliquer le migrateur, puis déployer l’API et le worker outbox compatibles a
 
 Le délai de renvoi est partagé entre tous les parcours et instances pour un téléphone, même quand aucun SMS n’est prévu. Le rejeu garde le même UUID, téléphone, langue et type de parcours ; il ne prolonge pas le délai. La vérification d’un code reçu reste possible pendant cette attente. Le téléphone en attente est chiffré avec un contexte lié à l’UUID, jamais placé dans le payload outbox, et effacé après traitement. Les demandes expirées ou remplacées ne sont pas envoyées. La maintenance RGPD nettoie les métadonnées à expiration.
 
-Les tests utilisent des fournisseurs simulés et une instance PostgreSQL jetable : limites par numéro, concurrence sur le budget global entre numéros et instances, fenêtres glissantes, idempotence et cooldown durables, téléphone chiffré, suspension et purge. Ils ne consomment aucun crédit Sweego. Ils sont fournis sans exécution dans cet environnement :
+Les tests utilisent des fournisseurs simulés et une instance PostgreSQL jetable : limites par numéro, concurrence sur le budget global entre numéros et instances, fenêtres glissantes, idempotence et cooldown durables, téléphone chiffré, suspension et purge. Ils ne consomment aucun crédit Sweego. Pour les rejouer :
 
 ```bash
 cargo fmt --all
 cargo test --locked --lib
 cargo test --locked --test otp_sweego_contract --test sweego_client
-cargo test --locked --features postgres-integration --test sms_safety_postgres -- --test-threads=1
+cargo build --locked --bin db-migrate
+python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
+  --test otp_delivery --test sms_safety_postgres
 ```
 
-La dernière commande exige la configuration locale de développement décrite dans [les tests](../tests/README.md) (`ENV=development`, PostgreSQL local et base `histae-dev`). Elle crée puis supprime sa propre base jetable. Ne pas utiliser une configuration de production.
+Le lanceur initialise un PostgreSQL jetable et injecte ses identifiants temporaires. `otp_delivery`
+s’exécute avec `histae_app`. La fixture `sms_safety_postgres`, qui crée puis supprime sa propre base,
+s’exécute séparément avec l’administrateur de ce cluster temporaire ; les rôles des services déployés
+restent ceux du [guide PostgreSQL](postgres-roles.md). Ajouter `--sudo-docker` après `sudo -v` si nécessaire.
+Les tests et Cargo restent exécutés par l’utilisateur courant. Ne pas utiliser une base de production.

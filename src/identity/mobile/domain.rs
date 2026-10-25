@@ -22,14 +22,6 @@ impl AccountRole {
             _ => Err(DomainError::InvalidStoredRole),
         }
     }
-
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Admin => "admin",
-            Self::Superadmin => "superadmin",
-        }
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

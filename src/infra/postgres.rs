@@ -55,23 +55,6 @@ impl DatabaseError {
             Self::SchemaObjectsMissing => "postgres_schema_objects_missing",
         }
     }
-
-    pub fn sqlstate(self) -> Option<&'static str> {
-        match self {
-            Self::AccountUnavailable => Some("P0E01"),
-            Self::Constraint(ConstraintKind::NotNull) => Some("23502"),
-            Self::Constraint(ConstraintKind::ForeignKey) => Some("23503"),
-            Self::Constraint(ConstraintKind::Unique) => Some("23505"),
-            Self::Constraint(ConstraintKind::Check) => Some("23514"),
-            Self::SerializationFailure => Some("40001"),
-            Self::Deadlock => Some("40P01"),
-            _ => None,
-        }
-    }
-
-    pub fn is_retryable(self) -> bool {
-        matches!(self, Self::SerializationFailure | Self::Deadlock)
-    }
 }
 
 impl fmt::Display for DatabaseError {
@@ -480,8 +463,6 @@ mod tests {
             DatabaseError::SerializationFailure
         );
         assert_eq!(map_sqlstate(Some("XX000")), DatabaseError::QueryFailed);
-        assert_eq!(DatabaseError::AccountUnavailable.sqlstate(), Some("P0E01"));
-        assert!(DatabaseError::Deadlock.is_retryable());
     }
 
     #[test]

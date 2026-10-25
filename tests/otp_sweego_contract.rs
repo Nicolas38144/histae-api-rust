@@ -8,11 +8,6 @@ use axum::http::{Request, StatusCode, header};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use chrono::{DateTime, Utc};
-use histae_api_rust::identity::mobile::otp::requests::{
-    NewOtpRequest, OtpRequestHandler, OtpRequestService, OtpRequestStore,
-    PendingOtpRequest, RequestError, RequestFuture,
-};
-use histae_api_rust::outbox::{types::{OutboxEvent, OutboxEventType, OutboxStatus}, worker::OutboxHandler};
 use histae_api_rust::config::{
     Environment, JwtConfig, LimitPolicy, SecretString, SmsConfig, SmsProvider, TrustProxy,
 };
@@ -29,6 +24,10 @@ use histae_api_rust::identity::mobile::domain::{
 use histae_api_rust::identity::mobile::http::{
     OtpHttpState, SweegoHttpState, otp_routes, sweego_routes,
 };
+use histae_api_rust::identity::mobile::otp::requests::{
+    NewOtpRequest, OtpRequestHandler, OtpRequestService, OtpRequestStore, PendingOtpRequest,
+    RequestError, RequestFuture,
+};
 use histae_api_rust::identity::mobile::otp::{
     BeginOtpDelivery, OtpDeliverySnapshot, OtpDeliveryStart, OtpDeliveryState, OtpDeliveryStates,
     OtpService, OtpStore, OtpStoreFuture, SmsDeliveryEvent, SmsEventOutcome,
@@ -41,6 +40,10 @@ use histae_api_rust::identity::mobile::sweego::{
 };
 use histae_api_rust::identity::mobile::tokens::{NewRefreshToken, TokenService};
 use histae_api_rust::infra::postgres::DatabaseError;
+use histae_api_rust::outbox::{
+    types::{OutboxEvent, OutboxEventType, OutboxStatus},
+    worker::OutboxHandler,
+};
 use hmac::{Hmac, Mac as _};
 use serde_json::{Value, json};
 use sha2::Sha256;
@@ -266,14 +269,14 @@ impl SmsDelivery for FakeDelivery {
             self.messages
                 .lock()
                 .map_err(|_| SmsDeliveryError {
-                    reason: SmsFailureReason::DeliveryUnknown,
+                    reason: SmsFailureReason::ProviderUnavailable,
                     outcome: histae_api_rust::identity::mobile::sweego::SmsFailureOutcome::Unknown,
                 })?
                 .push(message);
             self.result
                 .lock()
                 .map_err(|_| SmsDeliveryError {
-                    reason: SmsFailureReason::DeliveryUnknown,
+                    reason: SmsFailureReason::ProviderUnavailable,
                     outcome: histae_api_rust::identity::mobile::sweego::SmsFailureOutcome::Unknown,
                 })?
                 .clone()
@@ -387,15 +390,20 @@ impl MobileSessionStore for FakeSessions {
     }
 }
 
+type QueuedRequests = BTreeMap<Uuid, (NewOtpRequest, DateTime<Utc>)>;
+
 #[derive(Clone)]
 struct FakeRequests {
-    rows: Arc<Mutex<BTreeMap<Uuid, (NewOtpRequest, DateTime<Utc>)>>>,
+    rows: Arc<Mutex<QueuedRequests>>,
     now: Arc<Mutex<DateTime<Utc>>>,
 }
 
 impl Default for FakeRequests {
     fn default() -> Self {
-        Self { rows: Arc::new(Mutex::new(BTreeMap::new())), now: Arc::new(Mutex::new(Utc::now())) }
+        Self {
+            rows: Arc::new(Mutex::new(BTreeMap::new())),
+            now: Arc::new(Mutex::new(Utc::now())),
+        }
     }
 }
 
@@ -405,7 +413,10 @@ impl OtpRequestStore for FakeRequests {
             let now = *self.now.lock().expect("clock");
             let mut rows = self.rows.lock().expect("requests");
             if let Some((old, created)) = rows.get(&request.id) {
-                if old.phone_hash != request.phone_hash || old.registration != request.registration || old.language != request.language {
+                if old.phone_hash != request.phone_hash
+                    || old.registration != request.registration
+                    || old.language != request.language
+                {
                     return Err(RequestError::Conflict);
                 }
                 let elapsed = (now - *created).num_seconds().max(0) as u64;
@@ -432,12 +443,18 @@ impl OtpRequestStore for FakeRequests {
             Ok(rows.get(&id).and_then(|(row, created)| {
                 if row.encrypted_phone.is_empty()
                     || (now - *created).num_seconds() >= row.ttl.as_secs() as i64
-                    || rows.values().any(|(newer, at)| newer.phone_hash == row.phone_hash && at > created) {
+                    || rows
+                        .values()
+                        .any(|(newer, at)| newer.phone_hash == row.phone_hash && at > created)
+                {
                     return None;
                 }
                 Some(PendingOtpRequest {
-                    id, phone_hash: row.phone_hash.clone(), encrypted_phone: row.encrypted_phone.clone(),
-                    registration: row.registration, language: row.language,
+                    id,
+                    phone_hash: row.phone_hash.clone(),
+                    encrypted_phone: row.encrypted_phone.clone(),
+                    registration: row.registration,
+                    language: row.language,
                 })
             }))
         })
@@ -465,12 +482,27 @@ struct Fixture {
 
 impl Fixture {
     async fn dispatch(&self) {
-        let ids: Vec<_> = self.requests.rows.lock().expect("requests").keys().copied().collect();
+        let ids: Vec<_> = self
+            .requests
+            .rows
+            .lock()
+            .expect("requests")
+            .keys()
+            .copied()
+            .collect();
         for id in ids {
-            let event = OutboxEvent { id: Uuid::new_v4(), aggregate_id: id,
-                event_type: OutboxEventType::MobileOtpSend, payload: Default::default(),
-                status: OutboxStatus::Processing, attempts: 1 };
-            self.handler.handle(&event, Uuid::new_v4()).await.expect("dispatch");
+            let event = OutboxEvent {
+                id: Uuid::new_v4(),
+                aggregate_id: id,
+                event_type: OutboxEventType::MobileOtpSend,
+                payload: Default::default(),
+                status: OutboxStatus::Processing,
+                attempts: 1,
+            };
+            self.handler
+                .handle(&event, Uuid::new_v4())
+                .await
+                .expect("dispatch");
         }
     }
 }
@@ -533,18 +565,33 @@ fn fixture(otp_limit: u64) -> Fixture {
     );
     let requests = FakeRequests::default();
     let encryption_key = SecretString::new("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_owned());
-    let request_service = OtpRequestService::new(Arc::new(requests.clone()), encryption_key.clone(), sms.otp_ttl, sms.resend_cooldown);
-    let handler = OtpRequestHandler::new(Arc::new(requests.clone()), Arc::new(accounts.clone()), otp.clone(), encryption_key);
-    let routes = otp_routes(OtpHttpState::new(otp, login, limiter.clone(), otp_policy, request_service)).merge(
-        sweego_routes(SweegoHttpState::new(
-            webhook,
-            limiter.clone(),
-            LimitPolicy {
-                max: 300,
-                window: Duration::from_secs(60),
-            },
-        )),
+    let request_service = OtpRequestService::new(
+        Arc::new(requests.clone()),
+        encryption_key.clone(),
+        sms.otp_ttl,
+        sms.resend_cooldown,
     );
+    let handler = OtpRequestHandler::new(
+        Arc::new(requests.clone()),
+        Arc::new(accounts.clone()),
+        otp.clone(),
+        encryption_key,
+    );
+    let routes = otp_routes(OtpHttpState::new(
+        otp,
+        login,
+        limiter.clone(),
+        otp_policy,
+        request_service,
+    ))
+    .merge(sweego_routes(SweegoHttpState::new(
+        webhook,
+        limiter.clone(),
+        LimitPolicy {
+            max: 300,
+            window: Duration::from_secs(60),
+        },
+    )));
     let readiness = Readiness::new(Arc::new(Probe), Arc::new(Probe), Arc::new(Probe));
     let state = HttpState::new(
         readiness,
@@ -593,31 +640,69 @@ async fn cooldown_and_replay_are_generic_and_never_query_membership_in_http() {
         for registered in [false, true] {
             let fixture = fixture(20);
             if registered {
-                *fixture.accounts.account.lock().expect("account") = Some(MobileAccount { user_id: Uuid::new_v4(), is_banned: false });
+                *fixture.accounts.account.lock().expect("account") = Some(MobileAccount {
+                    user_id: Uuid::new_v4(),
+                    is_banned: false,
+                });
             }
             let key = Uuid::new_v4().to_string();
             let body = json!({"phone_number": PHONE, "registration": registration}).to_string();
             for _ in 0..2 {
-                let response = fixture.app.clone().oneshot(request("/api/auth/otp/send", &body, Some(&key))).await.expect("response");
+                let response = fixture
+                    .app
+                    .clone()
+                    .oneshot(request("/api/auth/otp/send", &body, Some(&key)))
+                    .await
+                    .expect("response");
                 assert_eq!(response.status(), StatusCode::ACCEPTED);
                 assert_eq!(json_body(response).await["resend_after_seconds"], 60);
             }
-            let limited = fixture.app.clone().oneshot(request("/api/auth/otp/send", &body, Some(&Uuid::new_v4().to_string()))).await.expect("limited");
+            let limited = fixture
+                .app
+                .clone()
+                .oneshot(request(
+                    "/api/auth/otp/send",
+                    &body,
+                    Some(&Uuid::new_v4().to_string()),
+                ))
+                .await
+                .expect("limited");
             assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
             assert_eq!(limited.headers()[header::RETRY_AFTER], "60");
-            assert_eq!(json_body(limited).await["error"]["code"], "otp_resend_too_soon");
+            assert_eq!(
+                json_body(limited).await["error"]["code"],
+                "otp_resend_too_soon"
+            );
             let changed = json!({"phone_number": PHONE, "registration": !registration}).to_string();
-            let conflict = fixture.app.clone().oneshot(request("/api/auth/otp/send", &changed, Some(&key))).await.expect("conflict");
+            let conflict = fixture
+                .app
+                .clone()
+                .oneshot(request("/api/auth/otp/send", &changed, Some(&key)))
+                .await
+                .expect("conflict");
             assert_eq!(conflict.status(), StatusCode::CONFLICT);
             assert_eq!(*fixture.accounts.lookups.lock().expect("lookups"), 0);
             assert_eq!(fixture.delivery.calls(), 0);
             fixture.dispatch().await;
             assert_eq!(*fixture.accounts.lookups.lock().expect("lookups"), 1);
-            assert_eq!(fixture.delivery.calls(), if registration != registered { 1 } else { 0 });
-            let mut now = fixture.requests.now.lock().expect("clock");
-            *now += chrono::TimeDelta::seconds(61);
-            drop(now);
-            let response = fixture.app.clone().oneshot(request("/api/auth/otp/send", &body, Some(&Uuid::new_v4().to_string()))).await.expect("new intention");
+            assert_eq!(
+                fixture.delivery.calls(),
+                if registration != registered { 1 } else { 0 }
+            );
+            {
+                let mut now = fixture.requests.now.lock().expect("clock");
+                *now += chrono::TimeDelta::seconds(61);
+            }
+            let response = fixture
+                .app
+                .clone()
+                .oneshot(request(
+                    "/api/auth/otp/send",
+                    &body,
+                    Some(&Uuid::new_v4().to_string()),
+                ))
+                .await
+                .expect("new intention");
             assert_eq!(response.status(), StatusCode::ACCEPTED);
         }
     }
@@ -626,8 +711,20 @@ async fn cooldown_and_replay_are_generic_and_never_query_membership_in_http() {
 #[tokio::test]
 async fn banned_accounts_do_not_receive_login_sms() {
     let fixture = fixture(5);
-    *fixture.accounts.account.lock().expect("account") = Some(MobileAccount { user_id: Uuid::new_v4(), is_banned: true });
-    let response = fixture.app.clone().oneshot(request("/api/auth/otp/send", &json!({"phone_number":PHONE}).to_string(), Some(idempotency_key()))).await.expect("response");
+    *fixture.accounts.account.lock().expect("account") = Some(MobileAccount {
+        user_id: Uuid::new_v4(),
+        is_banned: true,
+    });
+    let response = fixture
+        .app
+        .clone()
+        .oneshot(request(
+            "/api/auth/otp/send",
+            &json!({"phone_number":PHONE}).to_string(),
+            Some(idempotency_key()),
+        ))
+        .await
+        .expect("response");
     assert_eq!(response.status(), StatusCode::ACCEPTED);
     fixture.dispatch().await;
     assert_eq!(fixture.delivery.calls(), 0);
@@ -637,17 +734,52 @@ async fn banned_accounts_do_not_receive_login_sms() {
 async fn expired_and_superseded_intents_never_dispatch_an_old_sms() {
     let expired = fixture(5);
     let body = json!({"phone_number":PHONE,"registration":true}).to_string();
-    expired.app.clone().oneshot(request("/api/auth/otp/send", &body, Some(idempotency_key()))).await.expect("queued");
+    expired
+        .app
+        .clone()
+        .oneshot(request(
+            "/api/auth/otp/send",
+            &body,
+            Some(idempotency_key()),
+        ))
+        .await
+        .expect("queued");
     *expired.requests.now.lock().expect("clock") += chrono::TimeDelta::seconds(601);
     expired.dispatch().await;
     assert_eq!(expired.delivery.calls(), 0);
     let superseded = fixture(5);
-    superseded.app.clone().oneshot(request("/api/auth/otp/send", &body, Some(idempotency_key()))).await.expect("queued");
+    superseded
+        .app
+        .clone()
+        .oneshot(request(
+            "/api/auth/otp/send",
+            &body,
+            Some(idempotency_key()),
+        ))
+        .await
+        .expect("queued");
     *superseded.requests.now.lock().expect("clock") += chrono::TimeDelta::seconds(61);
-    superseded.app.clone().oneshot(request("/api/auth/otp/send", &body, Some(&Uuid::new_v4().to_string()))).await.expect("new intention");
+    superseded
+        .app
+        .clone()
+        .oneshot(request(
+            "/api/auth/otp/send",
+            &body,
+            Some(&Uuid::new_v4().to_string()),
+        ))
+        .await
+        .expect("new intention");
     superseded.dispatch().await;
     assert_eq!(superseded.delivery.calls(), 1);
-    assert!(superseded.requests.rows.lock().expect("requests").values().all(|(row, _)| row.encrypted_phone.is_empty()));
+    assert!(
+        superseded
+            .requests
+            .rows
+            .lock()
+            .expect("requests")
+            .values()
+            .all(|(row, _)| row.encrypted_phone.is_empty())
+    );
 }
 
 #[tokio::test]
@@ -658,7 +790,8 @@ async fn registration_masks_an_existing_number_and_never_sends_an_sms() {
         is_banned: false,
     });
     let response = fixture
-        .app.clone()
+        .app
+        .clone()
         .oneshot(request(
             "/api/auth/otp/send",
             &format!(r#"{{"phone_number":"{PHONE}","registration":true}}"#),
@@ -691,7 +824,11 @@ async fn login_keeps_unknown_and_registered_numbers_indistinguishable_in_the_res
         let response = fixture
             .app
             .clone()
-            .oneshot(request("/api/auth/otp/send", &body, Some(idempotency_key())))
+            .oneshot(request(
+                "/api/auth/otp/send",
+                &body,
+                Some(idempotency_key()),
+            ))
             .await
             .expect("response");
         assert_eq!(response.status(), StatusCode::ACCEPTED);
@@ -702,9 +839,13 @@ async fn login_keeps_unknown_and_registered_numbers_indistinguishable_in_the_res
         assert_eq!(fixture.delivery.calls(), 0);
         fixture.dispatch().await;
         assert_eq!(fixture.delivery.calls(), if registered { 1 } else { 0 });
-        assert_eq!(fixture.otp_store.attempt_count(), if registered { 1 } else { 0 });
+        assert_eq!(
+            fixture.otp_store.attempt_count(),
+            if registered { 1 } else { 0 }
+        );
         let invalid = fixture
-            .app.clone()
+            .app
+            .clone()
             .oneshot(request("/api/auth/otp/send", &body, Some("not-a-uuid")))
             .await
             .expect("invalid key response");
@@ -729,7 +870,11 @@ async fn login_masks_delivery_outcomes_and_unknown_numbers_still_consume_quotas(
         let response = known
             .app
             .clone()
-            .oneshot(request("/api/auth/otp/send", &body, Some(idempotency_key())))
+            .oneshot(request(
+                "/api/auth/otp/send",
+                &body,
+                Some(idempotency_key()),
+            ))
             .await
             .expect("response");
         assert_eq!(response.status(), StatusCode::ACCEPTED);
@@ -746,13 +891,22 @@ async fn login_masks_delivery_outcomes_and_unknown_numbers_still_consume_quotas(
     let first = unknown
         .app
         .clone()
-        .oneshot(request("/api/auth/otp/send", &body, Some(idempotency_key())))
+        .oneshot(request(
+            "/api/auth/otp/send",
+            &body,
+            Some(idempotency_key()),
+        ))
         .await
         .expect("response");
     assert_eq!(first.status(), StatusCode::ACCEPTED);
     let limited = unknown
-        .app.clone()
-        .oneshot(request("/api/auth/otp/send", &body, Some(idempotency_key())))
+        .app
+        .clone()
+        .oneshot(request(
+            "/api/auth/otp/send",
+            &body,
+            Some(idempotency_key()),
+        ))
         .await
         .expect("response");
     assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
@@ -803,7 +957,8 @@ async fn send_is_strict_normalizes_the_phone_and_replays_without_a_second_sms() 
     );
 
     let unknown_field = fixture
-        .app.clone()
+        .app
+        .clone()
         .oneshot(request(
             "/api/auth/otp/send",
             r#"{"phone_number":"+33612345678","role":"admin"}"#,
@@ -853,7 +1008,8 @@ async fn phone_validation_precedes_quotas_but_idempotency_validation_consumes_th
     );
 
     let limited = fixture
-        .app.clone()
+        .app
+        .clone()
         .oneshot(request(
             "/api/auth/otp/send",
             &format!(r#"{{"phone_number":"{PHONE}","registration":true}}"#),
@@ -886,7 +1042,8 @@ async fn uncertain_delivery_is_never_reposted_and_a_callback_can_recover_the_rep
 
     fixture.otp_store.attempts.lock().expect("attempts")[0].state = OtpDeliveryState::Sent;
     let recovered = fixture
-        .app.clone()
+        .app
+        .clone()
         .oneshot(request("/api/auth/otp/send", body, Some(idempotency_key())))
         .await
         .expect("response");
@@ -964,7 +1121,8 @@ async fn verify_distinguishes_malformed_and_nonexistent_codes() {
     );
 
     let absent = fixture
-        .app.clone()
+        .app
+        .clone()
         .oneshot(request(
             "/api/auth/otp/verify",
             &format!(r#"{{"phone_number":"{PHONE}","otp":"123456"}}"#),
@@ -1008,7 +1166,8 @@ async fn a_tombstone_rejects_account_creation_after_irreversible_otp_consumption
         "account_unavailable"
     );
     let retry = fixture
-        .app.clone()
+        .app
+        .clone()
         .oneshot(request("/api/auth/otp/verify", &body, None))
         .await
         .expect("response");
@@ -1053,7 +1212,8 @@ async fn webhook_authenticates_the_exact_raw_body_and_maps_provider_outcomes() {
 
     *fixture.otp_store.webhook_outcome.lock().expect("outcome") = SmsEventOutcome::Conflict;
     let conflict = fixture
-        .app.clone()
+        .app
+        .clone()
         .oneshot(webhook_request(&body, &headers))
         .await
         .expect("response");

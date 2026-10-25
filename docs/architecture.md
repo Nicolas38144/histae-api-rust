@@ -67,6 +67,7 @@ en mémoire ne remplace jamais un verrou transactionnel distribué. Les futures 
 ## Sous-domaines structurés
 
 - `identity/mobile/otp/` sépare états de livraison, port, service et transactions OTP.
+- `identity/mobile/otp/requests/` sépare les intentions OTP asynchrones : modèles et erreurs dans `domain.rs`, port dans `store.rs`, chiffrement lié à l’UUID dans `cipher.rs`, mise en file dans `service.rs`, éligibilité et traitement outbox dans `worker.rs`, transaction SQL dans `pg.rs`. Le transport HTTP ne recherche pas le compte et n’appelle pas Sweego. Les budgets et résultats incertains restent partagés avec le parcours OTP existant.
 - `advertising/{domain,error,store,http,pg,ssv}.rs` sépare les types métier, le port de persistance, les requêtes propriétaires, l’octroi transactionnel et la vérification AdMob sur les octets signés ; le mobile ne décide jamais du solde.
 - `identity/pg_guards.rs` porte les verrous de compte/consentement des transactions de matchs et de récompenses, ainsi que le verrou ordonné par paire partagé entre création de match et blocage.
 - `identity/admin/webauthn.rs` encapsule la vérification cryptographique.

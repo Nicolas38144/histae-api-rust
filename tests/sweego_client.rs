@@ -76,8 +76,14 @@ async fn policy_rejections_never_connect_to_sweego_or_count_as_provider_failures
             SmsSendRejection::Suspended,
             SmsFailureReason::SendingSuspended,
         ),
-        (SmsSendRejection::GlobalHourlyLimit, SmsFailureReason::GlobalHourlyLimit),
-        (SmsSendRejection::GlobalDailyLimit, SmsFailureReason::GlobalDailyLimit),
+        (
+            SmsSendRejection::GlobalHourlyLimit,
+            SmsFailureReason::GlobalHourlyLimit,
+        ),
+        (
+            SmsSendRejection::GlobalDailyLimit,
+            SmsFailureReason::GlobalDailyLimit,
+        ),
         (
             SmsSendRejection::Unavailable,
             SmsFailureReason::SafetyUnavailable,

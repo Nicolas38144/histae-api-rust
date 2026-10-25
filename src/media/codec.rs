@@ -16,7 +16,6 @@ use tokio::{
 
 pub const MAX_PHOTO_UPLOAD_BYTES: usize = 500_000;
 pub const MAX_STORED_PHOTO_BYTES: usize = 500_000;
-pub const MAX_PHOTO_PIXELS: u64 = 40_000_000;
 pub const MAX_PHOTO_EDGE: usize = 2_048;
 pub const DEFAULT_CODEC_TIMEOUT: Duration = Duration::from_secs(35);
 pub const DEFAULT_CODEC_QUEUE_TIMEOUT: Duration = Duration::from_secs(5);

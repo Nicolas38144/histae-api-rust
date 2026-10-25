@@ -39,15 +39,6 @@ pub enum AdminUserStatus {
     Banned,
 }
 
-impl AdminUserStatus {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Active => "active",
-            Self::Banned => "banned",
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct AdminUserRow {
     pub id: Uuid,

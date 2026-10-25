@@ -122,10 +122,6 @@ impl OperationalMetrics {
             counters.buckets[bucket(duration_ms)].saturating_add(1);
     }
 
-    pub fn record_dependency(&self, name: &'static str, succeeded: bool, duration: Duration) {
-        self.record_dependency_with_error(name, succeeded, duration, None);
-    }
-
     pub fn record_dependency_with_error(
         &self,
         name: &'static str,

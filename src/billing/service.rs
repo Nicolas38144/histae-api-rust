@@ -162,10 +162,6 @@ impl BillingService {
         }
     }
 
-    pub async fn create_portal(&self, user_id: Uuid) -> Result<String, BillingError> {
-        self.create_portal_in(user_id, Language::Fr).await
-    }
-
     pub async fn create_portal_in(
         &self,
         user_id: Uuid,

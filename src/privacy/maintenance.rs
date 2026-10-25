@@ -55,7 +55,9 @@ impl PrivacyMaintenanceResult {
             .saturating_add(next.expired_presences);
         self.expired_swipes = self.expired_swipes.saturating_add(next.expired_swipes);
         self.expired_otps = self.expired_otps.saturating_add(next.expired_otps);
-        self.expired_mobile_otp_requests = self.expired_mobile_otp_requests.saturating_add(next.expired_mobile_otp_requests);
+        self.expired_mobile_otp_requests = self
+            .expired_mobile_otp_requests
+            .saturating_add(next.expired_mobile_otp_requests);
         self.expired_sms_attempts = self
             .expired_sms_attempts
             .saturating_add(next.expired_sms_attempts);

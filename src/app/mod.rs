@@ -1,5 +1,5 @@
 pub mod lifecycle;
-pub use lifecycle::{BootstrapError, TaskSupervisor, bounded_start, wait_for_shutdown_signal};
+pub use lifecycle::{BootstrapError, TaskSupervisor, wait_for_shutdown_signal};
 
 #[cfg(feature = "webauthn-probe")]
 pub mod api;
@@ -16,7 +16,6 @@ pub enum Component {
     Api,
     Outbox,
     Maintenance,
-    AdminBootstrap,
 }
 
 impl Component {
@@ -25,7 +24,6 @@ impl Component {
             Self::Api => "api_bootstrap_failed",
             Self::Outbox => "outbox_worker_failed",
             Self::Maintenance => "maintenance_failed",
-            Self::AdminBootstrap => "admin_webauthn_bootstrap_failed",
         }
     }
 
@@ -34,7 +32,6 @@ impl Component {
             Self::Api => "api",
             Self::Outbox => "outbox",
             Self::Maintenance => "maintenance",
-            Self::AdminBootstrap => "admin_bootstrap",
         }
     }
 }
@@ -85,7 +82,6 @@ pub async fn binary_main(component: Component) -> ExitCode {
                 Err("webauthn_feature_required")
             }
         }
-        Component::AdminBootstrap => Err("component_not_implemented"),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -153,10 +149,6 @@ mod tests {
         assert_eq!(Component::Api.failure_event(), "api_bootstrap_failed");
         assert_eq!(Component::Outbox.failure_event(), "outbox_worker_failed");
         assert_eq!(Component::Maintenance.failure_event(), "maintenance_failed");
-        assert_eq!(
-            Component::AdminBootstrap.failure_event(),
-            "admin_webauthn_bootstrap_failed"
-        );
     }
 
     #[tokio::test]
@@ -168,16 +160,6 @@ mod tests {
             Ok(())
         });
         assert_eq!(supervisor.shutdown().await, Ok(()));
-    }
-
-    #[tokio::test]
-    async fn bounds_startup_before_a_component_can_report_ready() {
-        let result = bounded_start(Duration::from_millis(10), async {
-            std::future::pending::<()>().await;
-            Ok(())
-        })
-        .await;
-        assert_eq!(result, Err(BootstrapError::StartupTimedOut));
     }
 
     #[tokio::test]

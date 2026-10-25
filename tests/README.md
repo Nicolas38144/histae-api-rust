@@ -98,6 +98,8 @@ créer une base ; la file de la base de développement partagée n’est pas net
 sur les plafonds par numéro, la suspension/version/rôle superadmin, la conservation au redéploiement,
 le rejeu OTP refusé et la purge bornée. Ce test exige le compte administrateur de développement pour
 créer/supprimer sa base ; il ne touche pas les compteurs d’une API partagée et ne contacte pas Sweego.
+Le lanceur isolé accepte `--test sms_safety_postgres` et fournit pour cette seule fixture l’administrateur
+de son cluster jetable ; les autres suites sélectionnées continuent d’utiliser `histae_app`.
 
 Redis utilise sa base logique et des clés de test ; S3 des objets dédiés. Ne pas arrêter les dépendances
 partagées pour simuler une panne ni remplacer le nettoyage ciblé par une purge Docker globale.
@@ -275,6 +277,22 @@ Vérifications locales réalisées :
 - Dashboard : typecheck, lint, build, 96 tests unitaires/composants et 5 parcours Chromium ciblés.
 
 Ces vérifications ne valident ni un envoi SMS réel ni le déploiement sur le serveur de production.
+
+### Intentions OTP asynchrones — 25 octobre 2026
+
+Le refactoring sépare modèles/erreurs, port de persistance, chiffrement lié à l’UUID, mise en file,
+traitement outbox et transactions PostgreSQL dans `identity/mobile/otp/requests/`. L’assemblage API/worker
+utilise la façade OTP. La traduction des erreurs reste dans le transport HTTP ; la classification des
+plafonds par numéro et globaux est partagée par les chemins de livraison et de rejeu.
+
+**257 tests réussis** : 232 unitaires, 13 contrats OTP/Sweego, 6 clients Sweego simulés, 2 inventaires,
+3 intégrations OTP et 1 scénario complet de sécurité SMS sur PostgreSQL jetable. Ce dernier vérifie
+notamment 30 réservations concurrentes, les limites globales entre numéros, les rejeux, l’expiration,
+le chiffrement du téléphone et la purge. Le migrateur réel a également passé ses contrôles sur base
+neuve, schéma ancien et migration répétée. Clippy toutes cibles/features avec `-D warnings` et formatage passent.
+
+Le refactoring est vérifié sans envoi fournisseur ni consommation de crédits. Les commandes de
+reproduction avec les rôles de test sont dans [Protection des SMS](../docs/sms-safety.md#livraison-et-vérification).
 
 <a id="achats-multicanaux"></a>
 

@@ -85,7 +85,9 @@ impl OutboxDispatcher for OutboxEventDispatcher {
         match &event.event_type {
             OutboxEventType::MobileOtpSend => match &self.mobile_otp {
                 Some(handler) => handler.handle(event, worker_id),
-                None => Box::pin(async { Err(DispatchFailure::transient("otp_handler_unavailable")) }),
+                None => {
+                    Box::pin(async { Err(DispatchFailure::transient("otp_handler_unavailable")) })
+                }
             },
             OutboxEventType::PhotoDelete => self.photo_delete.handle(event, worker_id),
             OutboxEventType::NotificationPush => self.notification_push.handle(event, worker_id),
@@ -170,10 +172,6 @@ impl OutboxWorker {
             last_purge_at: None,
             last_status_at: None,
         }
-    }
-
-    pub fn worker_id(&self) -> Uuid {
-        self.worker_id
     }
 
     pub async fn run_once(
@@ -737,14 +735,25 @@ mod tests {
     #[tokio::test]
     async fn mobile_otp_requires_an_explicit_handler() {
         let handler = Arc::new(CountingHandler::default());
-        let dispatcher = OutboxEventDispatcher::new(handler.clone(), handler.clone(), handler.clone(), handler.clone(), handler.clone());
+        let dispatcher = OutboxEventDispatcher::new(
+            handler.clone(),
+            handler.clone(),
+            handler.clone(),
+            handler.clone(),
+            handler.clone(),
+        );
         let mut request = event();
         request.event_type = OutboxEventType::MobileOtpSend;
-        assert_eq!(dispatcher.dispatch(&request, Uuid::new_v4()).await,
-            Err(DispatchFailure::transient("otp_handler_unavailable")));
+        assert_eq!(
+            dispatcher.dispatch(&request, Uuid::new_v4()).await,
+            Err(DispatchFailure::transient("otp_handler_unavailable"))
+        );
         assert_eq!(handler.calls.load(Ordering::SeqCst), 0);
         let dispatcher = dispatcher.with_mobile_otp(handler.clone());
-        assert_eq!(dispatcher.dispatch(&request, Uuid::new_v4()).await, Ok(DispatchOutcome::Completed));
+        assert_eq!(
+            dispatcher.dispatch(&request, Uuid::new_v4()).await,
+            Ok(DispatchOutcome::Completed)
+        );
         assert_eq!(handler.calls.load(Ordering::SeqCst), 1);
     }
 

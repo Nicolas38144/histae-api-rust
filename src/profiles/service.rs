@@ -226,10 +226,6 @@ impl ProfileService {
         )
     }
 
-    pub async fn consents(&self, user_id: Uuid) -> Result<ConsentState, ProfileError> {
-        self.consents_in(user_id, Language::Fr).await
-    }
-
     pub(super) fn legal_documents(&self) -> LegalDocumentCatalog {
         self.legal.clone()
     }
@@ -281,17 +277,6 @@ impl ProfileService {
             onboarding_complete: required_actions.is_empty(),
             required_actions,
         })
-    }
-
-    pub async fn update_consents(
-        &self,
-        user_id: Uuid,
-        changes: Vec<ConsentChange>,
-        ip_address: String,
-        user_agent: String,
-    ) -> Result<ConsentState, ProfileError> {
-        self.update_consents_in(user_id, changes, ip_address, user_agent, Language::Fr)
-            .await
     }
 
     pub async fn update_consents_in(

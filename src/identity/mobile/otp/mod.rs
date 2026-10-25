@@ -1,7 +1,6 @@
 mod domain;
 mod pg;
 pub mod requests;
-pub mod requests_pg;
 mod service;
 mod store;
 
@@ -10,5 +9,7 @@ pub use domain::{
     SmsDeliveryEvent, SmsEventKind, SmsEventOutcome,
 };
 pub use pg::OtpRepository;
+pub use requests::pg::PgOtpRequestStore;
+pub use requests::{OtpRequestHandler, OtpRequestService};
 pub use service::{ConsumedOtp, OtpError, OtpService};
 pub use store::{OtpStore, OtpStoreFuture};

@@ -18,6 +18,9 @@ TESTS = (
     "maintenance_outbox_postgres", "notifications_postgres",
     "discovery_postgres", "profiles_postgres", "catalog_postgres", "otp_delivery", "localization_postgres", "store_billing_postgres",
 )
+# These fixtures create their own disposable databases; application-role suites
+# must continue to run separately with histae_app.
+ADMIN_TESTS = ("sms_safety_postgres",)
 
 
 class VerificationError(RuntimeError):
@@ -29,7 +32,7 @@ def main():
     parser.add_argument("--api-image", default="histae-api:local",
                         help="Locally built API image containing the current migrator")
     parser.add_argument("--postgres-image", default="histae-postgres:18.6-postgis3.6.4")
-    parser.add_argument("--test", action="append", choices=TESTS)
+    parser.add_argument("--test", action="append", choices=TESTS + ADMIN_TESTS)
     parser.add_argument("--native-migrator", type=Path, help="Use a freshly built local db-migrate binary over the published loopback port")
     parser.add_argument("--sudo-docker", action="store_true", help="Use sudo for Docker only, keep Cargo unprivileged")
     args = parser.parse_args()
@@ -176,13 +179,22 @@ def main():
             environment = os.environ.copy()
             environment.update(runtime)
             environment.setdefault("CARGO_BUILD_JOBS", "2")
-            command = ["cargo", "test", "--locked", "--features", "postgres-integration"]
-            for target in args.test or TESTS:
-                command.extend(["--test", target])
-            command.extend(["--", "--test-threads=1"])
-            result = subprocess.run(command, cwd=ROOT, env=environment)
-            if result.returncode:
-                raise RuntimeError("PostgreSQL continuation regression failed")
+            selected = args.test or TESTS
+            for administrator_fixture in (False, True):
+                targets = [target for target in selected if (target in ADMIN_TESTS) == administrator_fixture]
+                if not targets:
+                    continue
+                command = ["cargo", "test", "--locked", "--features", "postgres-integration"]
+                for target in targets:
+                    command.extend(["--test", target])
+                command.extend(["--", "--test-threads=1"])
+                test_environment = environment.copy()
+                if administrator_fixture:
+                    print("Running disposable database-creation fixtures with the temporary test administrator.", flush=True)
+                    test_environment.update(POSTGRES_USER="histae_admin", POSTGRES_PASSWORD=admin_password)
+                result = subprocess.run(command, cwd=ROOT, env=test_environment)
+                if result.returncode:
+                    raise VerificationError("PostgreSQL continuation regression failed")
             print("Isolated continuation PostgreSQL verification passed.", flush=True)
         finally:
             if created:

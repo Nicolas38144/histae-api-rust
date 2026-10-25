@@ -48,10 +48,6 @@ impl OutboxEventType {
             Self::Unsupported(value) => value,
         }
     }
-
-    pub fn is_supported(&self) -> bool {
-        !matches!(self, Self::Unsupported(_))
-    }
 }
 
 impl fmt::Display for OutboxEventType {
@@ -181,6 +177,9 @@ mod tests {
         );
         let unknown = OutboxEventType::parse("future.effect".to_owned());
         assert_eq!(unknown.as_str(), "future.effect");
-        assert!(!unknown.is_supported());
+        assert_eq!(
+            unknown,
+            OutboxEventType::Unsupported("future.effect".to_owned())
+        );
     }
 }

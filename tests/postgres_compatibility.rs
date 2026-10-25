@@ -240,7 +240,6 @@ async fn reads_the_existing_schema_types_and_transaction_protocol()
     .expect_err("the synthetic PostgreSQL error must be raised");
     let unavailable = map_sqlx_error(unavailable);
     assert_eq!(unavailable, DatabaseError::AccountUnavailable);
-    assert_eq!(unavailable.sqlstate(), Some("P0E01"));
 
     drop(connection);
     assert_eq!(database.pool_stats().max, 1);

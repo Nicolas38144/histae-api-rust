@@ -108,11 +108,6 @@ impl CatalogService {
             .map_err(Into::into)
     }
 
-    pub async fn create_trait(&self, name: String) -> Result<Trait, CatalogError> {
-        self.create_translated_trait(name, TranslationPatch::new())
-            .await
-    }
-
     pub async fn create_translated_trait(
         &self,
         name: String,
@@ -134,11 +129,6 @@ impl CatalogService {
             }
             Err(error) => Err(error.into()),
         }
-    }
-
-    pub async fn update_trait(&self, id: Uuid, name: String) -> Result<(), CatalogError> {
-        self.update_translated_trait(id, name, TranslationPatch::new())
-            .await
     }
 
     pub async fn update_translated_trait(
@@ -227,14 +217,6 @@ impl CatalogService {
         }
     }
 
-    pub async fn create_question(
-        &self,
-        input: ProfileQuestionInput,
-    ) -> Result<AdminProfileQuestion, CatalogError> {
-        self.create_translated_question(input, TranslationPatch::new())
-            .await
-    }
-
     pub async fn create_translated_question(
         &self,
         input: ProfileQuestionInput,
@@ -255,16 +237,6 @@ impl CatalogService {
             }
             Err(error) => Err(error.into()),
         }
-    }
-
-    pub async fn update_question(
-        &self,
-        id: Uuid,
-        patch: ProfileQuestionPatch,
-    ) -> Result<AdminProfileQuestion, CatalogError> {
-        self.update_translated_question(id, patch, TranslationPatch::new())
-            .await
-            .map(|result| result.value)
     }
 
     pub async fn update_translated_question(

@@ -111,10 +111,6 @@ impl PgNotificationRepository {
             .map_err(map_sqlx_error)?;
         Ok(result.rows_affected() == 1)
     }
-
-    pub fn database(&self) -> &Database {
-        &self.database
-    }
 }
 
 impl DeviceStore for PgNotificationRepository {
