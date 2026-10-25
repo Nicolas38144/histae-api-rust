@@ -348,8 +348,8 @@ async fn assert_global_budget(database: &Database) -> Result<(), Box<dyn std::er
 async fn assert_mobile_queue(database: &Database) -> Result<(), Box<dyn std::error::Error>> {
     use histae_api_rust::{
         identity::mobile::otp::{
+            PgOtpRequestStore,
             requests::{OtpRequestService, OtpRequestStore, RequestError},
-            requests_pg::PgOtpRequestStore,
         },
         infra::crypto::hmac_sha256,
         localization::Language,

@@ -5,7 +5,6 @@ pub enum ConfigErrorKind {
     Missing,
     Invalid,
     Conflict,
-    Dotenv,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,7 +37,6 @@ impl ConfigError {
             ConfigErrorKind::Missing => "config_missing",
             ConfigErrorKind::Invalid => "config_invalid",
             ConfigErrorKind::Conflict => "config_conflict",
-            ConfigErrorKind::Dotenv => "dotenv_failed",
         }
     }
 }

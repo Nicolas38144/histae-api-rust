@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::config::PostgresConfig;
 
-use super::postgres::{Database, DatabaseError, PoolStats, connect_pool, map_sqlx_error};
+use super::postgres::{DatabaseError, PoolStats, connect_pool};
 
 const ACCOUNT_ACTIVITY_POOL_MAX: u32 = 4;
 const ACCOUNT_ACTIVITY_APPLICATION_NAME: &str = "histae-account-activity";
@@ -40,13 +40,6 @@ impl AccountActivityError {
             Self::AccountUnavailable => "account_unavailable",
             Self::ActivityUnavailable => "account_activity_unavailable",
             Self::Database(error) => error.safe_code(),
-        }
-    }
-
-    pub fn http_status(self) -> u16 {
-        match self {
-            Self::AccountUnavailable => 409,
-            Self::ActivityUnavailable | Self::Database(_) => 503,
         }
     }
 }
@@ -480,55 +473,6 @@ impl Drop for CheckedOutSession {
     }
 }
 
-/// A leader lock tied to one PostgreSQL session and retained across commits.
-pub struct SessionLeaderLease {
-    session: CheckedOutSession,
-    lock_key: i64,
-}
-
-impl SessionLeaderLease {
-    pub async fn try_acquire(
-        database: &Database,
-        lock_key: i64,
-    ) -> Result<Option<Self>, DatabaseError> {
-        let connection = database.acquire().await?;
-        let mut session = CheckedOutSession::new(connection);
-        let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
-            .bind(lock_key)
-            .fetch_one(session.connection_mut())
-            .await
-            .map_err(map_sqlx_error)?;
-        if !acquired {
-            session.mark_safe_for_pool();
-            return Ok(None);
-        }
-        Ok(Some(Self { session, lock_key }))
-    }
-
-    pub async fn try_acquire_match_maintenance(
-        database: &Database,
-    ) -> Result<Option<Self>, DatabaseError> {
-        Self::try_acquire(database, MATCH_MAINTENANCE_LOCK).await
-    }
-
-    pub fn connection_mut(&mut self) -> &mut PgConnection {
-        self.session.connection_mut()
-    }
-
-    pub async fn release(mut self) -> Result<(), DatabaseError> {
-        let unlocked: bool = sqlx::query_scalar("SELECT pg_advisory_unlock($1)")
-            .bind(self.lock_key)
-            .fetch_one(self.session.connection_mut())
-            .await
-            .map_err(map_sqlx_error)?;
-        if !unlocked {
-            return Err(DatabaseError::QueryFailed);
-        }
-        self.session.mark_safe_for_pool();
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -548,12 +492,10 @@ mod tests {
             AccountActivityError::AccountUnavailable.safe_code(),
             "account_unavailable"
         );
-        assert_eq!(AccountActivityError::AccountUnavailable.http_status(), 409);
         assert_eq!(
             AccountActivityError::ActivityUnavailable.safe_code(),
             "account_activity_unavailable"
         );
-        assert_eq!(AccountActivityError::ActivityUnavailable.http_status(), 503);
         assert_eq!(MATCH_MAINTENANCE_LOCK, 37_142_581);
     }
 }

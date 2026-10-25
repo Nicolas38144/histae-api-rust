@@ -10,10 +10,8 @@ use std::time::Duration;
 use histae_api_rust::config::{PostgresConfig, SecretString};
 use histae_api_rust::infra::postgres::Database;
 use histae_api_rust::infra::postgres_locks::{
-    AccountActivityError, AccountActivityPool, MATCH_MAINTENANCE_LOCK, SessionLeaderLease,
-    TryExclusive,
+    AccountActivityError, AccountActivityPool, TryExclusive,
 };
-use sqlx::Acquire;
 use tokio::sync::{Notify, oneshot};
 use tokio::time::{sleep, timeout};
 use uuid::Uuid;
@@ -80,7 +78,6 @@ async fn preserves_session_lock_compatibility_and_cleanup() -> Result<(), Box<dy
 {
     let config = local_config()?;
     let database = Database::connect(&config).await?;
-    let second_database = Database::connect(&config).await?;
     let activity = AccountActivityPool::connect(&config).await?;
     let contender = AccountActivityPool::connect(&config).await?;
 
@@ -93,7 +90,6 @@ async fn preserves_session_lock_compatibility_and_cleanup() -> Result<(), Box<dy
     verify_shared_and_exclusive_contention(&activity, &contender).await?;
     verify_cancelled_work_releases_the_session(&activity, &contender).await?;
     verify_connection_loss_invalidates_the_lease(&database, &activity, &contender).await?;
-    verify_leader_lock_survives_commits(&database, &second_database).await?;
 
     wait_for_idle_pool(&activity).await?;
     assert!(activity.pool_stats().total <= 4);
@@ -102,7 +98,6 @@ async fn preserves_session_lock_compatibility_and_cleanup() -> Result<(), Box<dy
     cleanup_accounts(&database).await?;
     activity.close().await;
     contender.close().await;
-    second_database.close().await;
     database.close().await;
     Ok(())
 }
@@ -308,57 +303,6 @@ async fn verify_connection_loss_invalidates_the_lease(
         })
         .await?;
     assert_eq!(reacquired, TryExclusive::Acquired(()));
-    Ok(())
-}
-
-async fn verify_leader_lock_survives_commits(
-    database: &Database,
-    contender: &Database,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut leader = SessionLeaderLease::try_acquire_match_maintenance(database)
-        .await?
-        .ok_or(FixtureError("leader_initial_acquire"))?;
-    assert!(
-        SessionLeaderLease::try_acquire(contender, MATCH_MAINTENANCE_LOCK)
-            .await?
-            .is_none()
-    );
-
-    let mut transaction = leader.connection_mut().begin().await?;
-    sqlx::query("SELECT 1").execute(&mut *transaction).await?;
-    transaction.commit().await?;
-    assert!(
-        SessionLeaderLease::try_acquire(contender, MATCH_MAINTENANCE_LOCK)
-            .await?
-            .is_none()
-    );
-
-    leader.release().await?;
-    let next = SessionLeaderLease::try_acquire(contender, MATCH_MAINTENANCE_LOCK)
-        .await?
-        .ok_or(FixtureError("leader_reacquire"))?;
-    next.release().await?;
-
-    let abandoned = SessionLeaderLease::try_acquire(database, MATCH_MAINTENANCE_LOCK)
-        .await?
-        .ok_or(FixtureError("leader_abandon_acquire"))?;
-    drop(abandoned);
-    timeout(Duration::from_secs(5), async {
-        loop {
-            if let Some(recovered) =
-                SessionLeaderLease::try_acquire(contender, MATCH_MAINTENANCE_LOCK)
-                    .await
-                    .ok()
-                    .flatten()
-            {
-                let _ = recovered.release().await;
-                return;
-            }
-            sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await
-    .map_err(|_| FixtureError("abandoned_leader_cleanup"))?;
     Ok(())
 }
 

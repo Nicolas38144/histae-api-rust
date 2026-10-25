@@ -116,14 +116,12 @@ pub struct EventCursor {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdminDomainError {
     InvalidCursor,
-    InvalidStoredValue,
 }
 
 impl fmt::Display for AdminDomainError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::InvalidCursor => "invalid_cursor",
-            Self::InvalidStoredValue => "invalid_stored_admin_value",
         })
     }
 }

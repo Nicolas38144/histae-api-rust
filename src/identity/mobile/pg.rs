@@ -320,10 +320,6 @@ impl MobileSessionRepository {
         )
         .transpose()
     }
-
-    pub fn database(&self) -> &Database {
-        &self.database
-    }
 }
 
 impl MobileSessionStore for MobileSessionRepository {

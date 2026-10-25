@@ -7,7 +7,6 @@ pub enum BootstrapError {
     TaskFailed(&'static str),
     TaskPanicked,
     TaskCancelled,
-    StartupTimedOut,
     ShutdownTimedOut,
 }
 
@@ -17,19 +16,9 @@ impl BootstrapError {
             Self::TaskFailed(code) => code,
             Self::TaskPanicked => "task_panicked",
             Self::TaskCancelled => "task_cancelled",
-            Self::StartupTimedOut => "startup_timed_out",
             Self::ShutdownTimedOut => "shutdown_timed_out",
         }
     }
-}
-
-pub async fn bounded_start<F, T>(budget: Duration, startup: F) -> Result<T, BootstrapError>
-where
-    F: Future<Output = Result<T, BootstrapError>>,
-{
-    time::timeout(budget, startup)
-        .await
-        .map_err(|_| BootstrapError::StartupTimedOut)?
 }
 
 pub struct TaskSupervisor {

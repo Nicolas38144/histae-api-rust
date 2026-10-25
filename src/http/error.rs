@@ -162,4 +162,24 @@ mod tests {
         assert_eq!(internal.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(internal.code(), "internal_error");
     }
+
+    #[test]
+    fn maps_account_activity_errors_at_the_http_boundary() {
+        for error in [
+            AccountActivityError::AccountUnavailable,
+            AccountActivityError::Database(DatabaseError::AccountUnavailable),
+        ] {
+            let response = ApiError::from(error);
+            assert_eq!(response.status(), StatusCode::CONFLICT);
+            assert_eq!(response.code(), "account_unavailable");
+        }
+        for error in [
+            AccountActivityError::ActivityUnavailable,
+            AccountActivityError::Database(DatabaseError::ConnectionFailed),
+        ] {
+            let response = ApiError::from(error);
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(response.code(), "account_activity_unavailable");
+        }
+    }
 }

@@ -51,13 +51,6 @@ impl SubscriptionProvider {
             _ => None,
         }
     }
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Stripe => "stripe",
-            Self::AppStore => "app_store",
-            Self::GooglePlay => "google_play",
-        }
-    }
 }
 
 /// A price previously accepted for this exact Stripe subscription. This lets

@@ -25,7 +25,6 @@ struct ServerState {
 pub struct MetricsServer {
     cancellation: CancellationToken,
     task: JoinHandle<Result<(), &'static str>>,
-    local_port: u16,
 }
 
 impl MetricsServer {
@@ -64,15 +63,7 @@ impl MetricsServer {
                 logging::SafeLogValue::Integer(i64::from(local_port)),
             )],
         );
-        Ok(Some(Self {
-            cancellation,
-            task,
-            local_port,
-        }))
-    }
-
-    pub fn local_port(&self) -> u16 {
-        self.local_port
+        Ok(Some(Self { cancellation, task }))
     }
 
     pub async fn shutdown(self) -> Result<(), &'static str> {
@@ -201,7 +192,6 @@ mod tests {
         let server = MetricsServer {
             cancellation: CancellationToken::new(),
             task,
-            local_port: 0,
         };
         assert_eq!(
             server

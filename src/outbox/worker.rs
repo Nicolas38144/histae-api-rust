@@ -174,10 +174,6 @@ impl OutboxWorker {
         }
     }
 
-    pub fn worker_id(&self) -> Uuid {
-        self.worker_id
-    }
-
     pub async fn run_once(
         &mut self,
         now: DateTime<Utc>,

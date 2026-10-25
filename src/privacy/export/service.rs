@@ -71,10 +71,6 @@ impl JsonExportWriter {
         }
     }
 
-    pub fn bytes(&self) -> u64 {
-        self.written_bytes
-    }
-
     pub async fn start_object(&mut self, name: Option<&str>) -> Result<(), ExportBuildError> {
         self.before_value(name).await?;
         self.write(b"{").await?;

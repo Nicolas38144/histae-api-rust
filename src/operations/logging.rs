@@ -32,7 +32,6 @@ pub enum SafeLogValue<'a> {
     Number(f64),
     Integer(i64),
     Unsigned(u64),
-    Bool(bool),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -75,7 +74,6 @@ pub fn format_log_event(
             SafeLogValue::Number(value) if value.is_finite() => value.to_string(),
             SafeLogValue::Integer(value) => value.to_string(),
             SafeLogValue::Unsigned(value) => value.to_string(),
-            SafeLogValue::Bool(value) => value.to_string(),
             _ => return Err(SafeLogError::UnsafeValue),
         };
         output.push(' ');

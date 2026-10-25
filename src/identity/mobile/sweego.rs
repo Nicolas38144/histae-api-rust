@@ -31,8 +31,6 @@ pub enum SmsFailureReason {
     ProviderUnavailable,
     ProviderNetworkError,
     ProviderInvalidResponse,
-    DeliveryUnknown,
-    ProviderUndelivered,
     PhoneHourlyLimit,
     PhoneDailyLimit,
     GlobalHourlyLimit,
@@ -50,8 +48,6 @@ impl SmsFailureReason {
             Self::ProviderUnavailable => "provider_unavailable",
             Self::ProviderNetworkError => "provider_network_error",
             Self::ProviderInvalidResponse => "provider_invalid_response",
-            Self::DeliveryUnknown => "delivery_unknown",
-            Self::ProviderUndelivered => "provider_undelivered",
             Self::PhoneHourlyLimit => "sms_phone_hourly_limit",
             Self::PhoneDailyLimit => "sms_phone_daily_limit",
             Self::GlobalHourlyLimit => "sms_global_hourly_limit",
@@ -462,10 +458,6 @@ impl SweegoWebhookService {
             }
         }
         Ok(())
-    }
-
-    pub fn metrics(&self) -> &SweegoWebhookMetrics {
-        &self.metrics
     }
 }
 

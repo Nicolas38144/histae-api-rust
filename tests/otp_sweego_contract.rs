@@ -269,14 +269,14 @@ impl SmsDelivery for FakeDelivery {
             self.messages
                 .lock()
                 .map_err(|_| SmsDeliveryError {
-                    reason: SmsFailureReason::DeliveryUnknown,
+                    reason: SmsFailureReason::ProviderUnavailable,
                     outcome: histae_api_rust::identity::mobile::sweego::SmsFailureOutcome::Unknown,
                 })?
                 .push(message);
             self.result
                 .lock()
                 .map_err(|_| SmsDeliveryError {
-                    reason: SmsFailureReason::DeliveryUnknown,
+                    reason: SmsFailureReason::ProviderUnavailable,
                     outcome: histae_api_rust::identity::mobile::sweego::SmsFailureOutcome::Unknown,
                 })?
                 .clone()

@@ -17,21 +17,12 @@ pub trait MetricsRenderer: Send + Sync {
 
 pub struct PrometheusExporter {
     metrics: Arc<OperationalMetrics>,
-    persistent: Option<Arc<dyn PersistentStatus>>,
+    persistent: Arc<dyn PersistentStatus>,
     postgres_max: u32,
     otp_ttl: Duration,
 }
 
 impl PrometheusExporter {
-    pub fn new(metrics: Arc<OperationalMetrics>) -> Self {
-        Self {
-            metrics,
-            persistent: None,
-            postgres_max: 0,
-            otp_ttl: Duration::ZERO,
-        }
-    }
-
     pub fn with_persistent_status(
         metrics: Arc<OperationalMetrics>,
         persistent: Arc<dyn PersistentStatus>,
@@ -40,7 +31,7 @@ impl PrometheusExporter {
     ) -> Self {
         Self {
             metrics,
-            persistent: Some(persistent),
+            persistent,
             postgres_max,
             otp_ttl,
         }
@@ -50,10 +41,7 @@ impl PrometheusExporter {
 impl MetricsRenderer for PrometheusExporter {
     fn render(&self) -> RenderFuture<'_> {
         Box::pin(async move {
-            let persistent = match &self.persistent {
-                Some(provider) => provider.snapshot().await.ok(),
-                None => None,
-            };
+            let persistent = self.persistent.snapshot().await.ok();
             let mut output = render_snapshot(
                 &self.metrics.snapshot(),
                 resident_memory_bytes(),
@@ -612,7 +600,12 @@ mod tests {
     fn keeps_business_contract_and_reports_rust_truthfully() {
         let metrics = OperationalMetrics::new();
         metrics.record_http("GET", "/api/users/me", 429, 25.0);
-        metrics.record_dependency("postgres", false, std::time::Duration::from_millis(6));
+        metrics.record_dependency_with_error(
+            "postgres",
+            false,
+            std::time::Duration::from_millis(6),
+            None,
+        );
         let output = render_snapshot(&metrics.snapshot(), Some(512), true);
         assert!(output.contains("histae_runtime_info{runtime=\"rust\"} 1"));
         assert!(output.contains(
