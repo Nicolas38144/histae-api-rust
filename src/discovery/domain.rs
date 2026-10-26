@@ -119,6 +119,36 @@ pub struct DiscoveryStatusRow {
     pub presence_expires_at: Option<DateTime<Utc>>,
 }
 
+impl DiscoveryStatusRow {
+    pub fn required_actions(&self) -> Vec<DiscoveryRequiredAction> {
+        let mut actions = Vec::new();
+        if self.paused {
+            actions.push(DiscoveryRequiredAction::ResumeDiscovery);
+        }
+        if !self.has_profile {
+            actions.push(DiscoveryRequiredAction::Profile);
+        } else if !self.has_sex {
+            actions.push(DiscoveryRequiredAction::Sex);
+        }
+        if !self.has_preferences {
+            actions.push(DiscoveryRequiredAction::Preferences);
+        }
+        if !self.has_approved_photo {
+            actions.push(DiscoveryRequiredAction::Photo);
+        }
+        if !self.has_sensitive_consent {
+            actions.push(DiscoveryRequiredAction::SensitiveDataConsent);
+        }
+        if !self.has_location_consent {
+            actions.push(DiscoveryRequiredAction::LocationConsent);
+        }
+        if !self.has_fresh_presence {
+            actions.push(DiscoveryRequiredAction::FreshPresence);
+        }
+        actions
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct DiscoverySettings {
     pub paused: bool,
@@ -143,4 +173,60 @@ pub struct SwipeRecord {
 pub struct RecordedSwipe {
     pub created: bool,
     pub decision: SwipeDecision,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ready_row() -> DiscoveryStatusRow {
+        DiscoveryStatusRow {
+            paused: false,
+            has_profile: true,
+            has_sex: true,
+            has_approved_photo: true,
+            has_preferences: true,
+            has_sensitive_consent: true,
+            has_location_consent: true,
+            has_fresh_presence: true,
+            presence_expires_at: None,
+        }
+    }
+
+    #[test]
+    fn preserves_required_action_order_and_profile_sex_exclusivity() {
+        let mut row = DiscoveryStatusRow {
+            paused: true,
+            has_profile: false,
+            has_sex: false,
+            has_approved_photo: false,
+            has_preferences: false,
+            has_sensitive_consent: false,
+            has_location_consent: false,
+            has_fresh_presence: false,
+            presence_expires_at: None,
+        };
+        assert_eq!(
+            row.required_actions(),
+            vec![
+                DiscoveryRequiredAction::ResumeDiscovery,
+                DiscoveryRequiredAction::Profile,
+                DiscoveryRequiredAction::Preferences,
+                DiscoveryRequiredAction::Photo,
+                DiscoveryRequiredAction::SensitiveDataConsent,
+                DiscoveryRequiredAction::LocationConsent,
+                DiscoveryRequiredAction::FreshPresence,
+            ]
+        );
+        row.has_profile = true;
+        assert_eq!(row.required_actions()[1], DiscoveryRequiredAction::Sex);
+    }
+
+    #[test]
+    fn an_approved_photo_is_an_independent_discovery_requirement() {
+        let mut row = ready_row();
+        assert!(row.required_actions().is_empty());
+        row.has_approved_photo = false;
+        assert_eq!(row.required_actions(), vec![DiscoveryRequiredAction::Photo]);
+    }
 }

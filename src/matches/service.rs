@@ -10,7 +10,7 @@ use uuid::{Uuid, Variant, Version};
 use super::domain::{
     ContinuationQuota, ContinuationResult, MATCH_WINDOW_HOURS, MatchAvailabilityFailure,
     MatchCommandResult, MatchRecord, MatchStatus, MessageCreationResult, MessageRead, PageCursor,
-    PublicMatch, PublicMessage, PublicUserMatch,
+    PhotoRevealConsent, PublicMatch, PublicMessage, PublicUserMatch,
 };
 use super::store::{MatchMessageStore, MatchStore, MatchStoreError};
 use crate::infra::postgres::DatabaseError;
@@ -250,20 +250,22 @@ impl MatchService {
     }
 
     pub async fn reveal(&self, match_id: Uuid, user_id: Uuid) -> Result<bool, MatchError> {
-        self.set_reveal(match_id, user_id, true).await
+        self.set_reveal(match_id, user_id, PhotoRevealConsent::Granted)
+            .await
     }
 
     pub async fn withdraw_reveal(&self, match_id: Uuid, user_id: Uuid) -> Result<bool, MatchError> {
-        self.set_reveal(match_id, user_id, false).await
+        self.set_reveal(match_id, user_id, PhotoRevealConsent::Withdrawn)
+            .await
     }
 
     async fn set_reveal(
         &self,
         match_id: Uuid,
         user_id: Uuid,
-        granted: bool,
+        consent: PhotoRevealConsent,
     ) -> Result<bool, MatchError> {
-        let revealed = match self.store.record_reveal(match_id, user_id, granted).await? {
+        let revealed = match self.store.record_reveal(match_id, user_id, consent).await? {
             MatchCommandResult::Available(revealed) => revealed,
             MatchCommandResult::Unavailable(reason) => return Err(command_error(reason)),
         };

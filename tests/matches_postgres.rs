@@ -10,10 +10,10 @@ use histae_api_rust::config::{PostgresConfig, SecretString};
 use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use histae_api_rust::matches::domain::{
     ContinuationResult, MatchAvailabilityFailure, MatchCommandResult, MatchRecord, MatchStatus,
-    MessageCreationResult, PageCursor,
+    MessageCreationResult, PageCursor, PhotoRevealConsent,
 };
 use histae_api_rust::matches::pg::{PgMatchMessageRepository, PgMatchRepository};
-use histae_api_rust::matches::store::{MatchMessageStore, MatchStore};
+use histae_api_rust::matches::store::{MatchMessageStore, MatchStore, MatchStoreError};
 use sqlx::{Acquire as _, Row as _};
 use uuid::Uuid;
 
@@ -121,6 +121,10 @@ async fn approved_photo(database: &Database, user_id: Uuid) -> Result<String, Da
     .execute(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
+    Ok(object_key)
+}
+
+async fn approved_bio(database: &Database, user_id: Uuid) -> Result<(), DatabaseError> {
     sqlx::query(
         "INSERT INTO content_moderation_case
            (id, user_id, content_type, bio_user_id, status, policy_version)
@@ -128,10 +132,10 @@ async fn approved_photo(database: &Database, user_id: Uuid) -> Result<String, Da
     )
     .bind(Uuid::new_v4())
     .bind(user_id)
-    .execute(&mut *connection)
+    .execute(database.acquire().await?.as_mut())
     .await
     .map_err(map_sqlx_error)?;
-    Ok(object_key)
+    Ok(())
 }
 
 fn record(first: Uuid, second: Uuid, expires_at: chrono::DateTime<Utc>) -> MatchRecord {
@@ -317,6 +321,7 @@ async fn creation_listing_and_reveal_keep_notifications_and_private_photo_rules_
     account(&database, second, "Second").await?;
     approved_photo(&database, first).await?;
     let second_photo = approved_photo(&database, second).await?;
+    approved_bio(&database, second).await?;
 
     let test_result: Result<(), Box<dyn std::error::Error>> = async {
         let match_record = record(first, second, Utc::now() + TimeDelta::hours(24));
@@ -334,6 +339,14 @@ async fn creation_listing_and_reveal_keep_notifications_and_private_photo_rules_
         .await?;
         assert_eq!(notification_count, 2);
 
+        // Membership is checked before photo eligibility, including withdrawal.
+        for consent in [PhotoRevealConsent::Granted, PhotoRevealConsent::Withdrawn] {
+            assert_eq!(
+                repository.record_reveal(match_record.id, Uuid::new_v4(), consent).await?,
+                MatchCommandResult::Unavailable(MatchAvailabilityFailure::NotFound)
+            );
+        }
+
         let before = repository
             .list_for_user(first, 20, 0, None)
             .await
@@ -347,14 +360,14 @@ async fn creation_listing_and_reveal_keep_notifications_and_private_photo_rules_
 
         assert_eq!(
             repository
-                .record_reveal(match_record.id, first, true)
+                .record_reveal(match_record.id, first, PhotoRevealConsent::Granted)
                 .await
                 .map_err(|_| FixtureError("first_reveal"))?,
             MatchCommandResult::Available(false)
         );
         assert_eq!(
             repository
-                .record_reveal(match_record.id, second, true)
+                .record_reveal(match_record.id, second, PhotoRevealConsent::Granted)
                 .await
                 .map_err(|_| FixtureError("second_reveal"))?,
             MatchCommandResult::Available(true)
@@ -365,22 +378,67 @@ async fn creation_listing_and_reveal_keep_notifications_and_private_photo_rules_
             .map_err(|_| FixtureError("list_after_reveal"))?;
         assert_eq!(after[0].other_photo.as_deref(), Some(second_photo.as_str()));
         assert!(after[0].photos_revealed);
-        assert_eq!(repository.record_reveal(match_record.id, first, false).await?, MatchCommandResult::Available(false));
-        assert_eq!(repository.record_reveal(match_record.id, first, false).await?, MatchCommandResult::Available(false));
+        // A moderation change hides both directions without erasing agreements.
+        sqlx::query("UPDATE content_moderation_case SET status='pending' WHERE photo_id=(SELECT id FROM user_photo WHERE user_id=$1 AND status='ready')")
+            .bind(second).execute(database.acquire().await?.as_mut()).await?;
+        for participant in [first, second] {
+            assert!(repository.list_for_user(participant, 20, 0, None).await?[0].other_photo.is_none());
+        }
+        assert_eq!(
+            repository.record_reveal(match_record.id, first, PhotoRevealConsent::Granted).await,
+            Err(MatchStoreError::PhotoRequired)
+        );
+        assert_eq!(
+            repository
+                .record_reveal(match_record.id, first, PhotoRevealConsent::Withdrawn)
+                .await?,
+            MatchCommandResult::Available(false)
+        );
+        assert_eq!(
+            repository
+                .record_reveal(match_record.id, first, PhotoRevealConsent::Withdrawn)
+                .await?,
+            MatchCommandResult::Available(false)
+        );
         for participant in [first, second] {
             let hidden = repository.list_for_user(participant, 20, 0, None).await?;
             assert!(!hidden[0].photos_revealed);
             assert!(hidden[0].other_photo.is_none());
         }
-        assert_eq!(repository.record_reveal(match_record.id, first, true).await?, MatchCommandResult::Available(true));
+        sqlx::query("UPDATE content_moderation_case SET status='approved' WHERE photo_id=(SELECT id FROM user_photo WHERE user_id=$1 AND status='ready')")
+            .bind(second).execute(database.acquire().await?.as_mut()).await?;
+        assert_eq!(
+            repository
+                .record_reveal(match_record.id, first, PhotoRevealConsent::Granted)
+                .await?,
+            MatchCommandResult::Available(true)
+        );
         // A replacement remains visible in every mutually authorized match.
         sqlx::query("DELETE FROM user_photo WHERE user_id=$1")
-            .bind(second).execute(database.acquire().await?.as_mut()).await?;
-        sqlx::query("DELETE FROM content_moderation_case WHERE bio_user_id=$1")
-            .bind(second).execute(database.acquire().await?.as_mut()).await?;
+            .bind(second)
+            .execute(database.acquire().await?.as_mut())
+            .await?;
+        for participant in [first, second] {
+            assert!(repository.list_for_user(participant, 20, 0, None).await?[0].other_photo.is_none());
+        }
+        assert_eq!(
+            repository.record_reveal(match_record.id, second, PhotoRevealConsent::Withdrawn).await?,
+            MatchCommandResult::Available(false)
+        );
+        assert_eq!(
+            repository.record_reveal(match_record.id, second, PhotoRevealConsent::Granted).await,
+            Err(MatchStoreError::PhotoRequired)
+        );
         let replacement = approved_photo(&database, second).await?;
+        assert_eq!(
+            repository.record_reveal(match_record.id, second, PhotoRevealConsent::Granted).await?,
+            MatchCommandResult::Available(true)
+        );
         let refreshed = repository.list_for_user(first, 20, 0, None).await?;
-        assert_eq!(refreshed[0].other_photo.as_deref(), Some(replacement.as_str()));
+        assert_eq!(
+            refreshed[0].other_photo.as_deref(),
+            Some(replacement.as_str())
+        );
 
         Ok(())
     }
@@ -853,7 +911,7 @@ async fn ending_a_match_is_atomic_idempotent_and_revokes_all_mobile_conversation
             assert!(matches.list_for_user(participant, 20, 0, None).await.map_err(|_| FixtureError("ended_list"))?.is_empty());
             assert_eq!(messages.messages_for_user(item.id, participant, 20, 0, None).await.map_err(|_| FixtureError("ended_messages"))?,
                 MatchCommandResult::Unavailable(MatchAvailabilityFailure::InvalidState));
-            assert_eq!(matches.record_reveal(item.id, participant, true).await.map_err(|_| FixtureError("ended_reveal"))?,
+            assert_eq!(matches.record_reveal(item.id, participant, PhotoRevealConsent::Granted).await.map_err(|_| FixtureError("ended_reveal"))?,
                 MatchCommandResult::Unavailable(MatchAvailabilityFailure::InvalidState));
             assert_eq!(matches.record_continuation(item.id, participant, 1).await.map_err(|_| FixtureError("ended_continue"))?, ContinuationResult::InvalidState);
             assert_eq!(messages.create_message(Uuid::new_v4(), item.id, participant, "After closure".to_owned(), Uuid::new_v4())

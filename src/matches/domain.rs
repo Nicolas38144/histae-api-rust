@@ -23,6 +23,18 @@ pub enum MatchStatus {
     Ended,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PhotoRevealConsent {
+    Granted,
+    Withdrawn,
+}
+
+impl PhotoRevealConsent {
+    pub const fn is_granted(self) -> bool {
+        matches!(self, Self::Granted)
+    }
+}
+
 impl MatchStatus {
     pub const fn as_str(self) -> &'static str {
         match self {

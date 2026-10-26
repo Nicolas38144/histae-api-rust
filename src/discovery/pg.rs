@@ -148,9 +148,7 @@ impl DiscoveryRepository for PgDiscoveryRepository {
                 paused: row.try_get("paused").map_err(map_sqlx_error)?,
                 has_profile: row.try_get("has_profile").map_err(map_sqlx_error)?,
                 has_sex: row.try_get("has_sex").map_err(map_sqlx_error)?,
-                has_approved_photo: row
-                    .try_get("has_approved_photo")
-                    .map_err(map_sqlx_error)?,
+                has_approved_photo: row.try_get("has_approved_photo").map_err(map_sqlx_error)?,
                 has_preferences: row.try_get("has_preferences").map_err(map_sqlx_error)?,
                 has_sensitive_consent: row
                     .try_get("has_sensitive_consent")

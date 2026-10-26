@@ -8,8 +8,7 @@ use uuid::Uuid;
 
 use super::cursor::FeedCursorCodec;
 use super::domain::{
-    DiscoveryCursor, DiscoveryRequiredAction, DiscoverySettings, DiscoveryStatus, FeedCandidate,
-    SwipeDecision,
+    DiscoveryCursor, DiscoverySettings, DiscoveryStatus, FeedCandidate, SwipeDecision,
 };
 use super::store::{DiscoveryRepository, DiscoveryStoreError, SwipeStore};
 use crate::config::LegalConfig;
@@ -150,30 +149,7 @@ impl DiscoveryService {
             )
             .await
             .map_err(repository_error)?;
-        let mut required_actions = Vec::new();
-        if row.paused {
-            required_actions.push(DiscoveryRequiredAction::ResumeDiscovery);
-        }
-        if !row.has_profile {
-            required_actions.push(DiscoveryRequiredAction::Profile);
-        } else if !row.has_sex {
-            required_actions.push(DiscoveryRequiredAction::Sex);
-        }
-        if !row.has_preferences {
-            required_actions.push(DiscoveryRequiredAction::Preferences);
-        }
-        if !row.has_approved_photo {
-            required_actions.push(DiscoveryRequiredAction::Photo);
-        }
-        if !row.has_sensitive_consent {
-            required_actions.push(DiscoveryRequiredAction::SensitiveDataConsent);
-        }
-        if !row.has_location_consent {
-            required_actions.push(DiscoveryRequiredAction::LocationConsent);
-        }
-        if !row.has_fresh_presence {
-            required_actions.push(DiscoveryRequiredAction::FreshPresence);
-        }
+        let required_actions = row.required_actions();
         Ok(DiscoveryStatus {
             ready: required_actions.is_empty(),
             required_actions,
@@ -395,59 +371,5 @@ fn swipe_error(error: DiscoveryStoreError) -> DiscoveryError {
         DiscoveryStoreError::Database(_) | DiscoveryStoreError::InvalidStoredData => {
             DiscoveryError::Unavailable
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use chrono::{TimeZone as _, Utc};
-
-    use super::*;
-
-    #[test]
-    fn preserves_required_action_order_and_profile_sex_exclusivity() {
-        let row = super::super::domain::DiscoveryStatusRow {
-            paused: false,
-            has_profile: false,
-            has_sex: false,
-            has_approved_photo: false,
-            has_preferences: false,
-            has_sensitive_consent: false,
-            has_location_consent: false,
-            has_fresh_presence: false,
-            presence_expires_at: Utc.with_ymd_and_hms(2030, 1, 1, 12, 0, 0).single(),
-        };
-        let mut actions = Vec::new();
-        if !row.has_profile {
-            actions.push(DiscoveryRequiredAction::Profile);
-        } else if !row.has_sex {
-            actions.push(DiscoveryRequiredAction::Sex);
-        }
-        if !row.has_preferences {
-            actions.push(DiscoveryRequiredAction::Preferences);
-        }
-        if !row.has_approved_photo {
-            actions.push(DiscoveryRequiredAction::Photo);
-        }
-        if !row.has_sensitive_consent {
-            actions.push(DiscoveryRequiredAction::SensitiveDataConsent);
-        }
-        if !row.has_location_consent {
-            actions.push(DiscoveryRequiredAction::LocationConsent);
-        }
-        if !row.has_fresh_presence {
-            actions.push(DiscoveryRequiredAction::FreshPresence);
-        }
-        assert_eq!(
-            actions,
-            vec![
-                DiscoveryRequiredAction::Profile,
-                DiscoveryRequiredAction::Preferences,
-                DiscoveryRequiredAction::Photo,
-                DiscoveryRequiredAction::SensitiveDataConsent,
-                DiscoveryRequiredAction::LocationConsent,
-                DiscoveryRequiredAction::FreshPresence,
-            ]
-        );
     }
 }

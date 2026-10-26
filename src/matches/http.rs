@@ -36,7 +36,10 @@ impl MatchHttpState {
 pub fn routes(state: MatchHttpState, auth: MobileAuthState) -> Router<HttpState> {
     Router::new()
         .route("/api/matches/me", get(list))
-        .route("/api/matches/{id}/reveal", patch(reveal).delete(withdraw_reveal))
+        .route(
+            "/api/matches/{id}/reveal",
+            patch(reveal).delete(withdraw_reveal),
+        )
         .route("/api/matches/{id}/continue", patch(continue_match))
         .route("/api/matches/{id}/end", patch(end))
         .route(

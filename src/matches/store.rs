@@ -1,6 +1,6 @@
 use super::domain::{
     ContinuationResult, CursorMessageRow, MatchCommandResult, MatchEnd, MatchRecord,
-    MessageCreationResult, MessageRead, PageCursor, UserMatchRow,
+    MessageCreationResult, MessageRead, PageCursor, PhotoRevealConsent, UserMatchRow,
 };
 use crate::infra::postgres::{ConstraintKind, DatabaseError};
 use chrono::{DateTime, Utc};
@@ -55,7 +55,7 @@ pub trait MatchStore: Send + Sync {
         &self,
         match_id: Uuid,
         user_id: Uuid,
-        granted: bool,
+        consent: PhotoRevealConsent,
     ) -> MatchStoreFuture<'_, MatchCommandResult<bool>>;
 
     fn record_end(&self, match_id: Uuid, user_id: Uuid) -> MatchStoreFuture<'_, Option<MatchEnd>>;

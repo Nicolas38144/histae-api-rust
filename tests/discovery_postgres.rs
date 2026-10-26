@@ -152,7 +152,9 @@ async fn ready_user(
     .bind(user_id)
     .bind(format!("profile-photos/{user_id}/{photo_id}.webp"))
     .bind(vec![7_u8; 32])
-    .execute(&mut *connection).await.map_err(map_sqlx_error)?;
+    .execute(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
     sqlx::query(
         "INSERT INTO content_moderation_case
          (id,user_id,content_type,photo_id,status,policy_version,face_detectable,sharp_enough,content_allowed)

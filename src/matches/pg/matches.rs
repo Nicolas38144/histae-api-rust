@@ -1,9 +1,9 @@
-use super::access::{lock_available_match, map_match_record, parse_status};
+use super::access::{map_match_record, parse_status};
 use crate::infra::postgres::Database;
 use crate::infra::postgres::{DatabaseError, map_sqlx_error};
 use crate::matches::domain::{
-    ContinuationResult, EffectivePlan, LastMessageRow, MATCH_PURGE_DAYS, MatchAvailabilityFailure,
-    MatchCommandResult, MatchEnd, MatchRecord, MatchStatus, PageCursor, UserMatchRow,
+    ContinuationResult, EffectivePlan, LastMessageRow, MATCH_PURGE_DAYS, MatchCommandResult,
+    MatchEnd, MatchRecord, MatchStatus, PageCursor, PhotoRevealConsent, UserMatchRow,
 };
 use crate::matches::store::MatchStoreError;
 use crate::matches::store::{MatchStore, MatchStoreFuture};
@@ -186,71 +186,14 @@ impl MatchStore for PgMatchRepository {
         &self,
         match_id: Uuid,
         user_id: Uuid,
-        granted: bool,
+        consent: PhotoRevealConsent,
     ) -> MatchStoreFuture<'_, MatchCommandResult<bool>> {
         Box::pin(async move {
             self.database
                 .transaction(|connection| {
-                    Box::pin(async move {
-                        if let MatchCommandResult::Unavailable(reason) =
-                            lock_available_match(connection, match_id, user_id).await?
-                        {
-                            return Ok(MatchCommandResult::Unavailable(reason));
-                        }
-                        // The feed requirement also applies to existing matches and to
-                        // accounts that removed their photo after matching. Withdrawal
-                        // never requires either participant to retain a photo.
-                        if granted {
-                            let complete: bool = sqlx::query_scalar(
-                                "SELECT count(*) = 2 FROM user_photo AS photo
-                                 JOIN content_moderation_case AS moderation
-                                   ON moderation.photo_id = photo.id AND moderation.status = 'approved'
-                                 WHERE photo.user_id IN (
-                                   SELECT user1_id FROM match_init WHERE id=$1
-                                   UNION ALL SELECT user2_id FROM match_init WHERE id=$1
-                                 ) AND photo.status = 'ready'",
-                            )
-                            .bind(match_id)
-                            .fetch_one(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
-                            if !complete {
-                                return Err(MatchStoreError::PhotoRequired);
-                            }
-                        }
-                        let row = sqlx::query(
-                            "WITH updated AS (
-                               UPDATE match_state SET revealed = $3
-                               WHERE match_id = $1 AND user_id = $2
-                               RETURNING match_id
-                             )
-                             SELECT EXISTS (SELECT 1 FROM updated) AS updated,
-                               COALESCE((
-                                 SELECT count(*) = 2
-                                   AND bool_and(CASE WHEN state.user_id = $2 THEN $3 ELSE state.revealed END)
-                                 FROM match_state AS state
-                                 WHERE state.match_id = (SELECT match_id FROM updated)
-                               ), false) AS revealed",
-                        )
-                        .bind(match_id)
-                        .bind(user_id)
-                        .bind(granted)
-                        .fetch_one(&mut *connection)
-                        .await
-                        .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                        let updated: bool = row
-                            .try_get("updated")
-                            .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                        if !updated {
-                            return Ok(MatchCommandResult::Unavailable(
-                                MatchAvailabilityFailure::NotFound,
-                            ));
-                        }
-                        let revealed = row
-                            .try_get("revealed")
-                            .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
-                        Ok(MatchCommandResult::Available(revealed))
-                    })
+                    Box::pin(super::reveal::record_reveal(
+                        connection, match_id, user_id, consent,
+                    ))
                 })
                 .await
         })

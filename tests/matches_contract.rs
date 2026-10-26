@@ -21,7 +21,7 @@ use histae_api_rust::infra::postgres::DatabaseError;
 use histae_api_rust::matches::domain::{
     ContinuationResult, CursorMessageRow, EffectivePlan, LastMessageRow, MatchCommandResult,
     MatchEnd, MatchRecord, MatchStatus, MessageCreation, MessageCreationResult, MessageRead,
-    MessageRecord, PageCursor, UserMatchRow,
+    MessageRecord, PageCursor, PhotoRevealConsent, UserMatchRow,
 };
 use histae_api_rust::matches::http::{MatchHttpState, routes};
 use histae_api_rust::matches::service::{MatchService, NoopMatchEventPublisher};
@@ -230,7 +230,7 @@ impl MatchStore for FakeMatchStore {
         &self,
         _match_id: Uuid,
         _user_id: Uuid,
-        granted: bool,
+        consent: PhotoRevealConsent,
     ) -> MatchStoreFuture<'_, MatchCommandResult<bool>> {
         Box::pin(async move {
             let mut state = self
@@ -239,7 +239,9 @@ impl MatchStore for FakeMatchStore {
                 .map_err(|_| MatchStoreError::Database(DatabaseError::QueryFailed))?;
             state.calls += 1;
             Ok(match state.reveal.clone() {
-                MatchCommandResult::Available(value) => MatchCommandResult::Available(granted && value),
+                MatchCommandResult::Available(value) => {
+                    MatchCommandResult::Available(consent.is_granted() && value)
+                }
                 MatchCommandResult::Unavailable(reason) => MatchCommandResult::Unavailable(reason),
             })
         })
@@ -1349,13 +1351,24 @@ async fn withdrawal_is_authenticated_idempotent_and_preserves_the_match() {
     store.state.lock().expect("state").reveal = MatchCommandResult::Available(true);
     let (router, token) = app(store.clone(), true);
     let path = format!("/api/matches/{match_id}/reveal");
-    let denied = router.clone().oneshot(request("DELETE", &path, None)).await.expect("response");
+    let denied = router
+        .clone()
+        .oneshot(request("DELETE", &path, None))
+        .await
+        .expect("response");
     assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
     assert_eq!(store.state.lock().expect("state").calls, 0);
     for _ in 0..2 {
-        let response = router.clone().oneshot(request("DELETE", &path, Some(&token))).await.expect("response");
+        let response = router
+            .clone()
+            .oneshot(request("DELETE", &path, Some(&token)))
+            .await
+            .expect("response");
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(json_body(response).await["photos_revealed"], false);
     }
-    assert_eq!(store.state.lock().expect("state").rows[0].record.status, MatchStatus::Active);
+    assert_eq!(
+        store.state.lock().expect("state").rows[0].record.status,
+        MatchStatus::Active
+    );
 }
