@@ -16,7 +16,6 @@ use super::domain::{CreationResult, PhotoObject, ProcessingPhoto};
 use super::maintenance::{PhotoMaintenanceFuture, PhotoMaintenanceStore};
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use crate::media::codec::ProcessedPhoto;
-use crate::moderation::domain::AutomatedPhotoModeration;
 use crate::outbox::pg::PgOutboxRepository;
 use crate::outbox::types::{NewOutboxEvent, OutboxEventType};
 use crate::profiles::domain::{ModerationReason, ModerationStatus};
@@ -122,12 +121,7 @@ impl PhotoStore for PgPhotoRepository {
         })
     }
 
-    fn activate(
-        &self,
-        photo_id: Uuid,
-        user_id: Uuid,
-        moderation: AutomatedPhotoModeration,
-    ) -> PhotoStoreFuture<'_, bool> {
+    fn activate(&self, photo_id: Uuid, user_id: Uuid) -> PhotoStoreFuture<'_, bool> {
         let outbox = self.outbox.clone();
         Box::pin(async move {
             self.database.transaction(|connection| Box::pin(async move {
@@ -151,25 +145,13 @@ impl PhotoStore for PgPhotoRepository {
                      WHERE id = $1 AND user_id = $2 AND status = 'processing'",
                 ).bind(photo_id).bind(user_id).execute(&mut *connection).await.map_err(map_sqlx_error)?;
                 if activated.rows_affected() != 1 { return Err(DatabaseError::QueryFailed); }
-                let reasons = moderation.reasons.iter().map(|reason| reason.as_str()).collect::<Vec<_>>();
-                let face_count = moderation.face_count
-                    .map(i16::try_from)
-                    .transpose()
-                    .map_err(|_| DatabaseError::QueryFailed)?;
                 sqlx::query(
                     "INSERT INTO content_moderation_case
-                     (user_id, content_type, photo_id, status, reason_codes, policy_version,
-                      face_count, sharpness_score, nsfw_score)
-                     VALUES ($1, 'photo', $2, $3, $4, $5, $6, $7, $8)",
+                     (user_id, content_type, photo_id, status, reason_codes, policy_version)
+                     VALUES ($1, 'photo', $2, 'approved', ARRAY[]::text[], 'manual_photo_v1')",
                 )
                 .bind(user_id)
                 .bind(photo_id)
-                .bind(moderation.status.as_str())
-                .bind(reasons)
-                .bind(moderation.policy_version)
-                .bind(face_count)
-                .bind(moderation.sharpness_score)
-                .bind(moderation.nsfw_score)
                 .execute(&mut *connection).await.map_err(map_sqlx_error)?;
                 let request = sqlx::query(
                     "UPDATE photo_upload_request SET status = 'completed', updated_at = clock_timestamp()
@@ -234,7 +216,7 @@ impl PhotoStore for PgPhotoRepository {
                     user_id,
                     object_key,
                     moderation_status: ModerationStatus::Pending,
-                    moderation_reasons: vec![ModerationReason::AnalysisUnavailable],
+                    moderation_reasons: Vec::new(),
                 })
                 .collect())
         })
@@ -248,7 +230,7 @@ impl PhotoStore for PgPhotoRepository {
                 ).bind(photo_id).fetch_optional(&mut *connection).await.map_err(map_sqlx_error)?;
                 Ok(row.map(|(id, user_id, object_key)| PhotoObject {
                     id, user_id, object_key, moderation_status: ModerationStatus::Pending,
-                    moderation_reasons: vec![ModerationReason::AnalysisUnavailable],
+                    moderation_reasons: Vec::new(),
                 }))
             })).await
         })
@@ -412,7 +394,7 @@ fn existing_result(
             .and_then(ModerationStatus::parse)
             .unwrap_or(ModerationStatus::Pending);
         let reasons = reasons
-            .unwrap_or_else(|| vec!["analysis_unavailable".to_owned()])
+            .unwrap_or_default()
             .into_iter()
             .map(|reason| ModerationReason::parse(&reason).ok_or(DatabaseError::QueryFailed))
             .collect::<Result<Vec<_>, _>>()?;

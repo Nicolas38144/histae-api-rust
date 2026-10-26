@@ -61,11 +61,6 @@ pub enum BillingProvider {
     Stripe,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PhotoModerationProvider {
-    Disabled,
-    LocalHttp,
-}
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RateLimitStore {
     Memory,
     Redis,
@@ -219,16 +214,6 @@ pub struct ObjectStorageConfig {
 }
 
 #[derive(Clone, Debug)]
-pub struct PhotoModerationConfig {
-    pub provider: PhotoModerationProvider,
-    pub endpoint: Url,
-    pub token: SecretString,
-    pub timeout: Duration,
-    pub min_sharpness_score: f64,
-    pub nsfw_review_threshold: f64,
-}
-
-#[derive(Clone, Debug)]
 pub struct AdminAuthConfig {
     pub rp_id: String,
     pub origin: String,
@@ -322,7 +307,6 @@ pub struct AppConfig {
     pub web_billing: WebBillingConfig,
     pub advertising: AdvertisingConfig,
     pub object_storage: ObjectStorageConfig,
-    pub photo_moderation: PhotoModerationConfig,
     pub admin_auth: AdminAuthConfig,
     pub legal: LegalConfig,
     pub legal_translations: crate::localization::legal::LegalTranslations,

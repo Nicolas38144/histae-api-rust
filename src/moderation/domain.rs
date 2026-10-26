@@ -47,24 +47,6 @@ impl ModerationDecision {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct PhotoReviewChecks {
-    pub face_detectable: bool,
-    pub sharp_enough: bool,
-    pub content_allowed: bool,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct AutomatedPhotoModeration {
-    pub status: ModerationStatus,
-    pub reasons: Vec<ModerationReason>,
-    pub policy_version: &'static str,
-    pub face_count: Option<i32>,
-    pub sharpness_score: Option<f64>,
-    pub nsfw_score: Option<f64>,
-}
-
 #[derive(Clone, Debug, Serialize)]
 pub struct ModerationCase {
     pub case_id: Uuid,
@@ -75,12 +57,6 @@ pub struct ModerationCase {
     pub reason_codes: Vec<ModerationReason>,
     pub policy_version: String,
     pub version: i32,
-    pub face_count: Option<i32>,
-    pub sharpness_score: Option<f64>,
-    pub nsfw_score: Option<f64>,
-    pub face_detectable: Option<bool>,
-    pub sharp_enough: Option<bool>,
-    pub content_allowed: Option<bool>,
     pub review_reason: Option<String>,
     pub reviewed_at: Option<String>,
     pub reviewed_by: Option<Uuid>,
@@ -107,12 +83,6 @@ pub struct ModerationRow {
     pub reason_codes: Vec<ModerationReason>,
     pub policy_version: String,
     pub version: i32,
-    pub face_count: Option<i32>,
-    pub sharpness_score: Option<f64>,
-    pub nsfw_score: Option<f64>,
-    pub face_detectable: Option<bool>,
-    pub sharp_enough: Option<bool>,
-    pub content_allowed: Option<bool>,
     pub review_reason: Option<String>,
     pub reviewed_at: Option<DateTime<Utc>>,
     pub reviewed_by: Option<Uuid>,
@@ -135,12 +105,6 @@ impl ModerationRow {
             reason_codes: self.reason_codes.clone(),
             policy_version: self.policy_version.clone(),
             version: self.version,
-            face_count: self.face_count,
-            sharpness_score: self.sharpness_score,
-            nsfw_score: self.nsfw_score,
-            face_detectable: self.face_detectable,
-            sharp_enough: self.sharp_enough,
-            content_allowed: self.content_allowed,
             review_reason: self.review_reason.clone(),
             reviewed_at: self.reviewed_at.map(wire_timestamp),
             reviewed_by: self.reviewed_by,
@@ -155,7 +119,6 @@ pub struct ModerationReviewInput {
     pub version: i32,
     pub decision: ModerationDecision,
     pub reason: String,
-    pub photo_checks: Option<PhotoReviewChecks>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -3421,14 +3421,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"version\": 1,\n  \"decision\": \"approved\",\n  \"reason\": \"Content reviewed manually\",\n  \"photo_checks\": {\n    \"face_detectable\": true,\n    \"sharp_enough\": true,\n    \"content_allowed\": true\n  }\n}",
+                  "raw": "{\n  \"version\": 1,\n  \"decision\": \"approved\",\n  \"reason\": \"Content reviewed manually\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ version, decision, reason?, photo_checks? } → 200 { message: \"content moderation decision recorded\" }. Reason is required for an admin and optional for the superadmin.\n\nUse the current version from the detail response. photo_checks is required for a photo; omit it for a bio or an answer."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ version, decision, reason? } → 200 { message: \"content moderation decision recorded\" }. Reason is required for an admin and optional for the superadmin.\n\nUse the current version from the detail response. Photo review uses the same decision and reason fields as other content."
               },
               "response": []
             }

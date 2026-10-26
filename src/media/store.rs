@@ -6,7 +6,6 @@ use uuid::Uuid;
 use super::domain::{CreationResult, PhotoObject, ProcessingPhoto};
 use crate::infra::postgres::DatabaseError;
 use crate::media::codec::ProcessedPhoto;
-use crate::moderation::domain::AutomatedPhotoModeration;
 
 pub type PhotoStoreFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'a>>;
@@ -19,12 +18,7 @@ pub trait PhotoStore: Send + Sync {
         user_id: Uuid,
         photo: &'a ProcessedPhoto,
     ) -> PhotoStoreFuture<'a, bool>;
-    fn activate(
-        &self,
-        photo_id: Uuid,
-        user_id: Uuid,
-        moderation: AutomatedPhotoModeration,
-    ) -> PhotoStoreFuture<'_, bool>;
+    fn activate(&self, photo_id: Uuid, user_id: Uuid) -> PhotoStoreFuture<'_, bool>;
     fn begin_delete(&self, user_id: Uuid) -> PhotoStoreFuture<'_, bool>;
     fn begin_account_deletion(
         &self,

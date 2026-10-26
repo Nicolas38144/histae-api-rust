@@ -65,7 +65,7 @@ Leur accès depuis le dashboard exige la [pile reverse proxy](observability.md#s
 
 ```bash
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml \
-  up -d --build --wait postgres redis object-storage photo-moderation
+  up -d --build --wait postgres redis object-storage
 pnpm --dir tools/photo-codec install --frozen-lockfile
 ```
 

@@ -285,13 +285,6 @@ fn enforces_provider_credentials_and_metrics_secret_independence() {
         .expect_err("FCM without a complete service account must fail");
     assert_eq!(fcm.variable, "FIREBASE_SERVICE_ACCOUNT");
 
-    let moderation = AppConfig::from_source(&base(&[
-        ("PHOTO_MODERATION_PROVIDER", "local_http"),
-        ("PHOTO_MODERATION_TOKEN", "short"),
-    ]))
-    .expect_err("local moderation requires a strong shared token");
-    assert_eq!(moderation.variable, "PHOTO_MODERATION_TOKEN");
-
     let metrics = AppConfig::from_source(&base(&[
         ("METRICS_ENABLED", "true"),
         ("METRICS_TOKEN", "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"),

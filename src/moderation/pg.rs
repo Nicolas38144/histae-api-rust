@@ -140,27 +140,18 @@ impl ModerationStore for PgModerationRepository {
                             return Ok(ModerationReviewResult::Stale);
                         }
                         let is_photo = content_type == "photo";
-                        if (!is_photo && input.photo_checks.is_some())
-                            || (is_photo
-                                && (photo_status.as_deref() != Some("ready")
-                                    || input.photo_checks.is_none()))
-                        {
+                        if is_photo && photo_status.as_deref() != Some("ready") {
                             return Ok(ModerationReviewResult::NotActionable);
                         }
-                        let checks = input.photo_checks;
                         let updated = sqlx::query(
                             "UPDATE content_moderation_case
-                             SET status = $2, face_detectable = $3, sharp_enough = $4,
-                                 content_allowed = $5, reviewed_by = $6,
-                                 reviewed_at = clock_timestamp(), review_reason = $7,
+                             SET status = $2, reviewed_by = $3,
+                                 reviewed_at = clock_timestamp(), review_reason = $4,
                                  version = version + 1, updated_at = clock_timestamp()
-                             WHERE id = $1 AND version = $8",
+                             WHERE id = $1 AND version = $5",
                         )
                         .bind(case_id)
                         .bind(input.decision.as_str())
-                        .bind(checks.map(|value| value.face_detectable))
-                        .bind(checks.map(|value| value.sharp_enough))
-                        .bind(checks.map(|value| value.content_allowed))
                         .bind(admin_id)
                         .bind(&input.reason)
                         .bind(input.version)
@@ -209,10 +200,7 @@ const LIST_COLUMNS_QUERY: &str = concat!(
     "SELECT ",
     "moderation.id, moderation.user_id, profile.firstname,
      moderation.content_type, moderation.status, moderation.reason_codes,
-     moderation.policy_version, moderation.version, moderation.face_count,
-     moderation.sharpness_score, moderation.nsfw_score,
-     moderation.face_detectable, moderation.sharp_enough,
-     moderation.content_allowed, moderation.review_reason,
+     moderation.policy_version, moderation.version, moderation.review_reason,
      moderation.reviewed_at, moderation.reviewed_by,
      moderation.created_at, moderation.updated_at,
      to_char(moderation.updated_at AT TIME ZONE 'UTC',
@@ -227,10 +215,7 @@ const DETAIL_QUERY: &str = concat!(
     "SELECT ",
     "moderation.id, moderation.user_id, profile.firstname,
      moderation.content_type, moderation.status, moderation.reason_codes,
-     moderation.policy_version, moderation.version, moderation.face_count,
-     moderation.sharpness_score, moderation.nsfw_score,
-     moderation.face_detectable, moderation.sharp_enough,
-     moderation.content_allowed, moderation.review_reason,
+     moderation.policy_version, moderation.version, moderation.review_reason,
      moderation.reviewed_at, moderation.reviewed_by,
      moderation.created_at, moderation.updated_at,
      to_char(moderation.updated_at AT TIME ZONE 'UTC',
@@ -271,15 +256,6 @@ fn map_row(row: &sqlx::postgres::PgRow) -> Result<ModerationRow, DatabaseError> 
         reason_codes,
         policy_version: row.try_get("policy_version").map_err(map_sqlx_error)?,
         version: row.try_get("version").map_err(map_sqlx_error)?,
-        face_count: row
-            .try_get::<Option<i16>, _>("face_count")
-            .map_err(map_sqlx_error)?
-            .map(i32::from),
-        sharpness_score: row.try_get("sharpness_score").map_err(map_sqlx_error)?,
-        nsfw_score: row.try_get("nsfw_score").map_err(map_sqlx_error)?,
-        face_detectable: row.try_get("face_detectable").map_err(map_sqlx_error)?,
-        sharp_enough: row.try_get("sharp_enough").map_err(map_sqlx_error)?,
-        content_allowed: row.try_get("content_allowed").map_err(map_sqlx_error)?,
         review_reason: row.try_get("review_reason").map_err(map_sqlx_error)?,
         reviewed_at: row.try_get("reviewed_at").map_err(map_sqlx_error)?,
         reviewed_by: row.try_get("reviewed_by").map_err(map_sqlx_error)?,

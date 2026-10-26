@@ -9,9 +9,7 @@ use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
-use super::domain::{
-    ModerationContentType, ModerationDecision, ModerationReviewInput, PhotoReviewChecks,
-};
+use super::domain::{ModerationContentType, ModerationDecision, ModerationReviewInput};
 use super::service::{ModerationError, ModerationService, Page};
 use crate::http::error::ApiError;
 use crate::http::extract::{ApiDto, ValidatedJson, ValidatedPath, ValidatedQuery};
@@ -246,7 +244,6 @@ struct ReviewBody {
     version: PositiveInteger,
     decision: ModerationDecision,
     reason: Option<String>,
-    photo_checks: Option<PhotoReviewChecks>,
 }
 
 impl ApiDto for ReviewBody {
@@ -281,7 +278,6 @@ async fn review(
                 version: body.version.0,
                 decision: body.decision,
                 reason: body.reason.unwrap_or_default(),
-                photo_checks: body.photo_checks,
             },
             identity.user_id,
             identity.role,
@@ -362,7 +358,7 @@ mod tests {
     #[test]
     fn coerces_the_version_like_class_transformer() {
         let body: ReviewBody = serde_json::from_str(
-            r#"{"version":"2","decision":"approved","reason":"Validation humaine","photo_checks":{"face_detectable":true,"sharp_enough":true,"content_allowed":true}}"#,
+            r#"{"version":"2","decision":"approved","reason":"Validation humaine"}"#,
         )
         .unwrap_or_else(|error| panic!("valid review: {error}"));
         assert_eq!(body.version.0, 2);

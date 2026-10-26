@@ -94,7 +94,7 @@ Références : [Scripts et vérifications](../histae-scripts/README.md),
 - [ ] Utiliser `compose.yaml` et `compose.production.yaml`, avec le même fichier d'environnement pour
   l'interpolation Compose et l'injection des processus applicatifs.
 - [ ] Fixer les images de la livraison, notamment `HISTAE_API_IMAGE` et
-  `HISTAE_PHOTO_MODERATION_IMAGE`, et conserver leurs identifiants exacts. API, migration,
+  et conserver leurs identifiants exacts. API, migration,
   initialisation du stockage, outbox et maintenance doivent utiliser la livraison attendue.
 - [ ] Fixer aussi `HISTAE_CLOUDFLARED_IMAGE` sur une version/digest validé ; le repli `latest`
   du modèle n'est pas une livraison reproductible. Conserver les références des cinq dépôts.
@@ -178,22 +178,17 @@ Références : [Déploiement S3](docs/container-deployment.md#certificats-et-sto
 
 ## PROD-05 — Modération et traitement humain
 
-- [ ] Construire et démarrer le service de modération photo prévu par la pile, vérifier son warmup
-  et la correspondance entre `PHOTO_MODERATION_TOKEN` et son `MODERATION_TOKEN`.
-- [ ] Valider des photos fictives représentatives : approbation, mise en revue, format invalide,
-  timeout et indisponibilité de l'analyse.
-- [ ] Vérifier que les contenus non approuvés restent masqués et qu'une panne laisse la photo en
-  attente de revue conformément au contrat.
+- [ ] Vérifier qu’un upload photo valide devient immédiatement disponible, sans service d’analyse.
+- [ ] Vérifier le retrait manuel d’une photo, la suppression de l’objet et le respect du consentement mutuel.
 - [ ] Vérifier dans le dashboard le détail justifié, les URL courtes, les décisions avec version
   optimiste, les conflits et l'audit des consultations/décisions.
 - [ ] Définir les responsables, délais, motifs, explications aux utilisateurs et canal de recours ;
   mettre en place le traitement réellement prévu au lancement.
 
-**Clôture :** l'analyse automatique et la revue humaine sont utilisables ; une demande ou un recours
+**Clôture :** la modération des textes et la revue humaine des photos sont utilisables ; une demande ou un recours
 possède un responsable et un parcours de traitement documenté.
 
-Références : [Service photo](services/photo-moderation/README.md),
-[Contrat](docs/http-contract.md#catalogue-et-moderation), [Dashboard](../histae-dashboard/roadmap.md).
+Références : [Contrat](docs/http-contract.md#catalogue-et-moderation), [Dashboard](../histae-dashboard/roadmap.md).
 
 ## PROD-06 — Domaines, HTTPS et tunnel
 

@@ -9,8 +9,8 @@ use unicode_normalization::UnicodeNormalization as _;
 use uuid::{Uuid, Variant};
 
 use super::domain::{
-    ModerationCase, ModerationContentType, ModerationDecision, ModerationDetail,
-    ModerationReviewInput, ModerationReviewResult, PageCursor, PhotoReviewChecks,
+    ModerationCase, ModerationContentType, ModerationDetail, ModerationReviewInput,
+    ModerationReviewResult, PageCursor,
 };
 use super::store::ModerationStore;
 use crate::identity::admin_role::AdminRole;
@@ -136,7 +136,7 @@ impl ModerationService {
         admin_id: Uuid,
         admin_role: AdminRole,
     ) -> Result<(), ModerationError> {
-        if input.version < 1 || !coherent_photo_checks(input.decision, input.photo_checks) {
+        if input.version < 1 {
             return Err(ModerationError::InvalidRequest);
         }
         input.reason = normalize_moderation_reason(
@@ -152,20 +152,6 @@ impl ModerationService {
             ModerationReviewResult::Stale => Err(ModerationError::Stale),
             ModerationReviewResult::NotActionable => Err(ModerationError::ReviewNotAllowed),
         }
-    }
-}
-
-pub fn coherent_photo_checks(
-    decision: ModerationDecision,
-    checks: Option<PhotoReviewChecks>,
-) -> bool {
-    let Some(checks) = checks else {
-        return true;
-    };
-    let all = checks.face_detectable && checks.sharp_enough && checks.content_allowed;
-    match decision {
-        ModerationDecision::Approved => all,
-        ModerationDecision::Rejected => !all,
     }
 }
 
@@ -248,35 +234,6 @@ mod tests {
     use crate::moderation::domain::{ModerationRow, wire_timestamp};
     use crate::moderation::store::{ModerationStore, ModerationStoreFuture};
     use crate::profiles::domain::ModerationReason;
-
-    #[test]
-    fn enforces_the_three_photo_checks() {
-        let all_true = PhotoReviewChecks {
-            face_detectable: true,
-            sharp_enough: true,
-            content_allowed: true,
-        };
-        let one_false = PhotoReviewChecks {
-            sharp_enough: false,
-            ..all_true
-        };
-        assert!(coherent_photo_checks(
-            ModerationDecision::Approved,
-            Some(all_true)
-        ));
-        assert!(!coherent_photo_checks(
-            ModerationDecision::Approved,
-            Some(one_false)
-        ));
-        assert!(!coherent_photo_checks(
-            ModerationDecision::Rejected,
-            Some(all_true)
-        ));
-        assert!(coherent_photo_checks(
-            ModerationDecision::Rejected,
-            Some(one_false)
-        ));
-    }
 
     #[test]
     fn normalizes_and_bounds_audit_reasons() {
@@ -377,15 +334,10 @@ mod tests {
             firstname: Some("Alice".to_owned()),
             content_type: ModerationContentType::Photo,
             status: ModerationStatus::Pending,
-            reason_codes: vec![ModerationReason::Blurry],
-            policy_version: "local_vision_v1".to_owned(),
+            reason_codes: vec![ModerationReason::LegacyUnreviewed],
+            policy_version: "manual_photo_v1".to_owned(),
             version: 1,
-            face_count: Some(1),
-            sharpness_score: Some(40.0),
-            nsfw_score: Some(0.1),
-            face_detectable: None,
-            sharp_enough: None,
-            content_allowed: None,
+
             review_reason: None,
             reviewed_at: None,
             reviewed_by: None,

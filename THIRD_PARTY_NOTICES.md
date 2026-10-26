@@ -22,12 +22,6 @@ each image and retain their license texts. Corresponding source, modification an
 relinking obligations must be evaluated for the chosen licenses and distribution.
 Their licenses cannot be replaced with Histae's reuse restrictions.
 
-The four pinned Python requirements for photo moderation are included, but their full
-transitive dependency tree is not locked or inventoried here. The license of a Python
-wrapper does not establish the license of ONNX model weights: record the model source,
-version, hash and applicable weight/data license before distributing the artifact.
-No model-weight permission is asserted by this report.
-
 Container images are separate third-party software, not proprietary Histae code.
 The configured Redis 7.4.2 line uses RSALv2 or SSPLv1; do not describe it as BSD-licensed or
 apply the Redis 8 license choices to it. Grafana 13.2.1 uses AGPLv3. PostGIS 3.6.4 has GPL
@@ -43,15 +37,14 @@ References: [Redis licensing](https://redis.io/legal/licenses/),
 
 ## Recorded package metadata
 
-469 package-version entries are recorded in [THIRD_PARTY_LICENSES.json](THIRD_PARTY_LICENSES.json). These counts include build/test and optional packages and may repeat a package across nested tools. They do not describe the contents of a production artifact.
+465 package-version entries are recorded in [THIRD_PARTY_LICENSES.json](THIRD_PARTY_LICENSES.json). These counts include build/test and optional packages and may repeat a package across nested tools. They do not describe the contents of a production artifact.
 
 | Declared license expression | Entries |
 | --- | ---: |
 | `(Apache-2.0 OR MIT) AND BSD-3-Clause` | 1 |
 | `(MIT OR Apache-2.0) AND Unicode-3.0` | 1 |
 | `0BSD` | 1 |
-| `Apache 2.0` | 1 |
-| `Apache-2.0` | 24 |
+| `Apache-2.0` | 23 |
 | `Apache-2.0 AND ISC` | 1 |
 | `Apache-2.0 AND LGPL-3.0-or-later` | 3 |
 | `Apache-2.0 AND LGPL-3.0-or-later AND MIT` | 1 |
@@ -63,7 +56,7 @@ References: [Redis licensing](https://redis.io/legal/licenses/),
 | `Apache-2.0/MIT` | 1 |
 | `BSD-2-Clause` | 1 |
 | `BSD-2-Clause OR Apache-2.0 OR MIT` | 2 |
-| `BSD-3-Clause` | 4 |
+| `BSD-3-Clause` | 3 |
 | `CC0-1.0 OR MIT-0 OR Apache-2.0` | 1 |
 | `CDLA-Permissive-2.0` | 3 |
 | `ISC` | 7 |
@@ -71,7 +64,7 @@ References: [Redis licensing](https://redis.io/legal/licenses/),
 | `ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0)` | 1 |
 | `LGPL-3.0` | 1 |
 | `LGPL-3.0-or-later` | 10 |
-| `MIT` | 111 |
+| `MIT` | 110 |
 | `MIT AND BSD-3-Clause` | 1 |
 | `MIT OR Apache-2.0` | 205 |
 | `MIT OR Apache-2.0 OR LGPL-2.1-or-later` | 2 |
@@ -95,6 +88,6 @@ subject to its terms. Unusual or custom expressions need the corresponding upstr
 
 Before a release, review the actual dependency versions and shipped platform artifacts,
 collect their full required texts and document any modifications. Base-image packages,
-external service contracts, model weights and unpinned Python transitive packages have not
+external service contracts and complete container dependency trees have not
 received a complete artifact-level review. No compatibility, ownership or legal-compliance
 certification is asserted. This report does not revoke any earlier valid license grant.

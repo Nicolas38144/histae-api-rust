@@ -111,9 +111,8 @@ async fn approved_photo(database: &Database, user_id: Uuid) -> Result<String, Da
     .map_err(map_sqlx_error)?;
     sqlx::query(
         "INSERT INTO content_moderation_case
-           (id, user_id, content_type, photo_id, status, policy_version,
-            face_detectable, sharp_enough, content_allowed)
-         VALUES ($1, $2, 'photo', $3, 'approved', 's17-test', true, true, true)",
+           (id, user_id, content_type, photo_id, status, policy_version)
+         VALUES ($1, $2, 'photo', $3, 'approved', 's17-test')",
     )
     .bind(Uuid::new_v4())
     .bind(user_id)

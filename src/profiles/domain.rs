@@ -164,11 +164,6 @@ pub enum ModerationReason {
     Insult,
     PersonalContact,
     SexualContent,
-    FaceNotDetected,
-    MultipleFaces,
-    Blurry,
-    ExplicitImage,
-    AnalysisUnavailable,
     LegacyUnreviewed,
 }
 
@@ -179,11 +174,6 @@ impl ModerationReason {
             Self::Insult => "insult",
             Self::PersonalContact => "personal_contact",
             Self::SexualContent => "sexual_content",
-            Self::FaceNotDetected => "face_not_detected",
-            Self::MultipleFaces => "multiple_faces",
-            Self::Blurry => "blurry",
-            Self::ExplicitImage => "explicit_image",
-            Self::AnalysisUnavailable => "analysis_unavailable",
             Self::LegacyUnreviewed => "legacy_unreviewed",
         }
     }
@@ -194,11 +184,6 @@ impl ModerationReason {
             "insult" => Some(Self::Insult),
             "personal_contact" => Some(Self::PersonalContact),
             "sexual_content" => Some(Self::SexualContent),
-            "face_not_detected" => Some(Self::FaceNotDetected),
-            "multiple_faces" => Some(Self::MultipleFaces),
-            "blurry" => Some(Self::Blurry),
-            "explicit_image" => Some(Self::ExplicitImage),
-            "analysis_unavailable" => Some(Self::AnalysisUnavailable),
             "legacy_unreviewed" => Some(Self::LegacyUnreviewed),
             _ => None,
         }

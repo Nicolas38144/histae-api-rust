@@ -18,7 +18,6 @@ use crate::infra::postgres_locks::{AccountActivityError, AccountActivityPool, Ac
 use crate::media::codec::{
     InvalidPhotoReason, PhotoCodec, PhotoCodecError, ProcessedPhoto, UploadedPhoto,
 };
-use crate::moderation::photo::PhotoModerator;
 use crate::outbox::types::{DispatchFailure, DispatchOutcome, OutboxEvent};
 use crate::outbox::worker::{DispatchFuture, OutboxHandler};
 use crate::profiles::service::{ProfilePhotoUrlFuture, ProfilePhotoUrlProvider};
@@ -76,7 +75,6 @@ pub struct PhotoService {
     store: Arc<dyn PhotoStore>,
     processor: Arc<dyn PhotoProcessor>,
     storage: Arc<dyn PhotoObjectStorage>,
-    moderation: Arc<dyn PhotoModerator>,
     activity: AccountActivityPool,
     clock: Arc<dyn Clock>,
 }
@@ -86,7 +84,6 @@ impl PhotoService {
         store: Arc<dyn PhotoStore>,
         processor: Arc<dyn PhotoProcessor>,
         storage: Arc<dyn PhotoObjectStorage>,
-        moderation: Arc<dyn PhotoModerator>,
         activity: AccountActivityPool,
         clock: Arc<dyn Clock>,
     ) -> Self {
@@ -94,7 +91,6 @@ impl PhotoService {
             store,
             processor,
             storage,
-            moderation,
             activity,
             clock,
         }
@@ -172,7 +168,6 @@ impl PhotoService {
                 });
             }
         };
-        let moderation = self.moderation.analyze(&processed.body).await;
         if !self
             .store
             .record_processed(photo_id, user_id, &processed)
@@ -196,17 +191,13 @@ impl PhotoService {
             tracing::warn!(event_code = "photo_storage_failed", operation = "upload");
             return Err(PhotoError::StorageUnavailable);
         }
-        if !self
-            .store
-            .activate(photo_id, user_id, moderation.clone())
-            .await?
-        {
+        if !self.store.activate(photo_id, user_id).await? {
             return Err(PhotoError::UpdateConflict);
         }
         Ok(UploadResult {
             photo: self.sign(&object_key).await?,
-            moderation_status: moderation.status,
-            moderation_reasons: moderation.reasons,
+            moderation_status: crate::profiles::domain::ModerationStatus::Approved,
+            moderation_reasons: Vec::new(),
         })
     }
 

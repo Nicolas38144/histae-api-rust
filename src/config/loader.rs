@@ -201,44 +201,6 @@ impl AppConfig {
             )?,
         };
 
-        let photo_provider = match source.or("PHOTO_MODERATION_PROVIDER", "disabled")?.as_str() {
-            "disabled" => PhotoModerationProvider::Disabled,
-            "local_http" => PhotoModerationProvider::LocalHttp,
-            _ => return Err(ConfigError::invalid("PHOTO_MODERATION_PROVIDER")),
-        };
-        let photo_token = source.or("PHOTO_MODERATION_TOKEN", "")?;
-        if photo_provider == PhotoModerationProvider::LocalHttp && photo_token.len() < 32 {
-            return Err(ConfigError::invalid("PHOTO_MODERATION_TOKEN"));
-        }
-        let photo_timeout = duration(
-            &source.or("PHOTO_MODERATION_TIMEOUT", "5s")?,
-            "PHOTO_MODERATION_TIMEOUT",
-        )?;
-        if photo_timeout > Duration::from_secs(30) {
-            return Err(ConfigError::invalid("PHOTO_MODERATION_TIMEOUT"));
-        }
-        let photo_moderation = PhotoModerationConfig {
-            provider: photo_provider,
-            endpoint: http_origin(
-                &source.or("PHOTO_MODERATION_ENDPOINT", "http://127.0.0.1:8090")?,
-                "PHOTO_MODERATION_ENDPOINT",
-            )?,
-            token: SecretString::new(photo_token),
-            timeout: photo_timeout,
-            min_sharpness_score: number(
-                &source.or("PHOTO_MODERATION_MIN_SHARPNESS", "80")?,
-                "PHOTO_MODERATION_MIN_SHARPNESS",
-                0.0,
-                1_000_000.0,
-            )?,
-            nsfw_review_threshold: number(
-                &source.or("PHOTO_MODERATION_NSFW_REVIEW_THRESHOLD", "0.7")?,
-                "PHOTO_MODERATION_NSFW_REVIEW_THRESHOLD",
-                0.0,
-                1.0,
-            )?,
-        };
-
         let access_ttl = duration(&source.or("JWT_ACCESS_TTL", "15m")?, "JWT_ACCESS_TTL")?;
         ensure_duration(
             access_ttl,
@@ -511,7 +473,6 @@ impl AppConfig {
             "POSTGRES_PASSWORD",
             "REDIS_PASSWORD",
             "OBJECT_STORAGE_SECRET_KEY",
-            "PHOTO_MODERATION_TOKEN",
             "SWEEGO_API_KEY",
             "SWEEGO_WEBHOOK_SECRET",
             "FIREBASE_PRIVATE_KEY",
@@ -700,7 +661,6 @@ impl AppConfig {
             web_billing,
             advertising,
             object_storage,
-            photo_moderation,
             admin_auth,
             legal,
             legal_translations,

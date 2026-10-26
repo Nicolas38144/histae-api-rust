@@ -24,7 +24,6 @@ x-development-environment: &development-environment
   REDIS_PASSWORD: ""
   REDIS_TLS: "false"
   OBJECT_STORAGE_ENDPOINT: http://storage.histae.localhost:8333
-  PHOTO_MODERATION_ENDPOINT: http://photo-moderation:8080
   METRICS_HOST: 0.0.0.0
   METRICS_PORT: "9091"
   METRICS_ENABLED: "true"
@@ -58,7 +57,6 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       object-storage: { condition: service_healthy }
-      photo-moderation: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
   outbox-worker:
@@ -69,7 +67,6 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       object-storage: { condition: service_healthy }
-      photo-moderation: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
   maintenance:
@@ -80,7 +77,6 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       object-storage: { condition: service_healthy }
-      photo-moderation: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
   postgres:
@@ -186,32 +182,6 @@ services:
       backend:
         aliases:
           - storage.histae.localhost
-
-  photo-moderation:
-    build:
-      context: ./services/photo-moderation
-    logging: *infrastructure-logging
-    environment:
-      MODERATION_TOKEN: ${PHOTO_MODERATION_TOKEN:?Define PHOTO_MODERATION_TOKEN in .env}
-    ports:
-      - 127.0.0.1:8090:8080
-    healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 90s
-      start_interval: 2s
-    restart: unless-stopped
-    stop_grace_period: 30s
-    read_only: true
-    tmpfs:
-      - /tmp:size=64m,mode=1777
-    pids_limit: 128
-    mem_limit: 2g
-    cpus: 2.0
-    networks:
-      - backend
 
   prometheus:
     extends: { file: docker-compose.observability.yml, service: prometheus }

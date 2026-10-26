@@ -13,7 +13,7 @@ pour chaque nouveau commit, changement de secrets ou de serveur.
 | Environnement | `.env` choisi pour interpolation et injection ; `ENV=production`, secrets distincts | [Configuration](configuration.md) |
 | PostgreSQL | TLS VerifyFull, rôles admin/migration/application séparés, migrations réussies, index valides et capacité adaptée | [Rôles](postgres-roles.md), [Base de données](database.md), [SQL](sql-performance.md) |
 | Redis | TLS, mot de passe, quotas distribués et comportement en cas de panne vérifiés | [Configuration](configuration.md) |
-| Photos | Bucket privé persistant, endpoint HTTPS signé accessible aux clients, analyse et revue admin utilisables | [Docker](container-deployment.md#certificats-et-stockage), [Contrat](http-contract.md#photo-unique) |
+| Photos | Bucket privé persistant, endpoint HTTPS signé accessible aux clients, upload sans analyse automatique et revue manuelle admin utilisables | [Docker](container-deployment.md#certificats-et-stockage), [Contrat](http-contract.md#photo-unique) |
 | Proxy | Réseaux corrects, liste précise des proxys approuvés et IP visiteur vérifiée de bout en bout | [Docker](container-deployment.md#developpement-derriere-cloudflare-et-le-reverse-proxy) |
 | Administration | Origine/RP ID réels, premier superadmin, passkey de secours et cookie HTTPS conformes | [Administration](administration.md) |
 | Maintenance | Worker permanent, ordonnanceur actif, progression observée et absence de retard inexpliqué | [Exploitation](operations.md) |

@@ -38,7 +38,6 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Résultats de charge locaux](load-testing-results.md) : mesures du 11–12 octobre 2026 et diagnostic du feed.
 - [Architecture](architecture.md) : responsabilités du code et cycles de vie.
 - [Tests](../tests/README.md) : commandes, infrastructure et limites des preuves.
-- [Modération photo interne](../services/photo-moderation/README.md) : protocole du service Python.
 - [Migration Caddy](caddy-migration.md) : serveurs statiques, tunnel, passerelle S3 et validation.
 - [Mise en production](production-readiness.md) : validations sur la livraison réelle.
 - [Feuille de route production](../roadmap-production.md) : blocages, dépendances et critères de clôture avant ouverture.

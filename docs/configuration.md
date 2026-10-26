@@ -78,9 +78,6 @@ REDIS_TLS=false
 SMS_PROVIDER=disabled
 BILLING_PROVIDER=disabled
 PUSH_PROVIDER=disabled
-PHOTO_MODERATION_PROVIDER=local_http
-PHOTO_MODERATION_ENDPOINT=http://127.0.0.1:8090
-PHOTO_MODERATION_TOKEN=REPLACE_PHOTO_TOKEN
 OBJECT_STORAGE_ENDPOINT=http://storage.histae.localhost:8333
 OBJECT_STORAGE_ACCESS_KEY=histae-dev
 OBJECT_STORAGE_SECRET_KEY=histae-dev-secret-change-me
@@ -113,7 +110,6 @@ URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
 | Timeouts SQL | `POSTGRES_CONNECT_TIMEOUT`, `POSTGRES_IDLE_TIMEOUT`, `POSTGRES_STATEMENT_TIMEOUT`, `POSTGRES_IDLE_TRANSACTION_TIMEOUT` | Défauts : `5s`, `30s`, `15s`, `30s`. |
 | Redis | `RATE_LIMIT_STORE`, `REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB`, `REDIS_TLS`, `REDIS_CONNECT_TIMEOUT`, `REDIS_COMMAND_TIMEOUT` | Production : store Redis, TLS et mot de passe. Adresse `hôte:port`, sans schéma. |
 | S3 | `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_REGION`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY`, `OBJECT_STORAGE_SECRET_KEY`, `OBJECT_STORAGE_FORCE_PATH_STYLE` | HTTPS et clés explicites en production ; nom accessible aux serveurs et clients pour les URLs signées. |
-| Photos | `PHOTO_MODERATION_PROVIDER`, `PHOTO_MODERATION_ENDPOINT`, `PHOTO_MODERATION_TOKEN`, `PHOTO_MODERATION_TIMEOUT`, `PHOTO_MODERATION_MIN_SHARPNESS`, `PHOTO_MODERATION_NSFW_REVIEW_THRESHOLD` | `disabled` ou `local_http` ; token d’au moins 32 octets avec `local_http`. |
 | OTP | `SMS_PROVIDER`, `SWEEGO_API_KEY`, `SWEEGO_SMS_SENDER_ID`, `SWEEGO_SMS_REGION`, `SWEEGO_API_URL`, `SWEEGO_TIMEOUT`, `OTP_TTL`, `OTP_RESEND_COOLDOWN`, `SWEEGO_WEBHOOK_SECRET` | Sweego obligatoire en production ; région `FR`. Renvoi : 60 s par défaut, entre 60 et 300 s et au plus `OTP_TTL`. Le worker outbox nécessite les mêmes clés téléphone/Sweego que l’API. Secret de webhook fourni par Sweego, distinct de la clé API. |
 | Stripe | `BILLING_PROVIDER`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PREMIUM_MONTHLY_PRICE_ID`, `STRIPE_PREMIUM_ANNUAL_PRICE_ID` | Clés `sk_test_…` en développement, `sk_live_…` en production ; deux identifiants de prix `price_…` distincts. |
 | Redirections Stripe | `STRIPE_CHECKOUT_SUCCESS_URL`, `STRIPE_CHECKOUT_CANCEL_URL`, `STRIPE_PORTAL_RETURN_URL` | HTTPS ; succès contient `{CHECKOUT_SESSION_ID}`. Entrées `/billing/{success,cancel,return}` sur `www.histae.com`, puis langue du navigateur : [configuration et retour dans l'app](billing.md#retours-stripe-sur-le-site-vitrine). |
@@ -213,7 +209,7 @@ En production Docker, le certificat est monté à `/run/secrets/postgres_ca`.
 
 ### Variables réservées à Compose
 
-`HISTAE_API_IMAGE`, `HISTAE_API_POSTGRES_POOL_MAX`, `HISTAE_POSTGRES_IMAGE`, `HISTAE_PHOTO_MODERATION_IMAGE`, `HISTAE_ENV_FILE`, `HISTAE_API_BIND_IP`,
+`HISTAE_API_IMAGE`, `HISTAE_API_POSTGRES_POOL_MAX`, `HISTAE_POSTGRES_IMAGE`, `HISTAE_ENV_FILE`, `HISTAE_API_BIND_IP`,
 `HISTAE_API_HOST_PORT`, `HISTAE_API_DNS_SERVER`, `HISTAE_BACKEND_NETWORK`, `HISTAE_EDGE_NETWORK` et
 `HISTAE_STORAGE_HOST` pilotent l’orchestration. Les overrides sont décrits dans [Déploiement](container-deployment.md).
 
@@ -263,3 +259,13 @@ Voir [Internationalisation](internationalization.md) pour la préférence du com
 
 Voir [la liste des nouvelles variables, leurs valeurs par défaut et leur activation](store-billing.md#configuration-et-activation).
 Les secrets Apple/Google sont réservés au service privé ; Stripe reste nécessaire au site.
+
+### Retrait du vérificateur photo
+
+Le service d’analyse photo a été supprimé. Retirer des `.env` :
+`PHOTO_MODERATION_PROVIDER`, `PHOTO_MODERATION_ENDPOINT`, `PHOTO_MODERATION_TOKEN`,
+`PHOTO_MODERATION_TIMEOUT`, `PHOTO_MODERATION_MIN_SHARPNESS`,
+`PHOTO_MODERATION_NSFW_REVIEW_THRESHOLD`, `HISTAE_PHOTO_MODERATION_IMAGE`.
+Aucune variable dashboard ne le remplace. Les photos sont immédiatement disponibles après upload ;
+leur contenu peut être modéré manuellement. La conversion WebP et le stockage privé restent utilisés.
+Le reset API utilise `--remove-orphans` pour retirer l’ancien conteneur. Pour un démarrage Compose manuel, ajouter cette option.

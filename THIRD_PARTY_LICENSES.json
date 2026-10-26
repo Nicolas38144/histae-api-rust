@@ -4,8 +4,7 @@
   "scope": "Declared licenses of resolved packages, including build/test and optional platforms; not a release SBOM or full license-text bundle.",
   "limitations": [
     "Registry metadata and local license inspection are not a certification of compliance.",
-    "Native SDKs, complete container contents, model weights and historical grants require separate review.",
-    "Python inventory covers direct pinned requirements only."
+    "Native SDKs, complete container contents, model weights and historical grants require separate review."
   ],
   "packages": [
     {
@@ -2569,38 +2568,6 @@
       "license": "MIT",
       "ecosystem": "Cargo",
       "metadata_source": "https://crates.io/api/v1/crates/zmij/1.0.23"
-    },
-    {
-      "name": "fastapi",
-      "version": "0.141.1",
-      "license": "MIT",
-      "ecosystem": "PyPI",
-      "metadata_source": "https://pypi.org/pypi/fastapi/0.141.1/json",
-      "scope": "services/photo-moderation"
-    },
-    {
-      "name": "opencv-python-headless",
-      "version": "4.14.0.94",
-      "license": "Apache 2.0",
-      "ecosystem": "PyPI",
-      "metadata_source": "https://pypi.org/pypi/opencv-python-headless/4.14.0.94/json",
-      "scope": "services/photo-moderation"
-    },
-    {
-      "name": "opennsfw-onnx",
-      "version": "0.1.0",
-      "license": "Apache-2.0",
-      "ecosystem": "PyPI",
-      "metadata_source": "https://pypi.org/pypi/opennsfw-onnx/0.1.0/json",
-      "scope": "services/photo-moderation"
-    },
-    {
-      "name": "uvicorn",
-      "version": "0.52.4",
-      "license": "BSD-3-Clause",
-      "ecosystem": "PyPI",
-      "metadata_source": "https://pypi.org/pypi/uvicorn/0.52.4/json",
-      "scope": "services/photo-moderation"
     },
     {
       "name": "@apple/app-store-server-library",

@@ -157,11 +157,15 @@ async fn ready_user(
     .map_err(map_sqlx_error)?;
     sqlx::query(
         "INSERT INTO content_moderation_case
-         (id,user_id,content_type,photo_id,status,policy_version,face_detectable,sharp_enough,content_allowed)
-         VALUES ($1,$2,'photo',$3,'approved','photo-discovery-test',true,true,true)",
+         (id,user_id,content_type,photo_id,status,policy_version)
+         VALUES ($1,$2,'photo',$3,'approved','photo-discovery-test')",
     )
-    .bind(Uuid::new_v4()).bind(user_id).bind(photo_id)
-    .execute(&mut *connection).await.map_err(map_sqlx_error)?;
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(photo_id)
+    .execute(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
     for consent_type in ["sensitive_data_consent", "location_consent"] {
         sqlx::query(
             "INSERT INTO user_consent (user_id, consent_type, granted, document_version)

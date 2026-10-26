@@ -61,7 +61,6 @@ use crate::media::storage::PhotoObjectStorage;
 use crate::media::store::PhotoStore;
 use crate::moderation::http::{ModerationHttpState, routes as moderation_routes};
 use crate::moderation::pg::PgModerationRepository;
-use crate::moderation::photo::{HttpPhotoModerator, PhotoModerator};
 use crate::moderation::service::{ModerationPhotoUrlProvider, ModerationService};
 use crate::notifications::delivery::MobileDeliveryService;
 use crate::notifications::devices::DeviceService;
@@ -173,15 +172,10 @@ impl ApiResources {
         ));
         let photo_store: Arc<dyn PhotoStore> = photo_repository;
         let processor: Arc<dyn PhotoProcessor> = Arc::new(PhotoCodec::for_runtime());
-        let photo_moderator: Arc<dyn PhotoModerator> = Arc::new(
-            HttpPhotoModerator::new(&config.photo_moderation)
-                .map_err(|_| "photo_moderation_invalid_configuration")?,
-        );
         let photo_service = PhotoService::new(
             photo_store,
             processor,
             Arc::clone(&storage),
-            photo_moderator,
             self.activity.clone(),
             Arc::clone(&clock),
         );

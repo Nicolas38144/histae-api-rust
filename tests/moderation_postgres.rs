@@ -13,7 +13,7 @@ use histae_api_rust::config::{PostgresConfig, SecretString};
 use histae_api_rust::identity::admin_role::AdminRole;
 use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use histae_api_rust::moderation::domain::{
-    ModerationDecision, ModerationReviewInput, ModerationReviewResult, PhotoReviewChecks,
+    ModerationDecision, ModerationReviewInput, ModerationReviewResult,
 };
 use histae_api_rust::moderation::pg::PgModerationRepository;
 use histae_api_rust::moderation::store::ModerationStore;
@@ -273,10 +273,8 @@ async fn review_and_reconciliation_preserve_locks_audits_and_outbox_atomicity()
     .await?;
     sqlx::query(
         "INSERT INTO content_moderation_case
-         (id, user_id, content_type, photo_id, status, reason_codes, policy_version,
-          face_count, sharpness_score, nsfw_score)
-         VALUES ($1, $2, 'photo', $3, 'pending', ARRAY['blurry']::text[],
-                 'local_vision_v1', 1, 40, 0.1)",
+         (id, user_id, content_type, photo_id, status, reason_codes, policy_version)
+         VALUES ($1, $2, 'photo', $3, 'approved', ARRAY[]::text[], 'manual_photo_v1')",
     )
     .bind(case_id)
     .bind(user_id)
@@ -315,11 +313,6 @@ async fn review_and_reconciliation_preserve_locks_audits_and_outbox_atomicity()
                     version: 2,
                     decision: ModerationDecision::Rejected,
                     reason: "Photo floue".to_owned(),
-                    photo_checks: Some(PhotoReviewChecks {
-                        face_detectable: true,
-                        sharp_enough: false,
-                        content_allowed: true,
-                    }),
                 },
                 admin_id,
                 AdminRole::Admin,
@@ -335,11 +328,6 @@ async fn review_and_reconciliation_preserve_locks_audits_and_outbox_atomicity()
                     version: 1,
                     decision: ModerationDecision::Rejected,
                     reason: "Photo floue".to_owned(),
-                    photo_checks: Some(PhotoReviewChecks {
-                        face_detectable: true,
-                        sharp_enough: false,
-                        content_allowed: true,
-                    }),
                 },
                 admin_id,
                 AdminRole::Admin,

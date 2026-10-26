@@ -3421,14 +3421,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"version\": 1,\n  \"decision\": \"approved\",\n  \"reason\": \"Contenu vérifié manuellement\",\n  \"photo_checks\": {\n    \"face_detectable\": true,\n    \"sharp_enough\": true,\n    \"content_allowed\": true\n  }\n}",
+                  "raw": "{\n  \"version\": 1,\n  \"decision\": \"approved\",\n  \"reason\": \"Contenu vérifié manuellement\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ version, decision, reason?, photo_checks? } → 200 { message: \"content moderation decision recorded\" }. Motif requis pour un admin, facultatif pour le superadmin.\n\nUtiliser la version courante issue du détail. photo_checks est requis pour une photo ; supprimer ce champ pour une bio ou une réponse."
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ version, decision, reason? } → 200 { message: \"content moderation decision recorded\" }. Motif requis pour un admin, facultatif pour le superadmin.\n\nUtiliser la version courante issue du détail. La revue photo utilise les mêmes champs de décision et de motif que les autres contenus."
               },
               "response": []
             }

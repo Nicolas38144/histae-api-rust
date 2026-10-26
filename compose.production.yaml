@@ -1,5 +1,5 @@
 # À combiner uniquement avec compose.yaml. Image compilée, sans montage des sources.
-# Pile initiale sur un serveur de 16 Gio : PostgreSQL à 7 Gio, Redis, S3 et modération.
+# Pile initiale sur un serveur de 16 Gio : PostgreSQL à 7 Gio, Redis et S3.
 # Certificat serveur et CA à préparer selon docs/container-deployment.md.
 name: histae-api-production
 
@@ -21,8 +21,6 @@ x-production-database-environment: &production-database-environment
   REDIS_ADDR: redis:6379
   REDIS_TLS: "true"
   OBJECT_STORAGE_ENDPOINT: https://${HISTAE_STORAGE_HOST:?Define the public S3 hostname in HISTAE_STORAGE_HOST}
-  PHOTO_MODERATION_PROVIDER: local_http
-  PHOTO_MODERATION_ENDPOINT: http://photo-moderation:8080
 
 x-production-logging: &production-logging
   driver: json-file
@@ -37,8 +35,6 @@ x-production-dependencies: &production-dependencies
     condition: service_healthy
   storage-init:
     condition: service_completed_successfully
-  photo-moderation:
-    condition: service_healthy
 
 services:
   store-verifier:
@@ -247,31 +243,6 @@ services:
     depends_on:
       storage-gateway:
         condition: service_healthy
-
-  photo-moderation:
-    image: ${HISTAE_PHOTO_MODERATION_IMAGE:-histae-photo-moderation:local}
-    build:
-      context: ./services/photo-moderation
-    environment:
-      MODERATION_TOKEN: ${PHOTO_MODERATION_TOKEN:?Define PHOTO_MODERATION_TOKEN}
-    init: true
-    read_only: true
-    tmpfs: ["/tmp:size=32m,noexec,nosuid,nodev"]
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).read()"]
-      interval: 15s
-      timeout: 3s
-      retries: 5
-      start_period: 45s
-      start_interval: 2s
-    restart: unless-stopped
-    mem_limit: 384m
-    cpus: 1.0
-    pids_limit: 128
-    logging: *production-logging
-    networks: [backend]
 
   migrate:
     env_file: !override ["${HISTAE_ENV_FILE:-.env}"]

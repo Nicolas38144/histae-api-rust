@@ -80,6 +80,7 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
+    retire_photo_verifier(&mut transaction).await?;
     let precise_presence: bool = sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user_presence' AND column_name = 'location_changed_at')")
         .fetch_one(&mut *transaction).await.map_err(map_sqlx_error)?;
     sqlx::query("ALTER TABLE user_presence ADD COLUMN IF NOT EXISTS location_changed_at timestamptz NOT NULL DEFAULT now()")
@@ -303,4 +304,39 @@ fn schema_section<'a>(source: &'a str, name: &str) -> Result<&'a str, DatabaseEr
         .nth(1)
         .and_then(|section| section.split(&format!("-- END {name}")).next())
         .ok_or(DatabaseError::SchemaObjectsMissing)
+}
+
+/// Remove automatic photo analysis once while retaining audited human decisions.
+async fn retire_photo_verifier(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
+    sqlx::raw_sql(r#"
+        ALTER TABLE content_moderation_case
+          DROP CONSTRAINT IF EXISTS chk_content_moderation_reason_codes;
+        UPDATE content_moderation_case
+        SET status='approved', reason_codes=ARRAY[]::text[], policy_version='manual_photo_v1',
+            version=version+1, updated_at=clock_timestamp()
+        WHERE content_type='photo' AND status='pending'
+          AND reviewed_at IS NULL AND reviewed_by IS NULL
+          AND policy_version IN ('local_vision_v1', 'legacy_unreviewed');
+        UPDATE content_moderation_case AS moderation
+        SET reason_codes=ARRAY(SELECT code FROM unnest(moderation.reason_codes) AS code
+              WHERE code NOT IN ('face_not_detected','multiple_faces','blurry','explicit_image','analysis_unavailable')),
+            version=version+1, updated_at=clock_timestamp()
+        WHERE reason_codes && ARRAY['face_not_detected','multiple_faces','blurry','explicit_image','analysis_unavailable'];
+        INSERT INTO content_moderation_case (user_id,content_type,photo_id,status,reason_codes,policy_version)
+        SELECT photo.user_id,'photo',photo.id,'approved',ARRAY[]::text[],'manual_photo_v1'
+        FROM user_photo AS photo
+        WHERE photo.status='ready' AND NOT EXISTS (
+          SELECT 1 FROM content_moderation_case AS moderation WHERE moderation.photo_id=photo.id);
+        ALTER TABLE content_moderation_case
+          ADD CONSTRAINT chk_content_moderation_reason_codes CHECK
+            (reason_codes <@ ARRAY['spam','insult','personal_contact','sexual_content','legacy_unreviewed']::text[]),
+          DROP CONSTRAINT IF EXISTS chk_content_moderation_photo_checks,
+          DROP COLUMN IF EXISTS face_count,
+          DROP COLUMN IF EXISTS sharpness_score,
+          DROP COLUMN IF EXISTS nsfw_score,
+          DROP COLUMN IF EXISTS face_detectable,
+          DROP COLUMN IF EXISTS sharp_enough,
+          DROP COLUMN IF EXISTS content_allowed;
+    "#).execute(connection).await.map_err(map_sqlx_error)?;
+    Ok(())
 }

@@ -388,3 +388,22 @@ ses transactions réelles avec des fournisseurs simulés. Les credentials/produi
 réconciliation fournisseur, essais sur appareils et déploiement derrière Cloudflare restent à valider.
 Les fournisseurs natifs et `BILLING_ENABLED` mobile restent désactivés avant cette configuration.
 Les brouillons juridiques mis à jour exigent une validation avant publication.
+
+## Retrait du vérificateur photo (2026-10-26)
+
+Le service d’analyse et ses contrôles visage/netteté/NSFW sont retirés. Une photo est disponible
+dès l’upload ; la modération manuelle conserve ses droits, audit et contrôle de version.
+Les contrôles techniques du fichier et les règles d’accès privé restent vérifiés.
+
+Vérifications locales : 270 tests Rust unitaires/contrats/codec et 29 tests PostgreSQL réussis.
+La base temporaire simule les anciennes colonnes et décisions automatiques : migration vers les
+photos disponibles, conservation des décisions humaines et absence de changement à la réexécution.
+Le test média PostgreSQL valide activation, idempotence, remplacement et outbox sans appeler S3.
+La suite S3 réelle et le parcours sur un téléphone ne sont pas inclus dans cette vérification.
+
+```bash
+cargo build --locked --bin db-migrate
+python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
+  --test discovery_postgres --test matches_postgres --test moderation_postgres \
+  --test account_erasure_postgres --test media_integration
+```

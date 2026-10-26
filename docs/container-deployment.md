@@ -77,7 +77,6 @@ est automatique ; sur un volume existant, suivre la [procédure d’activation S
 | PostgreSQL | `127.0.0.1:5433` si `POSTGRES_PORT=5433` | `postgres:5432` |
 | Redis | `127.0.0.1:6379` | `redis:6379` |
 | S3 | `127.0.0.1:8333` | `storage.histae.localhost:8333` |
-| Modération | `127.0.0.1:8090` | `photo-moderation:8080` |
 | Métriques API | Aucun port hôte publié | `api:9091`, activées en dev |
 | Prometheus / Grafana / Alertmanager | Aucun port hôte publié | Réseaux privés, accès superadmin via Caddy |
 
@@ -186,7 +185,6 @@ ENV=production
 HISTAE_ENV_FILE=.env
 HISTAE_API_IMAGE=histae-api:REPLACE_RELEASE_TAG
 HISTAE_POSTGRES_IMAGE=histae-postgres:18.6-postgis3.6.4
-HISTAE_PHOTO_MODERATION_IMAGE=histae-photo-moderation:REPLACE_RELEASE_TAG
 HISTAE_BACKEND_NETWORK=histae-backend
 HISTAE_EDGE_NETWORK=histae-edge
 HISTAE_STORAGE_HOST=<domaine-public-s3>
@@ -298,7 +296,7 @@ Voir le [guide des scripts](../../histae-scripts/README.md) pour les modes et la
 ### Ressources
 
 La pile vise initialement un serveur de 16 Gio. Les plafonds permanents sont PostgreSQL 7 Gio, API 1 Gio,
-outbox 768 Mio, Redis 256 Mio, SeaweedFS 1 Gio, passerelle S3 128 Mio et modération 384 Mio.
+outbox 768 Mio, Redis 256 Mio, SeaweedFS 1 Gio, passerelle S3 128 Mio.
 La supervision ajoute 1,5 Gio ; maintenance/migration peuvent ajouter 1 Gio chacune et `storage-init` 256 Mio.
 Les plafonds ne réservent pas la RAM : prévoir aussi Linux, Docker, le tunnel, les builds et les sauvegardes.
 
@@ -316,9 +314,9 @@ Pour une pile déjà démarrée, sauvegarder puis sélectionner sa commande Comp
 ```bash
 COMPOSE=(sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml -f compose.proxy.yaml)
 "${COMPOSE[@]}" config --quiet
-"${COMPOSE[@]}" build api photo-moderation
+"${COMPOSE[@]}" build api
 "${COMPOSE[@]}" run --rm --no-deps migrate
-"${COMPOSE[@]}" up -d --no-deps --force-recreate --wait api outbox-worker photo-moderation
+"${COMPOSE[@]}" up -d --no-deps --force-recreate --wait api outbox-worker
 ```
 
 Sans proxy, retirer uniquement `-f compose.proxy.yaml`. En production, sélectionner

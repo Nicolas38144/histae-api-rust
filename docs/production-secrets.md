@@ -690,7 +690,6 @@ Dans le `.env` API, choisir des tags propres à la livraison qui sera construite
 
 ```dotenv
 HISTAE_API_IMAGE=histae-api:release-20261014
-HISTAE_PHOTO_MODERATION_IMAGE=histae-photo-moderation:release-20261014
 ```
 
 Le reset construit les images avec ces tags. Un tag date la livraison mais reste modifiable ;

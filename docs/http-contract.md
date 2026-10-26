@@ -302,8 +302,8 @@ Exemple de réponse (URL illustrative) :
 {
   "message": "photo updated",
   "photo": "https://storage.example.test/signed-photo.webp",
-  "moderation_status": "pending",
-  "moderation_reasons": ["analysis_unavailable"]
+  "moderation_status": "approved",
+  "moderation_reasons": []
 }
 ```
 
@@ -315,7 +315,7 @@ Exemple de réponse (URL illustrative) :
 
 Autres erreurs : `400 invalid_idempotency_key`, `400 invalid_photo`, `413 photo_too_large`, `404 profile_not_found`, `409 photo_update_conflict`, `429 photo_rate_limit_exceeded`, `503 photo_processing_unavailable`, `503 photo_storage_unavailable`.
 
-**Modération commune.** Statuts `pending | approved | rejected`. Motifs automatiques : `spam, insult, personal_contact, sexual_content, face_not_detected, multiple_faces, blurry, explicit_image, analysis_unavailable, legacy_unreviewed`. Une panne d’analyse entraîne une revue manuelle, jamais une approbation automatique. L’automatisation approuve ou demande une revue, sans rejeter seule. Dans le feed et les matchs, bio, réponses et photo non approuvées restent masquées ; le propriétaire garde la visibilité de son propre état.
+**Modération commune.** Les textes conservent leurs contrôles et motifs automatiques `spam, insult, personal_contact, sexual_content` ; `legacy_unreviewed` identifie un contenu historique. Les photos ne subissent aucune analyse automatique du visage, de la netteté ou du contenu : dès un upload valide, elles sont disponibles (`moderation_status: approved`, motifs vides). Ce statut ne certifie pas une inspection du contenu. La modération manuelle reste possible dans le dashboard ; un rejet retire la photo et programme sa suppression. Les statuts `pending | approved | rejected` restent communs aux contenus.
 
 ### Traits et questions de profil
 
@@ -613,13 +613,13 @@ français non supprimable. `name` / `prompt` reste la source française. Voir [l
 | DELETE | `/api/admin/profile-questions/:id` | UUID → `204`, supprime aussi toutes ses réponses. |
 | GET | `/api/admin/content-moderation` | `status?, content_type?, limit, cursor` (offset déprécié) → `200 { cases, next_cursor }`. |
 | GET | `/api/admin/content-moderation/:id` | UUID + query `reason?` → contenu audité. |
-| PATCH | `/api/admin/content-moderation/:id` | `{ version, decision, reason?, photo_checks? }` → `200 { message: "content moderation decision recorded" }`. |
+| PATCH | `/api/admin/content-moderation/:id` | `{ version, decision, reason? }` → `200 { message: "content moderation decision recorded" }`. |
 
 Traits : nom non vide, au plus 100 octets ; doublon `409 trait_already_exists`. Questions : catégories `daily_life | personality | interests | relationships | conversation`, ordre par défaut 100 ; doublon de libellé insensible à la casse : `409 profile_question_already_exists`. Modifier le libellé affecte aussi les réponses existantes. **Avant suppression, afficher `answer_count` et demander confirmation explicite** : les réponses ne sont pas conservées.
 
 **Revoir un contenu.** Filtrer par `status = pending | approved | rejected` et `content_type = photo | bio | profile_answer`. La liste expose identifiants, utilisateur/prénom, statut/motifs, versions de politique et de revue, signaux/contrôles photo et dates ; pas le texte, la question, la clé objet, l’URL ou l’image. Ouvrir le détail fournit `content, question, photo` selon le type ; toute consultation est auditée avant signature photo.
 
-La décision est `approved | rejected`, avec la `version` lue au préalable. Une photo exige les trois booléens `face_detectable, sharp_enough, content_allowed` : tous vrais pour approuver, au moins un faux pour rejeter. Un rejet retire la photo et programme sa suppression. En cas de `409 moderation_case_stale`, recharger plutôt que réappliquer aveuglément. Autres erreurs : `400 invalid_moderation_case_id`, `400 invalid_moderation_request`, `404 moderation_case_not_found`, `409 moderation_review_not_allowed`.
+La décision est `approved | rejected`, avec la `version` lue au préalable. Aucune liste de contrôles photo n’est requise. Un rejet retire la photo et programme sa suppression. En cas de `409 moderation_case_stale`, recharger plutôt que réappliquer aveuglément. Autres erreurs : `400 invalid_moderation_case_id`, `400 invalid_moderation_request`, `404 moderation_case_not_found`, `409 moderation_review_not_allowed`.
 
 ### Exploitation et reprises
 
@@ -695,7 +695,7 @@ Ce contrôle ne prouve ni les schémas JSON, ni les droits, ni les garanties mé
 
 ### Photo requirements and per-match withdrawal
 
-Discovery requires a current `ready` photo approved by moderation for the viewer and every candidate.
+Discovery requires a current `ready` photo not rejected by manual moderation for the viewer and every candidate. New uploads are immediately available without content analysis.
 `GET /api/users/me/discovery-status` includes `photo` in `required_actions` when that requirement is
 missing. Feed and targeted swipe eligibility enforce it on the server; no photo or URL is added to feed DTOs.
 Removing or replacing a photo with one awaiting approval suspends discovery until approval.

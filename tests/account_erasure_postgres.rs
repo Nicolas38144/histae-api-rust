@@ -15,8 +15,6 @@ use histae_api_rust::media::codec::PhotoCodecError;
 use histae_api_rust::media::pg::PgPhotoRepository;
 use histae_api_rust::media::service::{PhotoProcessor, PhotoService, ProcessorFuture};
 use histae_api_rust::media::storage::{ObjectStorageError, PhotoObjectStorage, StorageFuture};
-use histae_api_rust::moderation::domain::AutomatedPhotoModeration;
-use histae_api_rust::moderation::photo::{PhotoModerationFuture, PhotoModerator};
 use histae_api_rust::outbox::pg::PgOutboxRepository;
 use histae_api_rust::outbox::store::OutboxStore;
 use histae_api_rust::privacy::erasure::pg::PgErasureRepository;
@@ -24,7 +22,6 @@ use histae_api_rust::privacy::erasure::{
     AccountDeletionError, AccountDeletionService, CustomerEraser, ErasureDependencyFuture,
     ErasureService, ErasureStepError,
 };
-use histae_api_rust::profiles::domain::{ModerationReason, ModerationStatus};
 use histae_api_rust::shared::clock::Clock;
 use uuid::Uuid;
 
@@ -153,23 +150,6 @@ impl PhotoProcessor for UnusedPhotoProcessor {
         _upload: &'a histae_api_rust::media::domain::UploadPhoto,
     ) -> ProcessorFuture<'a> {
         Box::pin(async { Err(PhotoCodecError::CodecUnavailable) })
-    }
-}
-
-struct UnusedPhotoModerator;
-
-impl PhotoModerator for UnusedPhotoModerator {
-    fn analyze<'a>(&'a self, _webp: &'a [u8]) -> PhotoModerationFuture<'a> {
-        Box::pin(async {
-            AutomatedPhotoModeration {
-                status: ModerationStatus::Pending,
-                reasons: vec![ModerationReason::AnalysisUnavailable],
-                policy_version: "test",
-                face_count: None,
-                sharpness_score: None,
-                nsfw_score: None,
-            }
-        })
     }
 }
 
@@ -358,7 +338,6 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
             photo_repository,
             Arc::new(UnusedPhotoProcessor),
             storage,
-            Arc::new(UnusedPhotoModerator),
             activity.clone(),
             Arc::new(FixedClock(now)),
         ));

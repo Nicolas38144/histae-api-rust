@@ -141,28 +141,6 @@ pub(super) fn jwt_keys(
     Ok(keys)
 }
 
-pub(super) fn number(
-    value: &str,
-    name: &'static str,
-    min: f64,
-    max: f64,
-) -> Result<f64, ConfigError> {
-    let valid = !value.is_empty()
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || byte == b'.')
-        && value.bytes().filter(|byte| *byte == b'.').count() <= 1
-        && value != ".";
-    if !valid {
-        return Err(ConfigError::invalid(name));
-    }
-    value
-        .parse::<f64>()
-        .ok()
-        .filter(|number| number.is_finite() && *number >= min && *number <= max)
-        .ok_or_else(|| ConfigError::invalid(name))
-}
-
 pub(super) fn http_origin(value: &str, name: &'static str) -> Result<Url, ConfigError> {
     let url = Url::parse(value).map_err(|_| ConfigError::invalid(name))?;
     if !matches!(url.scheme(), "http" | "https")

@@ -36,7 +36,7 @@ src/
 tests/             # Contrats HTTP et intégrations, nommés par fonctionnalité
 db/                # Schéma PostgreSQL consolidé, données initiales et script de suppression
 docker/            # Configuration des services conteneurisés
-services/          # Modération photo et vérification privée Apple/Google
+services/          # Vérification privée Apple/Google
 tools/             # Codec photo et génération de ses fixtures
 scripts/           # Smoke, restauration et données de charge de développement
   install-debian-13.sh # Prérequis de développement Debian 13
