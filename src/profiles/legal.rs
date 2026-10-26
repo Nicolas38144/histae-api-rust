@@ -37,18 +37,12 @@ impl LegalDocumentCatalog {
             &consent_type.document_url(&self.config),
             language,
         );
-        let document_date = match consent_type {
-            ConsentType::TermsOfServiceAcceptance => self.config.document_dates.terms,
-            ConsentType::PrivacyNoticeAcknowledgement => self.config.document_dates.privacy,
-            ConsentType::SensitiveDataConsent => self.config.document_dates.sensitive_data,
-            ConsentType::LocationConsent => self.config.document_dates.location,
-        };
         PublicLegalDocument {
             consent_type,
             required_document_version: consent_type.version(&self.config).to_owned(),
             document_url,
             document_language,
-            document_date: document_date.map(|date| date.format("%Y-%m-%d").to_string()),
+            document_date: consent_type.document_date(&self.config),
         }
     }
 

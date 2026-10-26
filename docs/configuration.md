@@ -208,8 +208,10 @@ SENSITIVE_DATA_CONSENT_DOCUMENT_DATE=2026-10-26
 LOCATION_CONSENT_DOCUMENT_DATE=2026-10-26
 ```
 
-Format strict `YYYY-MM-DD`, date calendrier valide. Ces valeurs doivent correspondre à la date
-publiée dans les documents du site. Une valeur vide produit `document_date: null` ; l’app signale
+Ces quatre variables sont facultatives, en développement comme en production. Format strict
+`YYYY-MM-DD`, date calendrier valide. Chaque date décrit la version courante requise du document,
+pour toutes ses langues, et doit correspondre à la date publiée dans les documents du site.
+Une valeur absente ou vide produit `document_date: null` ; l’app signale
 alors que la date reste à renseigner. Aucun repli sur la date du jour ou `updated_at` du consentement.
 Après modification du `.env` serveur, recréer les services qui chargent cette configuration.
 

@@ -487,7 +487,7 @@
                     }
                   ]
                 },
-                "description": "200 { consents, onboarding_complete, required_actions }."
+                "description": "200 { consents, onboarding_complete, required_actions }. document_date is the date of the currently required document (YYYY-MM-DD or null), distinct from the consent timestamp updated_at."
               },
               "response": []
             },
@@ -4443,7 +4443,7 @@
           }
         ],
         "url": "{{baseUrl}}/api/legal/documents",
-        "description": "Current consent document metadata before phone verification. No account or consent history."
+        "description": "Current consent document metadata before phone verification: consent_type, required_document_version, document_url, document_language and document_date (YYYY-MM-DD or null). No account or consent history."
       },
       "response": []
     }

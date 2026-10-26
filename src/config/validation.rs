@@ -388,12 +388,17 @@ fn optional_document_date(
     if value.is_empty() {
         return Ok(None);
     }
-    let date = chrono::NaiveDate::parse_from_str(&value, "%Y-%m-%d")
-        .map_err(|_| ConfigError::invalid(name))?;
-    if date.format("%Y-%m-%d").to_string() != value {
+    if value.len() != 10
+        || !value.bytes().enumerate().all(|(index, byte)| match index {
+            4 | 7 => byte == b'-',
+            _ => byte.is_ascii_digit(),
+        })
+    {
         return Err(ConfigError::invalid(name));
     }
-    Ok(Some(date))
+    chrono::NaiveDate::parse_from_str(&value, "%Y-%m-%d")
+        .map(Some)
+        .map_err(|_| ConfigError::invalid(name))
 }
 
 pub(super) fn fallback_value(value: &str, fallback: &str) -> String {

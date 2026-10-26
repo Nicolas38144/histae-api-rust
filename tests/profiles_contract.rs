@@ -269,6 +269,8 @@ fn legal() -> LegalConfig {
     LegalConfig {
         document_dates: histae_api_rust::config::LegalDocumentDates {
             terms: chrono::NaiveDate::from_ymd_opt(2026, 10, 26),
+            privacy: chrono::NaiveDate::from_ymd_opt(2026, 9, 30),
+            location: chrono::NaiveDate::from_ymd_opt(2024, 2, 29),
             ..Default::default()
         },
         terms_version: "terms-v1".to_owned(),
@@ -436,11 +438,14 @@ async fn legal_documents_are_public_localized_metadata_without_account_reads() {
         assert_eq!(documents.len(), 4);
         for document in documents {
             assert_eq!(document.as_object().expect("document").len(), 5);
-            if document["consent_type"] == "terms_of_service_acceptance" {
-                assert_eq!(document["document_date"], "2026-10-26");
-            } else {
-                assert!(document["document_date"].is_null());
-            }
+            let expected_date = match document["consent_type"].as_str().expect("consent type") {
+                "terms_of_service_acceptance" => json!("2026-10-26"),
+                "privacy_notice_acknowledgement" => json!("2026-09-30"),
+                "location_consent" => json!("2024-02-29"),
+                "sensitive_data_consent" => Value::Null,
+                other => panic!("unexpected consent type: {other}"),
+            };
+            assert_eq!(document["document_date"], expected_date);
             assert!(document["consent_type"].is_string());
             assert!(document["required_document_version"].is_string());
             assert!(
@@ -511,6 +516,49 @@ async fn public_documents_match_the_authenticated_consent_requirements() {
 }
 
 #[tokio::test]
+async fn document_dates_describe_current_requirements_without_rewriting_old_consent() {
+    let store = FakeProfileStore::new();
+    store.state.lock().expect("state").consents = vec![ConsentRecord {
+        consent_type: ConsentType::TermsOfServiceAcceptance,
+        granted: true,
+        document_version: "terms-v0".to_owned(),
+        document_language: histae_api_rust::localization::Language::Fr,
+        granted_at: Utc
+            .with_ymd_and_hms(2025, 2, 28, 12, 0, 0)
+            .single()
+            .expect("date"),
+    }];
+    let (app, tokens) = app(store.clone(), false);
+    let response = app
+        .oneshot(request(
+            "GET",
+            "/api/users/me/consents",
+            Some(&tokens.access_token),
+            "",
+        ))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    let terms = &body["consents"][0];
+    assert_eq!(terms["document_version"], "terms-v0");
+    assert_eq!(terms["required_document_version"], "terms-v1");
+    assert_eq!(terms["document_date"], "2026-10-26");
+    assert_eq!(terms["updated_at"], "2025-02-28T12:00:00.000Z");
+    assert_eq!(body["onboarding_complete"], false);
+    assert_eq!(
+        body["required_actions"],
+        json!([
+            "terms_of_service_acceptance",
+            "privacy_notice_acknowledgement"
+        ])
+    );
+    let state = store.state.lock().expect("state");
+    assert!(state.last_consent_changes.is_empty());
+    assert_eq!(state.consents[0].document_version, "terms-v0");
+}
+
+#[tokio::test]
 async fn consents_are_available_during_onboarding_and_keep_the_public_shape() {
     let store = FakeProfileStore::new();
     store.state.lock().expect("state").consents = vec![ConsentRecord {
@@ -546,6 +594,7 @@ async fn consents_are_available_during_onboarding_and_keep_the_public_shape() {
                     "document_language": "fr",
                     "required_document_version": "terms-v1",
                     "document_url": "https://histae.test/legal/terms",
+                    "document_date": "2026-10-26",
                     "updated_at": "2030-01-01T00:00:00.000Z"
                 },
                 {
@@ -553,21 +602,24 @@ async fn consents_are_available_during_onboarding_and_keep_the_public_shape() {
                     "granted": false,
                     "document_language": "fr",
                     "required_document_version": "privacy-v1",
-                    "document_url": "https://histae.test/legal/privacy"
+                    "document_url": "https://histae.test/legal/privacy",
+                    "document_date": "2026-09-30"
                 },
                 {
                     "consent_type": "sensitive_data_consent",
                     "granted": false,
                     "document_language": "fr",
                     "required_document_version": "sensitive-v1",
-                    "document_url": "https://histae.test/legal/sensitive-data"
+                    "document_url": "https://histae.test/legal/sensitive-data",
+                    "document_date": null
                 },
                 {
                     "consent_type": "location_consent",
                     "granted": false,
                     "document_language": "fr",
                     "required_document_version": "location-v1",
-                    "document_url": "https://histae.test/legal/location"
+                    "document_url": "https://histae.test/legal/location",
+                    "document_date": "2024-02-29"
                 }
             ],
             "onboarding_complete": false,

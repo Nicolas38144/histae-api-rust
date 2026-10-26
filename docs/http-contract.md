@@ -129,6 +129,12 @@ Il n’existe pas de mécanisme de retry universel.
 | GET | `/api/plans` | `200 { plans: [...], offers: [...] }` ; trois offres commerciales et leurs plans de droits, avec quotas et fonctionnalités. |
 | GET | `/api/legal/documents` | `200 { documents: [{ consent_type, required_document_version, document_url, document_language, document_date }] }` ; quatre documents courants, publics et localisés selon `Accept-Language`, sans compte ni preuve de consentement. `Cache-Control: no-store`. |
 
+`document_date` est la date publique de la version courante requise (`required_document_version`),
+au format `YYYY-MM-DD` ou `null` si elle n’est pas configurée. La même métadonnée est exposée dans
+les consentements authentifiés, y compris lorsqu’une version plus ancienne a été acceptée.
+Elle est indépendante de `updated_at`, qui date l’accord/retrait de l’utilisateur ; le catalogue
+public n’expose aucune preuve de consentement ni date utilisateur.
+
 **Inscription avant téléphone.** Le mobile prépare le profil et les préférences en mémoire, puis présente les documents de cette route. Aucun profil ni consentement n’est enregistré avant la vérification OTP. Après authentification, il compare versions, URL et langues aux documents propriétaires avant de sauvegarder les choix explicites, puis le profil et les préférences autorisées. Un changement de document impose une nouvelle présentation et un nouveau choix. La route publique ne crée aucun compte et ne modifie aucun consentement.
 
 **OTP.** Seuls les téléphones français E.164 `+33…` sont acceptés. La vérification consomme le code une seule fois et crée un compte utilisateur si nécessaire après une demande d’inscription. Envoi et vérification : 5/h par IP et numéro pseudonymisé. La validité du code suit `OTP_TTL`.
@@ -265,7 +271,7 @@ Onboarding incomplet accepté.
 | GET | `/api/users/me/consents` | `200 { consents, onboarding_complete, required_actions }`. |
 | PUT | `/api/users/me/consents` | `{ consents: [{ consent_type, granted }] }` → même état enrichi. |
 
-Types : `terms_of_service_acceptance`, `privacy_notice_acknowledgement`, `sensitive_data_consent`, `location_consent`. Aucun choix marketing. Chaque type apparaît au plus une fois. Chaque choix retourné indique sa version acceptée éventuelle, `required_document_version` et `document_url` ; le mobile doit présenter ce texte. Aucune preuve technique IP/user-agent n’est exposée et le client ne choisit pas la version.
+Types : `terms_of_service_acceptance`, `privacy_notice_acknowledgement`, `sensitive_data_consent`, `location_consent`. Aucun choix marketing. Chaque type apparaît au plus une fois. Chaque choix retourné indique sa version acceptée éventuelle, `required_document_version`, `document_url` et `document_date` de la version courante requise ; le mobile doit présenter ce texte. Aucune preuve technique IP/user-agent n’est exposée et le client ne choisit pas la version.
 
 Les CGU et la notice ne peuvent pas être retirées via cette route : on peut refuser l’onboarding ou supprimer son compte. Retirer le consentement sensible efface sexe/préférences ; retirer la localisation efface la présence. Un rejeu identique est idempotent.
 
@@ -713,8 +719,3 @@ Agreement belongs to the match, not to a photo version. Replacing a photo does n
 the newly approved current photo is used on subsequent reads of every mutually authorized match.
 Previously issued signed storage URLs retain their existing maximum 60-second validity; a withdrawal
 cannot recall downloaded bytes. Clients evict displayed images on privacy changes and realtime invalidation.
-
-Le catalogue public et chaque consentement authentifié exposent `document_date`, une date
-calendrier `YYYY-MM-DD` ou `null`, provenant des métadonnées de la version du document. Ce champ
-est distinct de `updated_at`, qui date l’événement d’accord/retrait de l’utilisateur. Aucune preuve
-de consentement et aucune date utilisateur n’est exposée dans le catalogue public.

@@ -373,20 +373,55 @@ fn translated_legal_urls_are_validated_and_report_the_actual_document_language()
 
 #[test]
 fn legal_document_dates_are_optional_and_validate_calendar_dates() {
+    use crate::profiles::domain::ConsentType;
+
     let empty = AppConfig::from_source(&base(&[])).expect("optional document dates");
-    assert!(empty.legal.document_dates.terms.is_none());
-    for key in [
-        "TERMS_OF_SERVICE_DOCUMENT_DATE",
-        "PRIVACY_POLICY_DOCUMENT_DATE",
-        "SENSITIVE_DATA_CONSENT_DOCUMENT_DATE",
-        "LOCATION_CONSENT_DOCUMENT_DATE",
+    for (key, kind) in [
+        (
+            "TERMS_OF_SERVICE_DOCUMENT_DATE",
+            ConsentType::TermsOfServiceAcceptance,
+        ),
+        (
+            "PRIVACY_POLICY_DOCUMENT_DATE",
+            ConsentType::PrivacyNoticeAcknowledgement,
+        ),
+        (
+            "SENSITIVE_DATA_CONSENT_DOCUMENT_DATE",
+            ConsentType::SensitiveDataConsent,
+        ),
+        (
+            "LOCATION_CONSENT_DOCUMENT_DATE",
+            ConsentType::LocationConsent,
+        ),
     ] {
-        AppConfig::from_source(&base(&[(key, "2026-10-26")])).expect("valid document date");
-        for invalid in ["2026-02-30", "2026-1-2", "2026-10-26T00:00:00Z"] {
-            let error = AppConfig::from_source(&base(&[(key, invalid)])).expect_err("invalid document date");
+        assert!(kind.document_date(&empty.legal).is_none());
+        let blank = AppConfig::from_source(&base(&[(key, " \t")])).expect("blank document date");
+        assert!(kind.document_date(&blank.legal).is_none());
+        let configured =
+            AppConfig::from_source(&base(&[(key, "2024-02-29")])).expect("valid leap day");
+        for other in ConsentType::ALL {
+            assert_eq!(
+                other.document_date(&configured.legal),
+                if other == kind {
+                    chrono::NaiveDate::from_ymd_opt(2024, 2, 29)
+                } else {
+                    None
+                },
+            );
+        }
+        for invalid in [
+            "2026-02-30",
+            "2025-02-29",
+            "2026-1-2",
+            "2026-10-26T00:00:00Z",
+            "2026-10-26extra",
+            "+10000-01-01",
+            "-0001-01-01",
+        ] {
+            let error = AppConfig::from_source(&base(&[(key, invalid)]))
+                .expect_err("invalid document date");
             assert_eq!(error.variable, key);
+            assert!(!error.to_string().contains(invalid));
         }
     }
-    let configured = AppConfig::from_source(&base(&[("TERMS_OF_SERVICE_DOCUMENT_DATE", "2026-10-26")])).expect("document date");
-    assert_eq!(configured.legal.document_dates.terms, chrono::NaiveDate::from_ymd_opt(2026, 10, 26));
 }

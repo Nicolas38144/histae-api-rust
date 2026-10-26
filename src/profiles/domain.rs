@@ -122,6 +122,15 @@ impl ConsentType {
         .to_owned()
     }
 
+    pub fn document_date(self, config: &LegalConfig) -> Option<NaiveDate> {
+        match self {
+            Self::TermsOfServiceAcceptance => config.document_dates.terms,
+            Self::PrivacyNoticeAcknowledgement => config.document_dates.privacy,
+            Self::SensitiveDataConsent => config.document_dates.sensitive_data,
+            Self::LocationConsent => config.document_dates.location,
+        }
+    }
+
     pub const fn is_non_withdrawable(self) -> bool {
         matches!(
             self,
@@ -329,7 +338,7 @@ pub struct PublicLegalDocument {
     pub required_document_version: String,
     pub document_language: Language,
     pub document_url: String,
-    pub document_date: Option<String>,
+    pub document_date: Option<NaiveDate>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -343,7 +352,7 @@ pub struct PublicConsent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accepted_document_language: Option<Language>,
     pub document_url: String,
-    pub document_date: Option<String>,
+    pub document_date: Option<NaiveDate>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
 }
