@@ -127,7 +127,7 @@ Il n’existe pas de mécanisme de retry universel.
 | POST | `/api/auth/otp/verify` | `{ phone_number, otp }` → `200 { access_token, refresh_token }`. |
 | POST | `/api/auth/refresh` | `{ refresh_token }` → `200 { access_token, refresh_token }`. |
 | GET | `/api/plans` | `200 { plans: [...], offers: [...] }` ; trois offres commerciales et leurs plans de droits, avec quotas et fonctionnalités. |
-| GET | `/api/legal/documents` | `200 { documents: [{ consent_type, required_document_version, document_url, document_language }] }` ; quatre documents courants, publics et localisés selon `Accept-Language`, sans compte ni preuve de consentement. `Cache-Control: no-store`. |
+| GET | `/api/legal/documents` | `200 { documents: [{ consent_type, required_document_version, document_url, document_language, document_date }] }` ; quatre documents courants, publics et localisés selon `Accept-Language`, sans compte ni preuve de consentement. `Cache-Control: no-store`. |
 
 **Inscription avant téléphone.** Le mobile prépare le profil et les préférences en mémoire, puis présente les documents de cette route. Aucun profil ni consentement n’est enregistré avant la vérification OTP. Après authentification, il compare versions, URL et langues aux documents propriétaires avant de sauvegarder les choix explicites, puis le profil et les préférences autorisées. Un changement de document impose une nouvelle présentation et un nouveau choix. La route publique ne crée aucun compte et ne modifie aucun consentement.
 
@@ -713,3 +713,8 @@ Agreement belongs to the match, not to a photo version. Replacing a photo does n
 the newly approved current photo is used on subsequent reads of every mutually authorized match.
 Previously issued signed storage URLs retain their existing maximum 60-second validity; a withdrawal
 cannot recall downloaded bytes. Clients evict displayed images on privacy changes and realtime invalidation.
+
+Le catalogue public et chaque consentement authentifié exposent `document_date`, une date
+calendrier `YYYY-MM-DD` ou `null`, provenant des métadonnées de la version du document. Ce champ
+est distinct de `updated_at`, qui date l’événement d’accord/retrait de l’utilisateur. Aucune preuve
+de consentement et aucune date utilisateur n’est exposée dans le catalogue public.

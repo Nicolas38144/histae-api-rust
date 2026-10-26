@@ -346,6 +346,12 @@ pub(super) fn legal_config(
     }
     let fallback = "https://example.invalid/histae/legal";
     Ok(LegalConfig {
+        document_dates: LegalDocumentDates {
+            terms: optional_document_date(source, "TERMS_OF_SERVICE_DOCUMENT_DATE")?,
+            privacy: optional_document_date(source, "PRIVACY_POLICY_DOCUMENT_DATE")?,
+            sensitive_data: optional_document_date(source, "SENSITIVE_DATA_CONSENT_DOCUMENT_DATE")?,
+            location: optional_document_date(source, "LOCATION_CONSENT_DOCUMENT_DATE")?,
+        },
         terms_version: fallback_value(&values[0], "development-unversioned"),
         privacy_version: fallback_value(&values[1], "development-unversioned"),
         sensitive_data_consent_version: fallback_value(&values[2], "development-unversioned"),
@@ -372,6 +378,22 @@ pub(super) fn legal_config(
         )?,
         review_reference: fallback_value(&values[8], "not-reviewed-for-production"),
     })
+}
+
+fn optional_document_date(
+    source: &EnvironmentSource,
+    name: &'static str,
+) -> Result<Option<chrono::NaiveDate>, ConfigError> {
+    let value = source.or(name, "")?;
+    if value.is_empty() {
+        return Ok(None);
+    }
+    let date = chrono::NaiveDate::parse_from_str(&value, "%Y-%m-%d")
+        .map_err(|_| ConfigError::invalid(name))?;
+    if date.format("%Y-%m-%d").to_string() != value {
+        return Err(ConfigError::invalid(name));
+    }
+    Ok(Some(date))
 }
 
 pub(super) fn fallback_value(value: &str, fallback: &str) -> String {

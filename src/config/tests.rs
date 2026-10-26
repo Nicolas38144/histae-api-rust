@@ -370,3 +370,23 @@ fn translated_legal_urls_are_validated_and_report_the_actual_document_language()
         assert!(!error.to_string().contains(url));
     }
 }
+
+#[test]
+fn legal_document_dates_are_optional_and_validate_calendar_dates() {
+    let empty = AppConfig::from_source(&base(&[])).expect("optional document dates");
+    assert!(empty.legal.document_dates.terms.is_none());
+    for key in [
+        "TERMS_OF_SERVICE_DOCUMENT_DATE",
+        "PRIVACY_POLICY_DOCUMENT_DATE",
+        "SENSITIVE_DATA_CONSENT_DOCUMENT_DATE",
+        "LOCATION_CONSENT_DOCUMENT_DATE",
+    ] {
+        AppConfig::from_source(&base(&[(key, "2026-10-26")])).expect("valid document date");
+        for invalid in ["2026-02-30", "2026-1-2", "2026-10-26T00:00:00Z"] {
+            let error = AppConfig::from_source(&base(&[(key, invalid)])).expect_err("invalid document date");
+            assert_eq!(error.variable, key);
+        }
+    }
+    let configured = AppConfig::from_source(&base(&[("TERMS_OF_SERVICE_DOCUMENT_DATE", "2026-10-26")])).expect("document date");
+    assert_eq!(configured.legal.document_dates.terms, chrono::NaiveDate::from_ymd_opt(2026, 10, 26));
+}

@@ -92,6 +92,7 @@ async fn cleanup(database: &Database, users: &[Uuid]) -> Result<(), DatabaseErro
 
 fn legal() -> LegalConfig {
     LegalConfig {
+        document_dates: Default::default(),
         terms_version: "terms-v1".to_owned(),
         privacy_version: "privacy-v1".to_owned(),
         sensitive_data_consent_version: "sensitive-v1".to_owned(),
@@ -572,6 +573,7 @@ async fn website_service_keeps_identity_otp_and_session_authorization_together()
         Arc::new(SystemClock),
     ));
     let legal = LegalConfig {
+        document_dates: Default::default(),
         terms_version: "web-refactor-test".into(),
         privacy_version: "web-refactor-test".into(),
         ..legal()

@@ -262,6 +262,7 @@ impl ProfileService {
                     document_version: current.map(|consent| consent.document_version.clone()),
                     required_document_version: document.required_document_version,
                     document_url: document.document_url,
+                    document_date: document.document_date,
                     document_language: document.document_language,
                     accepted_document_language: current.map(|consent| consent.document_language),
                     updated_at: current.map(|consent| {

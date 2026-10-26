@@ -199,6 +199,20 @@ L’API expose ces versions et URLs pour les consentements. Une nouvelle version
 acceptation aux comptes existants. La présence d’une chaîne dans `LEGAL_REVIEW_REFERENCE` ne prouve pas
 qu’une revue juridique/DPO a eu lieu : renseigner sa référence réelle.
 
+Dates publiques des documents, distinctes de la date d’accord d’un utilisateur :
+
+```dotenv
+TERMS_OF_SERVICE_DOCUMENT_DATE=2026-10-26
+PRIVACY_POLICY_DOCUMENT_DATE=2026-10-26
+SENSITIVE_DATA_CONSENT_DOCUMENT_DATE=2026-10-26
+LOCATION_CONSENT_DOCUMENT_DATE=2026-10-26
+```
+
+Format strict `YYYY-MM-DD`, date calendrier valide. Ces valeurs doivent correspondre à la date
+publiée dans les documents du site. Une valeur vide produit `document_date: null` ; l’app signale
+alors que la date reste à renseigner. Aucun repli sur la date du jour ou `updated_at` du consentement.
+Après modification du `.env` serveur, recréer les services qui chargent cette configuration.
+
 ### TLS et nom de variable historique
 
 `POSTGRES_SSLMODE=disable` désactive TLS. Toute autre valeur sélectionne actuellement **VerifyFull**

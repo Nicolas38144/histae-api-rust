@@ -340,6 +340,7 @@ impl MatchCreator for FlakyMatches {
 fn legal() -> LegalConfig {
     let url = || Url::parse("https://histae.test/legal").unwrap_or_else(|_| unreachable!());
     LegalConfig {
+        document_dates: Default::default(),
         terms_version: "terms-v1".to_owned(),
         privacy_version: "privacy-v1".to_owned(),
         sensitive_data_consent_version: "sensitive-v1".to_owned(),

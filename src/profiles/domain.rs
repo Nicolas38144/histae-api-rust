@@ -329,6 +329,7 @@ pub struct PublicLegalDocument {
     pub required_document_version: String,
     pub document_language: Language,
     pub document_url: String,
+    pub document_date: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -342,6 +343,7 @@ pub struct PublicConsent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accepted_document_language: Option<Language>,
     pub document_url: String,
+    pub document_date: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
 }

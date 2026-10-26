@@ -267,6 +267,10 @@ impl ProfilePhotoUrlProvider for PhotoUrls {
 
 fn legal() -> LegalConfig {
     LegalConfig {
+        document_dates: histae_api_rust::config::LegalDocumentDates {
+            terms: chrono::NaiveDate::from_ymd_opt(2026, 10, 26),
+            ..Default::default()
+        },
         terms_version: "terms-v1".to_owned(),
         privacy_version: "privacy-v1".to_owned(),
         sensitive_data_consent_version: "sensitive-v1".to_owned(),
@@ -431,7 +435,12 @@ async fn legal_documents_are_public_localized_metadata_without_account_reads() {
         let documents = body["documents"].as_array().expect("documents");
         assert_eq!(documents.len(), 4);
         for document in documents {
-            assert_eq!(document.as_object().expect("document").len(), 4);
+            assert_eq!(document.as_object().expect("document").len(), 5);
+            if document["consent_type"] == "terms_of_service_acceptance" {
+                assert_eq!(document["document_date"], "2026-10-26");
+            } else {
+                assert!(document["document_date"].is_null());
+            }
             assert!(document["consent_type"].is_string());
             assert!(document["required_document_version"].is_string());
             assert!(
@@ -493,6 +502,7 @@ async fn public_documents_match_the_authenticated_consent_requirements() {
                 "required_document_version",
                 "document_url",
                 "document_language",
+                "document_date",
             ] {
                 assert_eq!(document[field], consent[field], "{language}: {field}");
             }

@@ -74,6 +74,7 @@ fn local_config() -> Result<PostgresConfig, FixtureError> {
 
 fn legal() -> LegalConfig {
     LegalConfig {
+        document_dates: Default::default(),
         terms_version: "terms-v1".to_owned(),
         privacy_version: "privacy-v1".to_owned(),
         sensitive_data_consent_version: "sensitive-v1".to_owned(),

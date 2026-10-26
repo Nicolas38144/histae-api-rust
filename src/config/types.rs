@@ -229,6 +229,7 @@ pub struct AdminAuthConfig {
 
 #[derive(Clone, Debug)]
 pub struct LegalConfig {
+    pub document_dates: LegalDocumentDates,
     pub terms_version: String,
     pub privacy_version: String,
     pub sensitive_data_consent_version: String,
@@ -238,6 +239,14 @@ pub struct LegalConfig {
     pub sensitive_data_consent_url: Url,
     pub location_consent_url: Url,
     pub review_reference: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LegalDocumentDates {
+    pub terms: Option<chrono::NaiveDate>,
+    pub privacy: Option<chrono::NaiveDate>,
+    pub sensitive_data: Option<chrono::NaiveDate>,
+    pub location: Option<chrono::NaiveDate>,
 }
 
 #[derive(Clone, Debug)]
