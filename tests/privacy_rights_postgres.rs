@@ -180,12 +180,12 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
         drop(fixture);
         let rights = Arc::new(PgDataRightsStore::new(database.clone()));
         let access = rights
-            .create_request(user_id, DataRequestType::Access)
+            .create_request(user_id, DataRequestType::Access, None)
             .await?
             .ok_or(FixtureError("create access DSR"))?;
         assert!(
             rights
-                .create_request(user_id, DataRequestType::Access)
+                .create_request(user_id, DataRequestType::Access, None)
                 .await?
                 .is_none()
         );
@@ -197,6 +197,7 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
                     status: DataRequestTransition::InProgress,
                     admin_id,
                     admin_role: AdminRole::Admin,
+                    response: None,
                     notes: Some("Identity verified".to_owned()),
                 })
                 .await?,
@@ -209,11 +210,31 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
                     status: DataRequestTransition::Completed,
                     admin_id,
                     admin_role: AdminRole::Admin,
+                    response: None,
                     notes: Some("Export supplied".to_owned()),
                 })
                 .await?,
             UpdateRequestResult::Updated
         );
+
+        let details = "Correct the information I cannot edit in my profile.";
+        let correction = rights.create_request(user_id, DataRequestType::Rectification, Some(details.to_owned())).await?.ok_or(FixtureError("create rectification DSR"))?;
+        assert_eq!(correction.details.as_deref(), Some(details));
+        let owner_requests = rights.requests_for_user(user_id).await?;
+        assert_eq!(owner_requests.iter().find(|row| row.id == correction.id).and_then(|row| row.details.as_deref()), Some(details));
+        let admin_requests = rights.requests_for_admin(None, 100, 0, None).await?;
+        assert_eq!(admin_requests.iter().find(|row| row.request.id == correction.id).and_then(|row| row.request.details.as_deref()), Some(details));
+
+        let correction_update = |status, response| UpdateRequestInput {
+            request_id: correction.id, status, admin_id, admin_role: AdminRole::Admin,
+            notes: Some("Internal handling note".to_owned()), response,
+        };
+        assert_eq!(rights.update_request(correction_update(DataRequestTransition::InProgress, None)).await?, UpdateRequestResult::Updated);
+        assert_eq!(rights.update_request(correction_update(DataRequestTransition::Completed, None)).await?, UpdateRequestResult::InvalidRequest);
+        let response = "The historical information has been corrected.";
+        assert_eq!(rights.update_request(correction_update(DataRequestTransition::Completed, Some(response.to_owned()))).await?, UpdateRequestResult::Updated);
+        let resolved = rights.requests_for_user(user_id).await?;
+        assert_eq!(resolved.iter().find(|row| row.id == correction.id).and_then(|row| row.response.as_deref()), Some(response));
 
         let export = DataExportService::new(
             Arc::new(PgDataExportStore::new(database.clone())),
@@ -242,6 +263,12 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
         assert_eq!(document["profile"]["birthdate"], "1990-02-03T00:00:00.000Z");
         assert_eq!(document["billing_invoices"][0]["amount_due"], "9007199254740993");
         assert_eq!(document["billing_invoices"][0]["amount_paid"], "0");
+        let exported_requests = document["data_requests"].as_array().ok_or(FixtureError("data requests"))?;
+        let exported_correction = exported_requests.iter().find(|row| row["id"] == correction.id.to_string()).ok_or(FixtureError("exported correction"))?;
+        assert_eq!(exported_correction["details"], details);
+        assert_eq!(exported_correction["response"], response);
+        assert!(exported_requests.iter().all(|row| row.get("notes").is_none()));
+        assert!(!String::from_utf8_lossy(&bytes).contains("Internal handling note"));
         let outgoing = document["discovery_actions"]["outgoing"]
             .as_array()
             .ok_or(FixtureError("outgoing swipes"))?;
@@ -256,7 +283,7 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
         assert!(document.get("incoming").is_none());
 
         let erasure = rights
-            .create_request(user_id, DataRequestType::Erasure)
+            .create_request(user_id, DataRequestType::Erasure, None)
             .await?
             .ok_or(FixtureError("create erasure DSR"))?;
         assert_eq!(
@@ -266,6 +293,7 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
                     status: DataRequestTransition::InProgress,
                     admin_id,
                     admin_role: AdminRole::Admin,
+                    response: None,
                     notes: None,
                 })
                 .await?,
@@ -276,6 +304,7 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
             status: DataRequestTransition::Completed,
             admin_id,
             admin_role: AdminRole::Admin,
+            response: None,
             notes: Some("Identity verified".to_owned()),
         };
         assert_eq!(
@@ -323,7 +352,7 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
         .bind(user_id)
         .fetch_one(&mut *connection)
         .await?;
-        assert_eq!(audit_count, 5);
+        assert_eq!(audit_count, 7);
         Ok(())
     }
     .await;

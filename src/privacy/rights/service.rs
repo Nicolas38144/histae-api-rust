@@ -9,6 +9,7 @@ use uuid::{Uuid, Variant};
 
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::DatabaseError;
+use crate::shared::text::javascript_trim;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -22,6 +23,14 @@ pub enum DataRequestType {
 }
 
 impl DataRequestType {
+    pub const fn requires_details(self) -> bool {
+        matches!(self, Self::Rectification)
+    }
+
+    pub const fn is_retired(self) -> bool {
+        matches!(self, Self::Restriction | Self::Objection)
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Access => "access",
@@ -99,6 +108,8 @@ pub struct DataRequestRow {
     pub id: Uuid,
     pub user_id: Uuid,
     pub request_type: DataRequestType,
+    pub details: Option<String>,
+    pub response: Option<String>,
     pub status: DataRequestStatus,
     pub requested_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
@@ -111,6 +122,8 @@ pub struct DataRequest {
     pub user_id: Uuid,
     #[serde(rename = "type")]
     pub request_type: DataRequestType,
+    pub details: Option<String>,
+    pub response: Option<String>,
     pub status: DataRequestStatus,
     pub requested_at: String,
     pub completed_at: Option<String>,
@@ -123,6 +136,8 @@ impl From<DataRequestRow> for DataRequest {
             id: row.id,
             user_id: row.user_id,
             request_type: row.request_type,
+            details: row.details,
+            response: row.response,
             status: row.status,
             requested_at: wire_timestamp(row.requested_at),
             completed_at: row.completed_at.map(wire_timestamp),
@@ -222,6 +237,7 @@ pub enum UpdateRequestResult {
     ErasureScheduled,
     NotFound,
     InvalidTransition,
+    InvalidRequest,
 }
 
 #[derive(Clone, Debug)]
@@ -231,6 +247,7 @@ pub struct UpdateRequestInput {
     pub admin_id: Uuid,
     pub admin_role: AdminRole,
     pub notes: Option<String>,
+    pub response: Option<String>,
 }
 
 pub type DataRightsFuture<'a, T> =
@@ -241,6 +258,7 @@ pub trait DataRightsStore: Send + Sync {
         &self,
         user_id: Uuid,
         request_type: DataRequestType,
+        details: Option<String>,
     ) -> DataRightsFuture<'_, Option<DataRequestRow>>;
 
     fn requests_for_user(&self, user_id: Uuid) -> DataRightsFuture<'_, Vec<DataRequestRow>>;
@@ -272,6 +290,7 @@ pub trait DataRightsStore: Send + Sync {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DataRightsError {
     AlreadyOpen,
+    InvalidRequest,
     InvalidCursor,
     InvalidPagination,
     RequestNotFound,
@@ -299,9 +318,16 @@ impl DataRightsService {
         &self,
         user_id: Uuid,
         request_type: DataRequestType,
+        details: Option<String>,
     ) -> Result<DataRequest, DataRightsError> {
+        if !valid_request_details(request_type, details.as_deref()) {
+            return Err(DataRightsError::InvalidRequest);
+        }
+        let details = details
+            .map(|value| javascript_trim(&value).to_owned())
+            .filter(|value| !value.is_empty());
         self.store
-            .create_request(user_id, request_type)
+            .create_request(user_id, request_type, details)
             .await?
             .map(DataRequest::from)
             .ok_or(DataRightsError::AlreadyOpen)
@@ -335,11 +361,19 @@ impl DataRightsService {
 
     pub async fn update_request(
         &self,
-        input: UpdateRequestInput,
+        mut input: UpdateRequestInput,
     ) -> Result<UpdateRequestResult, DataRightsError> {
+        if !valid_request_text(input.response.as_deref()) {
+            return Err(DataRightsError::InvalidRequest);
+        }
+        input.response = input
+            .response
+            .map(|value| javascript_trim(&value).to_owned())
+            .filter(|value| !value.is_empty());
         match self.store.update_request(input).await? {
             UpdateRequestResult::NotFound => Err(DataRightsError::RequestNotFound),
             UpdateRequestResult::InvalidTransition => Err(DataRightsError::InvalidTransition),
+            UpdateRequestResult::InvalidRequest => Err(DataRightsError::InvalidRequest),
             result => Ok(result),
         }
     }
@@ -358,6 +392,27 @@ impl DataRightsService {
             .await?;
         paginate(rows, limit, |row| (&row.cursor_at, row.id))
     }
+}
+
+pub const REQUEST_DETAILS_MAX_LENGTH: usize = 2_000;
+
+/// Legacy self-service request types may omit details. Manual requests need a
+/// bounded explanation; never put this user-supplied content in operational logs.
+pub fn valid_request_details(request_type: DataRequestType, details: Option<&str>) -> bool {
+    let nonempty = details.is_some_and(|value| !javascript_trim(value).is_empty());
+    !request_type.is_retired()
+        && (!request_type.requires_details() || nonempty)
+        && valid_request_text(details)
+}
+
+pub fn valid_request_text(value: Option<&str>) -> bool {
+    value.is_none_or(|value| {
+        let value = javascript_trim(value);
+        value.chars().count() <= REQUEST_DETAILS_MAX_LENGTH
+            && !value.chars().any(|character| {
+                character.is_control() && !matches!(character, '\n' | '\r' | '\t')
+            })
+    })
 }
 
 fn paginate<Row, Public, Cursor>(
@@ -475,13 +530,15 @@ mod tests {
             &self,
             user_id: Uuid,
             request_type: DataRequestType,
+            details: Option<String>,
         ) -> DataRightsFuture<'_, Option<DataRequestRow>> {
             Box::pin(async move {
                 let mut rows = self.rows.lock().map_err(|_| DatabaseError::QueryFailed)?;
                 if rows.iter().any(|row| row.request_type == request_type) {
                     return Ok(None);
                 }
-                let row = data_request(user_id, request_type);
+                let mut row = data_request(user_id, request_type);
+                row.details = details;
                 rows.push(row.clone());
                 Ok(Some(row))
             })
@@ -538,6 +595,8 @@ mod tests {
             id: Uuid::new_v4(),
             user_id,
             request_type,
+            details: None,
+            response: None,
             status: DataRequestStatus::Pending,
             requested_at: Utc::now(),
             completed_at: None,
@@ -551,14 +610,14 @@ mod tests {
         let service = DataRightsService::new(store);
         let user_id = Uuid::new_v4();
         let created = service
-            .create_request(user_id, DataRequestType::Access)
+            .create_request(user_id, DataRequestType::Access, None)
             .await
             .unwrap_or_else(|_| unreachable!());
         assert_eq!(created.user_id, user_id);
         assert_eq!(created.request_type, DataRequestType::Access);
         assert_eq!(
             service
-                .create_request(user_id, DataRequestType::Access)
+                .create_request(user_id, DataRequestType::Access, None)
                 .await,
             Err(DataRightsError::AlreadyOpen)
         );
@@ -574,6 +633,7 @@ mod tests {
             admin_id: Uuid::new_v4(),
             admin_role: AdminRole::Admin,
             notes: None,
+            response: None,
         };
 
         if let Ok(mut result) = store.update.lock() {
@@ -597,6 +657,43 @@ mod tests {
             service.update_request(input()).await,
             Ok(UpdateRequestResult::ErasureScheduled)
         );
+    }
+
+    #[tokio::test]
+    async fn correction_details_are_bounded_and_retired_requests_are_rejected() {
+        let service = DataRightsService::new(Arc::new(Store::default()));
+        let user = Uuid::new_v4();
+        for request_type in [
+            DataRequestType::Rectification,
+            DataRequestType::Restriction,
+            DataRequestType::Objection,
+        ] {
+            for details in [
+                None,
+                Some(" \n\t".to_owned()),
+                Some("a".repeat(REQUEST_DETAILS_MAX_LENGTH + 1)),
+                Some("bad\0value".to_owned()),
+            ] {
+                assert_eq!(
+                    service.create_request(user, request_type, details).await,
+                    Err(DataRightsError::InvalidRequest)
+                );
+            }
+        }
+        for retired in [DataRequestType::Restriction, DataRequestType::Objection] {
+            assert_eq!(
+                service.create_request(user, retired, Some("A valid message".to_owned())).await,
+                Err(DataRightsError::InvalidRequest)
+            );
+        }
+        let message = "Please correct this historical information.\nI cannot edit it in the app.";
+        let created = service
+            .create_request(user, DataRequestType::Rectification, Some(format!("  {message}  ")))
+            .await
+            .unwrap_or_else(|_| unreachable!());
+        assert_eq!(created.details.as_deref(), Some(message));
+        let history = service.requests_for_user(user).await.unwrap_or_else(|_| unreachable!());
+        assert_eq!(history[0].details, created.details);
     }
 
     #[test]

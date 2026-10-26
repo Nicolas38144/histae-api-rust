@@ -211,6 +211,17 @@ impl Database {
         if !visibility_ready {
             return Err(DatabaseError::SchemaObjectsMissing);
         }
+        let request_details_ready: bool = sqlx::query_scalar(
+            "SELECT count(*) = 2 FROM pg_attribute
+             WHERE attrelid=to_regclass(current_schema() || '.data_subject_request')
+               AND attname IN ('details', 'response') AND atttypid='text'::regtype AND NOT attisdropped",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(map_sqlx_error)?;
+        if !request_details_ready {
+            return Err(DatabaseError::SchemaObjectsMissing);
+        }
         let languages_ready: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.user_account') AND attname='preferred_language' AND atttypid='text'::regtype AND attnotnull AND NOT attisdropped)
               AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.device_token') AND attname='language' AND NOT attisdropped)

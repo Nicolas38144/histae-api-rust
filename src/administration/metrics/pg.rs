@@ -227,7 +227,7 @@ const METRICS_SQL: &str = r#"
 SELECT users.*, matches.*, photos.*, subscriptions.*, subscription_offers.*, revenue.*,
   (SELECT count(*) FROM user_report WHERE status = 'pending')::bigint AS pending_reports,
   (SELECT count(*) FROM content_moderation_case WHERE status = 'pending')::bigint AS pending_content,
-  (SELECT count(*) FROM data_subject_request WHERE status IN ('pending','in_progress'))::bigint AS open_data_requests,
+  (SELECT count(*) FROM data_subject_request WHERE status IN ('pending','in_progress') AND type NOT IN ('restriction','objection'))::bigint AS open_data_requests,
   (SELECT count(*) FROM chat_message)::bigint AS messages_total
 FROM users CROSS JOIN matches CROSS JOIN photos CROSS JOIN subscriptions CROSS JOIN subscription_offers CROSS JOIN revenue
 "#;

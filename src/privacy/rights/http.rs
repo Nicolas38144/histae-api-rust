@@ -19,9 +19,11 @@ use crate::identity::mobile::http::{AuthenticatedMobile, MobileAuthState};
 #[cfg(feature = "webauthn-probe")]
 use crate::privacy::rights::{
     AdminDataRequest, DataAccessLog, DataRequestStatus, DataRequestTransition, Page,
-    UpdateRequestInput, UpdateRequestResult,
+    UpdateRequestInput, UpdateRequestResult, valid_request_text,
 };
-use crate::privacy::rights::{DataRequest, DataRequestType, DataRightsError, DataRightsService};
+use crate::privacy::rights::{
+    DataRequest, DataRequestType, DataRightsError, DataRightsService, valid_request_details,
+};
 #[cfg(feature = "webauthn-probe")]
 use crate::shared::text::validator_js_length;
 
@@ -64,6 +66,7 @@ pub fn admin_routes(state: DataRightsHttpState, auth: AdminAuthHttpState) -> Rou
 struct CreateRequestBody {
     #[serde(rename = "type")]
     request_type: DataRequestType,
+    details: Option<String>,
 }
 
 impl ApiDto for CreateRequestBody {
@@ -71,7 +74,7 @@ impl ApiDto for CreateRequestBody {
     const ERROR_MESSAGE: &'static str = "The data subject request is invalid.";
 
     fn is_valid(&self) -> bool {
-        true
+        valid_request_details(self.request_type, self.details.as_deref())
     }
 }
 
@@ -82,7 +85,7 @@ async fn create_request(
 ) -> Result<(StatusCode, Json<DataRequest>), ApiError> {
     state
         .service
-        .create_request(identity.account.user_id, body.request_type)
+        .create_request(identity.account.user_id, body.request_type, body.details)
         .await
         .map(|request| (StatusCode::CREATED, Json(request)))
         .map_err(data_rights_error)
@@ -199,6 +202,7 @@ impl ApiDto for RequestPath {
 struct UpdateRequestBody {
     status: DataRequestTransition,
     notes: Option<String>,
+    response: Option<String>,
 }
 
 #[cfg(feature = "webauthn-probe")]
@@ -210,6 +214,7 @@ impl ApiDto for UpdateRequestBody {
         self.notes
             .as_ref()
             .is_none_or(|value| validator_js_length(value) <= 2_000)
+            && valid_request_text(self.response.as_deref())
     }
 }
 
@@ -234,6 +239,7 @@ async fn update_request(
             admin_id: identity.user_id,
             admin_role: identity.role,
             notes: body.notes,
+            response: body.response,
         })
         .await
         .map_err(data_rights_error)?;
@@ -318,6 +324,11 @@ async fn access_logs(
 
 fn data_rights_error(error: DataRightsError) -> ApiError {
     match error {
+        DataRightsError::InvalidRequest => ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_data_request",
+            "The data subject request needs valid details.",
+        ),
         DataRightsError::AlreadyOpen => ApiError::new(
             StatusCode::CONFLICT,
             "data_request_already_open",

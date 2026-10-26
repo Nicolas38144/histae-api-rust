@@ -498,13 +498,15 @@ Onboarding incomplet accepté pour les jetons/effacement, demandes RGPD et expor
 | --- | --- | --- |
 | POST | `/api/users/me/deletion-token` | Aucun corps → `201 { confirmation_token, expires_at }`. |
 | DELETE | `/api/users/me` | `{ confirmation_token }` → `202 { request_id, status: "in_progress" }`. |
-| POST | `/api/users/me/data-subject-requests` | `{ type }` → `201` avec la demande. |
+| POST | `/api/users/me/data-subject-requests` | `{ type, details? }` → `201` avec la demande. `rectification` exige une précision non vide ; `restriction` et `objection` sont retirés. |
 | GET | `/api/users/me/data-subject-requests` | `200 { requests: [...] }`. |
 | GET | `/api/users/me/data-export` | `200 application/json` en pièce jointe avec l’export portable du demandeur. |
 | GET | `/api/users/me/blocks` | `200 { blocks: [...] }`, toujours `photo: null`. |
 | POST | `/api/users/me/blocks/:userId` | UUID → `204`, clôt les matchs entre les comptes et empêche leur recréation. |
 | DELETE | `/api/users/me/blocks/:userId` | UUID → `204`. |
 | POST | `/api/reports` | `{ reported_user_id, match_id?, reason, description? }` → `201` avec le signalement. |
+
+Les champs `details` (message utilisateur) et `response` (réponse visible par l’utilisateur) sont indépendants des notes internes admin. Maximum : 2 000 caractères Unicode, après normalisation des espaces extérieurs ; retours à la ligne autorisés. Les anciennes lignes peuvent avoir ces deux champs à `null`. La clôture d’une rectification enregistre un traitement manuel et sa réponse ; elle ne modifie pas automatiquement les données métier. Les types `restriction` et `objection` restent lisibles pour l’historique uniquement.
 
 **Effacement.** Demander le jeton dédié, puis le transmettre comme reçu (`uuid:secret`). Il remplace le précédent et expire après dix minutes par défaut (`ACCOUNT_DELETION_TOKEN_TTL`, 1–30 min). Exemple de réponse au DELETE :
 
@@ -517,7 +519,7 @@ Onboarding incomplet accepté pour les jetons/effacement, demandes RGPD et expor
 
 Le `202` désactive immédiatement le compte ; fermer la session mobile. **Ne pas afficher que toutes les données ont déjà été supprimées.** Le nettoyage continue en arrière-plan malgré une panne externe. Jeton invalide/expiré : `401 invalid_or_expired_deletion_token`. Si la réponse est perdue après acceptation, le Bearer devient invalide : un retry n’est pas une route publique de suivi et ne rend pas forcément le même `202`. Voir [suivi et reprises](operations.md#outbox-et-reprises-operateur).
 
-**Droits.** Types de demande : `access | erasure | portability | rectification | restriction | objection` ; une seule demande ouverte par type/utilisateur. L’export contient profil/réponses, abonnement/factures liés, métadonnées des sessions sans secrets et uniquement les décisions de swipe sortantes. Il n’expose jamais les décisions entrantes d’autrui. Le JSON est préparé par pages dans un fichier temporaire privé, transmis comme flux puis supprimé. Toutes ses données PostgreSQL, swipes compris, partagent un instantané `REPEATABLE READ`. Limite 5/h/utilisateur : `429 data_export_rate_limit_exceeded` ; export au-delà de la borne configurée : `413 data_export_too_large` ; toutes les places de préparation occupées : `503 data_export_busy` avec `Retry-After` ; source indisponible avant envoi : `503 data_export_unavailable`. L’accès réussi est journalisé.
+**Droits.** Types de nouvelle demande : `access | erasure | portability | rectification` ; une seule demande ouverte par type/utilisateur. L’export contient profil/réponses, messages et réponses des demandes de données (sans les notes admin), abonnement/factures liés, métadonnées des sessions sans secrets et uniquement les décisions de swipe sortantes. Il n’expose jamais les décisions entrantes d’autrui. Le JSON est préparé par pages dans un fichier temporaire privé, transmis comme flux puis supprimé. Toutes ses données PostgreSQL, swipes compris, partagent un instantané `REPEATABLE READ`. Limite 5/h/utilisateur : `429 data_export_rate_limit_exceeded` ; export au-delà de la borne configurée : `413 data_export_too_large` ; toutes les places de préparation occupées : `503 data_export_busy` avec `Retry-After` ; source indisponible avant envoi : `503 data_export_unavailable`. L’accès réussi est journalisé.
 
 **Signalements.** `reason = inappropriate_content | fake_profile | harassment | spam | other` ; description au plus 2 000 octets ; `match_id` et description peuvent être nuls. Auto-signalement interdit, cible existante et match éventuel reliant les deux comptes. Limite 5/h/utilisateur.
 
@@ -580,7 +582,7 @@ Erreurs : `invalid_or_expired_admin_bootstrap`, `invalid_or_expired_webauthn_cha
 | GET | `/api/admin/reports` | `status?, limit, cursor` (offset déprécié) → `200 { reports, next_cursor }`. |
 | PATCH | `/api/admin/reports/:id` | `{ status }` → `200 { message: "report updated" }` ; `404 report_not_found`. |
 | GET | `/api/admin/data-subject-requests` | `status?, limit, cursor` (offset déprécié) → `200 { requests, next_cursor }`, avec progression `erasure` éventuelle. |
-| PATCH | `/api/admin/data-subject-requests/:id` | **Récente** ; `{ status, notes? }` → transition contrôlée et auditée. |
+| PATCH | `/api/admin/data-subject-requests/:id` | **Récente** ; `{ status, notes?, response? }` → transition contrôlée et auditée. Pour clôturer/refuser une rectification, `response` est obligatoire ; les catégories retirées sont en lecture seule. |
 | GET | `/api/admin/data-access-logs` | `user_id, limit, cursor` (offset déprécié) → `200 { logs, next_cursor }`. |
 
 Recherche utilisateurs : prénom ou UUID exact ; `status = active | banned`, `role = user | admin | superadmin`. La liste ne signe aucune photo (`photo: null`). Le détail expose compte, profil, préférences, traits, consentements et fraîcheur de présence ; jamais téléphone, empreinte ou coordonnées précises. Les motifs fournis mesurent 3–500 caractères ; une conversation est auditée pour les deux participants.

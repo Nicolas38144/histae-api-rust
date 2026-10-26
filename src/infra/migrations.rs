@@ -81,6 +81,22 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
     retire_photo_verifier(&mut transaction).await?;
+    sqlx::query(
+        "ALTER TABLE data_subject_request ADD COLUMN IF NOT EXISTS response text
+         CONSTRAINT data_subject_request_response_check
+         CHECK (response IS NULL OR char_length(response) BETWEEN 1 AND 2000)",
+    )
+    .execute(&mut *transaction)
+    .await
+    .map_err(map_sqlx_error)?;
+    sqlx::query(
+        "ALTER TABLE data_subject_request ADD COLUMN IF NOT EXISTS details text
+         CONSTRAINT data_subject_request_details_check
+         CHECK (details IS NULL OR char_length(details) BETWEEN 1 AND 2000)",
+    )
+    .execute(&mut *transaction)
+    .await
+    .map_err(map_sqlx_error)?;
     let precise_presence: bool = sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user_presence' AND column_name = 'location_changed_at')")
         .fetch_one(&mut *transaction).await.map_err(map_sqlx_error)?;
     sqlx::query("ALTER TABLE user_presence ADD COLUMN IF NOT EXISTS location_changed_at timestamptz NOT NULL DEFAULT now()")

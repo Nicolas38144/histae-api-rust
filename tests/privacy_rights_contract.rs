@@ -145,6 +145,7 @@ impl DataRightsStore for RightsStore {
         &self,
         user_id: Uuid,
         request_type: DataRequestType,
+        details: Option<String>,
     ) -> DataRightsFuture<'_, Option<DataRequestRow>> {
         Box::pin(async move {
             let mut state = self.0.lock().map_err(|_| DatabaseError::QueryFailed)?;
@@ -161,6 +162,8 @@ impl DataRightsStore for RightsStore {
                 id: Uuid::new_v4(),
                 user_id,
                 request_type,
+                details,
+                response: None,
                 status: DataRequestStatus::Pending,
                 requested_at: Utc
                     .with_ymd_and_hms(2030, 1, 1, 0, 0, 0)
@@ -404,6 +407,33 @@ async fn data_rights_require_authentication_but_allow_incomplete_onboarding() {
         .await
         .unwrap_or_else(|_| unreachable!());
     assert_eq!(export.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn manual_request_details_are_required_bounded_and_returned_to_the_owner() {
+    let (app, token) = fixture(RightsStore::default(), true, false, 64 * 1024, 1);
+    for request_type in ["rectification", "restriction", "objection"] {
+        for details in [Value::Null, json!(" \n\t"), json!("a".repeat(2001)), json!("bad\0value")] {
+            let payload = json!({"type": request_type, "details": details}).to_string();
+            let response = app.clone().oneshot(request("POST", "/api/users/me/data-subject-requests", Some(&token), &payload)).await.unwrap_or_else(|_| unreachable!());
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(json_body(response).await["error"]["code"], "invalid_data_request");
+        }
+    }
+    for retired in ["restriction", "objection"] {
+        let payload = json!({"type": retired, "details": "A valid message"}).to_string();
+        let response = app.clone().oneshot(request("POST", "/api/users/me/data-subject-requests", Some(&token), &payload)).await.unwrap_or_else(|_| unreachable!());
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    let details = "Please correct this information.\nI cannot edit it in the app.";
+    let payload = json!({"type": "rectification", "details": format!("  {details}  ")}).to_string();
+    let created = app.clone().oneshot(request("POST", "/api/users/me/data-subject-requests", Some(&token), &payload)).await.unwrap_or_else(|_| unreachable!());
+    assert_eq!(created.status(), StatusCode::CREATED);
+    assert_eq!(json_body(created).await["details"], details);
+    let listed = app.oneshot(request("GET", "/api/users/me/data-subject-requests", Some(&token), "")).await.unwrap_or_else(|_| unreachable!());
+    let listed = json_body(listed).await;
+    assert_eq!(listed["requests"][0]["details"], details);
+    assert!(listed["requests"][0].get("notes").is_none());
 }
 
 #[tokio::test]

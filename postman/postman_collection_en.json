@@ -1915,14 +1915,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"type\": \"access\"\n}",
+                  "raw": "{\n  \"type\": \"rectification\",\n  \"details\": \"Please correct information I cannot edit in my profile.\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "{ type } → 201 with the request."
+                "description": "{ type, details? } → 201. Correction requires details (1–2000 Unicode scalars). Restriction/objection are retired; historical records remain readable."
               },
               "response": []
             },
@@ -3018,7 +3018,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n**Recent authentication required**; { status, notes? } → controlled, audited transition."
+                "description": "{ status, notes?, response? }. Public response is required to complete or reject a correction. Notes stay internal. Restriction/objection records are read-only."
               },
               "response": []
             },

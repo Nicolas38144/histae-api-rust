@@ -26,17 +26,19 @@ impl DataRightsStore for PgDataRightsStore {
         &self,
         user_id: Uuid,
         request_type: DataRequestType,
+        details: Option<String>,
     ) -> DataRightsFuture<'_, Option<DataRequestRow>> {
         Box::pin(async move {
             let row = sqlx::query(
-                "INSERT INTO data_subject_request (user_id, type)
-                 VALUES ($1, $2)
+                "INSERT INTO data_subject_request (user_id, type, details)
+                 VALUES ($1, $2, $3)
                  ON CONFLICT (user_id, type)
                    WHERE status IN ('pending', 'in_progress') DO NOTHING
-                 RETURNING id, user_id, type, status, requested_at, completed_at, handled_by",
+                 RETURNING id, user_id, type, details, response, status, requested_at, completed_at, handled_by",
             )
             .bind(user_id)
             .bind(request_type.as_str())
+            .bind(details)
             .fetch_optional(self.database.pool())
             .await
             .map_err(map_sqlx_error)?;
@@ -47,7 +49,7 @@ impl DataRightsStore for PgDataRightsStore {
     fn requests_for_user(&self, user_id: Uuid) -> DataRightsFuture<'_, Vec<DataRequestRow>> {
         Box::pin(async move {
             let rows = sqlx::query(
-                "SELECT id, user_id, type, status, requested_at, completed_at, handled_by
+                "SELECT id, user_id, type, details, response, status, requested_at, completed_at, handled_by
                  FROM data_subject_request WHERE user_id = $1
                  ORDER BY requested_at DESC, id DESC",
             )
@@ -89,7 +91,7 @@ impl DataRightsStore for PgDataRightsStore {
                 .push(
                     ") SELECT request.id, request.user_id, request.type, request.status,
                         request.requested_at, request.completed_at, request.handled_by,
-                        request.notes,
+                        request.notes, request.details, request.response,
                         to_char(request.requested_at AT TIME ZONE 'UTC',
                           'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS cursor_at,
                         erasure.request_id AS erasure_request_id, erasure.step AS erasure_step,
@@ -184,6 +186,19 @@ impl DataRightsStore for PgDataRightsStore {
                         }
 
                         let requested_status = input.status.as_status();
+                        // Retired categories remain readable, but cannot be processed.
+                        if request_type.is_retired() {
+                            return Ok(UpdateRequestResult::InvalidTransition);
+                        }
+                        if request_type.requires_details()
+                            && matches!(
+                                requested_status,
+                                DataRequestStatus::Completed | DataRequestStatus::Rejected
+                            )
+                            && input.response.is_none()
+                        {
+                            return Ok(UpdateRequestResult::InvalidRequest);
+                        }
                         let allowed = match current_status {
                             DataRequestStatus::Pending => matches!(
                                 requested_status,
@@ -208,7 +223,7 @@ impl DataRightsStore for PgDataRightsStore {
                         };
                         sqlx::query(
                             "UPDATE data_subject_request
-                             SET status = $2, handled_by = $3, notes = $4,
+                             SET status = $2, handled_by = $3, notes = $4, response = $5,
                                completed_at = CASE WHEN $2 IN ('completed', 'rejected')
                                  THEN clock_timestamp() ELSE NULL END
                              WHERE id = $1",
@@ -217,6 +232,7 @@ impl DataRightsStore for PgDataRightsStore {
                         .bind(stored_status.as_str())
                         .bind(input.admin_id)
                         .bind(input.notes)
+                        .bind(input.response)
                         .execute(&mut *connection)
                         .await
                         .map_err(map_sqlx_error)?;
@@ -315,6 +331,8 @@ fn map_request_row(row: sqlx::postgres::PgRow) -> Result<DataRequestRow, Databas
         id: row.try_get("id").map_err(map_sqlx_error)?,
         user_id: row.try_get("user_id").map_err(map_sqlx_error)?,
         request_type,
+        details: row.try_get("details").map_err(map_sqlx_error)?,
+        response: row.try_get("response").map_err(map_sqlx_error)?,
         status,
         requested_at: row.try_get("requested_at").map_err(map_sqlx_error)?,
         completed_at: row.try_get("completed_at").map_err(map_sqlx_error)?,
@@ -351,6 +369,8 @@ fn map_admin_request_row(row: sqlx::postgres::PgRow) -> Result<AdminDataRequestR
             id: row.try_get("id").map_err(map_sqlx_error)?,
             user_id: row.try_get("user_id").map_err(map_sqlx_error)?,
             request_type,
+            details: row.try_get("details").map_err(map_sqlx_error)?,
+            response: row.try_get("response").map_err(map_sqlx_error)?,
             status,
             requested_at: row.try_get("requested_at").map_err(map_sqlx_error)?,
             completed_at: row.try_get("completed_at").map_err(map_sqlx_error)?,

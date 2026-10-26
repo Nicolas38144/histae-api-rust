@@ -141,6 +141,16 @@ impl PgDataExportStore {
                             verified_at::text AS cursor_at,id AS cursor_id FROM billing_store_subscription s WHERE user_id=$1
                             AND ($2::timestamptz IS NULL OR (verified_at,id)>($2::timestamptz,$3::uuid))
                             ORDER BY verified_at,id LIMIT $4").await?;
+                    self.write_uuid_timestamp_pages(
+                        &mut transaction, writer, "data_requests", user_id, page_size,
+                        "SELECT jsonb_build_object('id', id, 'type', type, 'details', details,
+                           'response', response, 'status', status, 'requested_at', requested_at,
+                           'completed_at', completed_at) AS value,
+                           requested_at::text AS cursor_at, id AS cursor_id
+                         FROM data_subject_request WHERE user_id=$1
+                           AND ($2::timestamptz IS NULL OR (requested_at,id)>($2::timestamptz,$3::uuid))
+                         ORDER BY requested_at,id LIMIT $4",
+                    ).await?;
                     self.write_mobile_sessions(&mut transaction, writer, user_id, page_size)
                         .await?;
                     let discovery_rows = self

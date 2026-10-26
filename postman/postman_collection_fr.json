@@ -1915,14 +1915,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"type\": \"access\"\n}",
+                  "raw": "{\n  \"type\": \"rectification\",\n  \"details\": \"Merci de corriger une information non modifiable dans mon profil.\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "{ type } → 201 avec la demande."
+                "description": "{ type, details? } → 201. Une correction exige une précision (1–2000 caractères Unicode). Limitation/opposition retirées ; historique consultable."
               },
               "response": []
             },
@@ -3018,7 +3018,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n**Récente** ; { status, notes? } → transition contrôlée et auditée."
+                "description": "{ status, notes?, response? }. Réponse publique obligatoire pour clôturer/refuser une correction. Notes internes distinctes. Limitation/opposition en lecture seule."
               },
               "response": []
             },

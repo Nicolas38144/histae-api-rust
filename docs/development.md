@@ -175,3 +175,23 @@ d’OpenSSL ; le réserver aux besoins d’espace plutôt qu’à chaque validat
 `cargo test --locked --all-targets` exécute les tests Rust par défaut. Les tests PostgreSQL nécessitent une
 instance isolée : utiliser `python3 scripts/verify-continuation-postgres.py` pour les suites de continuation et
 les domaines associés. Ne pas activer `postgres-integration` contre la base de développement utilisée par les workers.
+
+## Data request details upgrade
+
+Run `cargo run --locked --bin db-migrate` before starting the new API against an existing database.
+The idempotent upgrade adds nullable `details` and `response` columns without rewriting history.
+Publish the API/schema before the app and dashboard. The API refuses startup if the columns are
+missing. New correction requests require details, and closing/rejecting a correction requires a
+public response. Restriction/objection categories are retained only for historical reads.
+
+Focused checks to run locally (not executed by the coding agent):
+
+```bash
+cargo fmt --all -- --check
+cargo check --locked --all-targets
+cargo test --locked --lib privacy::rights
+cargo test --locked --test privacy_rights_contract
+cargo test --locked --features postgres-integration --test privacy_rights_postgres
+```
+
+The PostgreSQL check requires the isolated development database described in `tests/README.md`.
