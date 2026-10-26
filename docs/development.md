@@ -176,22 +176,34 @@ d’OpenSSL ; le réserver aux besoins d’espace plutôt qu’à chaque validat
 instance isolée : utiliser `python3 scripts/verify-continuation-postgres.py` pour les suites de continuation et
 les domaines associés. Ne pas activer `postgres-integration` contre la base de développement utilisée par les workers.
 
-## Data request details upgrade
+## Messages et réponses des demandes RGPD
 
-Run `cargo run --locked --bin db-migrate` before starting the new API against an existing database.
-The idempotent upgrade adds nullable `details` and `response` columns without rewriting history.
-Publish the API/schema before the app and dashboard. The API refuses startup if the columns are
-missing. New correction requests require details, and closing/rejecting a correction requires a
-public response. Restriction/objection categories are retained only for historical reads.
+Le service `migrate` doit s’exécuter avant la nouvelle API sur une base existante. Hors Compose,
+utiliser `cargo run --locked --bin db-migrate` avec la configuration du rôle de migration.
+L’upgrade idempotent ajoute les colonnes facultatives `details` et `response` sans réécrire
+l’historique. Livrer le schéma et l’API avant l’app et le dashboard ; l’API refuse de démarrer
+si les colonnes manquent. Une nouvelle rectification exige un message ; sa clôture ou son refus
+exige une réponse publique non vide. `restriction` et `objection` restent en lecture seule.
 
-Focused checks to run locally (not executed by the coding agent):
+Les types, la validation Unicode et les transitions sont définis dans
+`src/privacy/rights/domain.rs`. Le service normalise les messages et orchestre le stockage ;
+le dépôt applique les transitions sur la demande verrouillée, dans la même transaction que
+l’audit et la planification d’effacement. Les notes internes sont réservées à l’administration,
+et absentes des réponses utilisateur et de l’export.
+
+Vérifications ciblées :
 
 ```bash
 cargo fmt --all -- --check
-cargo check --locked --all-targets
+cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --lib privacy::rights
-cargo test --locked --test privacy_rights_contract
-cargo test --locked --features postgres-integration --test privacy_rights_postgres
+cargo test --locked --test privacy_rights_contract --test route_inventory
+cargo build --locked --bin db-migrate
+python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
+  --test privacy_rights_postgres --test account_erasure_postgres
 ```
 
-The PostgreSQL check requires the isolated development database described in `tests/README.md`.
+Le lanceur crée une base PostgreSQL jetable, vérifie aussi l’upgrade depuis les demandes
+sans messages et sa répétition, puis supprime ses conteneurs et identifiants temporaires.
+Il vérifie la clôture concurrente, les refus sans réponse, les catégories historiques et
+l’absence de notes internes dans l’export. Voir [Validation locale](../tests/README.md).

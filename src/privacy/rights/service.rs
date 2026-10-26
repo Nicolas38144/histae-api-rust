@@ -7,101 +7,12 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::{Uuid, Variant};
 
+use super::domain::{
+    DataRequestStatus, DataRequestTransition, DataRequestType, normalized_request_text,
+    valid_request_details, valid_request_text,
+};
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::DatabaseError;
-use crate::shared::text::javascript_trim;
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum DataRequestType {
-    Access,
-    Erasure,
-    Portability,
-    Rectification,
-    Restriction,
-    Objection,
-}
-
-impl DataRequestType {
-    pub const fn requires_details(self) -> bool {
-        matches!(self, Self::Rectification)
-    }
-
-    pub const fn is_retired(self) -> bool {
-        matches!(self, Self::Restriction | Self::Objection)
-    }
-
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Access => "access",
-            Self::Erasure => "erasure",
-            Self::Portability => "portability",
-            Self::Rectification => "rectification",
-            Self::Restriction => "restriction",
-            Self::Objection => "objection",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "access" => Some(Self::Access),
-            "erasure" => Some(Self::Erasure),
-            "portability" => Some(Self::Portability),
-            "rectification" => Some(Self::Rectification),
-            "restriction" => Some(Self::Restriction),
-            "objection" => Some(Self::Objection),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DataRequestStatus {
-    Pending,
-    InProgress,
-    Completed,
-    Rejected,
-}
-
-impl DataRequestStatus {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Pending => "pending",
-            Self::InProgress => "in_progress",
-            Self::Completed => "completed",
-            Self::Rejected => "rejected",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "pending" => Some(Self::Pending),
-            "in_progress" => Some(Self::InProgress),
-            "completed" => Some(Self::Completed),
-            "rejected" => Some(Self::Rejected),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum DataRequestTransition {
-    InProgress,
-    Completed,
-    Rejected,
-}
-
-impl DataRequestTransition {
-    pub const fn as_status(self) -> DataRequestStatus {
-        match self {
-            Self::InProgress => DataRequestStatus::InProgress,
-            Self::Completed => DataRequestStatus::Completed,
-            Self::Rejected => DataRequestStatus::Rejected,
-        }
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct DataRequestRow {
@@ -323,9 +234,7 @@ impl DataRightsService {
         if !valid_request_details(request_type, details.as_deref()) {
             return Err(DataRightsError::InvalidRequest);
         }
-        let details = details
-            .map(|value| javascript_trim(&value).to_owned())
-            .filter(|value| !value.is_empty());
+        let details = normalized_request_text(details.as_deref()).map(str::to_owned);
         self.store
             .create_request(user_id, request_type, details)
             .await?
@@ -366,10 +275,7 @@ impl DataRightsService {
         if !valid_request_text(input.response.as_deref()) {
             return Err(DataRightsError::InvalidRequest);
         }
-        input.response = input
-            .response
-            .map(|value| javascript_trim(&value).to_owned())
-            .filter(|value| !value.is_empty());
+        input.response = normalized_request_text(input.response.as_deref()).map(str::to_owned);
         match self.store.update_request(input).await? {
             UpdateRequestResult::NotFound => Err(DataRightsError::RequestNotFound),
             UpdateRequestResult::InvalidTransition => Err(DataRightsError::InvalidTransition),
@@ -392,27 +298,6 @@ impl DataRightsService {
             .await?;
         paginate(rows, limit, |row| (&row.cursor_at, row.id))
     }
-}
-
-pub const REQUEST_DETAILS_MAX_LENGTH: usize = 2_000;
-
-/// Legacy self-service request types may omit details. Manual requests need a
-/// bounded explanation; never put this user-supplied content in operational logs.
-pub fn valid_request_details(request_type: DataRequestType, details: Option<&str>) -> bool {
-    let nonempty = details.is_some_and(|value| !javascript_trim(value).is_empty());
-    !request_type.is_retired()
-        && (!request_type.requires_details() || nonempty)
-        && valid_request_text(details)
-}
-
-pub fn valid_request_text(value: Option<&str>) -> bool {
-    value.is_none_or(|value| {
-        let value = javascript_trim(value);
-        value.chars().count() <= REQUEST_DETAILS_MAX_LENGTH
-            && !value.chars().any(|character| {
-                character.is_control() && !matches!(character, '\n' | '\r' | '\t')
-            })
-    })
 }
 
 fn paginate<Row, Public, Cursor>(
@@ -518,11 +403,13 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
+    use crate::privacy::rights::REQUEST_DETAILS_MAX_LENGTH;
 
     #[derive(Default)]
     struct Store {
         rows: Mutex<Vec<DataRequestRow>>,
         update: Mutex<Option<UpdateRequestResult>>,
+        last_update: Mutex<Option<UpdateRequestInput>>,
     }
 
     impl DataRightsStore for Store {
@@ -565,9 +452,13 @@ mod tests {
 
         fn update_request(
             &self,
-            _input: UpdateRequestInput,
+            input: UpdateRequestInput,
         ) -> DataRightsFuture<'_, UpdateRequestResult> {
             Box::pin(async move {
+                *self
+                    .last_update
+                    .lock()
+                    .map_err(|_| DatabaseError::QueryFailed)? = Some(input);
                 self.update
                     .lock()
                     .map_err(|_| DatabaseError::QueryFailed)?
@@ -682,18 +573,73 @@ mod tests {
         }
         for retired in [DataRequestType::Restriction, DataRequestType::Objection] {
             assert_eq!(
-                service.create_request(user, retired, Some("A valid message".to_owned())).await,
+                service
+                    .create_request(user, retired, Some("A valid message".to_owned()))
+                    .await,
                 Err(DataRightsError::InvalidRequest)
             );
         }
         let message = "Please correct this historical information.\nI cannot edit it in the app.";
         let created = service
-            .create_request(user, DataRequestType::Rectification, Some(format!("  {message}  ")))
+            .create_request(
+                user,
+                DataRequestType::Rectification,
+                Some(format!("  {message}  ")),
+            )
             .await
             .unwrap_or_else(|_| unreachable!());
         assert_eq!(created.details.as_deref(), Some(message));
-        let history = service.requests_for_user(user).await.unwrap_or_else(|_| unreachable!());
+        let history = service
+            .requests_for_user(user)
+            .await
+            .unwrap_or_else(|_| unreachable!());
         assert_eq!(history[0].details, created.details);
+    }
+
+    #[tokio::test]
+    async fn public_responses_are_validated_and_normalized_before_storage() {
+        let store = Arc::new(Store::default());
+        let service = DataRightsService::new(store.clone());
+        *store.update.lock().unwrap_or_else(|_| unreachable!()) =
+            Some(UpdateRequestResult::Updated);
+        let input = |response| UpdateRequestInput {
+            request_id: Uuid::new_v4(),
+            status: DataRequestTransition::Completed,
+            admin_id: Uuid::new_v4(),
+            admin_role: AdminRole::Admin,
+            notes: Some("Private note".to_owned()),
+            response,
+        };
+        for response in [
+            "bad\0value".to_owned(),
+            "🦀".repeat(REQUEST_DETAILS_MAX_LENGTH + 1),
+        ] {
+            assert_eq!(
+                service.update_request(input(Some(response))).await,
+                Err(DataRightsError::InvalidRequest)
+            );
+            assert!(
+                store
+                    .last_update
+                    .lock()
+                    .unwrap_or_else(|_| unreachable!())
+                    .is_none()
+            );
+        }
+        for (response, expected) in [
+            (Some("  Public reply\n".to_owned()), Some("Public reply")),
+            (Some(" \n\t".to_owned()), None),
+            (None, None),
+        ] {
+            assert_eq!(
+                service.update_request(input(response)).await,
+                Ok(UpdateRequestResult::Updated)
+            );
+            let recorded = store.last_update.lock().unwrap_or_else(|_| unreachable!());
+            let recorded = recorded.as_ref().unwrap_or_else(|| unreachable!());
+            assert_eq!(recorded.response.as_deref(), expected);
+            assert_eq!(recorded.notes.as_deref(), Some("Private note"));
+        }
     }
 
     #[test]

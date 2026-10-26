@@ -3018,7 +3018,7 @@
                     }
                   }
                 },
-                "description": "{ status, notes?, response? }. Réponse publique obligatoire pour clôturer/refuser une correction. Notes internes distinctes. Limitation/opposition en lecture seule."
+                "description": "Authentification administrateur récente requise. { status, notes?, response? }. Réponse publique obligatoire pour clôturer/refuser une correction. Notes internes distinctes. Limitation/opposition en lecture seule."
               },
               "response": []
             },

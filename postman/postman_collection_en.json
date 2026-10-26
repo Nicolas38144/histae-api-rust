@@ -3018,7 +3018,7 @@
                     }
                   }
                 },
-                "description": "{ status, notes?, response? }. Public response is required to complete or reject a correction. Notes stay internal. Restriction/objection records are read-only."
+                "description": "Recent administrator authentication required. { status, notes?, response? }. Public response is required to complete or reject a correction. Notes stay internal. Restriction/objection records are read-only."
               },
               "response": []
             },

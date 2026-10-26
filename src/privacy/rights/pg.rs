@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use sqlx::{Postgres, QueryBuilder, Row as _};
 use uuid::Uuid;
 
+use super::domain::{RequestReview, RequestReviewError};
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use crate::privacy::erasure::pg::enqueue_account_erasure;
 use crate::privacy::rights::{
@@ -142,8 +143,7 @@ impl DataRightsStore for PgDataRightsStore {
                         .map_err(map_sqlx_error)?;
 
                         let request = sqlx::query(
-                            "SELECT id, user_id, type, status, requested_at, completed_at,
-                                    handled_by, notes
+                            "SELECT type, status
                              FROM data_subject_request WHERE id = $1 FOR UPDATE",
                         )
                         .bind(input.request_id)
@@ -186,40 +186,19 @@ impl DataRightsStore for PgDataRightsStore {
                         }
 
                         let requested_status = input.status.as_status();
-                        // Retired categories remain readable, but cannot be processed.
-                        if request_type.is_retired() {
-                            return Ok(UpdateRequestResult::InvalidTransition);
-                        }
-                        if request_type.requires_details()
-                            && matches!(
-                                requested_status,
-                                DataRequestStatus::Completed | DataRequestStatus::Rejected
-                            )
-                            && input.response.is_none()
-                        {
-                            return Ok(UpdateRequestResult::InvalidRequest);
-                        }
-                        let allowed = match current_status {
-                            DataRequestStatus::Pending => matches!(
-                                requested_status,
-                                DataRequestStatus::InProgress | DataRequestStatus::Rejected
-                            ),
-                            DataRequestStatus::InProgress => matches!(
-                                requested_status,
-                                DataRequestStatus::Completed | DataRequestStatus::Rejected
-                            ),
-                            DataRequestStatus::Completed | DataRequestStatus::Rejected => false,
-                        };
-                        if !allowed {
-                            return Ok(UpdateRequestResult::InvalidTransition);
-                        }
-
-                        let scheduling = request_type == DataRequestType::Erasure
-                            && input.status == DataRequestTransition::Completed;
-                        let stored_status = if scheduling {
-                            DataRequestStatus::InProgress
-                        } else {
-                            requested_status
+                        let review = match RequestReview::decide(
+                            request_type,
+                            current_status,
+                            input.status,
+                            input.response.as_deref(),
+                        ) {
+                            Ok(review) => review,
+                            Err(RequestReviewError::InvalidTransition) => {
+                                return Ok(UpdateRequestResult::InvalidTransition);
+                            }
+                            Err(RequestReviewError::MissingResponse) => {
+                                return Ok(UpdateRequestResult::InvalidRequest);
+                            }
                         };
                         sqlx::query(
                             "UPDATE data_subject_request
@@ -229,7 +208,7 @@ impl DataRightsStore for PgDataRightsStore {
                              WHERE id = $1",
                         )
                         .bind(input.request_id)
-                        .bind(stored_status.as_str())
+                        .bind(review.stored_status().as_str())
                         .bind(input.admin_id)
                         .bind(input.notes)
                         .bind(input.response)
@@ -237,7 +216,7 @@ impl DataRightsStore for PgDataRightsStore {
                         .await
                         .map_err(map_sqlx_error)?;
 
-                        let reason = if scheduling {
+                        let reason = if review == RequestReview::ScheduleErasure {
                             "DSR erasure scheduled".to_owned()
                         } else {
                             format!(
@@ -259,7 +238,7 @@ impl DataRightsStore for PgDataRightsStore {
                         .await
                         .map_err(map_sqlx_error)?;
 
-                        if scheduling {
+                        if review == RequestReview::ScheduleErasure {
                             enqueue_account_erasure(connection, user_id, Some(input.request_id))
                                 .await?;
                             return Ok(UpdateRequestResult::ErasureScheduled);
@@ -356,29 +335,13 @@ fn map_admin_request_row(row: sqlx::postgres::PgRow) -> Result<AdminDataRequestR
     } else {
         None
     };
-    let request_type = row
-        .try_get::<String, _>("type")
-        .map_err(map_sqlx_error)
-        .and_then(|value| DataRequestType::parse(&value).ok_or(DatabaseError::QueryFailed))?;
-    let status = row
-        .try_get::<String, _>("status")
-        .map_err(map_sqlx_error)
-        .and_then(|value| DataRequestStatus::parse(&value).ok_or(DatabaseError::QueryFailed))?;
+    let notes = row.try_get("notes").map_err(map_sqlx_error)?;
+    let cursor_at = row.try_get("cursor_at").map_err(map_sqlx_error)?;
     Ok(AdminDataRequestRow {
-        request: DataRequestRow {
-            id: row.try_get("id").map_err(map_sqlx_error)?,
-            user_id: row.try_get("user_id").map_err(map_sqlx_error)?,
-            request_type,
-            details: row.try_get("details").map_err(map_sqlx_error)?,
-            response: row.try_get("response").map_err(map_sqlx_error)?,
-            status,
-            requested_at: row.try_get("requested_at").map_err(map_sqlx_error)?,
-            completed_at: row.try_get("completed_at").map_err(map_sqlx_error)?,
-            handled_by: row.try_get("handled_by").map_err(map_sqlx_error)?,
-        },
-        notes: row.try_get("notes").map_err(map_sqlx_error)?,
+        request: map_request_row(row)?,
+        notes,
         erasure,
-        cursor_at: row.try_get("cursor_at").map_err(map_sqlx_error)?,
+        cursor_at,
     })
 }
 

@@ -413,24 +413,67 @@ async fn data_rights_require_authentication_but_allow_incomplete_onboarding() {
 async fn manual_request_details_are_required_bounded_and_returned_to_the_owner() {
     let (app, token) = fixture(RightsStore::default(), true, false, 64 * 1024, 1);
     for request_type in ["rectification", "restriction", "objection"] {
-        for details in [Value::Null, json!(" \n\t"), json!("a".repeat(2001)), json!("bad\0value")] {
+        for details in [
+            Value::Null,
+            json!(" \n\t"),
+            json!("a".repeat(2001)),
+            json!("bad\0value"),
+        ] {
             let payload = json!({"type": request_type, "details": details}).to_string();
-            let response = app.clone().oneshot(request("POST", "/api/users/me/data-subject-requests", Some(&token), &payload)).await.unwrap_or_else(|_| unreachable!());
+            let response = app
+                .clone()
+                .oneshot(request(
+                    "POST",
+                    "/api/users/me/data-subject-requests",
+                    Some(&token),
+                    &payload,
+                ))
+                .await
+                .unwrap_or_else(|_| unreachable!());
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-            assert_eq!(json_body(response).await["error"]["code"], "invalid_data_request");
+            assert_eq!(
+                json_body(response).await["error"]["code"],
+                "invalid_data_request"
+            );
         }
     }
     for retired in ["restriction", "objection"] {
         let payload = json!({"type": retired, "details": "A valid message"}).to_string();
-        let response = app.clone().oneshot(request("POST", "/api/users/me/data-subject-requests", Some(&token), &payload)).await.unwrap_or_else(|_| unreachable!());
+        let response = app
+            .clone()
+            .oneshot(request(
+                "POST",
+                "/api/users/me/data-subject-requests",
+                Some(&token),
+                &payload,
+            ))
+            .await
+            .unwrap_or_else(|_| unreachable!());
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
     let details = "Please correct this information.\nI cannot edit it in the app.";
     let payload = json!({"type": "rectification", "details": format!("  {details}  ")}).to_string();
-    let created = app.clone().oneshot(request("POST", "/api/users/me/data-subject-requests", Some(&token), &payload)).await.unwrap_or_else(|_| unreachable!());
+    let created = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/users/me/data-subject-requests",
+            Some(&token),
+            &payload,
+        ))
+        .await
+        .unwrap_or_else(|_| unreachable!());
     assert_eq!(created.status(), StatusCode::CREATED);
     assert_eq!(json_body(created).await["details"], details);
-    let listed = app.oneshot(request("GET", "/api/users/me/data-subject-requests", Some(&token), "")).await.unwrap_or_else(|_| unreachable!());
+    let listed = app
+        .oneshot(request(
+            "GET",
+            "/api/users/me/data-subject-requests",
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap_or_else(|_| unreachable!());
     let listed = json_body(listed).await;
     assert_eq!(listed["requests"][0]["details"], details);
     assert!(listed["requests"][0].get("notes").is_none());

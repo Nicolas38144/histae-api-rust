@@ -144,6 +144,10 @@ def main():
             assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
             query(f"INSERT INTO user_subscription(user_id,plan,provider,provider_subscription_id,status) VALUES ('{first}','free','stripe','sub_LegacyStoreMigration','canceled') ON CONFLICT(user_id) DO UPDATE SET plan='free',provider='stripe',provider_subscription_id='sub_LegacyStoreMigration',status='canceled';")
             query(f"INSERT INTO user_presence(user_id,latitude,longitude,is_location_fresh) VALUES ('{first}',48.856613,2.352222,true);")
+            # A pre-message request keeps its history when nullable columns are added.
+            legacy_request = str(uuid.uuid4())
+            query(f"INSERT INTO data_subject_request(id,user_id,type,status,notes) VALUES ('{legacy_request}','{first}','rectification','in_progress','Historical internal note');")
+            query("ALTER TABLE data_subject_request DROP COLUMN details, DROP COLUMN response;", "histae_migrate")
             # Recreate the retired analyser columns and decisions on this disposable database.
             photo_ids = [str(uuid.uuid4()) for _ in range(5)]
             query("ALTER TABLE content_moderation_case ADD COLUMN face_count smallint, ADD COLUMN sharpness_score double precision, ADD COLUMN nsfw_score double precision, ADD COLUMN face_detectable boolean, ADD COLUMN sharp_enough boolean, ADD COLUMN content_allowed boolean; ALTER TABLE content_moderation_case DROP CONSTRAINT chk_content_moderation_reason_codes;", "histae_migrate")
@@ -162,6 +166,8 @@ def main():
             query("DROP TABLE continuation_reservation,advertising_reward_intent,continuation_wallet; ALTER TABLE continuation_usage DROP COLUMN free_used_count; ALTER TABLE user_account DROP COLUMN discovery_paused, DROP COLUMN preferred_language; ALTER TABLE device_token DROP COLUMN language; ALTER TABLE user_consent DROP COLUMN document_language; ALTER TABLE otp_verification DROP COLUMN language; DROP TABLE trait_translation, profile_question_translation, subscription_plan_translation, subscription_plan_feature_translation;", "histae_migrate")
             query("UPDATE profile_question SET prompt='Question personnalisée avant migration ?' WHERE id='51000000-0000-4000-8000-000000000001';")
             migrate()
+            assert query(f"SELECT type='rectification' AND status='in_progress' AND notes='Historical internal note' AND details IS NULL AND response IS NULL FROM data_subject_request WHERE id='{legacy_request}';") == "t"
+            query(f"UPDATE data_subject_request SET details='User correction message',response='Public correction reply' WHERE id='{legacy_request}';")
             assert query("SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='content_moderation_case' AND column_name IN ('face_count','sharpness_score','nsfw_score','face_detectable','sharp_enough','content_allowed');") == "0"
             assert query(f"SELECT status||':'||policy_version||':'||cardinality(reason_codes) FROM content_moderation_case WHERE photo_id='{photo_ids[0]}';") == "approved:manual_photo_v1:0"
             assert query(f"SELECT status||':'||policy_version FROM content_moderation_case WHERE photo_id='{photo_ids[1]}';") == "approved:manual_photo_v1"
@@ -185,6 +191,8 @@ def main():
             query(f"UPDATE user_account SET discovery_paused=true,preferred_language='es' WHERE user_id='{first}';")
             query(f"UPDATE user_presence SET latitude=89.975,longitude=0,is_location_fresh=true WHERE user_id='{first}';")
             migrate()
+            assert query(f"SELECT details='User correction message' AND response='Public correction reply' AND notes='Historical internal note' FROM data_subject_request WHERE id='{legacy_request}';") == "t"
+            print("Data request message upgrade preserves history and is idempotent.", flush=True)
             assert query(f"SELECT string_agg(id::text||':'||version,',' ORDER BY id) FROM content_moderation_case WHERE user_id IN ('{first}','{second}');") == photo_versions
             print("Photo analyser retirement preserves human decisions and is idempotent.", flush=True)
             assert query(f"SELECT latitude=89.975 AND longitude=0 AND is_location_fresh FROM user_presence WHERE user_id='{first}';") == "t"

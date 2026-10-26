@@ -15,8 +15,8 @@ use histae_api_rust::privacy::export::DataExportService;
 use histae_api_rust::privacy::export::pg::PgDataExportStore;
 use histae_api_rust::privacy::rights::pg::PgDataRightsStore;
 use histae_api_rust::privacy::rights::{
-    DataRequestStatus, DataRequestTransition, DataRequestType, DataRightsStore, UpdateRequestInput,
-    UpdateRequestResult,
+    DataRequestStatus, DataRequestTransition, DataRequestType, DataRightsError, DataRightsService,
+    DataRightsStore, UpdateRequestInput, UpdateRequestResult,
 };
 use histae_api_rust::profiles::service::{ProfilePhotoUrlFuture, ProfilePhotoUrlProvider};
 use serde_json::Value;
@@ -218,23 +218,53 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
         );
 
         let details = "Correct the information I cannot edit in my profile.";
-        let correction = rights.create_request(user_id, DataRequestType::Rectification, Some(details.to_owned())).await?.ok_or(FixtureError("create rectification DSR"))?;
+        let correction = rights
+            .create_request(user_id, DataRequestType::Rectification, Some(details.to_owned()))
+            .await?
+            .ok_or(FixtureError("create rectification DSR"))?;
         assert_eq!(correction.details.as_deref(), Some(details));
         let owner_requests = rights.requests_for_user(user_id).await?;
-        assert_eq!(owner_requests.iter().find(|row| row.id == correction.id).and_then(|row| row.details.as_deref()), Some(details));
+        assert_eq!(
+            owner_requests.iter().find(|row| row.id == correction.id)
+                .and_then(|row| row.details.as_deref()),
+            Some(details),
+        );
         let admin_requests = rights.requests_for_admin(None, 100, 0, None).await?;
-        assert_eq!(admin_requests.iter().find(|row| row.request.id == correction.id).and_then(|row| row.request.details.as_deref()), Some(details));
+        assert_eq!(
+            admin_requests.iter().find(|row| row.request.id == correction.id)
+                .and_then(|row| row.request.details.as_deref()),
+            Some(details),
+        );
 
         let correction_update = |status, response| UpdateRequestInput {
-            request_id: correction.id, status, admin_id, admin_role: AdminRole::Admin,
-            notes: Some("Internal handling note".to_owned()), response,
+            request_id: correction.id,
+            status,
+            admin_id,
+            admin_role: AdminRole::Admin,
+            notes: Some("Internal handling note".to_owned()),
+            response,
         };
-        assert_eq!(rights.update_request(correction_update(DataRequestTransition::InProgress, None)).await?, UpdateRequestResult::Updated);
-        assert_eq!(rights.update_request(correction_update(DataRequestTransition::Completed, None)).await?, UpdateRequestResult::InvalidRequest);
+        assert_eq!(
+            rights.update_request(correction_update(DataRequestTransition::InProgress, None)).await?,
+            UpdateRequestResult::Updated,
+        );
+        assert_eq!(
+            rights.update_request(correction_update(DataRequestTransition::Completed, None)).await?,
+            UpdateRequestResult::InvalidRequest,
+        );
         let response = "The historical information has been corrected.";
-        assert_eq!(rights.update_request(correction_update(DataRequestTransition::Completed, Some(response.to_owned()))).await?, UpdateRequestResult::Updated);
+        assert_eq!(
+            rights.update_request(correction_update(
+                DataRequestTransition::Completed, Some(response.to_owned()),
+            )).await?,
+            UpdateRequestResult::Updated,
+        );
         let resolved = rights.requests_for_user(user_id).await?;
-        assert_eq!(resolved.iter().find(|row| row.id == correction.id).and_then(|row| row.response.as_deref()), Some(response));
+        assert_eq!(
+            resolved.iter().find(|row| row.id == correction.id)
+                .and_then(|row| row.response.as_deref()),
+            Some(response),
+        );
 
         let export = DataExportService::new(
             Arc::new(PgDataExportStore::new(database.clone())),
@@ -263,8 +293,13 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
         assert_eq!(document["profile"]["birthdate"], "1990-02-03T00:00:00.000Z");
         assert_eq!(document["billing_invoices"][0]["amount_due"], "9007199254740993");
         assert_eq!(document["billing_invoices"][0]["amount_paid"], "0");
-        let exported_requests = document["data_requests"].as_array().ok_or(FixtureError("data requests"))?;
-        let exported_correction = exported_requests.iter().find(|row| row["id"] == correction.id.to_string()).ok_or(FixtureError("exported correction"))?;
+        let exported_requests = document["data_requests"]
+            .as_array()
+            .ok_or(FixtureError("data requests"))?;
+        let exported_correction = exported_requests
+            .iter()
+            .find(|row| row["id"] == correction.id.to_string())
+            .ok_or(FixtureError("exported correction"))?;
         assert_eq!(exported_correction["details"], details);
         assert_eq!(exported_correction["response"], response);
         assert!(exported_requests.iter().all(|row| row.get("notes").is_none()));
@@ -357,6 +392,142 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
     }
     .await;
 
+    cleanup(&database, &users).await?;
+    result
+}
+
+#[tokio::test]
+async fn correction_rejections_require_public_replies_and_retired_requests_stay_read_only()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&local_config()?).await?;
+    let user_id = Uuid::new_v4();
+    let admin_id = Uuid::new_v4();
+    let users = [user_id, admin_id];
+    insert_account(&database, user_id, "user").await?;
+    insert_account(&database, admin_id, "admin").await?;
+    let result = async {
+        let store = Arc::new(PgDataRightsStore::new(database.clone()));
+        let service = DataRightsService::new(store.clone());
+        let correction = service
+            .create_request(
+                user_id,
+                DataRequestType::Rectification,
+                Some("  Incorrect birthdate  ".to_owned()),
+            )
+            .await
+            .map_err(|_| FixtureError("create correction"))?;
+        let update = |request_id, status, response: Option<&str>| UpdateRequestInput {
+            request_id,
+            status,
+            admin_id,
+            admin_role: AdminRole::Admin,
+            notes: Some("Internal investigation".to_owned()),
+            response: response.map(str::to_owned),
+        };
+        let rejection = |response| update(correction.id, DataRequestTransition::Rejected, response);
+        for response in [None, Some(" \n\t"), Some("bad\0reply")] {
+            assert_eq!(
+                service.update_request(rejection(response)).await,
+                Err(DataRightsError::InvalidRequest),
+            );
+        }
+        // The locked-row policy also rejects blank replies from direct store callers.
+        assert_eq!(
+            store.update_request(rejection(Some(" \n\t"))).await?,
+            UpdateRequestResult::InvalidRequest,
+        );
+        let pending = store.requests_for_user(user_id).await?;
+        assert_eq!(pending[0].status, DataRequestStatus::Pending);
+        assert_eq!(pending[0].response, None);
+        let mut connection = database.acquire().await?;
+        let audits: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM data_access_log WHERE accessed_user_id=$1")
+                .bind(user_id)
+                .fetch_one(&mut *connection)
+                .await?;
+        assert_eq!(audits, 0);
+        drop(connection);
+
+        let reply = "  Please supply supporting documentation.\n";
+        let (first, second) = tokio::join!(
+            service.update_request(rejection(Some(reply))),
+            service.update_request(rejection(Some(reply))),
+        );
+        assert!(matches!(
+            (first, second),
+            (
+                Ok(UpdateRequestResult::Updated),
+                Err(DataRightsError::InvalidTransition)
+            ) | (
+                Err(DataRightsError::InvalidTransition),
+                Ok(UpdateRequestResult::Updated)
+            )
+        ));
+        let rejected = store.requests_for_user(user_id).await?;
+        assert_eq!(rejected[0].status, DataRequestStatus::Rejected);
+        assert_eq!(rejected[0].details.as_deref(), Some("Incorrect birthdate"));
+        assert_eq!(
+            rejected[0].response.as_deref(),
+            Some("Please supply supporting documentation."),
+        );
+        assert!(store.requests_for_user(admin_id).await?.is_empty());
+
+        // Old categories are kept verbatim for history, never silently reclassified.
+        let mut connection = database.acquire().await?;
+        for retired in [DataRequestType::Restriction, DataRequestType::Objection] {
+            let request_id: Uuid = sqlx::query_scalar(
+                "INSERT INTO data_subject_request(user_id,type,notes)
+                 VALUES ($1,$2,'Historical internal note') RETURNING id",
+            )
+            .bind(user_id)
+            .bind(retired.as_str())
+            .fetch_one(&mut *connection)
+            .await?;
+            assert_eq!(
+                service
+                    .update_request(update(request_id, DataRequestTransition::InProgress, None))
+                    .await,
+                Err(DataRightsError::InvalidTransition),
+            );
+            assert_eq!(
+                service
+                    .create_request(user_id, retired, Some("Message".to_owned()))
+                    .await,
+                Err(DataRightsError::InvalidRequest),
+            );
+        }
+        let owner_history = service
+            .requests_for_user(user_id)
+            .await
+            .map_err(|_| FixtureError("owner history"))?;
+        for request in owner_history
+            .iter()
+            .filter(|request| request.request_type.is_retired())
+        {
+            assert_eq!(request.status, DataRequestStatus::Pending);
+            assert!(request.details.is_none() && request.response.is_none());
+        }
+        assert_eq!(owner_history.len(), 3);
+        let admin_history = service
+            .requests_for_admin(None, 100, 0, None)
+            .await
+            .map_err(|_| FixtureError("admin history"))?;
+        let reviewed = admin_history
+            .items
+            .iter()
+            .find(|request| request.request.id == correction.id)
+            .ok_or(FixtureError("admin correction"))?;
+        assert_eq!(reviewed.notes.as_deref(), Some("Internal investigation"));
+        assert_eq!(reviewed.request, rejected[0].clone().into());
+        let audits: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM data_access_log WHERE accessed_user_id=$1")
+                .bind(user_id)
+                .fetch_one(&mut *connection)
+                .await?;
+        assert_eq!(audits, 1);
+        Ok(())
+    }
+    .await;
     cleanup(&database, &users).await?;
     result
 }
