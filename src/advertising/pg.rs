@@ -86,7 +86,7 @@ impl RewardRepository {
 
     pub async fn status(&self, user_id: Uuid, id: Uuid) -> Result<RewardIntent, RewardError> {
         let row = sqlx::query(
-            "SELECT id,ad_unit,expires_at,completed_at,cancelled_at,clock_timestamp() AS database_now
+            "SELECT id,ad_unit,expires_at,completed_at,credited_at,cancelled_at,clock_timestamp() AS database_now
              FROM advertising_reward_intent
              WHERE id=$1 AND user_id=$2",
         )
@@ -101,15 +101,24 @@ impl RewardRepository {
             .map_err(map_sqlx_error)?
             .is_some();
         let now = row.try_get("database_now").map_err(map_sqlx_error)?;
+        let credited = row
+            .try_get::<Option<DateTime<Utc>>, _>("credited_at")
+            .map_err(map_sqlx_error)?
+            .is_some();
         let cancelled = row
             .try_get::<Option<DateTime<Utc>>, _>("cancelled_at")
             .map_err(map_sqlx_error)?
             .is_some();
-        let mut intent = map_intent(row, complete, now)?;
-        if cancelled {
-            intent.status = RewardStatus::Cancelled;
-        }
-        Ok(intent)
+        let outcome = if cancelled {
+            Some(RewardStatus::Cancelled)
+        } else if credited {
+            Some(RewardStatus::Credited)
+        } else if complete {
+            Some(RewardStatus::Expired)
+        } else {
+            None
+        };
+        map_intent(row, outcome, now).map_err(Into::into)
     }
 
     pub async fn complete(&self, callback: Callback) -> Result<(), RewardError> {
@@ -135,7 +144,7 @@ fn invalid_reward(code: &'static str) -> RewardError {
 
 fn map_intent(
     row: sqlx::postgres::PgRow,
-    complete: bool,
+    outcome: Option<RewardStatus>,
     now: DateTime<Utc>,
 ) -> Result<RewardIntent, DatabaseError> {
     let id: Uuid = row.try_get("id").map_err(map_sqlx_error)?;
@@ -145,13 +154,11 @@ fn map_intent(
         custom_data: id.to_string(),
         ad_unit: row.try_get("ad_unit").map_err(map_sqlx_error)?,
         expires_at,
-        status: if complete {
-            RewardStatus::Credited
-        } else if expires_at <= now {
+        status: outcome.unwrap_or(if expires_at <= now {
             RewardStatus::Expired
         } else {
             RewardStatus::Pending
-        },
+        }),
         reward_credits: REWARD_CREDITS,
     })
 }
@@ -221,7 +228,7 @@ async fn create_on(
             {
                 return Err(RewardError::NotEligible);
             }
-            return map_intent(row, false, now).map_err(Into::into);
+            return map_intent(row, None, now).map_err(Into::into);
         }
         // Preserve a slot for a signed late callback. Cancelling an abandoned
         // intent releases this slot immediately.
@@ -237,7 +244,7 @@ async fn create_on(
     .fetch_one(connection)
     .await
     .map_err(map_sqlx_error)?;
-    map_intent(row, false, now).map_err(Into::into)
+    map_intent(row, None, now).map_err(Into::into)
 }
 
 async fn complete_on(
@@ -311,13 +318,17 @@ async fn complete_on(
     if now > expires + TimeDelta::hours(24) {
         return Err(invalid_reward("admob_callback_too_late"));
     }
-    // A globally unique transaction hash prevents cross-intent replay.
+    let current_week = start_of_utc_week(event) == start_of_utc_week(now);
+    // A globally unique transaction hash prevents cross-intent replay. Record
+    // the grant separately so a consumed, prior-week proof is never "credited".
     let updated = sqlx::query(
-        "UPDATE advertising_reward_intent SET completed_at=$2,transaction_hash=$3 WHERE id=$1",
+        "UPDATE advertising_reward_intent
+         SET completed_at=$2,transaction_hash=$3,credited_at=$4 WHERE id=$1",
     )
     .bind(callback.intent_id)
     .bind(now)
     .bind(hash)
+    .bind(current_week.then_some(now))
     .execute(&mut *connection)
     .await;
     match updated {
@@ -333,7 +344,7 @@ async fn complete_on(
     }
     // A late proof is still consumed exactly once, but never carries Sunday's
     // earned credit into Monday's new allocation.
-    if start_of_utc_week(event) != start_of_utc_week(now) {
+    if !current_week {
         return Ok(());
     }
     if !grant_advertising_credit(connection, owner, now).await? {

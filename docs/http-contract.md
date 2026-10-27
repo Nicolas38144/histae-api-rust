@@ -404,8 +404,13 @@ Les routes propriétaires exigent Bearer, compte actif et onboarding courant. El
 | --- | --- | --- |
 | POST | `/api/users/me/advertising-rewards` | `{ platform: android ou ios }` → `200 { id, ad_unit, custom_data, expires_at, status, reward_credits }`, intention préparée/reprise. |
 | GET | `/api/users/me/advertising-rewards/:id` | Même projection propriétaire ; `status: pending ou credited ou expired ou cancelled`. |
-| DELETE | `/api/users/me/advertising-rewards/:id` | Aucun corps → `204`, annulation d’une intention non créditée, idempotente. |
+| DELETE | `/api/users/me/advertising-rewards/:id` | Aucun corps → `204`, annulation d’une intention non terminée, idempotente. |
 | GET | `/api/auth/admob/webhook` | Public ; query AdMob signée inchangée → `200` vide après crédit/déduplication, ou validation d’URL sans crédit avec le marqueur dédié. |
+
+`credited` signifie qu’un crédit a effectivement été accordé. Une preuve d’une vidéo gagnée la
+semaine précédente puis traitée après le lundi à 00:00 UTC reste consommée contre le rejeu,
+mais renvoie `expired` sans augmenter le solde courant. Le quota reste la référence pour les
+crédits encore disponibles, après consommation ou expiration.
 
 Une intention est opaque, limitée à 15 minutes et à une récompense d’un crédit. Une seule intention en attente occupe une place ; une preuve gagnée avant l’échéance peut arriver dans les 24 heures suivantes. Annuler une intention abandonnée libère cette place mais invalide les preuves ultérieures. L’API crédite uniquement après vérification serveur ECDSA ; le callback client du SDK ne donne aucun crédit. Le rejeu d’une transaction liée à une autre intention est refusé.
 

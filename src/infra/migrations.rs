@@ -194,6 +194,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
     if weekly_wallet_new {
         upgrade_weekly_advertising_credits(&mut transaction).await?;
     }
+    upgrade_advertising_reward_outcomes(&mut transaction).await?;
     if sms_safety_new {
         // Import the attempts still available locally at first activation only.
         // Missing historical OTPs cannot be reconstructed after their retention expired.
@@ -280,6 +281,37 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         .await
         .map_err(map_sqlx_error)?;
     transaction.commit().await.map_err(map_sqlx_error)
+}
+
+async fn upgrade_advertising_reward_outcomes(
+    connection: &mut sqlx::PgConnection,
+) -> Result<(), DatabaseError> {
+    let ready: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_attribute
+         WHERE attrelid=to_regclass(current_schema() || '.advertising_reward_intent')
+           AND attname='credited_at' AND NOT attisdropped)",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if ready {
+        return Ok(());
+    }
+    // Preserve historical outcomes. Only new callbacks can distinguish a
+    // consumed proof from an actual credit grant; repeated migrations do not
+    // reclassify proofs discarded after a weekly reset.
+    sqlx::raw_sql(
+        "ALTER TABLE advertising_reward_intent ADD COLUMN credited_at timestamptz;
+         UPDATE advertising_reward_intent SET credited_at=completed_at
+           WHERE completed_at IS NOT NULL;
+         ALTER TABLE advertising_reward_intent
+           ADD CONSTRAINT advertising_reward_credit_completion_check
+             CHECK (credited_at IS NULL OR completed_at IS NOT NULL);",
+    )
+    .execute(connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    Ok(())
 }
 
 async fn upgrade_weekly_advertising_credits(

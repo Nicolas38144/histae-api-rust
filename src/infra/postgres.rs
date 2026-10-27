@@ -242,6 +242,7 @@ impl Database {
             "SELECT to_regclass(current_schema() || '.continuation_wallet') IS NOT NULL
                 AND to_regclass(current_schema() || '.continuation_reservation') IS NOT NULL
                 AND to_regclass(current_schema() || '.advertising_reward_intent') IS NOT NULL
+                AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.advertising_reward_intent') AND attname='credited_at' AND atttypid='timestamptz'::regtype AND NOT attisdropped)
                 AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.continuation_wallet') AND attname='week_start' AND atttypid='date'::regtype AND attnotnull AND NOT attisdropped)
                 AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.continuation_usage') AND attname='free_used_count' AND NOT attisdropped)",
         ).fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;

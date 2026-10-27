@@ -137,14 +137,20 @@ def main():
             # credits or overwriting a later operator translation on redeploy.
             wallet_owner = str(uuid.uuid4())
             query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{wallet_owner}','legacy-weekly-wallet',''::bytea); INSERT INTO continuation_wallet(user_id,advertising_credits) VALUES ('{wallet_owner}',3);")
+            legacy_reward = str(uuid.uuid4())
+            query(f"INSERT INTO advertising_reward_intent(id,user_id,ad_unit,completed_at,transaction_hash) VALUES ('{legacy_reward}','{wallet_owner}','legacy-unit',clock_timestamp(),'{legacy_reward}');")
+            query("ALTER TABLE advertising_reward_intent DROP COLUMN credited_at;", "histae_migrate")
             query("ALTER TABLE continuation_wallet DROP COLUMN week_start; UPDATE subscription_plan SET weekly_continuation_limit=3 WHERE code='free'; UPDATE subscription_plan_feature_translation SET display_name='3 crédits gratuits par semaine' WHERE plan_code='free' AND feature_code='continuations' AND language='fr';", "histae_migrate")
             migrate()
+            assert query(f"SELECT credited_at=completed_at FROM advertising_reward_intent WHERE id='{legacy_reward}';") == "t"
             assert query(f"SELECT advertising_credits=3 AND week_start=date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date FROM continuation_wallet WHERE user_id='{wallet_owner}';") == "t"
             assert query("SELECT weekly_continuation_limit FROM subscription_plan WHERE code='free';") == "2"
             assert query("SELECT display_name FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';") == "2 crédits gratuits par semaine"
             description = query("SELECT description FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';")
+            query(f"UPDATE advertising_reward_intent SET credited_at=NULL WHERE id='{legacy_reward}';")
             query(f"UPDATE continuation_wallet SET week_start=week_start-7 WHERE user_id='{wallet_owner}'; UPDATE subscription_plan_feature_translation SET description='Operator weekly policy text' WHERE plan_code='free' AND feature_code='continuations' AND language='fr';")
             migrate()
+            assert query(f"SELECT credited_at IS NULL AND completed_at IS NOT NULL FROM advertising_reward_intent WHERE id='{legacy_reward}';") == "t"
             assert query(f"SELECT advertising_credits=3 AND week_start=date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date-7 FROM continuation_wallet WHERE user_id='{wallet_owner}';") == "t"
             assert query("SELECT description FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';") == "Operator weekly policy text"
             description_literal = "'" + description.replace("'", "''") + "'"

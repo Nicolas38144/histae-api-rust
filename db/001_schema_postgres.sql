@@ -837,11 +837,14 @@ CREATE TABLE IF NOT EXISTS advertising_reward_intent (
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     expires_at timestamptz NOT NULL DEFAULT clock_timestamp() + INTERVAL '15 minutes',
     completed_at timestamptz,
+    credited_at timestamptz,
     cancelled_at timestamptz,
     transaction_hash text UNIQUE,
     CHECK (expires_at > created_at),
     CHECK (cancelled_at IS NULL OR completed_at IS NULL),
-    CHECK ((completed_at IS NULL) = (transaction_hash IS NULL))
+    CHECK ((completed_at IS NULL) = (transaction_hash IS NULL)),
+    CONSTRAINT advertising_reward_credit_completion_check
+        CHECK (credited_at IS NULL OR completed_at IS NOT NULL)
 );
 CREATE INDEX IF NOT EXISTS idx_advertising_reward_owner ON advertising_reward_intent(user_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_advertising_reward_retention ON advertising_reward_intent(created_at);

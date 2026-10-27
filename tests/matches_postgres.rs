@@ -1223,7 +1223,9 @@ async fn previous_week_advertising_reservations_require_fresh_agreement()
 async fn advertising_rewards_reset_old_balances_without_carrying_late_proofs()
 -> Result<(), Box<dyn std::error::Error>> {
     use histae_api_rust::advertising::{
-        domain::RewardPlatform, pg::RewardRepository, ssv::Callback,
+        domain::{RewardPlatform, RewardStatus},
+        pg::RewardRepository,
+        ssv::Callback,
     };
     use histae_api_rust::matches::domain::start_of_utc_week;
     let database = Database::connect(&postgres_config()?).await?;
@@ -1256,6 +1258,10 @@ async fn advertising_rewards_reset_old_balances_without_carrying_late_proofs()
         let event=Utc::now();
         let (a,b)=tokio::join!(rewards.complete(proof(intent.id,event)),rewards.complete(proof(intent.id,event)));
         a?;b?;
+        assert_eq!(
+            rewards.status(users[0], intent.id).await?.status,
+            RewardStatus::Credited
+        );
         assert_eq!(repository.quota_snapshot(users[0],Utc::now()).await?.advertising_balance,1);
         let sunday = start_of_utc_week(Utc::now()).and_hms_opt(0,0,0).ok_or(FixtureError("week"))?.and_utc()-TimeDelta::minutes(1);
         let id=Uuid::new_v4();
@@ -1266,6 +1272,18 @@ async fn advertising_rewards_reset_old_balances_without_carrying_late_proofs()
             .execute(database.acquire().await?.as_mut()).await?;
         rewards.complete(proof(id,sunday)).await?;
         rewards.complete(proof(id,sunday)).await?;
+        assert_eq!(
+            rewards.status(users[1], id).await?.status,
+            RewardStatus::Expired
+        );
+        let discarded: bool = sqlx::query_scalar("SELECT completed_at IS NOT NULL AND transaction_hash IS NOT NULL AND credited_at IS NULL FROM advertising_reward_intent WHERE id=$1")
+            .bind(id)
+            .fetch_one(database.acquire().await?.as_mut())
+            .await?;
+        assert!(
+            discarded,
+            "a stale proof is consumed without claiming a credit grant"
+        );
         assert_eq!(repository.quota_snapshot(users[1],Utc::now()).await?.advertising_balance,2);
         let intent = rewards.create(users[1],RewardPlatform::Android).await?;
         rewards.complete(proof(intent.id,Utc::now())).await?;

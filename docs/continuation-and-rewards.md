@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [Contrat HTTP](http-contract.md#decouverte-matchs-et-messages) · [Postman](../postman/README.md) · [Configuration](configuration.md)
 
-Ce guide possède les règles métier, le parcours des crédits et l’activation AdMob. Le contrat HTTP possède les routes et codes d’erreur. Les pages du site présentent ces règles dans les quatre langues ; le dashboard affiche les compteurs transmis par l’API. L’intégration mobile reste à réaliser et les publicités sont désactivées par défaut.
+Ce guide décrit les règles métier, le parcours des crédits et l’activation AdMob. Le contrat HTTP décrit les routes et codes d’erreur. Les pages du site présentent ces règles dans les quatre langues ; l’app et le dashboard affichent les compteurs transmis par l’API. Les publicités restent désactivées par défaut et nécessitent la configuration du fournisseur.
 
 ## 1. Cycle de vie et décisions privées
 
@@ -53,8 +53,10 @@ gratuites restent attachées à leur semaine d’origine comme décrit ci-dessus
 Le solde publicitaire est interprété à partir de `continuation_wallet.week_start` : une ancienne
 semaine vaut immédiatement zéro, sans attendre une maintenance. Une nouvelle récompense ouvre
 le solde de la semaine courante à un crédit. Une preuve tardive est enregistrée une seule fois,
-mais ne reporte pas dans la nouvelle semaine un crédit gagné la semaine précédente. `credited`
-atteste le traitement de la récompense ; seul le quota indique les crédits encore utilisables.
+mais ne reporte pas dans la nouvelle semaine un crédit gagné la semaine précédente. Dans ce cas,
+son statut est `expired`, même si sa preuve a été traitée. `completed_at` enregistre le traitement
+de la preuve ; `credited_at` atteste un crédit réellement accordé et produit le statut `credited`.
+Un crédit accordé peut ensuite être dépensé ou expirer : seul le quota indique le solde utilisable.
 
 ### Lire le solde
 
@@ -207,7 +209,10 @@ Le migrateur ajoute la semaine UTC au wallet et met à jour la formule Free et s
 Les soldes antérieurs à cette évolution restent utilisables jusqu’au prochain lundi ; ils ne sont
 jamais renouvelés par une nouvelle passe du migrateur. Les matchs confirmés et les consommations
 historiques restent conservés. Livrer le schéma avant la nouvelle API : le démarrage refuse un
-wallet qui ne possède pas la colonne `week_start`.
+wallet qui ne possède pas la colonne `week_start`, ou des intentions sans `credited_at`.
+Le migrateur conserve les anciens résultats en copiant `completed_at` vers `credited_at` une
+seule fois. Les preuves antérieures à cette migration ne contiennent pas l’horodatage du gain
+permettant de reconstituer une éventuelle expiration hebdomadaire.
 
 ## Références
 
