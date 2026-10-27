@@ -179,6 +179,14 @@ def main():
             assert query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};") == original_swipe_choices
             shortened_swipes = query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at,expires_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};")
             assert query("SELECT tgenabled='O' FROM pg_trigger WHERE tgrelid='swipe_decision'::regclass AND tgname='trg_live_swipe';") == "t"
+            query(f"""DO $$ BEGIN
+                BEGIN
+                    UPDATE swipe_decision SET expires_at=expires_at
+                    WHERE actor_id='{swipe_actor}' AND target_id='{swipe_target}';
+                    RAISE EXCEPTION 'Inactive account swipe guard was not restored';
+                EXCEPTION WHEN SQLSTATE 'P0E01' THEN NULL;
+                END;
+            END $$;""")
             # Omitted timestamps must also receive the new default and pass its check.
             query(f"INSERT INTO swipe_decision(actor_id,target_id,decision) VALUES ('{first}','{swipe_actor}','pass');")
             assert query(f"SELECT type='rectification' AND status='in_progress' AND notes='Historical internal note' AND details IS NULL AND response IS NULL FROM data_subject_request WHERE id='{legacy_request}';") == "t"

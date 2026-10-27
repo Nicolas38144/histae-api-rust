@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{TimeDelta, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use histae_api_rust::config::{LegalConfig, PostgresConfig, SecretString};
 use histae_api_rust::discovery::cursor::FeedCursorCodec;
 use histae_api_rust::discovery::domain::{DiscoveryCursor, SWIPE_RETENTION_DAYS, SwipeDecision};
@@ -17,6 +17,7 @@ use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use histae_api_rust::infra::postgres_locks::AccountActivityPool;
 use histae_api_rust::matches::pg::{PgMatchMessageRepository, PgMatchRepository};
 use histae_api_rust::matches::service::{MatchService, NoopMatchEventPublisher};
+use histae_api_rust::privacy::maintenance::PrivacyMaintenanceRepository;
 use histae_api_rust::profiles::service::{ProfilePhotoUrlFuture, ProfilePhotoUrlProvider};
 use histae_api_rust::shared::clock::SystemClock;
 use url::Url;
@@ -189,6 +190,22 @@ async fn cleanup(database: &Database, users: &[Uuid]) -> Result<(), DatabaseErro
         .await
         .map_err(map_sqlx_error)?;
     Ok(())
+}
+
+async fn swipe_timestamps(
+    database: &Database,
+    actor_id: Uuid,
+    target_id: Uuid,
+) -> Result<(DateTime<Utc>, DateTime<Utc>), DatabaseError> {
+    sqlx::query_as(
+        "SELECT swiped_at, expires_at FROM swipe_decision
+         WHERE actor_id=$1 AND target_id=$2",
+    )
+    .bind(actor_id)
+    .bind(target_id)
+    .fetch_one(database.acquire().await?.as_mut())
+    .await
+    .map_err(map_sqlx_error)
 }
 
 async fn services(
@@ -421,6 +438,112 @@ async fn feed_excludes_current_swipes_and_expired_decisions_can_be_replaced()
 }
 
 #[tokio::test]
+async fn thirty_day_swipes_preserve_replays_and_require_fresh_mutual_likes()
+-> Result<(), Box<dyn std::error::Error>> {
+    use histae_api_rust::discovery::service::DiscoveryError;
+
+    let (database, activity, service, swipes) = services(&postgres_config()?).await?;
+    let [viewer, old_like, old_pass, recent_pass] = [
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+    ];
+    let users = [viewer, old_like, old_pass, recent_pass];
+    for (user, ordinal) in [(viewer, 1), (old_like, 2), (old_pass, 4), (recent_pass, 6)] {
+        ready_user(&database, user, ordinal, 48.8566).await?;
+    }
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let mut connection = database.acquire().await?;
+        for (target, decision) in [(old_like, "like"), (old_pass, "pass")] {
+            sqlx::query(
+                "INSERT INTO swipe_decision(actor_id,target_id,decision,swiped_at,expires_at)
+                 VALUES ($1,$2,$3,now()-INTERVAL '31 days',now()-INTERVAL '1 day')",
+            )
+            .bind(viewer)
+            .bind(target)
+            .bind(decision)
+            .execute(&mut *connection)
+            .await?;
+        }
+        drop(connection);
+        service
+            .swipe(viewer, recent_pass, SwipeDecision::Pass)
+            .await?;
+        let original = swipe_timestamps(&database, viewer, recent_pass).await?;
+        assert_eq!(original.1 - original.0, TimeDelta::days(30));
+        service
+            .swipe(viewer, recent_pass, SwipeDecision::Pass)
+            .await?;
+        assert_eq!(
+            service
+                .swipe(viewer, recent_pass, SwipeDecision::Like)
+                .await
+                .unwrap_err(),
+            DiscoveryError::SwipeAlreadyRecorded,
+        );
+        let replayed = swipe_timestamps(&database, viewer, recent_pass).await?;
+        assert_eq!(replayed, original);
+        for target in [old_like, old_pass] {
+            assert!(swipes.find(viewer, target).await?.is_none());
+        }
+        let feed = service.feed(viewer, 100, None).await?;
+        let visible = |id| feed.profiles.iter().any(|profile| profile.user_id == id);
+        assert!(visible(old_like) && visible(old_pass));
+        assert!(!visible(recent_pass));
+
+        // The expired reciprocal like must not create a match.
+        let unmatched = service.swipe(old_like, viewer, SwipeDecision::Like).await?;
+        assert!(!unmatched.matched && unmatched.r#match.is_none());
+        let matched = service.swipe(viewer, old_like, SwipeDecision::Like).await?;
+        assert!(matched.matched);
+        let match_id = matched
+            .r#match
+            .ok_or(FixtureError("renewed_mutual_like"))?
+            .id;
+
+        let purged = PrivacyMaintenanceRepository::new(database.clone())
+            .run_as_leader(Utc::now(), 10)
+            .await?
+            .ok_or(FixtureError("privacy_leader"))?;
+        assert!(purged.expired_swipes >= 1);
+        let mut connection = database.acquire().await?;
+        let choices: Vec<(Uuid, i64)> = sqlx::query_as(
+            "SELECT target_id,extract(epoch FROM expires_at-swiped_at)::bigint
+             FROM swipe_decision WHERE actor_id=$1 ORDER BY target_id",
+        )
+        .bind(viewer)
+        .fetch_all(&mut *connection)
+        .await?;
+        assert_eq!(choices.len(), 2);
+        assert!(choices.contains(&(old_like, 30 * 86_400)));
+        assert!(choices.contains(&(recent_pass, 30 * 86_400)));
+        let status: String = sqlx::query_scalar("SELECT status FROM match_init WHERE id=$1")
+            .bind(match_id)
+            .fetch_one(&mut *connection)
+            .await?;
+        assert_eq!(status, "active");
+        drop(connection);
+        let feed = service.feed(viewer, 100, None).await?;
+        assert_eq!(
+            feed.profiles
+                .iter()
+                .map(|profile| profile.user_id)
+                .collect::<Vec<_>>(),
+            vec![old_pass]
+        );
+        Ok(())
+    }
+    .await;
+    let cleaned = cleanup(&database, &users).await;
+    activity.close().await;
+    database.close().await;
+    result?;
+    cleaned?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn dense_feed_scans_past_rejections_and_preserves_distance_uuid_pagination()
 -> Result<(), Box<dyn std::error::Error>> {
     let config = postgres_config()?;
@@ -477,7 +600,7 @@ async fn dense_feed_scans_past_rejections_and_preserves_distance_uuid_pagination
             ready_user(&database, user, 2, if index < 3 { -39.97 } else { -39.96 }).await?;
         }
         let mut connection = database.acquire().await?;
-        sqlx::query("INSERT INTO swipe_decision (actor_id, target_id, decision, swiped_at, expires_at) VALUES ($1, $2, 'pass', now() - INTERVAL '366 days', now() - INTERVAL '1 day')")
+        sqlx::query("INSERT INTO swipe_decision (actor_id, target_id, decision, swiped_at, expires_at) VALUES ($1, $2, 'pass', now() - INTERVAL '31 days', now() - INTERVAL '1 day')")
             .bind(viewer).bind(eligible[0]).execute(&mut *connection).await?;
         drop(connection);
 

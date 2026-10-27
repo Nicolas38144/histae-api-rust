@@ -3,7 +3,8 @@ use sqlx::{Acquire, Executor};
 use crate::config::PostgresConfig;
 
 use super::postgres::{
-    DatabaseError, connect_pool, map_sqlx_error, verify_schema_compatibility_on,
+    DatabaseError, connect_pool, map_sqlx_error, swipe_retention_ready_on,
+    verify_schema_compatibility_on,
 };
 
 const MIGRATION_LOCK: i64 = 86_302_003;
@@ -271,16 +272,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
 }
 
 async fn shorten_swipe_retention(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
-    let current: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM pg_constraint
-         WHERE conrelid = to_regclass(current_schema() || '.swipe_decision')
-           AND conname = 'swipe_decision_retention_30_days_check'
-           AND contype = 'c' AND convalidated)",
-    )
-    .fetch_one(&mut *connection)
-    .await
-    .map_err(map_sqlx_error)?;
-    if current {
+    if swipe_retention_ready_on(connection).await? {
         return Ok(());
     }
     // This runs within the schema transaction under the migration advisory lock.

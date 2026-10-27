@@ -91,6 +91,10 @@ Il simule également l’ancienne rétention de 365 jours : likes et profils pas
 30 jours depuis leur date initiale, y compris pour un compte déjà désactivé. Le scénario vérifie
 l’expiration des anciens likes, la conservation des choix récents et des dates, le rétablissement
 du contrôle de compte actif, le nouveau défaut SQL et l’absence de prolongation lors d’une seconde migration.
+Le contrôle restauré est aussi exercé par une écriture refusée sur un compte désactivé.
+La suite `discovery_postgres` vérifie qu’un like de 31 jours ne crée plus de match, qu’un profil
+passé expiré redevient éligible, qu’un rejeu conserve ses dates et que la purge retire les anciens
+choix tout en préservant les choix récents et le match créé après deux nouveaux likes.
 
 ### Précautions pour les autres suites
 
