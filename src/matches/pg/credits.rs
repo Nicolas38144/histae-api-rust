@@ -32,10 +32,10 @@ pub async fn quota_on(
     let row = sqlx::query(
         "SELECT COALESCE((SELECT used_count FROM continuation_usage WHERE user_id=$1 AND week_start=$2),0)::integer AS used,
            COALESCE((SELECT free_used_count FROM continuation_usage WHERE user_id=$1 AND week_start=$2),0)::integer AS free_used,
-           COALESCE((SELECT advertising_credits FROM continuation_wallet WHERE user_id=$1),0)::integer AS balance,
-           count(*) FILTER (WHERE r.source <> 'premium')::integer AS reserved,
+           COALESCE((SELECT advertising_credits FROM continuation_wallet WHERE user_id=$1 AND week_start=$2),0)::integer AS balance,
+           count(*) FILTER (WHERE r.source <> 'premium' AND (r.source <> 'advertising' OR r.week_start=$2))::integer AS reserved,
            count(*) FILTER (WHERE r.source='free' AND r.week_start=$2)::integer AS free_reserved,
-           count(*) FILTER (WHERE r.source='advertising')::integer AS ad_reserved
+           count(*) FILTER (WHERE r.source='advertising' AND r.week_start=$2)::integer AS ad_reserved
          FROM continuation_reservation r JOIN match_init m ON m.id=r.match_id
          WHERE r.user_id=$1 AND m.status='awaiting_continuation' AND m.expires_at>$3"
     )
@@ -155,9 +155,10 @@ pub(super) async fn debit(
     } else {
         let result = sqlx::query(
             "UPDATE continuation_wallet SET advertising_credits=advertising_credits-1
-             WHERE user_id=$1 AND advertising_credits>0",
+             WHERE user_id=$1 AND week_start=$2 AND advertising_credits>0",
         )
         .bind(user_id)
+        .bind(reserved_week)
         .execute(connection)
         .await
         .map_err(map_sqlx_error)?;
@@ -166,4 +167,29 @@ pub(super) async fn debit(
         }
     }
     Ok(())
+}
+
+/// Caller holds the wallet lock and has verified the provider's reward proof.
+pub(crate) async fn grant_advertising_credit(
+    connection: &mut PgConnection,
+    user_id: Uuid,
+    now: DateTime<Utc>,
+) -> Result<bool, DatabaseError> {
+    let result = sqlx::query(
+        "INSERT INTO continuation_wallet(user_id,advertising_credits,week_start)
+         VALUES($1,1,$2)
+         ON CONFLICT(user_id) DO UPDATE
+         SET advertising_credits=CASE WHEN continuation_wallet.week_start=$2
+               THEN continuation_wallet.advertising_credits+1 ELSE 1 END,
+             week_start=$2
+         WHERE continuation_wallet.week_start<$2
+            OR (continuation_wallet.week_start=$2 AND continuation_wallet.advertising_credits<$3)",
+    )
+    .bind(user_id)
+    .bind(start_of_utc_week(now))
+    .bind(ADVERTISING_STOCK_LIMIT)
+    .execute(connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    Ok(result.rows_affected() == 1)
 }

@@ -133,6 +133,24 @@ def main():
                     'case "$1" in histae_app) export PGPASSWORD="$HISTAE_BOOTSTRAP_APP_PASSWORD" ;; histae_migrate) export PGPASSWORD="$HISTAE_BOOTSTRAP_MIGRATE_PASSWORD" ;; *) exit 2 ;; esac; exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d histae-dev',
                     "sh", role, input_text=statement)
 
+            # Upgrade the old carry-over wallet once, without renewing expired
+            # credits or overwriting a later operator translation on redeploy.
+            wallet_owner = str(uuid.uuid4())
+            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{wallet_owner}','legacy-weekly-wallet',''::bytea); INSERT INTO continuation_wallet(user_id,advertising_credits) VALUES ('{wallet_owner}',3);")
+            query("ALTER TABLE continuation_wallet DROP COLUMN week_start; UPDATE subscription_plan SET weekly_continuation_limit=3 WHERE code='free'; UPDATE subscription_plan_feature_translation SET display_name='3 crédits gratuits par semaine' WHERE plan_code='free' AND feature_code='continuations' AND language='fr';", "histae_migrate")
+            migrate()
+            assert query(f"SELECT advertising_credits=3 AND week_start=date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date FROM continuation_wallet WHERE user_id='{wallet_owner}';") == "t"
+            assert query("SELECT weekly_continuation_limit FROM subscription_plan WHERE code='free';") == "2"
+            assert query("SELECT display_name FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';") == "2 crédits gratuits par semaine"
+            description = query("SELECT description FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';")
+            query(f"UPDATE continuation_wallet SET week_start=week_start-7 WHERE user_id='{wallet_owner}'; UPDATE subscription_plan_feature_translation SET description='Operator weekly policy text' WHERE plan_code='free' AND feature_code='continuations' AND language='fr';")
+            migrate()
+            assert query(f"SELECT advertising_credits=3 AND week_start=date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date-7 FROM continuation_wallet WHERE user_id='{wallet_owner}';") == "t"
+            assert query("SELECT description FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';") == "Operator weekly policy text"
+            description_literal = "'" + description.replace("'", "''") + "'"
+            query(f"UPDATE subscription_plan_feature_translation SET description={description_literal} WHERE plan_code='free' AND feature_code='continuations' AND language='fr'; DELETE FROM user_account WHERE user_id='{wallet_owner}';")
+            print("Weekly wallet upgrade preserves current balances and never renews expired credits.", flush=True)
+
             # Legacy likes and passes keep their original choice dates when shortened.
             swipe_actor, swipe_target = [str(uuid.uuid4()) for _ in range(2)]
             swipe_filter = f"actor_id IN ('{swipe_actor}','{swipe_target}') AND target_id IN ('{swipe_actor}','{swipe_target}')"

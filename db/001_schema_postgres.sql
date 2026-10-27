@@ -816,7 +816,9 @@ CREATE TABLE continuation_usage (
 -- BEGIN continuation credits
 CREATE TABLE IF NOT EXISTS continuation_wallet (
     user_id uuid PRIMARY KEY REFERENCES user_account(user_id) ON DELETE CASCADE,
-    advertising_credits smallint NOT NULL DEFAULT 0 CHECK (advertising_credits BETWEEN 0 AND 3)
+    advertising_credits smallint NOT NULL DEFAULT 0 CHECK (advertising_credits BETWEEN 0 AND 3),
+    week_start date NOT NULL DEFAULT date_trunc('week', now() AT TIME ZONE 'UTC')::date
+        CHECK (extract(isodow FROM week_start) = 1)
 );
 
 CREATE TABLE IF NOT EXISTS continuation_reservation (

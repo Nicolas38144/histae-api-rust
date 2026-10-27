@@ -22,12 +22,12 @@ La révélation des photos reste un accord distinct. Premium ne dispense jamais 
 
 ## 2. Crédits Free et Premium
 
-| Règle | Free | Premium effectif, essai inclus |
+| Règle | Free | Premium effectif |
 | --- | --- | --- |
-| Allocation gratuite | 3 crédits chaque lundi à **00:00 UTC**, sans accumulation | Aucun crédit nécessaire |
+| Allocation gratuite | 2 crédits chaque lundi à **00:00 UTC**, sans accumulation | Aucun crédit nécessaire |
 | Récompense volontaire | 1 vidéo validée = 1 crédit publicitaire | Aucun lancement de publicité |
-| Stock publicitaire | 3 crédits maximum, y compris ceux réservés ; conservés entre les semaines | Stock acquis conservé, sans débit |
-| Continuations confirmées | 6 maximum par personne et par semaine UTC | Illimitées |
+| Stock publicitaire | 3 crédits maximum, y compris ceux réservés ; remis à zéro chaque lundi à 00:00 UTC | Aucun débit ; le stock acquis expire aussi le lundi |
+| Continuations confirmées | 5 maximum par personne et par semaine UTC | Illimitées |
 | Coût d’une continuation | 1 crédit **pour chaque participant Free** | 0 |
 
 Le prix Premium reste **5 € par mois ou 48 € par an, sans période d'essai**. Les Prices Stripe réels restent distincts du catalogue ; voir [Configuration](configuration.md#tarifs-du-catalogue-et-stripe).
@@ -43,7 +43,18 @@ Le prix Premium reste **5 € par mois ou 48 € par an, sans période d'essai**
 
 Le corps annonce le **coût maximal accepté** : `1` autorise un coût nul si le compte est devenu Premium ; `0` ne peut jamais déclencher un débit Free. Un changement vers Free nécessite une nouvelle présentation du coût et un nouvel accord (`409 continuation_plan_changed`). Si c’est l’autre participant qui perd Premium pendant l’attente, son ancien accord sans coût est retiré ; le demandeur reçoit un état pending, sans information sur l’abonnement de l’autre.
 
-Une réservation gratuite prise avant le lundi reste attachée à sa semaine d’origine pendant la fenêtre de décision. Le crédit gratuit est imputé à cette semaine ; la continuation confirmée compte dans le plafond de la semaine de confirmation. Le reste de l’allocation gratuite précédente ne se cumule pas. Le plafond de six est conservé aux changements de semaine.
+Une réservation gratuite prise avant le lundi reste attachée à sa semaine d’origine pendant la fenêtre de décision. Le crédit gratuit est imputé à cette semaine ; la continuation confirmée compte dans le plafond de la semaine de confirmation. Le reste de l’allocation gratuite précédente ne se cumule pas. Le plafond de cinq est conservé aux changements de semaine.
+
+Les crédits publicitaires, y compris réservés, expirent au lundi à 00:00 UTC. Un accord qui
+reposait sur un crédit publicitaire expiré doit être redonné ; aucun nouveau crédit ne peut être
+débité à sa place sans ce nouvel accord. `my_continued` reflète cette expiration. Les réservations
+gratuites restent attachées à leur semaine d’origine comme décrit ci-dessus.
+
+Le solde publicitaire est interprété à partir de `continuation_wallet.week_start` : une ancienne
+semaine vaut immédiatement zéro, sans attendre une maintenance. Une nouvelle récompense ouvre
+le solde de la semaine courante à un crédit. Une preuve tardive est enregistrée une seule fois,
+mais ne reporte pas dans la nouvelle semaine un crédit gagné la semaine précédente. `credited`
+atteste le traitement de la récompense ; seul le quota indique les crédits encore utilisables.
 
 ### Lire le solde
 
@@ -53,9 +64,9 @@ Exemple Free avec une réservation :
 {
   "plan": "free",
   "used": 1,
-  "weekly_limit": 6,
+  "weekly_limit": 5,
   "remaining": 3,
-  "weekly_credits": 3,
+  "weekly_credits": 2,
   "free_remaining": 1,
   "advertising_balance": 2,
   "advertising_remaining": 2,
@@ -67,18 +78,18 @@ Exemple Free avec une réservation :
 - `used` : continuations Free confirmées cette semaine, jamais les accords en attente.
 - `remaining` : crédits utilisables pour **de nouveaux accords**, bornés par les réservations et le plafond hebdomadaire.
 - `free_remaining` : allocation gratuite non dépensée et non réservée de cette semaine.
-- `advertising_balance` : stock total acquis, réservations incluses ; `advertising_remaining` exclut les réservations.
+- `advertising_balance` : stock acquis pendant la semaine UTC courante, réservations incluses ; `advertising_remaining` exclut les réservations.
 - `reserved` : crédits Free retenus pour des décisions encore valides.
-- Premium omet `weekly_limit` et `remaining`, avec `used: 0` ; cela ne supprime pas l’historique Free ni le stock acquis.
+- Premium omet `weekly_limit` et `remaining`, avec `used: 0` ; cela ne supprime pas l’historique Free ni les crédits publicitaires encore valides de la semaine.
 
-Le catalogue `/api/plans` distingue `weekly_included_credits: 3` et `weekly_continuation_limit: 6`. Il expose aussi `advertising_credit_stock_limit`, `ads_removed` et `rewarded_advertising_enabled`. Ce dernier reste `false` tant que le fournisseur est désactivé. La fiche admin auditée expose le même objet `continuation_quota`.
+Le catalogue `/api/plans` distingue `weekly_included_credits: 2` et `weekly_continuation_limit: 5`. Il expose aussi `advertising_credit_stock_limit`, `ads_removed` et `rewarded_advertising_enabled`. Ce dernier reste `false` tant que le fournisseur est désactivé. La fiche admin auditée expose le même objet `continuation_quota`.
 
 ## 3. Parcours d’une vidéo récompensée
 
-Le mobile n’est pas modifié dans cette intervention. Voici le contrat qu’il devra intégrer :
+Le parcours mobile suit le contrat suivant :
 
 1. Présenter séparément les informations et choix publicitaires adaptés via UMP. Ne pas déduire un consentement publicitaire de l’accord pour continuer, de la localisation ou des données sensibles.
-2. Vérifier que les publicités peuvent être demandées. Proposer explicitement la récompense « 1 crédit de continuation », avec fermeture/abandon possibles. Conserver les trois crédits gratuits si la personne refuse les publicités.
+2. Vérifier que les publicités peuvent être demandées. Proposer explicitement la récompense « 1 crédit de continuation », avec fermeture/abandon possibles. Conserver les deux crédits gratuits si la personne refuse les publicités.
 3. Appeler `POST /api/users/me/advertising-rewards` avec `{"platform":"android"}` ou `{"platform":"ios"}`. L’API prépare/reprend une intention et répond `200` :
 
 ```json
@@ -184,11 +195,19 @@ Sur une ancienne base, l’usage historique est conservé comme crédits gratuit
 
 Le verrou du match, les verrous de comptes/consentements, puis les verrous ordonnés des abonnements et wallets sérialisent les choix, les débits et les changements Premium. Le stock et les récompenses sont partagés entre les instances via PostgreSQL, sans dépendre d’un compteur en mémoire.
 
-Les exports incluent le wallet, l’usage, les réservations et les intentions du demandeur. Ils n’incluent pas le choix de l’autre personne. L’effacement supprime ces données et libère aussi les réservations du partenaire sur les matchs terminés. La maintenance purge les intentions/preuves et l’usage hebdomadaire au-delà de 90 jours ; un usage lié à une réservation encore présente est conservé jusqu’à sa libération. Les soldes acquis n’expirent pas au changement de semaine.
+Les exports incluent le wallet et sa semaine, l’usage, les réservations et les intentions du demandeur. Ils n’incluent pas le choix de l’autre personne. L’effacement supprime ces données et libère aussi les réservations du partenaire sur les matchs terminés. La maintenance purge les intentions/preuves et l’usage hebdomadaire au-delà de 90 jours ; un usage lié à une réservation encore présente est conservé jusqu’à sa libération. Les crédits publicitaires expirent au changement de semaine. Le dernier solde et sa semaine peuvent rester enregistrés jusqu’à une nouvelle récompense ou à l’effacement du compte ; ils ne constituent plus un solde utilisable après cette échéance.
 
 Les textes juridiques du site sont des **brouillons** actualisés. Avant l’activation des publicités, finaliser/valider les prestataires, données SDK, bases juridiques, transferts et choix UMP ; publier les nouvelles versions puis mettre à jour les versions/URL API et une référence de validation juridique réelle. Cette intervention ne fabrique pas de `LEGAL_REVIEW_REFERENCE` ni d’approbation juridique.
 
 Voir [Tests](../tests/README.md) pour les commandes et [Résultats de validation](feature-audit.md) pour les preuves locales et leurs limites.
+
+### Mise à jour de la formule hebdomadaire
+
+Le migrateur ajoute la semaine UTC au wallet et met à jour la formule Free et ses traductions.
+Les soldes antérieurs à cette évolution restent utilisables jusqu’au prochain lundi ; ils ne sont
+jamais renouvelés par une nouvelle passe du migrateur. Les matchs confirmés et les consommations
+historiques restent conservés. Livrer le schéma avant la nouvelle API : le démarrage refuse un
+wallet qui ne possède pas la colonne `week_start`.
 
 ## Références
 

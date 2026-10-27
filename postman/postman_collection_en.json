@@ -1280,7 +1280,7 @@
                     }
                   ]
                 },
-                "description": "200: effective plan, confirmed usage, weekly credits, free/advertising availability, reserved credits and weekly ceiling. Free: 3 weekly credits, 3 advertising credits in stock, 6 confirmed continuations/week. Premium omits weekly_limit and remaining."
+                "description": "200: effective plan, confirmed usage, weekly credits, free/advertising availability, reserved credits and weekly ceiling. Free: 2 weekly credits, up to 3 advertising credits expiring every Monday at 00:00 UTC, 5 confirmed continuations/week. Advertising credits reset to zero and must be earned again. Premium omits weekly_limit and remaining."
               },
               "response": [],
               "event": [

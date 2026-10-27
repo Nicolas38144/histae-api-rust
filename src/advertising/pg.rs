@@ -9,8 +9,8 @@ use crate::{
     identity::pg_guards::lock_eligible_accounts,
     infra::postgres::{Database, DatabaseError, map_sqlx_error},
     matches::{
-        domain::ADVERTISING_STOCK_LIMIT,
-        pg::credits::{lock_wallet, quota_on},
+        domain::{ADVERTISING_STOCK_LIMIT, start_of_utc_week},
+        pg::credits::{grant_advertising_credit, lock_wallet, quota_on},
     },
 };
 use chrono::{DateTime, TimeDelta, Utc};
@@ -202,10 +202,12 @@ async fn create_on(
         "SELECT id, ad_unit, expires_at FROM advertising_reward_intent
          WHERE user_id = $1 AND completed_at IS NULL AND cancelled_at IS NULL
          AND expires_at + INTERVAL '24 hours' > $2
+         AND expires_at >= ($3::date::timestamp AT TIME ZONE 'UTC')
          ORDER BY created_at DESC LIMIT 1",
     )
     .bind(user_id)
     .bind(now)
+    .bind(start_of_utc_week(now))
     .fetch_optional(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
@@ -329,19 +331,12 @@ async fn complete_on(
         }
         Err(error) => return Err(map_sqlx_error(error).into()),
     }
-    let granted = sqlx::query(
-        "INSERT INTO continuation_wallet(user_id,advertising_credits)
-         VALUES($1,1)
-         ON CONFLICT(user_id)
-         DO UPDATE SET advertising_credits=continuation_wallet.advertising_credits+1
-         WHERE continuation_wallet.advertising_credits<$2",
-    )
-    .bind(owner)
-    .bind(ADVERTISING_STOCK_LIMIT)
-    .execute(connection)
-    .await
-    .map_err(map_sqlx_error)?;
-    if granted.rows_affected() != 1 {
+    // A late proof is still consumed exactly once, but never carries Sunday's
+    // earned credit into Monday's new allocation.
+    if start_of_utc_week(event) != start_of_utc_week(now) {
+        return Ok(());
+    }
+    if !grant_advertising_credit(connection, owner, now).await? {
         return Err(RewardError::StockFull);
     }
     Ok(())

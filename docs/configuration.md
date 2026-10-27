@@ -132,10 +132,10 @@ Les durées utilisent une unité, par exemple `5s`, `1m` ou `8h`.
 
 Le catalogue initial propose Premium à **5 EUR par mois** ou **48 EUR par an**, sans période d'essai.
 
-Free reçoit **trois crédits gratuits chaque lundi à 00:00 UTC**, sans accumulation. Il peut aussi
+Free reçoit **deux crédits gratuits chaque lundi à 00:00 UTC**, sans accumulation. Il peut aussi
 conserver un stock de **trois crédits publicitaires maximum**, réservations comprises, obtenu par les
-récompenses lorsqu’elles sont activées. Ce stock se conserve entre les semaines. Le plafond est de
-**six continuations confirmées par personne Free et par semaine UTC** : chaque participant Free réserve
+récompenses lorsqu’elles sont activées. Ce stock expire chaque lundi à 00:00 UTC et revient à zéro, sans recharge automatique. Le plafond est de
+**cinq continuations confirmées par personne Free et par semaine UTC** : chaque participant Free réserve
 son propre crédit, débité seulement après les deux accords. Un refus ou une expiration libère la
 réservation. Premium permet des continuations illimitées sans débit de crédit. Voir les
 [règles de continuation et de récompenses](continuation-and-rewards.md) pour le détail des réservations.
@@ -259,7 +259,7 @@ leur ajouter arbitrairement `--check-config`.
 
 Le fournisseur est laissé désactivé dans le `.env` local. Les identifiants de test Android/iOS y sont présents pour préparer une intégration, avec le libellé `continuation_credit`. Les publicités nécessitent la configuration AdMob SSV, les choix UMP et le parcours mobile décrits dans le [guide](continuation-and-rewards.md). Aucun secret AdMob partagé n’est requis. Les clés ECDSA sont téléchargées uniquement depuis l’URL HTTPS officielle Google, qui n’est pas configurable.
 
-Le catalogue SQL utilise encore `subscription_plan.weekly_continuation_limit` comme allocation de crédits gratuits (3 pour Free, `NULL` pour Premium). La projection HTTP distingue cette allocation dans `weekly_included_credits` du plafond `weekly_continuation_limit` de 6 continuations Free confirmées. Le wallet et les verrous font autorité pour les réservations et débits. Les paramètres de pool PostgreSQL restent inchangés.
+Le catalogue SQL utilise encore `subscription_plan.weekly_continuation_limit` comme allocation de crédits gratuits (2 pour Free, `NULL` pour Premium). La projection HTTP distingue cette allocation dans `weekly_included_credits` du plafond `weekly_continuation_limit` de 5 continuations Free confirmées. Le wallet et les verrous font autorité pour les réservations et débits. Les paramètres de pool PostgreSQL restent inchangés.
 
 ## URL des documents traduits
 

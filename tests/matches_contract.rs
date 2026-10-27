@@ -308,7 +308,7 @@ impl MatchStore for FakeMatchStore {
             Ok(histae_api_rust::matches::domain::ContinuationQuota {
                 plan: state.plan.plan.clone(),
                 used: state.usage,
-                weekly_limit: state.plan.weekly_credits.map(|_| 6),
+                weekly_limit: state.plan.weekly_credits.map(|_| 5),
                 remaining: state.plan.weekly_credits.map(|_| free),
                 weekly_credits: i32::from(state.plan.weekly_credits.unwrap_or(0)),
                 free_remaining: free,
@@ -716,7 +716,7 @@ async fn preserves_reveal_continuation_and_quota_responses() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         json_body(response).await,
-        json!({"plan":"free","used":1,"weekly_limit":6,"remaining":1,"weekly_credits":2,"free_remaining":1,"advertising_balance":0,"advertising_remaining":0,"reserved":0,"advertising_stock_limit":3})
+        json!({"plan":"free","used":1,"weekly_limit":5,"remaining":1,"weekly_credits":2,"free_remaining":1,"advertising_balance":0,"advertising_remaining":0,"reserved":0,"advertising_stock_limit":3})
     );
 }
 

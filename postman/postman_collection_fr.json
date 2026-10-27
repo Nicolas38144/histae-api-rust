@@ -1280,7 +1280,7 @@
                     }
                   ]
                 },
-                "description": "200 : plan effectif, usage confirmé, crédits gratuits/publicitaires, réservations et plafond. Free : 3 crédits par semaine, stock publicitaire de 3, 6 continuations confirmées/semaine. Premium omet weekly_limit et remaining."
+                "description": "200 : plan effectif, usage confirmé, crédits gratuits/publicitaires, réservations et plafond. Free : 2 crédits par semaine, stock publicitaire de 3 remis à zéro chaque lundi à 00:00 UTC, 5 continuations confirmées/semaine. Les crédits publicitaires doivent être regagnés par vidéo. Premium omet weekly_limit et remaining."
               },
               "response": [],
               "event": [

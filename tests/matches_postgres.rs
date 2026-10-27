@@ -1030,7 +1030,7 @@ async fn free_credits_reserve_atomically_and_both_users_pay_only_at_confirmation
     let database = Database::connect(&postgres_config()?).await?;
     let repository = PgMatchRepository::new(database.clone());
     let owner = Uuid::new_v4();
-    let peers = (0..4).map(|_| Uuid::new_v4()).collect::<Vec<_>>();
+    let peers = (0..3).map(|_| Uuid::new_v4()).collect::<Vec<_>>();
     let mut users = peers.clone();
     users.push(owner);
     for user in &users {
@@ -1046,15 +1046,15 @@ async fn free_credits_reserve_atomically_and_both_users_pay_only_at_confirmation
                 .map_err(|_| FixtureError("credit_match"))?;
             matches.push(m);
         }
-        for m in &matches[..2] {
+        for m in &matches[..1] {
             assert_eq!(
                 repository.record_continuation(m.id, owner, 1).await?,
                 ContinuationResult::Pending
             );
         }
         let (a, b) = tokio::join!(
-            repository.record_continuation(matches[2].id, owner, 1),
-            repository.record_continuation(matches[3].id, owner, 1)
+            repository.record_continuation(matches[1].id, owner, 1),
+            repository.record_continuation(matches[2].id, owner, 1)
         );
         let results = [a?, b?];
         assert!(results.contains(&ContinuationResult::Pending));
@@ -1062,7 +1062,7 @@ async fn free_credits_reserve_atomically_and_both_users_pay_only_at_confirmation
         let before = repository.quota_snapshot(owner, Utc::now()).await?;
         assert_eq!(
             (before.used, before.reserved, before.remaining),
-            (0, 3, Some(0))
+            (0, 2, Some(0))
         );
         assert_eq!(
             repository
@@ -1079,11 +1079,18 @@ async fn free_credits_reserve_atomically_and_both_users_pay_only_at_confirmation
         for user in [owner, peers[0]] {
             assert_eq!(repository.quota_snapshot(user, Utc::now()).await?.used, 1);
         }
-        repository.record_end(matches[1].id, peers[1]).await?;
+        let reserved_index = if results[0] == ContinuationResult::Pending {
+            1
+        } else {
+            2
+        };
+        repository
+            .record_end(matches[reserved_index].id, peers[reserved_index])
+            .await?;
         let after = repository.quota_snapshot(owner, Utc::now()).await?;
         assert_eq!(
             (after.used, after.reserved, after.remaining),
-            (1, 1, Some(1))
+            (1, 0, Some(1))
         );
         Ok(())
     }
@@ -1127,7 +1134,7 @@ async fn decision_window_pauses_sends_keeps_history_and_never_reopens_old_matche
 }
 
 #[tokio::test]
-async fn advertising_stock_survives_week_reset_and_free_redemptions_stop_at_six()
+async fn advertising_stock_expires_at_week_reset_and_free_redemptions_stop_at_five()
 -> Result<(), Box<dyn std::error::Error>> {
     let database = Database::connect(&postgres_config()?).await?;
     let repository = PgMatchRepository::new(database.clone());
@@ -1138,7 +1145,7 @@ async fn advertising_stock_survives_week_reset_and_free_redemptions_stop_at_six(
     let result: Result<(),Box<dyn std::error::Error>>=async {
         for user in users {
             sqlx::query("INSERT INTO continuation_wallet(user_id,advertising_credits) VALUES($1,3)").bind(user).execute(database.acquire().await?.as_mut()).await?;
-            sqlx::query("INSERT INTO continuation_usage(user_id,week_start,used_count,free_used_count) VALUES($1,date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date,3,3)").bind(user).execute(database.acquire().await?.as_mut()).await?;
+            sqlx::query("INSERT INTO continuation_usage(user_id,week_start,used_count,free_used_count) VALUES($1,date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date,2,2)").bind(user).execute(database.acquire().await?.as_mut()).await?;
         }
         let m=record(users[0],users[1],Utc::now()-TimeDelta::seconds(1)); repository.create(m.clone()).await?;
         assert_eq!(repository.record_continuation(m.id,users[0], 1).await?,ContinuationResult::Pending);
@@ -1146,12 +1153,123 @@ async fn advertising_stock_survives_week_reset_and_free_redemptions_stop_at_six(
         assert_eq!((reserved.advertising_balance,reserved.advertising_remaining),(3,2));
         assert_eq!(repository.record_continuation(m.id,users[1], 1).await?,ContinuationResult::Confirmed);
         assert_eq!(repository.quota_snapshot(users[0],Utc::now()).await?.advertising_balance,2);
-        // Six successful continuations are a separate ceiling, even with stock.
-        sqlx::query("UPDATE continuation_usage SET used_count=6 WHERE user_id=$1").bind(users[0]).execute(database.acquire().await?.as_mut()).await?;
+        // Five successful continuations are a separate ceiling, even with stock.
+        sqlx::query("UPDATE continuation_usage SET used_count=5 WHERE user_id=$1").bind(users[0]).execute(database.acquire().await?.as_mut()).await?;
         let now=Utc::now();let quota=repository.quota_snapshot(users[0],now).await?;
         assert_eq!(quota.remaining,Some(0));assert_eq!(quota.advertising_balance,2);
         let next=repository.quota_snapshot(users[0],now+TimeDelta::days(7)).await?;
-        assert_eq!((next.used,next.free_remaining,next.advertising_balance,next.remaining),(0,3,2,Some(5)));
+        assert_eq!((next.used,next.free_remaining,next.advertising_balance,next.remaining),(0,2,0,Some(2)));
+        Ok(())
+    }.await;
+    let cleaned = cleanup(&database, &users, &[]).await;
+    result?;
+    cleaned?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn previous_week_advertising_reservations_require_fresh_agreement()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&postgres_config()?).await?;
+    let repository = PgMatchRepository::new(database.clone());
+    let users = [Uuid::new_v4(), Uuid::new_v4()];
+    for user in users {
+        account(&database, user, "Weekly credits").await?;
+    }
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let mut connection = database.acquire().await?;
+        sqlx::query("INSERT INTO continuation_wallet(user_id,advertising_credits) VALUES($1,3)")
+            .bind(users[0]).execute(&mut *connection).await?;
+        sqlx::query("INSERT INTO continuation_usage(user_id,week_start,used_count,free_used_count) VALUES($1,date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date,2,2)")
+            .bind(users[0]).execute(&mut *connection).await?;
+        drop(connection);
+        let m = record(users[0], users[1], Utc::now()-TimeDelta::seconds(1));
+        repository.create(m.clone()).await?;
+        assert_eq!(repository.record_continuation(m.id,users[0],1).await?, ContinuationResult::Pending);
+        let mut connection = database.acquire().await?;
+        for table in ["continuation_wallet", "continuation_usage", "continuation_reservation"] {
+            sqlx::query(&format!("UPDATE {table} SET week_start=week_start-7 WHERE user_id=$1"))
+                .bind(users[0]).execute(&mut *connection).await?;
+        }
+        drop(connection);
+        let quota = repository.quota_snapshot(users[0], Utc::now()).await?;
+        assert_eq!((quota.free_remaining, quota.advertising_balance, quota.reserved, quota.remaining), (2,0,0,Some(2)));
+        let listed = repository.list_for_user(users[0],20,0,None).await?;
+        assert!(!listed.iter().find(|row|row.record.id==m.id).ok_or(FixtureError("weekly match"))?.my_continued);
+        // The owner can explicitly accept again using this week's free credit.
+        assert_eq!(repository.record_continuation(m.id,users[0],1).await?, ContinuationResult::Pending);
+        let source: String = sqlx::query_scalar("SELECT source FROM continuation_reservation WHERE match_id=$1 AND user_id=$2")
+            .bind(m.id).bind(users[0]).fetch_one(database.acquire().await?.as_mut()).await?;
+        assert_eq!(source,"free");
+        // Also exercise a partner accepting before the expired owner comes back.
+        sqlx::query("UPDATE continuation_reservation SET source='advertising',week_start=week_start-7 WHERE match_id=$1 AND user_id=$2")
+            .bind(m.id).bind(users[0]).execute(database.acquire().await?.as_mut()).await?;
+        assert_eq!(repository.record_continuation(m.id,users[1],1).await?, ContinuationResult::Pending);
+        for user in users { assert_eq!(repository.quota_snapshot(user,Utc::now()).await?.used,0); }
+        assert_eq!(repository.record_continuation(m.id,users[0],1).await?, ContinuationResult::Confirmed);
+        for user in users {
+            let quota = repository.quota_snapshot(user,Utc::now()).await?;
+            assert_eq!((quota.used,quota.free_remaining,quota.advertising_balance),(1,1,0));
+        }
+        Ok(())
+    }.await;
+    let cleaned = cleanup(&database, &users, &[]).await;
+    result?;
+    cleaned?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn advertising_rewards_reset_old_balances_without_carrying_late_proofs()
+-> Result<(), Box<dyn std::error::Error>> {
+    use histae_api_rust::advertising::{
+        domain::RewardPlatform, pg::RewardRepository, ssv::Callback,
+    };
+    use histae_api_rust::matches::domain::start_of_utc_week;
+    let database = Database::connect(&postgres_config()?).await?;
+    let mut config = histae_api_rust::config::AppConfig::from_env()?;
+    config.advertising.enabled = true;
+    config.advertising.android_ad_unit = "ca-app-pub-3940256099942544/5224354917".into();
+    let repository = PgMatchRepository::new(database.clone());
+    let rewards = RewardRepository::new(
+        database.clone(),
+        config.advertising.clone(),
+        config.legal.clone(),
+    );
+    let users = [Uuid::new_v4(), Uuid::new_v4()];
+    for user in users {
+        account(&database, user, "Weekly reward").await?;
+        legal_consents(&database, user, &config.legal).await?;
+    }
+    let proof = |intent_id: Uuid, event: chrono::DateTime<Utc>| Callback {
+        intent_id,
+        ad_unit: "5224354917".into(),
+        transaction_id: intent_id.simple().to_string(),
+        timestamp_ms: event.timestamp_millis(),
+        reward_amount: 1,
+        reward_item: "continuation_credit".into(),
+    };
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        sqlx::query("INSERT INTO continuation_wallet(user_id,advertising_credits,week_start) VALUES($1,3,date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date-7),($2,2,date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date)")
+            .bind(users[0]).bind(users[1]).execute(database.acquire().await?.as_mut()).await?;
+        let intent = rewards.create(users[0],RewardPlatform::Android).await?;
+        let event=Utc::now();
+        let (a,b)=tokio::join!(rewards.complete(proof(intent.id,event)),rewards.complete(proof(intent.id,event)));
+        a?;b?;
+        assert_eq!(repository.quota_snapshot(users[0],Utc::now()).await?.advertising_balance,1);
+        let sunday = start_of_utc_week(Utc::now()).and_hms_opt(0,0,0).ok_or(FixtureError("week"))?.and_utc()-TimeDelta::minutes(1);
+        let id=Uuid::new_v4();
+        // Stretch this fixture's intent window to exercise a prior-week proof on
+        // every test day, without changing the host or PostgreSQL clock.
+        sqlx::query("INSERT INTO advertising_reward_intent(id,user_id,ad_unit,created_at,expires_at) VALUES($1,$2,$3,$4,clock_timestamp()+INTERVAL '15 minutes')")
+            .bind(id).bind(users[1]).bind(&config.advertising.android_ad_unit).bind(sunday-TimeDelta::minutes(1))
+            .execute(database.acquire().await?.as_mut()).await?;
+        rewards.complete(proof(id,sunday)).await?;
+        rewards.complete(proof(id,sunday)).await?;
+        assert_eq!(repository.quota_snapshot(users[1],Utc::now()).await?.advertising_balance,2);
+        let intent = rewards.create(users[1],RewardPlatform::Android).await?;
+        rewards.complete(proof(intent.id,Utc::now())).await?;
+        assert_eq!(repository.quota_snapshot(users[1],Utc::now()).await?.advertising_balance,3);
         Ok(())
     }.await;
     let cleaned = cleanup(&database, &users, &[]).await;
@@ -1391,7 +1509,7 @@ async fn credits_export_and_erasure_include_own_data_and_release_partner_reserva
             .bind(users[0]).bind(vec![own_match.id,partner_match.id]).fetch_one(database.acquire().await?.as_mut()).await?;
         assert_eq!(remaining,0);
         let peer=repository.quota_snapshot(users[1],Utc::now()).await?;
-        assert_eq!((peer.free_remaining,peer.advertising_balance,peer.reserved),(3,1,0));
+        assert_eq!((peer.free_remaining,peer.advertising_balance,peer.reserved),(2,1,0));
         assert_eq!(rewards.status(users[1],partner_reward.id).await?.status, RewardStatus::Pending);
         assert_eq!(rewards.complete(Callback { intent_id:own_reward.id,ad_unit:"5224354917".into(),transaction_id:transaction,timestamp_ms:Utc::now().timestamp_millis(),reward_amount:1,reward_item:"continuation_credit".into() }).await.unwrap_err(),RewardError::NotFound);
         Ok(())

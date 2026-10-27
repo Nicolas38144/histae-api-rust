@@ -7,8 +7,8 @@ use crate::identity::mobile::domain::wire_timestamp;
 use crate::profiles::domain::Sex;
 
 pub const ADVERTISING_STOCK_LIMIT: i32 = 3;
-pub const FREE_WEEKLY_CREDITS: i32 = 3;
-pub const FREE_WEEKLY_CONTINUATION_LIMIT: i32 = 6;
+pub const FREE_WEEKLY_CREDITS: i32 = 2;
+pub const FREE_WEEKLY_CONTINUATION_LIMIT: i32 = 5;
 
 pub const MATCH_WINDOW_HOURS: i64 = 24;
 pub const MATCH_PURGE_DAYS: i64 = 30;

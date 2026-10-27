@@ -187,7 +187,7 @@ impl PgDataExportStore {
         user_id: Uuid,
         page_size: u32,
     ) -> Result<(), ExportBuildError> {
-        let wallet=optional_json(connection,"SELECT jsonb_build_object('advertising_credits',advertising_credits) FROM continuation_wallet WHERE user_id=$1",user_id).await?;
+        let wallet=optional_json(connection,"SELECT jsonb_build_object('advertising_credits',advertising_credits,'week_start',week_start) FROM continuation_wallet WHERE user_id=$1",user_id).await?;
         writer.property("continuation_wallet", &wallet).await?;
         for (name, table, column, cast) in [
             (

@@ -468,7 +468,13 @@ SELECT match_record.id, match_record.user1_id, match_record.user2_id,
   COALESCE(my_state.revealed, false) AS my_revealed,
   COALESCE(my_state.revealed, false)
     AND COALESCE(other_state.revealed, false) AS photos_revealed,
-  COALESCE(my_state.continued, false) AS my_continued,
+  COALESCE(my_state.continued, false)
+    AND (match_record.status = 'confirmed' OR EXISTS (
+      SELECT 1 FROM continuation_reservation AS reservation
+      WHERE reservation.match_id = match_record.id AND reservation.user_id = $1
+        AND (reservation.source <> 'advertising'
+          OR reservation.week_start = date_trunc('week', statement_timestamp() AT TIME ZONE 'UTC')::date)
+    )) AS my_continued,
   COALESCE(unread.count, 0)::integer AS unread_count,
   latest.id AS last_message_id, latest.sender_id AS last_message_sender_id,
   latest.content AS last_message_content,

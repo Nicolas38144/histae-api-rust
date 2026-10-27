@@ -3,7 +3,7 @@ use crate::{
     identity::pg_guards::lock_eligible_accounts,
     infra::postgres::map_sqlx_error,
     matches::{
-        domain::{ContinuationResult, MatchCommandResult, MatchStatus},
+        domain::{ContinuationResult, MatchCommandResult, MatchStatus, start_of_utc_week},
         store::MatchStoreError,
     },
 };
@@ -84,23 +84,31 @@ pub(super) async fn record(
         return Ok(ContinuationResult::Expired);
     }
     let plan = super::matches::effective_plan_on(connection, user_id, now).await?;
-    let existing = sqlx::query_scalar::<_, String>(
-        "SELECT source FROM continuation_reservation WHERE match_id=$1 AND user_id=$2",
+    let existing = sqlx::query_as::<_, (String, NaiveDate)>(
+        "SELECT source,week_start FROM continuation_reservation WHERE match_id=$1 AND user_id=$2",
     )
     .bind(match_id)
     .bind(user_id)
     .fetch_optional(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
-    if existing.as_deref() == Some("premium") && plan.weekly_credits.is_some() {
+    if existing
+        .as_ref()
+        .is_some_and(|(source, _)| source == "premium")
+        && plan.weekly_credits.is_some()
+    {
         clear_choice(connection, match_id, user_id).await?;
         return Ok(ContinuationResult::PlanChanged);
     }
     if plan.weekly_credits.is_some() && acknowledged_cost != 1 {
         return Ok(ContinuationResult::PlanChanged);
     }
-    if existing.is_some() {
-        return Ok(ContinuationResult::AlreadyRecorded);
+    if let Some((source, week)) = existing {
+        if source == "advertising" && week != start_of_utc_week(now) {
+            clear_choice(connection, match_id, user_id).await?;
+        } else {
+            return Ok(ContinuationResult::AlreadyRecorded);
+        }
     }
     if !super::credits::reserve(connection, match_id, user_id, now).await? {
         return Ok(ContinuationResult::QuotaReached);
@@ -130,6 +138,10 @@ pub(super) async fn record(
         let participant: Uuid = reservation.try_get("user_id").map_err(map_sqlx_error)?;
         let source: String = reservation.try_get("source").map_err(map_sqlx_error)?;
         let week: NaiveDate = reservation.try_get("week_start").map_err(map_sqlx_error)?;
+        if source == "advertising" && week != start_of_utc_week(now) {
+            clear_choice(connection, match_id, participant).await?;
+            return Ok(ContinuationResult::Pending);
+        }
         let quota = super::credits::quota_on(connection, participant, now).await?;
         if quota.weekly_limit.is_none() {
             charges.push((participant, "premium".to_owned(), week));

@@ -387,8 +387,8 @@ Références : [Configuration juridique](docs/configuration.md#documents-juridiq
   signalement, abonnement et droits.
 - [ ] Vérifier les règles de continuation : 24 heures de conversation puis 24 heures de décision,
   choix privés, coût accepté par chaque participant Free, réservations, débit après deux accords,
-  libération et changements de semaine/plan. Le catalogue distingue 3 crédits gratuits, un stock
-  publicitaire de 3 et un plafond de 6 continuations confirmées Free.
+  libération et changements de semaine/plan. Le catalogue distingue 2 crédits gratuits, un stock
+  publicitaire de 3 remis à zéro le lundi et un plafond de 5 continuations confirmées Free.
 - [ ] Faire réaliser la revue indépendante de sécurité/modération prévue pour la livraison et traiter
   ses blocages ; vérifier les restrictions d'accès et la minimisation des données du dashboard.
 - [ ] Définir les seuils attendus puis mesurer sur une pile de validation du serveur cible, en accès

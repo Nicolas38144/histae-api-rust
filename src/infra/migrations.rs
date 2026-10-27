@@ -162,6 +162,14 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
             .fetch_one(&mut *transaction)
             .await
             .map_err(map_sqlx_error)?;
+    let weekly_wallet_new: bool = sqlx::query_scalar(
+        "SELECT NOT EXISTS (SELECT 1 FROM pg_attribute
+         WHERE attrelid=to_regclass(current_schema() || '.continuation_wallet')
+           AND attname='week_start' AND NOT attisdropped)",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(map_sqlx_error)?;
     for (source, name) in [
         (SCHEMA, "localization"),
         (SCHEMA, "sms safety"),
@@ -182,6 +190,9 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
             .execute(sqlx::raw_sql(schema_section(source, name)?))
             .await
             .map_err(map_sqlx_error)?;
+    }
+    if weekly_wallet_new {
+        upgrade_weekly_advertising_credits(&mut transaction).await?;
     }
     if sms_safety_new {
         // Import the attempts still available locally at first activation only.
@@ -269,6 +280,36 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         .await
         .map_err(map_sqlx_error)?;
     transaction.commit().await.map_err(map_sqlx_error)
+}
+
+async fn upgrade_weekly_advertising_credits(
+    connection: &mut sqlx::PgConnection,
+) -> Result<(), DatabaseError> {
+    // Existing balances remain spendable until the next Monday. A repeated
+    // migration must never renew an old balance or restore removed translations.
+    sqlx::query(
+        "ALTER TABLE continuation_wallet ADD COLUMN IF NOT EXISTS week_start date NOT NULL
+         DEFAULT date_trunc('week', now() AT TIME ZONE 'UTC')::date
+         CHECK (extract(isodow FROM week_start)=1)",
+    )
+    .execute(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    sqlx::query(
+        "UPDATE subscription_plan SET weekly_continuation_limit=2,updated_at=clock_timestamp()
+         WHERE code='free' AND weekly_continuation_limit IS DISTINCT FROM 2",
+    )
+    .execute(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    connection
+        .execute(sqlx::raw_sql(schema_section(
+            SEED,
+            "continuation policy translations",
+        )?))
+        .await
+        .map_err(map_sqlx_error)?;
+    Ok(())
 }
 
 async fn shorten_swipe_retention(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {

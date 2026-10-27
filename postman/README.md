@@ -92,7 +92,7 @@ Les codes API doivent être interprétés par `error.code`, pas par le texte du 
 
 ## Continuations et crédits
 
-Lire le quota, puis utiliser `PATCH /api/matches/:id/continue` avec le coût explicite configuré. Deux comptes Free consomment chacun un crédit après leurs deux accords ; la première acceptation réserve sans débit. Les messages sont suspendus dans la seconde fenêtre de 24 heures, avec historique accessible. Un refus ou une expiration libère les réservations. Le stock publicitaire persiste entre les semaines, avec un plafond de trois ; Free confirme au plus six continuations par semaine UTC.
+Lire le quota, puis utiliser `PATCH /api/matches/:id/continue` avec le coût explicite configuré. Deux comptes Free consomment chacun un crédit après leurs deux accords ; la première acceptation réserve sans débit. Les messages sont suspendus dans la seconde fenêtre de 24 heures, avec historique accessible. Un refus ou une expiration libère les réservations. Le stock publicitaire est limité à trois et revient à zéro chaque lundi à 00:00 UTC, quand les deux crédits gratuits sont renouvelés. Free confirme au plus cinq continuations par semaine UTC.
 
 Le dossier de récompenses prépare, lit et annule une intention propriétaire. La requête webhook nécessite une vraie preuve AdMob ; les collections ne génèrent aucune signature. Le fournisseur désactivé renvoie `503 advertising_disabled`, comme le `.env` local par défaut. Voir [Activation et tests](../docs/continuation-and-rewards.md).
 

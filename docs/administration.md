@@ -138,7 +138,7 @@ WebAuthn à la place du navigateur ; voir [les instructions d’import](../postm
 
 ## Crédits de continuation
 
-La fiche utilisateur conserve la consultation auditée et affiche `continuation_quota` : crédits gratuits, stock publicitaire, réservations et plafond hebdomadaire. L’onglet Plans distingue les trois crédits gratuits du maximum de six continuations Free et affiche si les récompenses AdMob sont activées. Premium ne consomme aucun crédit et retire les publicités. Le statut `awaiting_continuation` est présenté comme une discussion en pause. Voir [Règles](continuation-and-rewards.md).
+La fiche utilisateur conserve la consultation auditée et affiche `continuation_quota` : crédits gratuits, stock publicitaire, réservations et plafond hebdomadaire. L’onglet Plans distingue les deux crédits gratuits du maximum de cinq continuations Free, avec un stock publicitaire expirant chaque lundi à 00:00 UTC et affiche si les récompenses AdMob sont activées. Premium ne consomme aucun crédit et retire les publicités. Le statut `awaiting_continuation` est présenté comme une discussion en pause. Voir [Règles](continuation-and-rewards.md).
 
 ## Traductions du catalogue
 
