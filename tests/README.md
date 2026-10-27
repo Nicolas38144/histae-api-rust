@@ -87,6 +87,11 @@ la conservation des nouvelles présences lors des migrations suivantes. Ajouter 
 nécessaire ; Cargo reste exécuté sans sudo. Les limites de confidentialité et l’ordre de livraison
 sont décrits dans [Confidentialité et capacité photo](../docs/privacy-and-photo-security.md).
 
+Il simule également l’ancienne rétention de 365 jours : likes et profils passés sont ramenés à
+30 jours depuis leur date initiale, y compris pour un compte déjà désactivé. Le scénario vérifie
+l’expiration des anciens likes, la conservation des choix récents et des dates, le rétablissement
+du contrôle de compte actif, le nouveau défaut SQL et l’absence de prolongation lors d’une seconde migration.
+
 ### Précautions pour les autres suites
 
 Les fixtures PostgreSQL contrôlent la cible de développement et utilisent des schémas/données isolés.

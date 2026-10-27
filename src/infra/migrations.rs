@@ -80,6 +80,7 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
+    shorten_swipe_retention(&mut transaction).await?;
     retire_photo_verifier(&mut transaction).await?;
     sqlx::query(
         "ALTER TABLE data_subject_request ADD COLUMN IF NOT EXISTS response text
@@ -267,6 +268,45 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         .await
         .map_err(map_sqlx_error)?;
     transaction.commit().await.map_err(map_sqlx_error)
+}
+
+async fn shorten_swipe_retention(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
+    let current: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_constraint
+         WHERE conrelid = to_regclass(current_schema() || '.swipe_decision')
+           AND conname = 'swipe_decision_retention_30_days_check'
+           AND contype = 'c' AND convalidated)",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if current {
+        return Ok(());
+    }
+    // This runs within the schema transaction under the migration advisory lock.
+    // Only expiry metadata changes, including for banned/deleted accounts whose
+    // decisions are still retained. Restore the live-account guard before commit.
+    // Keep original choice dates: an upgrade must never renew an old decision.
+    sqlx::raw_sql(
+        "LOCK TABLE swipe_decision IN ACCESS EXCLUSIVE MODE;
+         ALTER TABLE swipe_decision DISABLE TRIGGER trg_live_swipe;
+         ALTER TABLE swipe_decision
+           DROP CONSTRAINT IF EXISTS swipe_decision_retention_check,
+           DROP CONSTRAINT IF EXISTS swipe_decision_retention_30_days_check,
+           ALTER COLUMN expires_at SET DEFAULT (now() + INTERVAL '30 days');
+         UPDATE swipe_decision SET expires_at = swiped_at + INTERVAL '30 days'
+           WHERE expires_at IS DISTINCT FROM swiped_at + INTERVAL '30 days';
+         ALTER TABLE swipe_decision
+           ADD CONSTRAINT swipe_decision_retention_30_days_check
+             CHECK (expires_at = swiped_at + INTERVAL '30 days');
+         ALTER TABLE swipe_decision ENABLE TRIGGER trg_live_swipe;
+         COMMENT ON TABLE swipe_decision IS
+           'Canonical immutable likes and passes retained for 30 days.';",
+    )
+    .execute(connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    Ok(())
 }
 
 async fn retire_trial_notifications(

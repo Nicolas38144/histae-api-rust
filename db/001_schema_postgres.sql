@@ -43,16 +43,16 @@ CREATE TABLE swipe_decision (
     target_id uuid NOT NULL,
     decision text NOT NULL,
     swiped_at timestamp with time zone DEFAULT now() NOT NULL,
-    expires_at timestamp with time zone DEFAULT (now() + '365 days'::interval) NOT NULL,
+    expires_at timestamp with time zone DEFAULT (now() + '30 days'::interval) NOT NULL,
     CONSTRAINT swipe_decision_pkey PRIMARY KEY (actor_id, target_id),
     CONSTRAINT swipe_decision_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES user_account(user_id) ON DELETE CASCADE,
     CONSTRAINT swipe_decision_target_id_fkey FOREIGN KEY (target_id) REFERENCES user_account(user_id) ON DELETE CASCADE,
     CONSTRAINT swipe_decision_distinct_users_check CHECK (actor_id <> target_id),
     CONSTRAINT swipe_decision_decision_check CHECK (decision = ANY (ARRAY['like'::text, 'pass'::text])),
-    CONSTRAINT swipe_decision_retention_check CHECK (expires_at = swiped_at + '365 days'::interval)
+    CONSTRAINT swipe_decision_retention_30_days_check CHECK (expires_at = swiped_at + '30 days'::interval)
 );
 
-COMMENT ON TABLE swipe_decision IS 'Canonical immutable swipe decisions retained for 365 days.';
+COMMENT ON TABLE swipe_decision IS 'Canonical immutable likes and passes retained for 30 days.';
 
 CREATE INDEX idx_swipe_decision_target_actor ON swipe_decision USING btree (target_id, actor_id);
 CREATE INDEX idx_swipe_decision_actor_swiped_target ON swipe_decision USING btree (actor_id, swiped_at, target_id) INCLUDE (decision, expires_at);

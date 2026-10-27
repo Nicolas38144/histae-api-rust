@@ -211,6 +211,18 @@ impl Database {
         if !visibility_ready {
             return Err(DatabaseError::SchemaObjectsMissing);
         }
+        let swipe_retention_ready: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_constraint
+             WHERE conrelid = to_regclass(current_schema() || '.swipe_decision')
+               AND conname = 'swipe_decision_retention_30_days_check'
+               AND contype = 'c' AND convalidated)",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(map_sqlx_error)?;
+        if !swipe_retention_ready {
+            return Err(DatabaseError::SchemaObjectsMissing);
+        }
         let request_details_ready: bool = sqlx::query_scalar(
             "SELECT count(*) = 2 FROM pg_attribute
              WHERE attrelid=to_regclass(current_schema() || '.data_subject_request')

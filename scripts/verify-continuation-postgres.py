@@ -133,6 +133,15 @@ def main():
                     'case "$1" in histae_app) export PGPASSWORD="$HISTAE_BOOTSTRAP_APP_PASSWORD" ;; histae_migrate) export PGPASSWORD="$HISTAE_BOOTSTRAP_MIGRATE_PASSWORD" ;; *) exit 2 ;; esac; exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d histae-dev',
                     "sh", role, input_text=statement)
 
+            # Legacy likes and passes keep their original choice dates when shortened.
+            swipe_actor, swipe_target = [str(uuid.uuid4()) for _ in range(2)]
+            swipe_filter = f"actor_id IN ('{swipe_actor}','{swipe_target}') AND target_id IN ('{swipe_actor}','{swipe_target}')"
+            query("ALTER TABLE swipe_decision DROP CONSTRAINT swipe_decision_retention_30_days_check; ALTER TABLE swipe_decision ALTER COLUMN expires_at SET DEFAULT (now()+INTERVAL '365 days'); ALTER TABLE swipe_decision ADD CONSTRAINT swipe_decision_retention_check CHECK (expires_at=swiped_at+INTERVAL '365 days');", "histae_migrate")
+            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{swipe_actor}','legacy-swipe-actor',''::bytea),('{swipe_target}','legacy-swipe-target',''::bytea);")
+            query(f"INSERT INTO swipe_decision(actor_id,target_id,decision,swiped_at,expires_at) VALUES ('{swipe_actor}','{swipe_target}','like',now()-INTERVAL '45 days',now()-INTERVAL '45 days'+INTERVAL '365 days'),('{swipe_target}','{swipe_actor}','pass',now()-INTERVAL '5 days',now()-INTERVAL '5 days'+INTERVAL '365 days');")
+            original_swipe_choices = query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};")
+            query(f"UPDATE user_account SET deleted_at=clock_timestamp(),is_banned=true WHERE user_id='{swipe_target}';", "histae_migrate")
+
             # Simulate the pre-store/pre-credit/pre-pause schema, then prove the upgrade and
             # that a repeated migration preserves choices made under the new rules.
             first, second, match_id = [str(uuid.uuid4()) for _ in range(3)]
@@ -166,6 +175,12 @@ def main():
             query("DROP TABLE continuation_reservation,advertising_reward_intent,continuation_wallet; ALTER TABLE continuation_usage DROP COLUMN free_used_count; ALTER TABLE user_account DROP COLUMN discovery_paused, DROP COLUMN preferred_language; ALTER TABLE device_token DROP COLUMN language; ALTER TABLE user_consent DROP COLUMN document_language; ALTER TABLE otp_verification DROP COLUMN language; DROP TABLE trait_translation, profile_question_translation, subscription_plan_translation, subscription_plan_feature_translation;", "histae_migrate")
             query("UPDATE profile_question SET prompt='Question personnalisée avant migration ?' WHERE id='51000000-0000-4000-8000-000000000001';")
             migrate()
+            assert query(f"SELECT count(*)=2 AND bool_and(expires_at=swiped_at+INTERVAL '30 days') AND bool_and(CASE WHEN decision='like' THEN expires_at<=clock_timestamp() ELSE expires_at>clock_timestamp() END) FROM swipe_decision WHERE {swipe_filter};") == "t"
+            assert query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};") == original_swipe_choices
+            shortened_swipes = query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at,expires_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};")
+            assert query("SELECT tgenabled='O' FROM pg_trigger WHERE tgrelid='swipe_decision'::regclass AND tgname='trg_live_swipe';") == "t"
+            # Omitted timestamps must also receive the new default and pass its check.
+            query(f"INSERT INTO swipe_decision(actor_id,target_id,decision) VALUES ('{first}','{swipe_actor}','pass');")
             assert query(f"SELECT type='rectification' AND status='in_progress' AND notes='Historical internal note' AND details IS NULL AND response IS NULL FROM data_subject_request WHERE id='{legacy_request}';") == "t"
             query(f"UPDATE data_subject_request SET details='User correction message',response='Public correction reply' WHERE id='{legacy_request}';")
             assert query("SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='content_moderation_case' AND column_name IN ('face_count','sharpness_score','nsfw_score','face_detectable','sharp_enough','content_allowed');") == "0"
@@ -191,6 +206,8 @@ def main():
             query(f"UPDATE user_account SET discovery_paused=true,preferred_language='es' WHERE user_id='{first}';")
             query(f"UPDATE user_presence SET latitude=89.975,longitude=0,is_location_fresh=true WHERE user_id='{first}';")
             migrate()
+            assert query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at,expires_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};") == shortened_swipes
+            print("Thirty-day swipe expiry preserves original choices and is idempotent.", flush=True)
             assert query(f"SELECT details='User correction message' AND response='Public correction reply' AND notes='Historical internal note' FROM data_subject_request WHERE id='{legacy_request}';") == "t"
             print("Data request message upgrade preserves history and is idempotent.", flush=True)
             assert query(f"SELECT string_agg(id::text||':'||version,',' ORDER BY id) FROM content_moderation_case WHERE user_id IN ('{first}','{second}');") == photo_versions
@@ -203,7 +220,7 @@ def main():
             assert query(f"SELECT count(*) FROM match_state WHERE match_id='{match_id}' AND continued;") == "1"
             assert query(f"SELECT count(*) FROM continuation_reservation WHERE match_id='{match_id}';") == "1"
             assert query(f"SELECT used_count||':'||free_used_count FROM continuation_usage WHERE user_id='{first}';") == "2:2"
-            query(f"DELETE FROM user_account WHERE user_id IN ('{first}','{second}');")
+            query(f"DELETE FROM user_account WHERE user_id IN ('{first}','{second}','{swipe_actor}','{swipe_target}');")
             print("Legacy billing/quota/pause/language migrations and repeated upgrade passed.", flush=True)
             port = docker("port", name, "5432/tcp").split(":")[-1]
             runtime.update(POSTGRES_PORT=port, POSTGRES_USER="histae_app", POSTGRES_PASSWORD=app_password)

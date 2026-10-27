@@ -151,7 +151,7 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
     sqlx::query(
         "INSERT INTO swipe_decision
            (actor_id, target_id, decision, swiped_at, expires_at)
-         VALUES ($1, $2, 'like', $3, $3 + INTERVAL '365 days')",
+         VALUES ($1, $2, 'like', $3, $3 + INTERVAL '30 days')",
     )
     .bind(user_id)
     .bind(other_id)
@@ -161,7 +161,7 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
     sqlx::query(
         "INSERT INTO swipe_decision
            (actor_id, target_id, decision, swiped_at, expires_at)
-         VALUES ($1, $2, 'pass', $3, $3 + INTERVAL '365 days')",
+         VALUES ($1, $2, 'pass', $3, $3 + INTERVAL '30 days')",
     )
     .bind(other_id)
     .bind(user_id)

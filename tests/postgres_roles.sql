@@ -115,7 +115,7 @@ SELECT public.st_dwithin(
   1000, false);
 INSERT INTO swipe_decision (actor_id, target_id, decision, swiped_at, expires_at)
 VALUES ('87000000-0000-4000-8000-000000000001',
-  '87000000-0000-4000-8000-000000000002', 'like', now(), now() + INTERVAL '365 days');
+  '87000000-0000-4000-8000-000000000002', 'like', now(), now() + INTERVAL '30 days');
 INSERT INTO match_init (id, user1_id, user2_id) VALUES
   ('87000000-0000-4000-8000-000000000003',
    '87000000-0000-4000-8000-000000000001', '87000000-0000-4000-8000-000000000002');

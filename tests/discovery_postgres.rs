@@ -464,7 +464,7 @@ async fn dense_feed_scans_past_rejections_and_preserves_distance_uuid_pagination
                 11 => "INSERT INTO user_block (blocker_id, blocked_id) VALUES ($2, $1)",
                 12 => "INSERT INTO user_block (blocker_id, blocked_id) VALUES ($1, $2)",
                 13 => "INSERT INTO match_init (user1_id, user2_id, status) VALUES (least($1::uuid, $2::uuid), greatest($1::uuid, $2::uuid), 'ended')",
-                14 => "INSERT INTO swipe_decision (actor_id, target_id, decision, swiped_at, expires_at) VALUES ($2, $1, 'pass', now(), now() + INTERVAL '365 days')",
+                14 => "INSERT INTO swipe_decision (actor_id, target_id, decision, swiped_at, expires_at) VALUES ($2, $1, 'pass', now(), now() + INTERVAL '30 days')",
                 15 => "UPDATE user_profile SET sex = 'male' WHERE user_id = $1",
                 _ => "UPDATE user_preferences SET max_age = 20 WHERE user_id = $1",
             };

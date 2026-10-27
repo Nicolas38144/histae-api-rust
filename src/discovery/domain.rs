@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::profiles::domain::Sex;
 
-pub const SWIPE_RETENTION_DAYS: i64 = 365;
+pub const SWIPE_RETENTION_DAYS: i64 = 30;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

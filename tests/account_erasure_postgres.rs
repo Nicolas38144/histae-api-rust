@@ -271,8 +271,8 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
             "INSERT INTO swipe_decision
                (actor_id, target_id, decision, swiped_at, expires_at)
              VALUES
-               ($1, $2, 'like', $3, $3 + INTERVAL '365 days'),
-               ($2, $1, 'pass', $3, $3 + INTERVAL '365 days')",
+               ($1, $2, 'like', $3, $3 + INTERVAL '30 days'),
+               ($2, $1, 'pass', $3, $3 + INTERVAL '30 days')",
         )
         .bind(user_id)
         .bind(other_id)
