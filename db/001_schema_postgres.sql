@@ -1565,3 +1565,17 @@ DO $$ BEGIN
   END IF;
 END $$;
 -- END match inactivity
+
+-- BEGIN play review account
+-- Server-created review identities must never obtain an administrative role.
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS is_review_account boolean NOT NULL DEFAULT false;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conrelid='user_account'::regclass
+      AND conname='user_account_review_role_check'
+  ) THEN
+    ALTER TABLE user_account ADD CONSTRAINT user_account_review_role_check
+      CHECK (NOT is_review_account OR role='user');
+  END IF;
+END $$;
+-- END play review account

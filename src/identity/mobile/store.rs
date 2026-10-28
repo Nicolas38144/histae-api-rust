@@ -9,12 +9,22 @@ use crate::infra::postgres::DatabaseError;
 use super::domain::{
     ActiveAccount, MobileSessionIdentity, MobileSessionRow, RotationOutcome, SessionCursor,
 };
+use super::play_review::NewReviewAccount;
 use super::tokens::NewRefreshToken;
 
 pub type SessionStoreFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'a>>;
 
 pub trait MobileSessionStore: Send + Sync {
+    /// Fails closed for stores that do not implement dedicated review accounts.
+    fn create_review_session(
+        &self,
+        _account: NewReviewAccount,
+        _token: NewRefreshToken,
+    ) -> SessionStoreFuture<'_, Option<MobileSessionIdentity>> {
+        Box::pin(async { Ok(None) })
+    }
+
     fn create(
         &self,
         user_id: Uuid,

@@ -106,6 +106,12 @@ pub struct PhoneConfig {
 }
 
 #[derive(Clone, Debug)]
+pub struct PlayReviewConfig {
+    pub phone_number: SecretString,
+    pub otp: SecretString,
+}
+
+#[derive(Clone, Debug)]
 pub struct SmsConfig {
     pub provider: SmsProvider,
     pub endpoint: Url,
@@ -308,6 +314,7 @@ pub struct AppConfig {
     pub jwt: JwtConfig,
     pub account_deletion_token_ttl: Duration,
     pub phone: PhoneConfig,
+    pub play_review: Option<PlayReviewConfig>,
     pub sms: SmsConfig,
     pub redis: RedisConfig,
     pub push: PushConfig,

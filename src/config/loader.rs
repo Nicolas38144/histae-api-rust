@@ -653,6 +653,7 @@ impl AppConfig {
             jwt,
             account_deletion_token_ttl,
             phone,
+            play_review: super::play_review::load(source)?,
             sms,
             redis,
             push,

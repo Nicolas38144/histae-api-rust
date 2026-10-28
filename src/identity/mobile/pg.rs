@@ -1,3 +1,5 @@
+mod review;
+
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -36,24 +38,7 @@ impl MobileSessionRepository {
                     if !lock_active_account(connection, user_id).await? {
                         return Ok(None);
                     }
-                    let session_id = random_uuid_v4();
-                    sqlx::query(
-                        "INSERT INTO refresh_token_family
-                         (id, user_id, created_at, last_refreshed_at, expires_at)
-                         VALUES ($1, $2, $3, $3, $4)",
-                    )
-                    .bind(session_id)
-                    .bind(user_id)
-                    .bind(token.created_at)
-                    .bind(token.expires_at)
-                    .execute(&mut *connection)
-                    .await
-                    .map_err(map_sqlx_error)?;
-                    insert_token(connection, user_id, session_id, &token, None).await?;
-                    Ok(Some(MobileSessionIdentity {
-                        user_id,
-                        session_id,
-                    }))
+                    insert_session(connection, user_id, &token).await.map(Some)
                 })
             })
             .await
@@ -323,6 +308,16 @@ impl MobileSessionRepository {
 }
 
 impl MobileSessionStore for MobileSessionRepository {
+    fn create_review_session(
+        &self,
+        account: super::play_review::NewReviewAccount,
+        token: NewRefreshToken,
+    ) -> SessionStoreFuture<'_, Option<MobileSessionIdentity>> {
+        Box::pin(MobileSessionRepository::create_review_session(
+            self, account, token,
+        ))
+    }
+
     fn create(
         &self,
         user_id: Uuid,
@@ -514,6 +509,31 @@ async fn active_family(
     .await
     .map_err(map_sqlx_error)?
     .is_some())
+}
+
+async fn insert_session(
+    connection: &mut PgConnection,
+    user_id: Uuid,
+    token: &NewRefreshToken,
+) -> Result<MobileSessionIdentity, DatabaseError> {
+    let session_id = random_uuid_v4();
+    sqlx::query(
+        "INSERT INTO refresh_token_family
+         (id, user_id, created_at, last_refreshed_at, expires_at)
+         VALUES ($1, $2, $3, $3, $4)",
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .bind(token.created_at)
+    .bind(token.expires_at)
+    .execute(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    insert_token(connection, user_id, session_id, token, None).await?;
+    Ok(MobileSessionIdentity {
+        user_id,
+        session_id,
+    })
 }
 
 async fn insert_token(

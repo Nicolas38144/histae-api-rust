@@ -42,6 +42,8 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Mise en production](production-readiness.md) : validations sur la livraison réelle.
 - [Feuille de route production](../roadmap-production.md) : blocages, dépendances et critères de clôture avant ouverture.
 
+- [Accès de revue Google Play](google-play-review.md) : compte dédié, connexion sans SMS, sécurité et instructions de publication.
+
 ## Conventions et entretien
 
 Les exemples utilisent Bash depuis la racine de `histae-api-rust`. Les commandes Docker utilisent `sudo` ;

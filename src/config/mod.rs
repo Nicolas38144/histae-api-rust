@@ -2,6 +2,7 @@
 mod environment;
 mod error;
 mod loader;
+mod play_review;
 mod stores;
 mod types;
 mod validation;

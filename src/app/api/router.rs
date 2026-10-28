@@ -146,7 +146,8 @@ impl ApiResources {
             Arc::new(MobileAccountRepository::new(self.database.clone())),
             mobile_service,
             config.phone.encryption_key.clone(),
-        );
+        )
+        .with_play_review(config.play_review.clone(), config.phone.hash_key.clone());
         let sweego_webhook = SweegoWebhookService::new(
             &config.sms,
             otp_repository.clone(),

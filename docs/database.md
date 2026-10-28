@@ -232,3 +232,13 @@ Le trigger `trg_match_inactivity` la fixe à la confirmation et la renouvelle lo
 `idx_match_init_confirmed_expiry` sert aux avertissements à J23 et aux clôtures à J30.
 L’archivage à J10 est calculé, sans table ni statut supplémentaire. La première migration accorde
 30 jours aux anciens matchs confirmés ; une nouvelle migration ne reporte pas leur échéance.
+
+### Identité de revue des stores
+
+`user_account.is_review_account` vaut `false` pour tous les comptes ordinaires et toutes les lignes
+existantes lors de la migration. Le parcours mobile de revue crée lui-même son compte avec le marqueur
+`true`, sans adopter un compte existant. La contrainte `user_account_review_role_check` impose le rôle
+`user` pour cette identité ; la route de promotion refuse aussi l’opération. Création et ouverture de
+session sont transactionnelles, avec refus des bannissements, suppressions et tombstones. Les données
+de profil et les consentements sont ensuite gérés par les routes normales, sans acceptation automatique.
+Voir [l’accès Google Play](google-play-review.md).

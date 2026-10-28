@@ -47,7 +47,7 @@
                     }
                   }
                 },
-                "description": "Both registration and sign-in return generic 202 {message, resend_after_seconds}. A known number in registration, or an unknown number in sign-in, receives no SMS. HTTP queues the encrypted request without looking up accounts or calling Sweego; the outbox worker is required. A new UUID before the shared 60-second cooldown returns 429 otp_resend_too_soon with Retry-After. Replay the same UUID, phone, language and registration flag after a lost response; no duplicate SMS and no deadline extension. Explicit resend requires a new UUID. Phone/IP quotas apply to every request; provider and membership outcomes are never exposed."
+                "description": "Both registration and sign-in return generic 202 {message, resend_after_seconds}. A known number in registration, or an unknown number in sign-in, receives no SMS. HTTP queues the encrypted request without looking up accounts or calling Sweego; the outbox worker is required. A new UUID before the shared 60-second cooldown returns 429 otp_resend_too_soon with Retry-After. Replay the same UUID, phone, language and registration flag after a lost response; no duplicate SMS and no deadline extension. Explicit resend requires a new UUID. Phone/IP quotas apply to every request; provider and membership outcomes are never exposed.\n\nOptional Google Play review: only the configured dedicated fictional phone accepts the server-side reusable code. Send returns resend_after_seconds=0 without SMS/outbox; IP/phone limits remain active. No real credentials belong in this collection. See docs/google-play-review.md."
               },
               "response": []
             },
@@ -78,7 +78,7 @@
                     }
                   }
                 },
-                "description": "{ phone_number, otp } → 200 { access_token, refresh_token }."
+                "description": "{ phone_number, otp } → 200 { access_token, refresh_token }.\n\nOptional Google Play review: only the configured dedicated fictional phone accepts the server-side reusable code. Send returns resend_after_seconds=0 without SMS/outbox; IP/phone limits remain active. No real credentials belong in this collection. See docs/google-play-review.md."
               },
               "response": [],
               "event": [

@@ -5,6 +5,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::domain::{ActiveAccount, RotationOutcome, decode_cursor, encode_cursor, wire_timestamp};
+use super::play_review::NewReviewAccount;
 use super::store::MobileSessionStore;
 use super::tokens::{TokenError, TokenService};
 use crate::infra::postgres::DatabaseError;
@@ -133,13 +134,33 @@ impl MobileAuthService {
     pub async fn issue_token_pair(&self, user_id: Uuid) -> Result<TokenPair, MobileAuthError> {
         let refresh = self.tokens.new_refresh_token()?;
         let refresh_token = refresh.plain.clone();
+        let session = self.sessions.create(user_id, refresh).await?;
+        self.pair_from_session(session, refresh_token)
+    }
+
+    pub(super) async fn issue_review_token_pair(
+        &self,
+        account: NewReviewAccount,
+    ) -> Result<TokenPair, MobileAuthError> {
+        let refresh = self.tokens.new_refresh_token()?;
+        let refresh_token = refresh.plain.clone();
         let session = self
             .sessions
-            .create(user_id, refresh)
-            .await?
-            .ok_or(MobileAuthError::AccountUnavailable)?;
+            .create_review_session(account, refresh)
+            .await?;
+        self.pair_from_session(session, refresh_token)
+    }
+
+    fn pair_from_session(
+        &self,
+        session: Option<super::domain::MobileSessionIdentity>,
+        refresh_token: String,
+    ) -> Result<TokenPair, MobileAuthError> {
+        let session = session.ok_or(MobileAuthError::AccountUnavailable)?;
         Ok(TokenPair {
-            access_token: self.tokens.access_token(user_id, session.session_id)?,
+            access_token: self
+                .tokens
+                .access_token(session.user_id, session.session_id)?,
             refresh_token,
         })
     }

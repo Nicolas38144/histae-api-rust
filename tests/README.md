@@ -434,3 +434,20 @@ cargo build --locked --bin db-migrate
 python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
   --test matches_inactivity_postgres --test matches_postgres --test notifications_postgres
 ```
+
+### Accès de revue Google Play
+
+Le [guide de publication](../docs/google-play-review.md) décrit les trois variables privées et la
+préparation du compte dans l’app. Les tests `otp_sweego_contract` vérifient l’activation explicite,
+le code réutilisable, l’absence de SMS/outbox et le maintien des quotas. `play_review_postgres`
+vérifie la création concurrente d’un seul compte, les refus pour les comptes ordinaires, bannis,
+supprimés ou sous tombstone, la contrainte de rôle, le refus de promotion par un superadmin et la suppression concurrente.
+Le lanceur isolé vérifie également la migration d’une base sans marqueur de revue puis sa réexécution.
+
+```bash
+cargo test --locked --lib --test otp_sweego_contract --test mobile_auth_contract
+cargo build --locked --bin db-migrate
+python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
+  --test play_review_postgres --test otp_delivery --test administration_reports_postgres \
+  --test store_billing_postgres
+```

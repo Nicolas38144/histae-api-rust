@@ -211,6 +211,21 @@ impl Database {
         if !visibility_ready {
             return Err(DatabaseError::SchemaObjectsMissing);
         }
+        let review_ready: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_attribute
+               WHERE attrelid=to_regclass(current_schema() || '.user_account')
+                 AND attname='is_review_account' AND atttypid='bool'::regtype
+                 AND attnotnull AND NOT attisdropped)
+             AND EXISTS (SELECT 1 FROM pg_constraint
+               WHERE conrelid=to_regclass(current_schema() || '.user_account')
+                 AND conname='user_account_review_role_check' AND convalidated)",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(map_sqlx_error)?;
+        if !review_ready {
+            return Err(DatabaseError::SchemaObjectsMissing);
+        }
         if !swipe_retention_ready_on(&mut connection).await? {
             return Err(DatabaseError::SchemaObjectsMissing);
         }

@@ -1,6 +1,9 @@
 name: histae-api-rust
 
 x-store-secret-suppression: &store-secret-suppression
+  GOOGLE_PLAY_REVIEW_ENABLED: "false"
+  GOOGLE_PLAY_REVIEW_PHONE_NUMBER: ""
+  GOOGLE_PLAY_REVIEW_OTP: ""
   APP_STORE_PRIVATE_KEY: ""
   GOOGLE_PLAY_PRIVATE_KEY: ""
   GOOGLE_PLAY_CLIENT_EMAIL: ""
@@ -88,6 +91,9 @@ services:
     entrypoint: [/app/bin/api]
     environment:
       <<: *store-secret-suppression
+      GOOGLE_PLAY_REVIEW_ENABLED: ${GOOGLE_PLAY_REVIEW_ENABLED:-false}
+      GOOGLE_PLAY_REVIEW_PHONE_NUMBER: ${GOOGLE_PLAY_REVIEW_PHONE_NUMBER:-}
+      GOOGLE_PLAY_REVIEW_OTP: ${GOOGLE_PLAY_REVIEW_OTP:-}
       PORT: "8080"
       MAINTENANCE_MODE: disabled
       METRICS_HOST: 0.0.0.0

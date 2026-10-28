@@ -155,3 +155,25 @@ Après refactoring : **236 tests unitaires**, **35 tests de contrat/inventaire**
 découverte, notifications, routes) et **25 tests PostgreSQL** (matchs, inactivité, notifications,
 maintenance/outbox) réussis. Formatage et Clippy toutes cibles/features avec warnings refusés
 passent. Les migrations ont été rejouées sur le PostgreSQL jetable, supprimé à la fin du contrôle.
+
+## 28 octobre 2026 — accès de revue Google Play
+
+Ajout d’un accès mobile de revue activé explicitement côté serveur, avec numéro fictif réservé
+et code réutilisable privés. Les identifiants réels ne figurent ni dans Git, ni dans Flutter,
+ni dans Postman. Le Compose les transmet uniquement à l’API. Les autres comptes conservent leur
+OTP habituel, et les limitations IP/numéro restent appliquées au compte de revue.
+
+La création et la session du compte dédié sont atomiques. Aucun compte normal existant n’est
+adopté ; une contrainte PostgreSQL et la route de promotion interdisent l’administration.
+Bannissement, suppression et tombstone restent bloquants, y compris si une suppression se termine
+pendant l’insertion. Le code fixe n’est pas utilisable pour le parcours d’achat web.
+
+Vérifications : **237 tests unitaires**, **26 tests de contrat/inventaire** et **15 tests PostgreSQL**
+réussis, soit **278 tests**. Clippy toutes cibles/features avec warnings refusés, formatage,
+configuration Compose de développement et absence des identifiants privés dans les changements
+publics vérifiés. Migration d’une base ancienne, réexécution et maintien des marqueurs de revue
+vérifiés sur PostgreSQL jetable, supprimé à la fin.
+
+Les [consignes de préparation et de publication](google-play-review.md) indiquent la connexion directe,
+le profil à compléter et le texte anglais à fournir à Google. Le déploiement sur le serveur et la
+connexion sur appareil restent à effectuer ; aucun SMS ni achat fournisseur réel n’a été déclenché.

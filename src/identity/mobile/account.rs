@@ -5,11 +5,12 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use crate::config::SecretString;
+use crate::config::{PlayReviewConfig, SecretString};
 use crate::infra::crypto::encrypt_phone;
 use crate::infra::postgres::{ConstraintKind, Database, DatabaseError, map_sqlx_error};
 
 use super::otp::{OtpError, OtpService};
+use super::play_review::PlayReviewAccess;
 use super::service::{MobileAuthError, MobileAuthService, TokenPair};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -171,6 +172,7 @@ pub struct MobileLoginService {
     accounts: Arc<dyn MobileAccountStore>,
     authentication: MobileAuthService,
     encryption_key: SecretString,
+    review: Option<PlayReviewAccess>,
 }
 
 impl MobileLoginService {
@@ -185,10 +187,39 @@ impl MobileLoginService {
             accounts,
             authentication,
             encryption_key,
+            review: None,
         }
     }
 
+    pub fn with_play_review(
+        mut self,
+        config: Option<PlayReviewConfig>,
+        hash_key: SecretString,
+    ) -> Self {
+        self.review = config
+            .map(|config| PlayReviewAccess::new(config, hash_key, self.encryption_key.clone()));
+        self
+    }
+
+    pub fn is_review_phone(&self, phone: &str) -> bool {
+        self.review
+            .as_ref()
+            .is_some_and(|review| review.matches_phone(phone))
+    }
+
     pub async fn verify(&self, phone: &str, code: &str) -> Result<TokenPair, MobileLoginError> {
+        if let Some(review) = self
+            .review
+            .as_ref()
+            .filter(|review| review.matches_phone(phone))
+        {
+            let account = review.authorize(phone, code)?;
+            return self
+                .authentication
+                .issue_review_token_pair(account)
+                .await
+                .map_err(map_auth_error);
+        }
         let verified = self.otp.consume(phone, code).await?;
         let account = match self
             .accounts
@@ -216,10 +247,14 @@ impl MobileLoginService {
         self.authentication
             .issue_token_pair(account.user_id)
             .await
-            .map_err(|error| match error {
-                MobileAuthError::AccountUnavailable => MobileLoginError::AccountUnavailable,
-                _ => MobileLoginError::Internal,
-            })
+            .map_err(map_auth_error)
+    }
+}
+
+fn map_auth_error(error: MobileAuthError) -> MobileLoginError {
+    match error {
+        MobileAuthError::AccountUnavailable => MobileLoginError::AccountUnavailable,
+        _ => MobileLoginError::Internal,
     }
 }
 

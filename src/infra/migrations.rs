@@ -178,6 +178,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         (SCHEMA, "web billing"),
         (SCHEMA, "continuation credits"),
         (SCHEMA, "continuation guards"),
+        (SCHEMA, "play review account"),
         (SCHEMA, "account anonymization"),
         (SEED, "subscription plan features"),
         (SEED, "catalog translations"),

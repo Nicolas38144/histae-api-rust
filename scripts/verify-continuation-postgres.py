@@ -13,7 +13,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = (
-    "matches_postgres", "matches_inactivity_postgres", "moderation_postgres", "privacy_rights_postgres", "account_erasure_postgres",
+    "play_review_postgres", "matches_postgres", "matches_inactivity_postgres", "moderation_postgres", "privacy_rights_postgres", "account_erasure_postgres",
     "administration_reports_postgres", "billing_postgres",
     "maintenance_outbox_postgres", "notifications_postgres",
     "discovery_postgres", "profiles_postgres", "catalog_postgres", "otp_delivery", "localization_postgres", "store_billing_postgres",
@@ -79,7 +79,7 @@ def main():
                         POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256",
                         HISTAE_BOOTSTRAP_MIGRATE_PASSWORD=migrate_password,
                         HISTAE_BOOTSTRAP_APP_PASSWORD=app_password)
-        runtime = dict(ENV="development", POSTGRES_HOST="127.0.0.1", POSTGRES_PORT="5432",
+        runtime = dict(GOOGLE_PLAY_REVIEW_ENABLED="false", ENV="development", POSTGRES_HOST="127.0.0.1", POSTGRES_PORT="5432",
                        POSTGRES_DB="histae-dev", POSTGRES_USER="histae_migrate",
                        POSTGRES_PASSWORD=migrate_password, POSTGRES_SSLMODE="disable",
                        POSTGRES_POOL_MAX="4", JWT_SECRET=secrets.token_hex(32),
@@ -132,6 +132,17 @@ def main():
                 return docker("exec", "-i", name, "sh", "-ec",
                     'case "$1" in histae_app) export PGPASSWORD="$HISTAE_BOOTSTRAP_APP_PASSWORD" ;; histae_migrate) export PGPASSWORD="$HISTAE_BOOTSTRAP_MIGRATE_PASSWORD" ;; *) exit 2 ;; esac; exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d histae-dev',
                     "sh", role, input_text=statement)
+
+            review_legacy = str(uuid.uuid4())
+            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{review_legacy}','legacy-play-review',''::bytea);")
+            query("ALTER TABLE user_account DROP CONSTRAINT user_account_review_role_check; ALTER TABLE user_account DROP COLUMN is_review_account;", "histae_migrate")
+            migrate()
+            assert query(f"SELECT NOT is_review_account FROM user_account WHERE user_id='{review_legacy}';") == "t"
+            query(f"UPDATE user_account SET is_review_account=true WHERE user_id='{review_legacy}';")
+            migrate()
+            assert query(f"SELECT is_review_account AND role='user' FROM user_account WHERE user_id='{review_legacy}';") == "t"
+            query(f"DELETE FROM user_account WHERE user_id='{review_legacy}';")
+            print("Play review upgrade preserves real accounts and dedicated review markers.", flush=True)
 
             # Upgrade the old carry-over wallet once, without renewing expired
             # credits or overwriting a later operator translation on redeploy.

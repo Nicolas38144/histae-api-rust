@@ -33,6 +33,7 @@ fn loads_compatible_defaults_without_exposing_secrets() {
     let config = AppConfig::from_source(&base(&[]))
         .unwrap_or_else(|error| panic!("unexpected safe config failure: {error}"));
     assert_eq!(config.port, 8080);
+    assert!(config.play_review.is_none());
     assert_eq!(
         config.object_storage.endpoint.as_str(),
         "http://storage.histae.localhost:8333/"
@@ -45,6 +46,51 @@ fn loads_compatible_defaults_without_exposing_secrets() {
         "SecretString([REDACTED])"
     );
     assert!(!format!("{config:?}").contains("jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"));
+}
+
+#[test]
+fn play_review_is_explicit_fails_closed_and_redacts_both_credentials() {
+    let phone = "+33639981234";
+    let code = "482951";
+    let config = AppConfig::from_source(&base(&[
+        ("GOOGLE_PLAY_REVIEW_ENABLED", "true"),
+        ("GOOGLE_PLAY_REVIEW_PHONE_NUMBER", phone),
+        ("GOOGLE_PLAY_REVIEW_OTP", code),
+    ]))
+    .expect("valid review configuration");
+    assert!(config.play_review.is_some());
+    let debug = format!("{config:?}");
+    assert!(!debug.contains(phone));
+    assert!(!debug.contains(code));
+    for (phone, code, variable) in [
+        ("+33612345678", code, "GOOGLE_PLAY_REVIEW_PHONE_NUMBER"),
+        ("+3363998123", code, "GOOGLE_PLAY_REVIEW_PHONE_NUMBER"),
+        ("+3363998123é", code, "GOOGLE_PLAY_REVIEW_PHONE_NUMBER"),
+        (phone, "12345", "GOOGLE_PLAY_REVIEW_OTP"),
+        (phone, "1234567", "GOOGLE_PLAY_REVIEW_OTP"),
+        (phone, "12345a", "GOOGLE_PLAY_REVIEW_OTP"),
+        ("", code, "GOOGLE_PLAY_REVIEW_PHONE_NUMBER"),
+        (phone, "", "GOOGLE_PLAY_REVIEW_OTP"),
+    ] {
+        let error = AppConfig::from_source(&base(&[
+            ("GOOGLE_PLAY_REVIEW_ENABLED", "true"),
+            ("GOOGLE_PLAY_REVIEW_PHONE_NUMBER", phone),
+            ("GOOGLE_PLAY_REVIEW_OTP", code),
+        ]))
+        .expect_err("invalid review credentials");
+        assert_eq!(error.variable, variable);
+        assert!(!error.to_string().contains(phone) || phone.is_empty());
+    }
+    assert!(
+        AppConfig::from_source(&base(&[
+            ("GOOGLE_PLAY_REVIEW_ENABLED", "false"),
+            ("GOOGLE_PLAY_REVIEW_PHONE_NUMBER", phone),
+            ("GOOGLE_PLAY_REVIEW_OTP", code),
+        ]))
+        .expect("disabled review")
+        .play_review
+        .is_none()
+    );
 }
 
 #[test]

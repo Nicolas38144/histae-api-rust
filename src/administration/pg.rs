@@ -315,15 +315,15 @@ impl AdministrationStore for PgAdministrationStore {
                         if actor.is_none() || target_id == actor_id {
                             return Ok(RoleChangeResult::Forbidden);
                         }
-                        let target: Option<(String, bool)> = sqlx::query_as(
-                            "SELECT role, is_banned FROM user_account
+                        let target: Option<(String, bool, bool)> = sqlx::query_as(
+                            "SELECT role, is_banned, is_review_account FROM user_account
                              WHERE user_id = $1 AND deleted_at IS NULL FOR UPDATE",
                         )
                         .bind(target_id)
                         .fetch_optional(&mut *connection)
                         .await
                         .map_err(map_sqlx_error)?;
-                        let Some((current_role_raw, is_banned)) = target else {
+                        let Some((current_role_raw, is_banned, is_review)) = target else {
                             return Ok(RoleChangeResult::NotFound);
                         };
                         let Some(current_role) = AdminUserRole::parse(&current_role_raw) else {
@@ -332,6 +332,7 @@ impl AdministrationStore for PgAdministrationStore {
                         if current_role == AdminUserRole::Superadmin
                             || role == AdminUserRole::Superadmin
                             || (role == AdminUserRole::Admin && is_banned)
+                            || (role != AdminUserRole::User && is_review)
                         {
                             return Ok(RoleChangeResult::Forbidden);
                         }

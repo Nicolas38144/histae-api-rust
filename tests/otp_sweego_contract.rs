@@ -328,6 +328,14 @@ impl MobileAccountStore for FakeAccounts {
 struct FakeSessions;
 
 impl MobileSessionStore for FakeSessions {
+    fn create_review_session(
+        &self,
+        account: histae_api_rust::identity::mobile::play_review::NewReviewAccount,
+        token: NewRefreshToken,
+    ) -> SessionStoreFuture<'_, Option<MobileSessionIdentity>> {
+        self.create(account.user_id, token)
+    }
+
     fn create(
         &self,
         user_id: Uuid,
@@ -508,6 +516,10 @@ impl Fixture {
 }
 
 fn fixture(otp_limit: u64) -> Fixture {
+    fixture_with_review(otp_limit, false)
+}
+
+fn fixture_with_review(otp_limit: u64, review_enabled: bool) -> Fixture {
     let hash_key = SecretString::new("hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh".to_owned());
     let otp_store = FakeOtpStore::default();
     let delivery = FakeDelivery::default();
@@ -539,7 +551,8 @@ fn fixture(otp_limit: u64) -> Fixture {
         Arc::new(accounts.clone()),
         auth,
         SecretString::new("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_owned()),
-    );
+    )
+    .with_play_review(review_enabled.then(review_config), hash_key.clone());
     let limiter = RateLimiter::memory(&hash_key);
     let otp_policy = LimitPolicy {
         max: otp_limit,
@@ -1249,4 +1262,117 @@ fn webhook_request(body: &[u8], headers: &[String; 3]) -> Request<Body> {
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_vec()))
         .expect("request")
+}
+
+fn review_config() -> histae_api_rust::config::PlayReviewConfig {
+    histae_api_rust::config::PlayReviewConfig {
+        phone_number: SecretString::new("+33639981234".into()),
+        otp: SecretString::new("482951".into()),
+    }
+}
+
+#[tokio::test]
+async fn play_review_login_is_reusable_and_never_enqueues_or_sends_sms() {
+    let fixture = fixture_with_review(10, true);
+    let send_body = r#"{"phone_number":"+33 6 39 98 12 34"}"#;
+    let sent = fixture
+        .app
+        .clone()
+        .oneshot(request(
+            "/api/auth/otp/send",
+            send_body,
+            Some(idempotency_key()),
+        ))
+        .await
+        .expect("send");
+    assert_eq!(sent.status(), StatusCode::ACCEPTED);
+    assert_eq!(json_body(sent).await["resend_after_seconds"], 0);
+    for _ in 0..2 {
+        let verified = fixture
+            .app
+            .clone()
+            .oneshot(request(
+                "/api/auth/otp/verify",
+                r#"{"phone_number":"+33639981234","otp":"482951"}"#,
+                None,
+            ))
+            .await
+            .expect("review login");
+        assert_eq!(verified.status(), StatusCode::OK);
+        let body = json_body(verified).await;
+        assert!(
+            body["access_token"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+        );
+        assert!(
+            body["refresh_token"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+        );
+    }
+    fixture.dispatch().await;
+    assert!(fixture.requests.rows.lock().expect("requests").is_empty());
+    assert_eq!(fixture.delivery.calls(), 0);
+    assert_eq!(*fixture.accounts.lookups.lock().expect("lookups"), 0);
+}
+
+#[tokio::test]
+async fn review_credentials_cannot_authenticate_another_phone_or_a_disabled_feature() {
+    for (review_enabled, phone, code) in [
+        (false, "+33639981234", "482951"),
+        (true, "+33612345678", "482951"),
+        (true, "+33639981234", "482952"),
+    ] {
+        let fixture = fixture_with_review(10, review_enabled);
+        let body = serde_json::json!({"phone_number": phone, "otp": code}).to_string();
+        let response = fixture
+            .app
+            .clone()
+            .oneshot(request("/api/auth/otp/verify", &body, None))
+            .await
+            .expect("verify");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            json_body(response).await["error"]["code"],
+            "invalid_or_expired_otp"
+        );
+        assert_eq!(fixture.delivery.calls(), 0);
+    }
+}
+
+#[tokio::test]
+async fn review_login_keeps_validation_and_phone_rate_limits_before_verification() {
+    let fixture = fixture_with_review(2, true);
+    let invalid_id = fixture
+        .app
+        .clone()
+        .oneshot(request(
+            "/api/auth/otp/send",
+            r#"{"phone_number":"+33639981234"}"#,
+            None,
+        ))
+        .await
+        .expect("invalid idempotency");
+    assert_eq!(invalid_id.status(), StatusCode::BAD_REQUEST);
+    for code in ["482952", "482953", "482951"] {
+        let response = fixture
+            .app
+            .clone()
+            .oneshot(request(
+                "/api/auth/otp/verify",
+                &serde_json::json!({"phone_number": "+33639981234", "otp": code}).to_string(),
+                None,
+            ))
+            .await
+            .expect("verify");
+        let expected = if code == "482951" {
+            StatusCode::TOO_MANY_REQUESTS
+        } else {
+            StatusCode::UNAUTHORIZED
+        };
+        assert_eq!(response.status(), expected);
+    }
+    assert_eq!(fixture.delivery.calls(), 0);
+    assert!(fixture.requests.rows.lock().expect("requests").is_empty());
 }

@@ -3,6 +3,7 @@ pub mod domain;
 pub mod http;
 pub mod otp;
 pub mod pg;
+pub mod play_review;
 pub mod service;
 pub mod sms_safety;
 pub mod store;
