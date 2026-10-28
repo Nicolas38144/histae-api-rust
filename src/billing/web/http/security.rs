@@ -1,6 +1,6 @@
 use crate::{config::WebBillingConfig, http::error::ApiError};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
-pub(super) fn validate_origin(
+pub(crate) fn validate_origin(
     config: &WebBillingConfig,
     headers: &HeaderMap,
 ) -> Result<(), ApiError> {
@@ -11,6 +11,14 @@ pub(super) fn validate_origin(
             "Website billing is unavailable.",
         ));
     }
+    validate_website_origin(config, headers)
+}
+
+// Account privacy remains available when commercial website billing is disabled.
+pub(crate) fn validate_website_origin(
+    config: &WebBillingConfig,
+    headers: &HeaderMap,
+) -> Result<(), ApiError> {
     if headers.get_all(header::ORIGIN).iter().count() != 1
         || headers
             .get(header::ORIGIN)
@@ -32,7 +40,7 @@ fn cookie_name(config: &WebBillingConfig) -> &'static str {
         "histae_billing"
     }
 }
-pub(super) fn token(headers: &HeaderMap, config: &WebBillingConfig) -> Option<String> {
+pub(crate) fn token(headers: &HeaderMap, config: &WebBillingConfig) -> Option<String> {
     if headers.get_all(header::COOKIE).iter().count() != 1 {
         return None;
     }
@@ -54,7 +62,7 @@ pub(super) fn token(headers: &HeaderMap, config: &WebBillingConfig) -> Option<St
     }
     Some(token.to_owned())
 }
-pub(super) fn set_cookie(
+pub(crate) fn set_cookie(
     config: &WebBillingConfig,
     token: &str,
     expiry: u16,
@@ -127,5 +135,8 @@ mod tests {
         headers.insert(header::ORIGIN, "https://www.histae.com".parse().unwrap());
         config.enabled = false;
         assert!(validate_origin(&config, &headers).is_err());
+        assert!(validate_website_origin(&config, &headers).is_ok());
+        headers.insert(header::ORIGIN, "https://evil.test".parse().unwrap());
+        assert!(validate_website_origin(&config, &headers).is_err());
     }
 }

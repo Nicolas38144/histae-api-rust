@@ -1,8 +1,9 @@
 # Histae API — feuille de route de production
 
-Dernière mise à jour : **28 octobre 2026**, après ajout des achats natifs Apple/Google,
+Dernière mise à jour : **29 octobre 2026**, après ajout des achats natifs Apple/Google,
 du paiement Stripe sur le site par UUID/téléphone/OTP et du suivi financier des stores,
-et correction du redéploiement avec maintenance et de la lecture des demandes RGPD avec effacement.
+correction du redéploiement avec maintenance et de la lecture des demandes RGPD avec effacement,
+et ajout du parcours web de suppression du compte et de certaines données.
 Les essais fournisseur sur appareils et la validation du déploiement final restent ouverts.
 
 Cette feuille de route suit les raccordements, décisions et preuves qui restent nécessaires avant le
@@ -385,6 +386,14 @@ Référence : [Sauvegarde et restauration](docs/database.md#sauvegarde-et-restau
   gère refus, retrait et nouvelle version ; confirmer la correspondance des versions dans chaque langue.
 - [ ] Tester export, demande de droits, suppression du compte, effacement des photos et traitement
   Stripe ; prévoir les contacts, responsables et procédures de suivi/recours annoncés.
+- [x] Ajouter le parcours web de suppression du compte et de certaines données, dans les quatre
+  langues du site, avec lien au footer, session UUID/téléphone/OTP et confirmation distincte.
+  Les routes réutilisent les services d’effacement, de consentement et de photo existants.
+- [ ] Déployer ensemble l’API, le site et le routage proxy `/api/web/account/*` et `/api/web/privacy/*` ;
+  vérifier OTP réel, session partagée avec l’abonnement, refus d’une autre origine, retraits partiels,
+  fermeture du compte et fin de l’effacement outbox. Rejouer les contrôles Rust sur une cible équipée.
+- [ ] Valider les durées de conservation et les sauvegardes réelles puis renseigner les URL
+  `/fr/account/data/#delete-account` et `/fr/account/data/#delete-data` dans Google Play après publication.
 
 **Clôture :** les documents publiés correspondent à la livraison, leur validation est traçable et
 les parcours de consentement et de droits sont utilisables par les clients et les opérateurs.

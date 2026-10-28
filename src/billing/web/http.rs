@@ -1,5 +1,5 @@
 mod dto;
-mod security;
+pub(crate) mod security;
 use super::{ChallengeView, WebBillingError, WebBillingService, WebSessionView};
 use crate::{
     billing::domain::CheckoutSessionView,
@@ -19,7 +19,7 @@ use axum::{
     routing::{get, post},
 };
 use dto::{CheckoutBody, SendBody, VerifyBody};
-use security::{set_cookie, token, validate_origin};
+use security::{set_cookie, token, validate_origin, validate_website_origin};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -37,13 +37,16 @@ pub fn routes(state: WebBillingState) -> Router<HttpState> {
         .route("/api/web/billing/otp/send", post(send))
         .route("/api/web/billing/otp/verify", post(verify))
         .route("/api/web/billing/session", get(session).delete(logout))
+        .route("/api/web/account/otp/send", post(send))
+        .route("/api/web/account/otp/verify", post(verify))
+        .route("/api/web/account/session", get(account_session).delete(logout))
         .route("/api/web/billing/plans", get(plans))
         .route("/api/web/billing/checkout", post(checkout))
         .route("/api/web/billing/portal", post(portal))
         .layer(axum::middleware::from_fn(no_store))
         .layer(Extension(state))
 }
-async fn no_store(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+pub(crate) async fn no_store(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
     let mut response = next.run(request).await;
     response
         .headers_mut()
@@ -54,7 +57,7 @@ async fn no_store(request: axum::extract::Request, next: axum::middleware::Next)
     );
     response
 }
-fn error(error: WebBillingError) -> ApiError {
+pub(crate) fn error(error: WebBillingError) -> ApiError {
     let (status, code, message) = match error {
         WebBillingError::InvalidRequest => return ApiError::invalid_body(),
         WebBillingError::Authentication => (
@@ -79,9 +82,6 @@ fn error(error: WebBillingError) -> ApiError {
     ApiError::new(status, code, message)
 }
 fn session_token(state: &WebBillingState, headers: &HeaderMap) -> Result<String, ApiError> {
-    if !state.config.enabled {
-        return Err(error(WebBillingError::Authentication));
-    }
     token(headers, &state.config).ok_or_else(|| error(WebBillingError::Authentication))
 }
 async fn limit_otp(
@@ -128,7 +128,7 @@ async fn send(
     locale: Locale,
     ValidatedJson(body): ValidatedJson<SendBody>,
 ) -> Result<(StatusCode, Json<ChallengeView>), ApiError> {
-    validate_origin(&state.config, &headers)?;
+    validate_website_origin(&state.config, &headers)?;
     limit_otp(&state, &body.phone_number, ip, false).await?;
     let key = headers
         .get("idempotency-key")
@@ -154,7 +154,7 @@ async fn verify(
     headers: HeaderMap,
     ValidatedJson(body): ValidatedJson<VerifyBody>,
 ) -> Result<Response, ApiError> {
-    validate_origin(&state.config, &headers)?;
+    validate_website_origin(&state.config, &headers)?;
     limit_otp(&state, &body.phone_number, ip, true).await?;
     let token = state
         .service
@@ -179,11 +179,22 @@ async fn session(
         .map(Json)
         .map_err(error)
 }
+async fn account_session(
+    Extension(state): Extension<WebBillingState>,
+    headers: HeaderMap,
+) -> Result<Json<super::WebIdentity>, ApiError> {
+    state
+        .service
+        .identity(&session_token(&state, &headers)?)
+        .await
+        .map(Json)
+        .map_err(error)
+}
 async fn logout(
     Extension(state): Extension<WebBillingState>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    validate_origin(&state.config, &headers)?;
+    validate_website_origin(&state.config, &headers)?;
     if let Some(token) = token(&headers, &state.config) {
         state.service.logout(&token).await.map_err(error)?;
     }

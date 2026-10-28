@@ -492,7 +492,8 @@ Cookie HttpOnly host-only, Secure en HTTPS, SameSite Strict ; session trente min
 Aucun compte créé par ce parcours. Limites OTP par IP et téléphone partagées avec le mobile et les protections
 Sweego. Les réponses d’envoi restent génériques même en cas d’envoi non confirmé. Le code ne donne pas de JWT mobile.
 Avant paiement : compte actif, non banni et consentements courants ; `403 onboarding_incomplete` sinon.
-`403 invalid_web_request_origin` si Origin incorrect, `503 web_billing_unavailable` si désactivé.
+`403 invalid_web_request_origin` si Origin incorrect. `503 web_billing_unavailable` bloque Checkout
+et le portail si le paiement du site est désactivé ; la connexion et la gestion des données restent disponibles.
 Une réponse Checkout perdue se reprend avec la même clé et la même période. Expiration à 35 minutes à la préparation ;
 respecter `expires_at`. Clé consommée : relire les droits avant de préparer une autre intention.
 Les états non terminés connus d’un fournisseur bloquent un second achat, même sans accès Premium.
@@ -501,6 +502,37 @@ son expiration chez Stripe avant de créer la nouvelle. Les sessions terminées,
 cours et les tentatives incertaines restent protégées. La clé de la formule remplacée devient
 consommée ; après relecture des droits, le site peut utiliser une nouvelle clé pour cette formule.
 Les erreurs et procédures Stripe existantes restent décrites dans [le guide Stripe](billing.md).
+
+### Gestion des données depuis le site
+
+La page publique `/{fr,en,es,it}/account/data/`, liée au footer, présente les conséquences de chaque
+suppression et une adresse d’assistance pour les personnes sans accès à l’app. Les actions automatiques
+réutilisent le cookie web de trente minutes ; aucun JWT mobile n’est émis. La session peut être partagée
+avec « Mon abonnement ». Origin exact `WEB_BILLING_ORIGIN` obligatoire sur toutes les mutations,
+y compris si `WEB_BILLING_ENABLED=false`. Toutes les réponses sont `no-store` et `no-referrer`.
+
+| Méthode | Route | Entrée → résultat |
+| --- | --- | --- |
+| POST | `/api/web/account/otp/send` | Même UUID/téléphone, clé d’idempotence et réponse générique que le parcours de connexion du paiement. |
+| POST | `/api/web/account/otp/verify` | Même challenge/code SMS → `204` et cookie HttpOnly. |
+| GET | `/api/web/account/session` | Cookie valide → `{ user_id, onboarding_complete }`, sans charger la facturation. |
+| DELETE | `/api/web/account/session` | Déconnexion du navigateur et expiration du cookie → `204`. |
+| DELETE | `/api/web/privacy/data` | `{ category: photo|location|sensitive_profile }` → `204` ; le compte et les autres catégories sont conservés. |
+| POST | `/api/web/privacy/deletion-token` | Émet un jeton à usage unique lié au compte connecté → `201 { confirmation_token, expires_at }`. |
+| DELETE | `/api/web/privacy/account` | `{ confirmation_token }` → `202 { request_id, status: in_progress }` et cookie expiré. |
+
+L’identité cible vient uniquement de la session ; aucun `user_id` cible n’est accepté dans une
+suppression. Les consentements requis pour l’onboarding et les droits Premium ne conditionnent pas
+ces démarches. Le compte doit être actif et non banni pour le parcours automatique ; sinon l’assistance
+publique reste accessible. Les mutations sont limitées par compte (`RATE_LIMIT_PHOTO`, espace `web-privacy`).
+
+`photo` réutilise le retrait de photo et son nettoyage S3 différé. `location` retire le consentement de
+localisation et efface la présence ; `sensitive_profile` retire le consentement sensible et efface le sexe
+et les préférences. Les historiques de choix sont conservés selon les règles de rétention existantes.
+La fermeture du compte utilise exactement le même service d’effacement que l’app : désactivation
+transactionnelle, invalidation des sessions puis traitement outbox reprenable. `202` n’atteste pas la
+fin du nettoyage. Une réponse réseau perdue n’est pas présentée comme une réussite ni rejouée
+automatiquement par le site. Aucune table, migration ou remise à zéro n’est ajoutée.
 
 ### Administration des achats natifs
 

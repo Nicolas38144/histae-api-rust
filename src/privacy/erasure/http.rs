@@ -72,7 +72,7 @@ async fn accept_erasure(
         .map_err(account_deletion_error)
 }
 
-fn account_deletion_error(error: AccountDeletionError) -> ApiError {
+pub(crate) fn account_deletion_error(error: AccountDeletionError) -> ApiError {
     match error {
         AccountDeletionError::AccountNotFound => ApiError::new(
             StatusCode::NOT_FOUND,

@@ -90,7 +90,7 @@ impl WebBillingService {
         }
         Ok(SecretString::new(token))
     }
-    async fn identity(&self, token: &str) -> Result<WebIdentity, WebBillingError> {
+    pub(crate) async fn identity(&self, token: &str) -> Result<WebIdentity, WebBillingError> {
         self.store
             .identity(token)
             .await?

@@ -7,3 +7,4 @@ pub mod pg;
 pub mod rights;
 pub mod service;
 pub mod store;
+pub mod web;

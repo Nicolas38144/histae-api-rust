@@ -12,6 +12,7 @@ pub struct WebChallenge {
     pub matched: bool,
     pub created: bool,
 }
+#[derive(Serialize)]
 pub struct WebIdentity {
     pub user_id: Uuid,
     pub onboarding_complete: bool,

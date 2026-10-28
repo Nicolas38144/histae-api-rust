@@ -196,7 +196,7 @@ fn photo_too_large_input() -> ApiError {
     )
 }
 
-fn photo_error(error: PhotoError) -> ApiError {
+pub(crate) fn photo_error(error: PhotoError) -> ApiError {
     match error {
         PhotoError::ProfileNotFound => ApiError::new(
             StatusCode::NOT_FOUND,

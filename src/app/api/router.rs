@@ -298,6 +298,15 @@ impl ApiResources {
             config.account_deletion_token_ttl,
             Arc::clone(&clock),
         );
+        let web_privacy = crate::privacy::web::WebPrivacyState {
+            auth: web_state.service.clone(),
+            config: config.web_billing.clone(),
+            limiter: limiter.clone(),
+            policy: config.rate_limit.photo.clone(),
+            deletion: deletion.clone(),
+            photos: photo_service.clone(),
+            profiles: profile.clone(),
+        };
 
         let moderation_photos: Arc<dyn ModerationPhotoUrlProvider> =
             Arc::new(photo_service.clone());
@@ -366,6 +375,7 @@ impl ApiResources {
             ))
             .merge(crate::billing::stores::http::webhook_routes(store_state))
             .merge(crate::billing::web::http::routes(web_state))
+            .merge(crate::privacy::web::routes(web_privacy))
             .merge(crate::localization::http::routes(
                 crate::localization::http::LanguageHttpState {
                     service: localization.clone(),

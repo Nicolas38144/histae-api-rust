@@ -264,7 +264,7 @@ async fn update_presence(
     }))
 }
 
-fn profile_error(error: ProfileError) -> ApiError {
+pub(crate) fn profile_error(error: ProfileError) -> ApiError {
     match error {
         ProfileError::InvalidProfile => ApiError::new(
             StatusCode::BAD_REQUEST,
