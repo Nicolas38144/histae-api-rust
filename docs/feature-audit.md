@@ -193,3 +193,19 @@ reste celui du parcours normal. Le guide et les descriptions Postman FR/EN refl�
 Après cet ajustement : **25 tests de contrat/inventaire** et **17 tests PostgreSQL** réussis,
 formatage et Clippy toutes cibles/features sans avertissement. Le PostgreSQL isolé a été supprimé.
 Le numéro et le code privés du `.env` ne sont pas modifiés.
+
+### Premium offert au compte de revue
+
+La projection centrale `effective_subscription_at` accorde Premium sans expiration aux comptes
+de revue actifs de rôle `user`, y compris ceux déjà inscrits. Aucun achat, facture ou projection
+fournisseur n’est créé ; un historique Stripe/store existant est conservé. Les continuations et
+le dashboard lisent les mêmes droits. Les consentements et protections d’authentification restent
+appliqués. Aucune variable supplémentaire ni modification Flutter n’est nécessaire.
+
+La sélection SQL distingue l’éligibilité de revue, les trois sources de droits et leur priorité.
+Les tests de facturation de revue sont isolés dans `tests/play_review/premium.rs` et partagent les
+fixtures d’identité et de nettoyage du test PostgreSQL existant.
+
+Vérifications : **27 tests de contrat/inventaire** et **45 tests PostgreSQL** réussis, soit **72 tests**.
+Les migrations sur base neuve, mise à niveau et réexécution passent sur PostgreSQL jetable,
+supprimé avec ses fixtures et secrets temporaires. Aucun fournisseur de paiement n’a été contacté.

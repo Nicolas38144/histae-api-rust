@@ -444,6 +444,13 @@ Une première création exige une intention d’inscription active ; une connexi
 expirée ne crée aucun compte. Les formulaires de profil et de consentement restent à remplir. `play_review_postgres`
 vérifie la création concurrente d’un seul compte, les refus pour les comptes ordinaires, bannis,
 supprimés ou sous tombstone, la contrainte de rôle, le refus de promotion par un superadmin et la suppression concurrente.
+Il vérifie aussi le Premium offert aux nouveaux comptes de revue comme aux comptes déjà inscrits,
+les continuations Premium illimitées, le blocage d’un achat inutile, l’absence de facture ou de
+projection fournisseur créée, la conservation de l’historique Stripe et le retrait des droits
+offerts si le compte n’est plus marqué pour la revue, est banni ou supprimé.
+Ces scénarios de facturation sont regroupés dans `play_review/premium.rs`, avec des helpers pour
+l’inscription de la fixture, la forme du droit offert et l’absence d’achat. Les scénarios
+d’authentification restent dans `play_review_postgres.rs` ; la commande de lancement est inchangée.
 Le lanceur isolé vérifie également la migration d’une base sans marqueur de revue puis sa réexécution.
 
 ```bash

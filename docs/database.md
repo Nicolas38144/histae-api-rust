@@ -241,4 +241,11 @@ existantes lors de la migration. Le parcours mobile de revue crée lui-même son
 `user` pour cette identité ; la route de promotion refuse aussi l’opération. Création et ouverture de
 session sont transactionnelles, avec refus des bannissements, suppressions et tombstones. Les données
 de profil et les consentements sont ensuite gérés par les routes normales, sans acceptation automatique.
+La fonction `effective_subscription_at` ajoute un droit Premium offert sans expiration pour les comptes
+de revue actifs de rôle `user`. Le marqueur est installé avant cette fonction, sur base neuve comme
+lors d’une mise à niveau. La CTE `review_accounts` isole l’éligibilité du compte ; les candidats
+internes/Stripe, stores et de revue partagent ensuite une sélection unique avec un ordre de priorité explicite.
+Ce droit couvre aussi les comptes de revue déjà inscrits, sans insérer de
+projection Stripe/store ni de facture et sans écraser l’historique fournisseur. Il disparaît du calcul
+si le marqueur est retiré, le compte banni ou supprimé. Voir les champs publics dans le contrat HTTP.
 Voir [l’accès Google Play](google-play-review.md).

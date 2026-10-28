@@ -1,11 +1,16 @@
 #![cfg(feature = "postgres-integration")]
 
+#[path = "play_review/premium.rs"]
+mod premium;
+
+use chrono::Utc;
 use histae_api_rust::{
     administration::{
         domain::{AdminUserRole, RoleChangeResult},
         pg::PgAdministrationStore,
         store::AdministrationStore,
     },
+    billing::{pg::PgBillingRepository, store::BillingStore},
     config::{AppConfig, Environment},
     identity::mobile::{
         otp::{
@@ -143,6 +148,12 @@ async fn review_login_never_adopts_an_existing_real_or_privileged_account() -> T
             .fetch_one(database.acquire().await?.as_mut())
             .await?;
             assert!(unchanged);
+            assert!(
+                PgBillingRepository::new(database.clone())
+                    .effective_subscription_for_user(account.user_id, Utc::now())
+                    .await?
+                    .is_none()
+            );
             Ok(())
         }
         .await;
@@ -174,6 +185,7 @@ async fn review_accounts_keep_bans_deletions_and_tombstones_effective() -> TestR
             let families: i64 = sqlx::query_scalar("SELECT count(*) FROM refresh_token_family WHERE user_id IN (SELECT user_id FROM user_account WHERE phone_number_hash=$1)")
                 .bind(&account.phone_hash).fetch_one(database.acquire().await?.as_mut()).await?;
             assert_eq!(families, families_before, "a refused review login must not create a session");
+            assert!(PgBillingRepository::new(database.clone()).effective_subscription_for_user(account.user_id, Utc::now()).await?.is_none());
             Ok(())
         }.await;
         remove(&database, &account.phone_hash).await?;

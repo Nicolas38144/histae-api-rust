@@ -33,6 +33,20 @@ CREATE TABLE user_account (
     CONSTRAINT user_account_banned_by_fkey FOREIGN KEY (banned_by) REFERENCES user_account(user_id) ON DELETE SET NULL
 );
 
+-- BEGIN play review account
+-- Server-created review identities must never obtain an administrative role.
+ALTER TABLE user_account ADD COLUMN IF NOT EXISTS is_review_account boolean NOT NULL DEFAULT false;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conrelid='user_account'::regclass
+      AND conname='user_account_review_role_check'
+  ) THEN
+    ALTER TABLE user_account ADD CONSTRAINT user_account_review_role_check
+      CHECK (NOT is_review_account OR role='user');
+  END IF;
+END $$;
+-- END play review account
+
 CREATE INDEX idx_user_account_active_created ON user_account USING btree (created_at DESC, user_id DESC) WHERE (deleted_at IS NULL);
 
 CREATE UNIQUE INDEX uq_user_account_single_superadmin ON user_account USING btree (role) WHERE (role = 'superadmin'::text);
@@ -586,22 +600,82 @@ RETURNS TABLE (
     trial_ends_at timestamptz, canceled_at timestamptz, access_granted boolean,
     provider_event_created_at timestamptz, updated_at timestamptz
 ) LANGUAGE sql STABLE AS $body$
-SELECT DISTINCT ON (c.user_id) c.* FROM (
-    SELECT s.user_id, s.plan, s.provider, s.provider_subscription_id, s.provider_price_id,
-        s.billing_period, s.status, s.cancel_at_period_end, s.current_period_starts_at,
-        s.current_period_ends_at, s.trial_ends_at, s.canceled_at,
-        COALESCE(s.plan='premium' AND (
-          (s.provider IS NULL AND (s.current_period_ends_at IS NULL OR s.current_period_ends_at>p_at))
-          OR (s.provider='stripe' AND s.status IN ('trialing','active','past_due') AND s.current_period_ends_at>p_at)
-        ), false) AS access_granted, s.provider_event_created_at, s.updated_at
-    FROM user_subscription s WHERE p_user_id IS NULL OR s.user_id=p_user_id
+WITH review_accounts AS (
+    -- Only the server-owned review identity can receive complimentary access.
+    SELECT a.user_id, a.created_at
+    FROM user_account AS a
+    WHERE a.is_review_account
+      AND a.role = 'user'
+      AND NOT a.is_banned
+      AND a.deleted_at IS NULL
+      AND a.created_at <= p_at
+      AND (p_user_id IS NULL OR a.user_id = p_user_id)
+), subscription_candidates AS (
+    -- Internal grants and Stripe projections retain their existing validity rules.
+    SELECT
+        s.user_id, s.plan, s.provider, s.provider_subscription_id, s.provider_price_id,
+        s.billing_period, s.status, s.cancel_at_period_end,
+        s.current_period_starts_at, s.current_period_ends_at,
+        s.trial_ends_at, s.canceled_at,
+        COALESCE(s.plan = 'premium' AND (
+            (s.provider IS NULL AND (s.current_period_ends_at IS NULL OR s.current_period_ends_at > p_at))
+            OR (s.provider = 'stripe' AND s.status IN ('trialing', 'active', 'past_due')
+                AND s.current_period_ends_at > p_at)
+        ), false) AS access_granted,
+        s.provider_event_created_at, s.updated_at
+    FROM user_subscription AS s
+    WHERE p_user_id IS NULL OR s.user_id = p_user_id
+
     UNION ALL
-    SELECT s.user_id, 'premium', s.provider, s.original_id, s.product_id, s.billing_period, s.status,
-        NOT s.auto_renew, s.starts_at, s.expires_at, NULL::timestamptz,
+
+    -- Store access comes exclusively from server-verified purchase projections.
+    SELECT
+        s.user_id, 'premium', s.provider, s.original_id, s.product_id,
+        s.billing_period, s.status, NOT s.auto_renew,
+        s.starts_at, s.expires_at, NULL::timestamptz,
         CASE WHEN NOT s.auto_renew THEN s.verified_at END,
-        s.starts_at<=p_at AND s.expires_at>p_at AND (s.status IN ('active','grace_period') OR (s.provider='google_play' AND s.status='canceled')), s.verified_at, s.verified_at
-    FROM billing_store_subscription s WHERE s.user_id IS NOT NULL AND NOT s.superseded AND (p_user_id IS NULL OR s.user_id=p_user_id)
-) c ORDER BY c.user_id, c.access_granted DESC, (c.status IN ('pending','incomplete','trialing','active','grace_period','past_due','on_hold','paused','unpaid')) DESC NULLS LAST, (c.plan='premium') DESC, c.current_period_ends_at DESC NULLS FIRST, c.updated_at DESC, c.provider NULLS FIRST;
+        s.starts_at <= p_at AND s.expires_at > p_at
+            AND (s.status IN ('active', 'grace_period')
+                OR (s.provider = 'google_play' AND s.status = 'canceled')),
+        s.verified_at, s.verified_at
+    FROM billing_store_subscription AS s
+    WHERE s.user_id IS NOT NULL
+      AND NOT s.superseded
+      AND (p_user_id IS NULL OR s.user_id = p_user_id)
+
+    UNION ALL
+
+    -- Complimentary review access is independent of provider billing history.
+    SELECT
+        a.user_id,
+        'premium' AS plan,
+        NULL::text AS provider,
+        NULL::text AS provider_subscription_id,
+        NULL::text AS provider_price_id,
+        NULL::text AS billing_period,
+        NULL::text AS status,
+        false AS cancel_at_period_end,
+        a.created_at AS current_period_starts_at,
+        NULL::timestamptz AS current_period_ends_at,
+        NULL::timestamptz AS trial_ends_at,
+        NULL::timestamptz AS canceled_at,
+        true AS access_granted,
+        NULL::timestamptz AS provider_event_created_at,
+        a.created_at AS updated_at
+    FROM review_accounts AS a
+)
+SELECT DISTINCT ON (c.user_id) c.*
+FROM subscription_candidates AS c
+-- Prefer an actual eligible subscription over complimentary review access.
+ORDER BY
+    c.user_id,
+    c.access_granted DESC,
+    (c.status IN ('pending', 'incomplete', 'trialing', 'active', 'grace_period',
+                  'past_due', 'on_hold', 'paused', 'unpaid')) DESC NULLS LAST,
+    (c.plan = 'premium') DESC,
+    c.current_period_ends_at DESC NULLS FIRST,
+    c.updated_at DESC,
+    c.provider NULLS FIRST;
 $body$;
 CREATE OR REPLACE VIEW effective_user_subscription AS
 SELECT * FROM effective_subscription_at(NULL, statement_timestamp());
@@ -1565,17 +1639,3 @@ DO $$ BEGIN
   END IF;
 END $$;
 -- END match inactivity
-
--- BEGIN play review account
--- Server-created review identities must never obtain an administrative role.
-ALTER TABLE user_account ADD COLUMN IF NOT EXISTS is_review_account boolean NOT NULL DEFAULT false;
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conrelid='user_account'::regclass
-      AND conname='user_account_review_role_check'
-  ) THEN
-    ALTER TABLE user_account ADD CONSTRAINT user_account_review_role_check
-      CHECK (NOT is_review_account OR role='user');
-  END IF;
-END $$;
--- END play review account
