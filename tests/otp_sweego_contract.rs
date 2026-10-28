@@ -325,7 +325,10 @@ impl MobileAccountStore for FakeAccounts {
 }
 
 #[derive(Clone, Default)]
-struct FakeSessions;
+struct FakeSessions {
+    requests: FakeRequests,
+    review_user: Arc<Mutex<Option<Uuid>>>,
+}
 
 impl MobileSessionStore for FakeSessions {
     fn create_review_session(
@@ -333,7 +336,27 @@ impl MobileSessionStore for FakeSessions {
         account: histae_api_rust::identity::mobile::play_review::NewReviewAccount,
         token: NewRefreshToken,
     ) -> SessionStoreFuture<'_, Option<MobileSessionIdentity>> {
-        self.create(account.user_id, token)
+        Box::pin(async move {
+            let mut user = self.review_user.lock().expect("review user");
+            if user.is_none() {
+                let now = *self.requests.now.lock().expect("clock");
+                let rows = self.requests.rows.lock().expect("requests");
+                let latest = rows
+                    .values()
+                    .filter(|(row, _)| row.phone_hash == account.phone_hash)
+                    .max_by_key(|(row, at)| (*at, row.id));
+                if !latest.is_some_and(|(row, at)| {
+                    row.registration && (now - *at).num_seconds() < row.ttl.as_secs() as i64
+                }) {
+                    return Ok(None);
+                }
+                *user = Some(account.user_id);
+            }
+            Ok(Some(MobileSessionIdentity {
+                user_id: user.expect("registered reviewer"),
+                session_id: token.id,
+            }))
+        })
     }
 
     fn create(
@@ -416,6 +439,11 @@ impl Default for FakeRequests {
 }
 
 impl OtpRequestStore for FakeRequests {
+    fn record_review(&self, mut request: NewOtpRequest) -> RequestFuture<'_, u64, RequestError> {
+        request.encrypted_phone.clear();
+        self.enqueue(request)
+    }
+
     fn enqueue(&self, request: NewOtpRequest) -> RequestFuture<'_, u64, RequestError> {
         Box::pin(async move {
             let now = *self.now.lock().expect("clock");
@@ -539,9 +567,13 @@ fn fixture_with_review(otp_limit: u64, review_enabled: bool) -> Fixture {
         access_ttl: Duration::from_secs(900),
         refresh_ttl: Duration::from_secs(3_600),
     });
+    let requests = FakeRequests::default();
     let auth = MobileAuthService::new(
         tokens,
-        Arc::new(FakeSessions),
+        Arc::new(FakeSessions {
+            requests: requests.clone(),
+            ..Default::default()
+        }),
         "terms-v1".to_owned(),
         "privacy-v1".to_owned(),
     );
@@ -576,7 +608,6 @@ fn fixture_with_review(otp_limit: u64, review_enabled: bool) -> Fixture {
         Arc::new(otp_store.clone()),
         Arc::new(SweegoWebhookMetrics::default()),
     );
-    let requests = FakeRequests::default();
     let encryption_key = SecretString::new("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_owned());
     let request_service = OtpRequestService::new(
         Arc::new(requests.clone()),
@@ -1272,9 +1303,9 @@ fn review_config() -> histae_api_rust::config::PlayReviewConfig {
 }
 
 #[tokio::test]
-async fn play_review_login_is_reusable_and_never_enqueues_or_sends_sms() {
+async fn play_review_signup_then_login_is_reusable_without_sms_jobs() {
     let fixture = fixture_with_review(10, true);
-    let send_body = r#"{"phone_number":"+33 6 39 98 12 34"}"#;
+    let send_body = r#"{"phone_number":"+33 6 39 98 12 34","registration":true}"#;
     let sent = fixture
         .app
         .clone()
@@ -1286,7 +1317,7 @@ async fn play_review_login_is_reusable_and_never_enqueues_or_sends_sms() {
         .await
         .expect("send");
     assert_eq!(sent.status(), StatusCode::ACCEPTED);
-    assert_eq!(json_body(sent).await["resend_after_seconds"], 0);
+    assert_eq!(json_body(sent).await["resend_after_seconds"], 60);
     for _ in 0..2 {
         let verified = fixture
             .app
@@ -1312,7 +1343,12 @@ async fn play_review_login_is_reusable_and_never_enqueues_or_sends_sms() {
         );
     }
     fixture.dispatch().await;
-    assert!(fixture.requests.rows.lock().expect("requests").is_empty());
+    let rows = fixture.requests.rows.lock().expect("requests");
+    assert_eq!(rows.len(), 1);
+    assert!(
+        rows.values()
+            .all(|(row, _)| row.registration && row.encrypted_phone.is_empty())
+    );
     assert_eq!(fixture.delivery.calls(), 0);
     assert_eq!(*fixture.accounts.lookups.lock().expect("lookups"), 0);
 }
@@ -1375,4 +1411,78 @@ async fn review_login_keeps_validation_and_phone_rate_limits_before_verification
     }
     assert_eq!(fixture.delivery.calls(), 0);
     assert!(fixture.requests.rows.lock().expect("requests").is_empty());
+}
+
+#[tokio::test]
+async fn review_signup_is_explicit_and_preserves_cooldown_and_idempotency() {
+    let fixture = fixture_with_review(20, true);
+    let login = r#"{"phone_number":"+33639981234"}"#;
+    let signup = r#"{"phone_number":"+33639981234","registration":true}"#;
+    let verify = r#"{"phone_number":"+33639981234","otp":"482951"}"#;
+    let sent = fixture
+        .app
+        .clone()
+        .oneshot(request(
+            "/api/auth/otp/send",
+            login,
+            Some(idempotency_key()),
+        ))
+        .await
+        .expect("login send");
+    assert_eq!(sent.status(), StatusCode::ACCEPTED);
+    let refused = fixture
+        .app
+        .clone()
+        .oneshot(request("/api/auth/otp/verify", verify, None))
+        .await
+        .expect("login verify");
+    assert_eq!(
+        refused.status(),
+        StatusCode::FORBIDDEN,
+        "login must not register an absent reviewer"
+    );
+    let conflict = fixture
+        .app
+        .clone()
+        .oneshot(request(
+            "/api/auth/otp/send",
+            signup,
+            Some(idempotency_key()),
+        ))
+        .await
+        .expect("changed purpose");
+    assert_eq!(conflict.status(), StatusCode::CONFLICT);
+    let key = Uuid::new_v4().to_string();
+    let cooldown = fixture
+        .app
+        .clone()
+        .oneshot(request("/api/auth/otp/send", signup, Some(&key)))
+        .await
+        .expect("cooldown");
+    assert_eq!(cooldown.status(), StatusCode::TOO_MANY_REQUESTS);
+    *fixture.requests.now.lock().expect("clock") += chrono::TimeDelta::seconds(61);
+    let registered = fixture
+        .app
+        .clone()
+        .oneshot(request("/api/auth/otp/send", signup, Some(&key)))
+        .await
+        .expect("signup send");
+    assert_eq!(registered.status(), StatusCode::ACCEPTED);
+    let replay = fixture
+        .app
+        .clone()
+        .oneshot(request("/api/auth/otp/send", signup, Some(&key)))
+        .await
+        .expect("signup replay");
+    assert_eq!(replay.status(), StatusCode::ACCEPTED);
+    let accepted = fixture
+        .app
+        .clone()
+        .oneshot(request("/api/auth/otp/verify", verify, None))
+        .await
+        .expect("signup verify");
+    assert_eq!(accepted.status(), StatusCode::OK);
+    fixture.dispatch().await;
+    assert_eq!(fixture.delivery.calls(), 0);
+    assert_eq!(fixture.requests.rows.lock().expect("requests").len(), 2);
 }

@@ -439,7 +439,9 @@ python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/d
 
 Le [guide de publication](../docs/google-play-review.md) décrit les trois variables privées et la
 préparation du compte dans l’app. Les tests `otp_sweego_contract` vérifient l’activation explicite,
-le code réutilisable, l’absence de SMS/outbox et le maintien des quotas. `play_review_postgres`
+le code réutilisable, l’absence de SMS/outbox, les quotas, le délai de renvoi et l’idempotence.
+Une première création exige une intention d’inscription active ; une connexion ou une inscription
+expirée ne crée aucun compte. Les formulaires de profil et de consentement restent à remplir. `play_review_postgres`
 vérifie la création concurrente d’un seul compte, les refus pour les comptes ordinaires, bannis,
 supprimés ou sous tombstone, la contrainte de rôle, le refus de promotion par un superadmin et la suppression concurrente.
 Le lanceur isolé vérifie également la migration d’une base sans marqueur de revue puis sa réexécution.

@@ -162,10 +162,18 @@ async fn send_otp(
     // Invalid inputs and queued requests consume the same quotas independently
     // of whether an account exists. Eligibility is never queried here.
     let id = OtpService::parse_idempotency_key(idempotency_key.as_deref()).map_err(otp_error)?;
-    // The configured review identity has no SMS request or provider side effect.
-    // Validation and both rate limits above still apply to it.
+    // Keep a durable review signup/login intent, without an SMS payload or job.
     let resend_after_seconds = if state.login.is_review_phone(&phone) {
-        0
+        state
+            .requests
+            .record_review(
+                phone_key,
+                id,
+                body.registration,
+                locale.anonymous().language,
+            )
+            .await
+            .map_err(otp_request_error)?
     } else {
         // Exactly the same durable write for both real and suppressed requests.
         // Account eligibility and the provider call only run in the outbox worker.

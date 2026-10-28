@@ -174,6 +174,22 @@ configuration Compose de développement et absence des identifiants privés dans
 publics vérifiés. Migration d’une base ancienne, réexécution et maintien des marqueurs de revue
 vérifiés sur PostgreSQL jetable, supprimé à la fin.
 
-Les [consignes de préparation et de publication](google-play-review.md) indiquent la connexion directe,
+Les [consignes de préparation et de publication](google-play-review.md) indiquent l’inscription initiale puis la connexion,
 le profil à compléter et le texte anglais à fournir à Google. Le déploiement sur le serveur et la
 connexion sur appareil restent à effectuer ; aucun SMS ni achat fournisseur réel n’a été déclenché.
+
+### Ajustement — création par le bouton d’inscription
+
+La première création du compte de revue exige désormais une intention d’inscription encore valide,
+enregistrée avec `registration: true`. Une vérification isolée, une connexion pour un compte absent
+ou une intention expirée ne crée plus de compte. Après inscription, le code fixe reste réutilisable
+pour retrouver ce même compte par « Connexion ».
+
+L’intention temporaire conserve le délai de renvoi, les quotas et l’idempotence, avec seulement le
+hash du numéro, sans téléphone chiffré ni événement SMS/outbox. Les formulaires Flutter existants
+collectent déjà profil, préférences et consentements avant l’étape téléphone ; leur enregistrement
+reste celui du parcours normal. Le guide et les descriptions Postman FR/EN reflètent cet ordre.
+
+Après cet ajustement : **25 tests de contrat/inventaire** et **17 tests PostgreSQL** réussis,
+formatage et Clippy toutes cibles/features sans avertissement. Le PostgreSQL isolé a été supprimé.
+Le numéro et le code privés du `.env` ne sont pas modifiés.

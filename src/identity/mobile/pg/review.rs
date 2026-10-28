@@ -33,17 +33,30 @@ impl MobileSessionRepository {
                     if tombstone {
                         return Ok(None);
                     }
-                    sqlx::query(
-                        "INSERT INTO user_account
-                         (user_id,phone_number_hash,phone_number_encrypted,is_review_account)
-                         VALUES($1,$2,$3,true) ON CONFLICT(phone_number_hash) DO NOTHING",
+                    // First creation requires the latest unexpired signup intent.
+                    // A login request, or verification alone, must never register an account.
+                    let registering: Option<bool> = sqlx::query_scalar(
+                        "SELECT registration AND expires_at > clock_timestamp()
+                         FROM mobile_otp_request WHERE phone_hash=$1
+                         ORDER BY created_at DESC, id DESC LIMIT 1",
                     )
-                    .bind(account.user_id)
                     .bind(&account.phone_hash)
-                    .bind(account.encrypted_phone)
-                    .execute(&mut *connection)
+                    .fetch_optional(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
+                    if registering == Some(true) {
+                        sqlx::query(
+                            "INSERT INTO user_account
+                         (user_id,phone_number_hash,phone_number_encrypted,is_review_account)
+                         VALUES($1,$2,$3,true) ON CONFLICT(phone_number_hash) DO NOTHING",
+                        )
+                        .bind(account.user_id)
+                        .bind(&account.phone_hash)
+                        .bind(account.encrypted_phone)
+                        .execute(&mut *connection)
+                        .await
+                        .map_err(map_sqlx_error)?;
+                    }
                     // An account deletion can commit a tombstone while this INSERT
                     // waits on the unique phone key. Recheck on a fresh snapshot and
                     // roll back a newly inserted account when that happened.

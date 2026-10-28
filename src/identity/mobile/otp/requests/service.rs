@@ -52,4 +52,24 @@ impl OtpRequestService {
             })
             .await
     }
+
+    pub async fn record_review(
+        &self,
+        phone_hash: String,
+        id: Uuid,
+        registration: bool,
+        language: Language,
+    ) -> Result<u64, RequestError> {
+        self.store
+            .record_review(NewOtpRequest {
+                id,
+                phone_hash,
+                encrypted_phone: Vec::new(),
+                registration,
+                language,
+                ttl: self.ttl,
+                cooldown: self.cooldown,
+            })
+            .await
+    }
 }

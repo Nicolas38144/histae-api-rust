@@ -139,7 +139,7 @@ public n’expose aucune preuve de consentement ni date utilisateur.
 
 **OTP.** Seuls les téléphones français E.164 `+33…` sont acceptés. La vérification consomme le code une seule fois et crée un compte utilisateur si nécessaire après une demande d’inscription. Envoi et vérification : 5/h par IP et numéro pseudonymisé. La validité du code suit `OTP_TTL`.
 
-Exception mobile explicite : le [compte de revue Google Play](google-play-review.md), désactivé par défaut, utilise un code réutilisable pour un seul numéro fictif configuré. Son `/send` ne crée aucun SMS/outbox et retourne `resend_after_seconds: 0`. Les quotas et validations restent actifs ; cette exception n’authentifie ni un compte réel existant ni un administrateur.
+Exception mobile explicite : le [compte de revue Google Play](google-play-review.md), désactivé par défaut, utilise un code réutilisable pour un seul numéro fictif configuré. Son `/send` conserve le délai de renvoi et enregistre une intention sans téléphone chiffré ni SMS/outbox. La première création exige `registration: true` dans la dernière intention encore valide ; une simple connexion ne crée aucun compte. Les quotas et validations restent actifs ; cette exception n’authentifie ni un compte réel existant ni un administrateur.
 
 Pour une inscription, le client envoie `registration: true`. Les deux parcours répondent de manière générique : un numéro déjà enregistré en inscription, ou inconnu en connexion, ouvre le même écran de code, mais ne reçoit aucun SMS. Aucun renseignement sur l’existence du compte ni sur la livraison n’est exposé par cette route.
 

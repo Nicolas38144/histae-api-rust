@@ -11,6 +11,10 @@ pub type RequestFuture<'a, T, E = DatabaseError> =
 pub trait OtpRequestStore: Send + Sync {
     /// Returns the remaining cooldown, retaining the original deadline on replay.
     fn enqueue(&self, request: NewOtpRequest) -> RequestFuture<'_, u64, RequestError>;
+    /// Persists the review signup/login intent without a phone payload or SMS outbox job.
+    fn record_review(&self, _request: NewOtpRequest) -> RequestFuture<'_, u64, RequestError> {
+        Box::pin(async { Err(RequestError::Database(DatabaseError::QueryFailed)) })
+    }
     fn pending(&self, id: Uuid) -> RequestFuture<'_, Option<PendingOtpRequest>>;
     fn finish(&self, id: Uuid) -> RequestFuture<'_, ()>;
 }

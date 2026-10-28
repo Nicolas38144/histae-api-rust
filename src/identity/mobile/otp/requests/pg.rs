@@ -35,7 +35,19 @@ impl OtpRequestStore for PgOtpRequestStore {
             let outbox = Arc::clone(&self.outbox);
             self.database
                 .transaction(|connection| {
-                    Box::pin(async move { enqueue_locked(connection, &outbox, request).await })
+                    Box::pin(
+                        async move { enqueue_locked(connection, Some(&outbox), request).await },
+                    )
+                })
+                .await
+        })
+    }
+
+    fn record_review(&self, request: NewOtpRequest) -> RequestFuture<'_, u64, RequestError> {
+        Box::pin(async move {
+            self.database
+                .transaction(|connection| {
+                    Box::pin(async move { enqueue_locked(connection, None, request).await })
                 })
                 .await
         })
@@ -76,7 +88,7 @@ impl OtpRequestStore for PgOtpRequestStore {
 
 async fn enqueue_locked(
     connection: &mut PgConnection,
-    outbox: &PgOutboxRepository,
+    outbox: Option<&PgOutboxRepository>,
     request: NewOtpRequest,
 ) -> Result<u64, RequestError> {
     // Key first, then phone: identical intents serialize across instances and
@@ -123,13 +135,15 @@ async fn enqueue_locked(
         return Err(RequestError::Cooldown(seconds_until(deadline, now)));
     }
 
-    insert_request(connection, &request, now).await?;
-    outbox
-        .enqueue(
-            connection,
-            &NewOutboxEvent::empty(OutboxEventType::MobileOtpSend, request.id),
-        )
-        .await?;
+    insert_request(connection, &request, now, outbox.is_some()).await?;
+    if let Some(outbox) = outbox {
+        outbox
+            .enqueue(
+                connection,
+                &NewOutboxEvent::empty(OutboxEventType::MobileOtpSend, request.id),
+            )
+            .await?;
+    }
     purge_expired(connection, now).await?;
     Ok(request.cooldown.as_secs())
 }
@@ -145,11 +159,12 @@ async fn insert_request(
     connection: &mut PgConnection,
     request: &NewOtpRequest,
     now: DateTime<Utc>,
+    send_sms: bool,
 ) -> Result<(), DatabaseError> {
     sqlx::query(
         "INSERT INTO mobile_otp_request(id,phone_hash,encrypted_phone,registration,language,created_at,expires_at,resend_at)
          VALUES($1,$2,$3,$4,$5,$6,$6 + make_interval(secs => $7::double precision),$6 + make_interval(secs => $8::double precision))",
-    ).bind(request.id).bind(&request.phone_hash).bind(&request.encrypted_phone).bind(request.registration)
+    ).bind(request.id).bind(&request.phone_hash).bind(send_sms.then_some(&request.encrypted_phone)).bind(request.registration)
         .bind(request.language.as_str()).bind(now).bind(request.ttl.as_secs_f64()).bind(request.cooldown.as_secs_f64())
         .execute(connection).await.map_err(map_sqlx_error)?;
     Ok(())

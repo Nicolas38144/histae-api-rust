@@ -47,7 +47,7 @@
                     }
                   }
                 },
-                "description": "Inscription et connexion répondent 202 {message, resend_after_seconds}, sans révéler le compte ni la livraison. Un numéro connu en inscription, ou inconnu en connexion, ne reçoit aucun SMS. La demande chiffrée passe par le worker outbox, obligatoire ; aucun appel Sweego ni recherche de compte dans HTTP. Un nouvel UUID avant le délai partagé de 60 s renvoie 429 otp_resend_too_soon et Retry-After. Après une réponse perdue, conserver UUID, téléphone, langue et parcours : aucun second SMS ni prolongation du délai. Un renvoi explicite nécessite un nouvel UUID. Les quotas IP/téléphone restent appliqués à toute demande.\n\nRevue Google Play facultative : seul le numéro fictif dédié configuré accepte le code serveur réutilisable. Envoi sans SMS/outbox avec resend_after_seconds=0 ; limites IP/numéro conservées. Ne pas enregistrer les vrais identifiants dans cette collection. Voir docs/google-play-review.md."
+                "description": "Inscription et connexion répondent 202 {message, resend_after_seconds}, sans révéler le compte ni la livraison. Un numéro connu en inscription, ou inconnu en connexion, ne reçoit aucun SMS. La demande chiffrée passe par le worker outbox, obligatoire ; aucun appel Sweego ni recherche de compte dans HTTP. Un nouvel UUID avant le délai partagé de 60 s renvoie 429 otp_resend_too_soon et Retry-After. Après une réponse perdue, conserver UUID, téléphone, langue et parcours : aucun second SMS ni prolongation du délai. Un renvoi explicite nécessite un nouvel UUID. Les quotas IP/téléphone restent appliqués à toute demande.\n\nRevue Google Play facultative : seul le numéro fictif dédié configuré accepte le code serveur réutilisable. La création exige registration=true dans la dernière intention encore valide ; la connexion ne crée aucun compte. L’envoi conserve une intention sans téléphone ni SMS/outbox, le délai de renvoi, l’idempotence et les limites IP/numéro. Ne pas enregistrer les vrais identifiants dans cette collection. Voir docs/google-play-review.md."
               },
               "response": []
             },
@@ -78,7 +78,7 @@
                     }
                   }
                 },
-                "description": "{ phone_number, otp } → 200 { access_token, refresh_token }.\n\nRevue Google Play facultative : seul le numéro fictif dédié configuré accepte le code serveur réutilisable. Envoi sans SMS/outbox avec resend_after_seconds=0 ; limites IP/numéro conservées. Ne pas enregistrer les vrais identifiants dans cette collection. Voir docs/google-play-review.md."
+                "description": "{ phone_number, otp } → 200 { access_token, refresh_token }.\n\nRevue Google Play facultative : seul le numéro fictif dédié configuré accepte le code serveur réutilisable. La création exige registration=true dans la dernière intention encore valide ; la connexion ne crée aucun compte. L’envoi conserve une intention sans téléphone ni SMS/outbox, le délai de renvoi, l’idempotence et les limites IP/numéro. Ne pas enregistrer les vrais identifiants dans cette collection. Voir docs/google-play-review.md."
               },
               "response": [],
               "event": [

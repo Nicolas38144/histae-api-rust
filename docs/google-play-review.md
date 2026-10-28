@@ -28,17 +28,21 @@ Ne pas les intégrer dans Flutter, Postman partagé, un commit ou une capture pu
 ## Préparer le compte dans l’app
 
 1. Déployer cette version de l’API sur le serveur utilisé par l’app publiée.
-2. Ouvrir **Se connecter**, sélectionner la France (`+33`) et saisir le numéro de revue.
-3. Demander le code puis saisir la valeur `GOOGLE_PLAY_REVIEW_OTP` ; aucun SMS n’est attendu.
-4. La première vérification correcte crée automatiquement un **nouveau compte de revue**.
-   Il est donc inutile de passer par « Créer un compte » ; le même couple reste réutilisable.
-5. Compléter le profil, les consentements et les étapes d’accès au feed avec des données de test
-   clairement identifiées et une photo pour laquelle vous disposez des droits nécessaires.
+2. Ouvrir **Inscription / Créer un compte**, puis remplir le profil, les préférences et les
+   consentements dans les formulaires habituels.
+3. À l’étape téléphone, sélectionner la France (`+33`), saisir le numéro de revue, demander le code
+   puis saisir `GOOGLE_PLAY_REVIEW_OTP` ; aucun SMS n’est attendu.
+4. La première vérification correcte après cette demande d’inscription crée le **compte de revue**.
+   Une simple demande de connexion ne crée plus de compte. Le même couple reste réutilisable
+   via « Se connecter » une fois le compte inscrit.
+5. Vérifier l’enregistrement des informations saisies, puis compléter la photo et les autres étapes
+   d’accès au feed avec des données de test clairement identifiées et des contenus autorisés.
 6. Se déconnecter puis se reconnecter avec le même numéro et le même code pour vérifier le parcours.
 7. Dans Play Console → **Contenu de l’application → Accès à l’application**, renseigner le numéro,
    le code et les instructions ci-dessous en remplaçant les deux champs entre chevrons.
 
-L’app utilise les routes existantes ; aucune modification de Flutter n’est nécessaire.
+L’app transmet déjà `registration: true` depuis le bouton d’inscription ; aucune modification
+de Flutter n’est nécessaire.
 Ce mécanisme ne crée ni abonnement Premium, ni faux consentement, ni données de démonstration.
 Préparer séparément l’accès aux fonctionnalités payantes si la revue en a besoin.
 
@@ -57,13 +61,16 @@ Ne conserver la dernière phrase qu’après avoir effectivement préparé le co
 ## Contrat et sécurité
 
 - Seuls `POST /api/auth/otp/send` et `POST /api/auth/otp/verify` traitent cette exception mobile.
-- Pour ce numéro activé, `/send` conserve validation du corps, UUID d’idempotence et quotas IP/numéro.
-  Il répond `202` avec `resend_after_seconds: 0`, sans demande outbox, appel Sweego ou consommation
-  de budget SMS. Aucun effet n’étant produit, le rejeu n’ajoute aucune opération.
+- Pour ce numéro activé, `/send` conserve validation du corps, UUID d’idempotence, délai de renvoi
+  et quotas IP/numéro. Il enregistre une intention temporaire avec `registration`, sans téléphone
+  chiffré ni événement outbox : aucun appel Sweego ou budget SMS consommé. Le rejeu garde le délai
+  initial ; changer le parcours avec le même UUID renvoie le conflit d’idempotence habituel.
 - `/verify` compare le code en temps constant. Un mauvais code n’effectue aucune création de compte.
   Les quotas restent appliqués, même avec le bon code : par défaut cinq vérifications par heure
   par IP et numéro. Éviter les demandes et tentatives inutiles pendant la préparation.
-- Le compte porte `is_review_account=true`. Les connexions suivantes retrouvent le même compte ;
+- Le compte porte `is_review_account=true`. Sa création exige que la dernière intention du numéro
+  soit une inscription encore valide (`OTP_TTL`) ; une intention de connexion ou expirée ne permet
+  aucune création. Les connexions suivantes retrouvent le même compte ;
   un utilisateur normal existant avec ce numéro ne peut jamais être adopté par cette exception.
 - Création, contrôle de l’état et émission de la session sont atomiques. Un tombstone apparu
   pendant l’insertion fait aussi annuler la création. Compte banni, supprimé ou
