@@ -70,7 +70,10 @@ sur le serveur final. Aucun fournisseur réel ni serveur distant n'a été utili
 - [x] Corriger le type SQL du compteur de tentatives d'effacement dans la liste RGPD administrative :
   `COALESCE` conserve `smallint`, compatible avec le décodeur Rust, même sans événement outbox.
   Étendre la couverture PostgreSQL aux workflows avec zéro/sept tentatives et sans événement.
-  Tests Rust/PostgreSQL à exécuter sur une machine équipée ; Cargo et PostgreSQL sont absents ici.
+  Validation locale du 28 octobre 2026 : formatage et Clippy réussis, 239 tests unitaires et
+  11 tests de contrat/inventaire et 9 tests PostgreSQL réussis (droits RGPD, effacement et Premium
+  offert). Les cas zéro/sept tentatives et sans événement outbox sont validés dans une base jetable,
+  ainsi que les migrations neuves, les upgrades et leur réexécution ; aucune pile déployée modifiée.
 - [ ] Déployer ce correctif API puis vérifier la page des demandes RGPD avec une demande d'effacement
   et ses filtres, sans HTTP 500. Aucun changement de données ni réinitialisation n'est requis.
 - [x] Ajouter le modèle d'environnement et l'exclusion des secrets du contexte de build du proxy ;
