@@ -467,6 +467,9 @@ SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created
 Premium existe. Ne jamais déduire les droits du SDK, d’un webhook reçu, d’un redirect ou de `status` seul.
 États natifs : `pending, active, grace_period, past_due, on_hold, paused, canceled, expired, revoked`.
 Les états Stripe historiques sont conservés. Les protections de consentement et la limite 10/min/compte s’appliquent.
+Un compte de revue Google Play actif dispose de Premium offert sans expiration : `access_granted: true`,
+`provider: null` et `current_period_ends_at: null`, sauf si un abonnement fournisseur actif est prioritaire.
+Ce droit est réservé au marqueur serveur de revue ; aucune route utilisateur ne peut le définir.
 Un achat possède un compte immuable ; un reçu d’un autre compte renvoie `409 store_purchase_account_conflict`.
 Autres erreurs : `503 store_unavailable`, `422 invalid_store_purchase`, `409 subscription_already_active`.
 Voir [achats stores](store-billing.md) pour les états, acquittements, restauration et notifications.

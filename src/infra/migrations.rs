@@ -174,11 +174,12 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         (SCHEMA, "localization"),
         (SCHEMA, "sms safety"),
         (SCHEMA, "mobile otp queue"),
+        // The common subscription projection reads the review identity marker.
+        (SCHEMA, "play review account"),
         (SCHEMA, "store billing"),
         (SCHEMA, "web billing"),
         (SCHEMA, "continuation credits"),
         (SCHEMA, "continuation guards"),
-        (SCHEMA, "play review account"),
         (SCHEMA, "account anonymization"),
         (SEED, "subscription plan features"),
         (SEED, "catalog translations"),

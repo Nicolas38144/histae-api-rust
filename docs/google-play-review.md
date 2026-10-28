@@ -34,7 +34,8 @@ Ne pas les intégrer dans Flutter, Postman partagé, un commit ou une capture pu
    puis saisir `GOOGLE_PLAY_REVIEW_OTP` ; aucun SMS n’est attendu.
 4. La première vérification correcte après cette demande d’inscription crée le **compte de revue**.
    Une simple demande de connexion ne crée plus de compte. Le même couple reste réutilisable
-   via « Se connecter » une fois le compte inscrit.
+   via « Se connecter » une fois le compte inscrit. Ce compte bénéficie automatiquement de
+   **Premium offert, sans expiration et sans achat**.
 5. Vérifier l’enregistrement des informations saisies, puis compléter la photo et les autres étapes
    d’accès au feed avec des données de test clairement identifiées et des contenus autorisés.
 6. Se déconnecter puis se reconnecter avec le même numéro et le même code pour vérifier le parcours.
@@ -43,8 +44,10 @@ Ne pas les intégrer dans Flutter, Postman partagé, un commit ou une capture pu
 
 L’app transmet déjà `registration: true` depuis le bouton d’inscription ; aucune modification
 de Flutter n’est nécessaire.
-Ce mécanisme ne crée ni abonnement Premium, ni faux consentement, ni données de démonstration.
-Préparer séparément l’accès aux fonctionnalités payantes si la revue en a besoin.
+L’accès Premium offert est calculé à partir du marqueur serveur `is_review_account` par la projection
+centrale des droits : aucun achat, facture ou abonnement fournisseur n’est créé. Un compte de revue
+déjà inscrit bénéficie aussi de cet accès après la migration ; actualiser la page d’abonnement ou
+se reconnecter dans l’app pour rafraîchir son affichage. Le profil et les consentements restent à remplir.
 
 ### Instructions en anglais pour Play Console
 
@@ -53,6 +56,7 @@ Open the app and choose Sign in. Select France (+33) and enter <REVIEW_PHONE_NUM
 Request a verification code, then enter <REVIEW_OTP>.
 This is a dedicated review account. No SMS or access to a physical phone is required.
 The same credentials can be reused for subsequent sign-ins and do not expire.
+Complimentary Premium access is already included. No purchase is required.
 The account profile has been prepared for review.
 ```
 
@@ -79,9 +83,18 @@ Ne conserver la dernière phrase qu’après avoir effectivement préparé le co
 - Les sessions, leur expiration et leur révocation restent celles de l’authentification mobile.
   Aucun accès WebAuthn ou paiement web par code fixe n’est ajouté. Les parcours SMS ordinaires
   conservent leur traitement habituel.
+- Seuls les comptes marqués pour la revue, de rôle `user`, non bannis et non supprimés reçoivent
+  le Premium offert. `GET /api/users/me/subscription` renvoie `plan: "premium"`, `access_granted: true`,
+  `provider: null` et aucune fin de période pour cet accès interne. L’app, les continuations et
+  le dashboard utilisent les mêmes droits. Les protections contre un second achat s’appliquent.
+  Les abonnements fournisseurs existants restent intacts ; un abonnement payant actif conserve
+  sa projection habituelle et l’accès offert prend le relais s’il ne donne plus accès à Premium.
+  Aucun revenu fictif n’est ajouté aux statistiques.
 - Désactiver `GOOGLE_PLAY_REVIEW_ENABLED` ou changer le code puis recréer l’API arrête les nouvelles
   connexions avec ces identifiants. Révoquer aussi les sessions du compte si l’on veut couper les
   sessions déjà ouvertes. Pour une revue en cours, les identifiants fournis à Google doivent rester valides.
+  Ce réglage d’authentification ne retire pas le Premium offert ; celui-ci dépend du marqueur
+  `is_review_account`, qui n’est modifiable par aucune route utilisateur.
 
 ## Vérification
 

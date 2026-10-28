@@ -138,9 +138,18 @@ def main():
             query("ALTER TABLE user_account DROP CONSTRAINT user_account_review_role_check; ALTER TABLE user_account DROP COLUMN is_review_account;", "histae_migrate")
             migrate()
             assert query(f"SELECT NOT is_review_account FROM user_account WHERE user_id='{review_legacy}';") == "t"
+            assert query(
+                "SELECT NOT EXISTS (SELECT 1 FROM effective_user_subscription "
+                f"WHERE user_id='{review_legacy}');"
+            ) == "t"
             query(f"UPDATE user_account SET is_review_account=true WHERE user_id='{review_legacy}';")
             migrate()
             assert query(f"SELECT is_review_account AND role='user' FROM user_account WHERE user_id='{review_legacy}';") == "t"
+            assert query(
+                "SELECT plan='premium' AND access_granted AND provider IS NULL "
+                "AND current_period_ends_at IS NULL FROM effective_user_subscription "
+                f"WHERE user_id='{review_legacy}';"
+            ) == "t"
             query(f"DELETE FROM user_account WHERE user_id='{review_legacy}';")
             print("Play review upgrade preserves real accounts and dedicated review markers.", flush=True)
 
