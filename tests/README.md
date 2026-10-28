@@ -416,3 +416,21 @@ python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/d
   --test discovery_postgres --test matches_postgres --test moderation_postgres \
   --test account_erasure_postgres --test media_integration
 ```
+
+### Inactivité des conversations confirmées
+
+`matches_inactivity_postgres` vérifie les seuils 10/23/30 jours, la même règle Free/Premium,
+la reprise sans crédit, les lectures et rejeux sans prolongation, les avertissements uniques aux
+deux participants, le refus des push obsolètes et la suppression sans rétention supplémentaire.
+Une course avec le verrou d’un envoi vérifie qu’une maintenance ne supprime pas un match renouvelé.
+Le seuil d’avertissement est testé juste avant J23 puis à l’échéance exacte. Les projections
+mobile et administration utilisent une horloge injectée pour vérifier l’archivage sans dépendre
+de la date réelle du poste.
+Le lanceur isolé vérifie aussi le préavis initial pour les anciennes bases et l’absence de remise
+à zéro lors d’un second déploiement.
+
+```bash
+cargo build --locked --bin db-migrate
+python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
+  --test matches_inactivity_postgres --test matches_postgres --test notifications_postgres
+```

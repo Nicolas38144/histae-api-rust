@@ -27,6 +27,7 @@ pub async fn enqueue_notification(
         .bind(Json(intent.payload()))
         .bind(prepared.deduplication_key)
         .bind(intent.billing_reference())
+        .bind(intent.expires_at())
         .execute(connection)
         .await
         .map_err(map_sqlx_error)?;
@@ -67,11 +68,11 @@ fn enqueue_sql() -> &'static str {
               FROM account
             ), created_notification AS (
               INSERT INTO notification
-                (id, user_id, type, payload, deduplication_key, billing_reference)
+                (id, user_id, type, payload, deduplication_key, billing_reference, expires_at)
               SELECT id, user_id, type, payload, deduplication_key,
-                     billing_reference
+                     billing_reference, COALESCE($7::timestamptz, clock_timestamp()+INTERVAL '90 days')
               FROM candidate n
-              WHERE n.type IN ('new_match', 'new_message') OR (
+              WHERE n.type IN ('new_match', 'new_message', 'match_expiring') OR (
             "#,
             BILLING_NOTIFICATION_ELIGIBLE_SQL,
             r#"

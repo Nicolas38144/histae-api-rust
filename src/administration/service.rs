@@ -14,6 +14,7 @@ use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::DatabaseError;
 use crate::matches::domain::{PublicMatch, PublicMessage};
 use crate::profiles::service::ProfilePhotoUrlProvider;
+use crate::shared::clock::Clock;
 use crate::shared::text::{javascript_trim, validator_js_length};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,6 +56,7 @@ pub struct AdministrationService {
     photos: Arc<dyn ProfilePhotoUrlProvider>,
     terms_version: Arc<str>,
     privacy_version: Arc<str>,
+    clock: Arc<dyn Clock>,
 }
 
 impl AdministrationService {
@@ -63,12 +65,14 @@ impl AdministrationService {
         photos: Arc<dyn ProfilePhotoUrlProvider>,
         terms_version: String,
         privacy_version: String,
+        clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
             store,
             photos,
             terms_version: terms_version.into(),
             privacy_version: privacy_version.into(),
+            clock,
         }
     }
 
@@ -246,11 +250,12 @@ impl AdministrationService {
         } else {
             None
         };
+        let now = self.clock.now();
         Ok(Page {
             items: rows
                 .into_iter()
                 .take(request.limit as usize)
-                .map(|row| PublicMatch::from(row.item))
+                .map(|row| PublicMatch::from_record_at(row.item, now))
                 .collect(),
             next_cursor,
         })
@@ -390,6 +395,7 @@ mod tests {
         user: AdminUserRow,
         ban_result: BanResult,
         reasons: Mutex<Vec<String>>,
+        matches: Vec<CursorMatchRow>,
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -484,7 +490,7 @@ mod tests {
             _offset: u32,
             _cursor: Option<PageCursor>,
         ) -> AdministrationStoreFuture<'_, Option<Vec<CursorMatchRow>>> {
-            Box::pin(async { Ok(Some(Vec::new())) })
+            Box::pin(async { Ok(Some(self.matches.clone())) })
         }
 
         fn messages(
@@ -544,6 +550,7 @@ mod tests {
             user: user(),
             ban_result,
             reasons: Mutex::new(Vec::new()),
+            matches: Vec::new(),
         });
         let photos = Arc::new(Photos::default());
         (
@@ -552,10 +559,72 @@ mod tests {
                 photos.clone(),
                 "terms-v1".to_owned(),
                 "privacy-v1".to_owned(),
+                Arc::new(crate::shared::clock::SystemClock),
             ),
             store,
             photos,
         )
+    }
+
+    #[tokio::test]
+    async fn admin_match_projection_uses_the_injected_clock() {
+        struct FixedClock(DateTime<Utc>);
+
+        impl Clock for FixedClock {
+            fn now(&self) -> DateTime<Utc> {
+                self.0
+            }
+        }
+
+        let now = Utc
+            .with_ymd_and_hms(2030, 1, 1, 12, 0, 0)
+            .single()
+            .expect("date");
+        let deadline = now + chrono::TimeDelta::days(20);
+        let target = user();
+        let store = FakeStore {
+            user: target.clone(),
+            ban_result: BanResult::Updated,
+            reasons: Mutex::new(Vec::new()),
+            matches: vec![CursorMatchRow {
+                item: crate::matches::domain::MatchRecord {
+                    id: Uuid::new_v4(),
+                    user1_id: target.id,
+                    user2_id: Uuid::new_v4(),
+                    status: crate::matches::domain::MatchStatus::Confirmed,
+                    expires_at: deadline,
+                    purge_after: None,
+                    continuation_initiator_id: None,
+                    created_at: now - chrono::TimeDelta::days(10),
+                    last_message_at: None,
+                },
+                cursor_at: "2030-01-01T12:00:00.000000Z".to_owned(),
+            }],
+        };
+        let service = AdministrationService::new(
+            Arc::new(store),
+            Arc::new(Photos::default()),
+            "terms-v1".to_owned(),
+            "privacy-v1".to_owned(),
+            Arc::new(FixedClock(now)),
+        );
+        let page = service
+            .matches(AuditedPageRequest {
+                resource_id: target.id,
+                admin_id: Uuid::new_v4(),
+                admin_role: AdminRole::Superadmin,
+                reason: "",
+                limit: 20,
+                offset: 0,
+                cursor: None,
+            })
+            .await
+            .expect("admin matches");
+        assert!(page.items[0].archived);
+        assert_eq!(
+            page.items[0].inactivity_expires_at,
+            Some(crate::identity::mobile::domain::wire_timestamp(deadline))
+        );
     }
 
     #[tokio::test]

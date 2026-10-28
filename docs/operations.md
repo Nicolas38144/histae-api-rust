@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `api` | HTTP métier, SSE et listener métriques privé | Permanent ; maintenance désactivée dans Compose |
 | `outbox` / `outbox-worker` | Effets durables : envois OTP mobiles, suppression photo, push, effacement de compte et réconciliation Stripe | Permanent, claims et retries bornés |
-| `maintenance` | Matchs, photos, rétention RGPD, programmation de réconciliation Stripe | Une passe puis sortie |
+| `maintenance` | Matchs et inactivité 10/23/30, photos, rétention RGPD, programmation de réconciliation Stripe | Une passe puis sortie |
 | `db-migrate` / `migrate` | Installation et mise à niveau PostgreSQL | Une exécution puis sortie |
 | `storage-init` | Vérification/création du bucket privé de production | Une exécution puis sortie |
 | `admin-bootstrap` | Émission d’un jeton d’enrôlement administratif | Une exécution avec UUID puis sortie |

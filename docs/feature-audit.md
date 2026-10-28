@@ -117,3 +117,41 @@ Les responsabilités sont séparées entre services/ports Rust, adaptateurs Post
 vérificateur privé officiel et SDK natifs Flutter. Les résultats datés, scénarios et limites sont dans
 [Tests](../tests/README.md#achats-multicanaux). Les essais sur appareils et fournisseurs, la publication
 juridique et le déploiement final restent ouverts dans [la feuille de route](../roadmap-production.md#prod-08--achats-natifs-et-stripe-sur-le-site).
+
+## 28 octobre 2026 — inactivité des conversations confirmées
+
+Politique vérifiée : archivage accessible à J10, avertissement des deux participants à J23,
+fermeture et suppression à J30 sans rétention supplémentaire. Un nouveau message renouvelle le
+délai et désarchive sans nouveau crédit ; lecture, connexion et rejeu ne le font pas.
+Free et Premium suivent le même cycle.
+
+- **235 tests unitaires**, **38 tests de contrat/inventaire** et **37 tests PostgreSQL** réussis.
+- Migrations sur bases neuve et ancienne, préavis initial complet et absence de prolongation au redéploiement vérifiés.
+- Concurrence avec l’envoi d’un message, lecture et rejeu sans prolongation, avertissements uniques,
+  push obsolètes refusés, suppression par lots et conservation séparée des signalements vérifiés.
+- Formatage et Clippy toutes cibles/features avec warnings refusés passent.
+- Dashboard : typage, lint, build et 12 tests ciblés réussis. Site : typage, lint, build statique
+  et 7 tests marketing multilingues réussis.
+- Flutter : traductions ARB et fichiers Dart associés vérifiés statiquement ; trois tests ajoutés,
+  non exécutés faute de SDK Flutter/Dart sur ce poste.
+
+Le PostgreSQL utilisé était jetable et a été supprimé avec ses fixtures et secrets temporaires.
+Aucun SMS ni push réel n’a été envoyé. La livraison FCM sur appareil reste à vérifier ; les
+avertissements et la purge nécessitent l’exécution régulière de la maintenance existante.
+
+### Refactoring de l’API après cette vérification
+
+Les transactions et requêtes bornées de maintenance sont regroupées dans `matches/pg/maintenance.rs` ;
+le service conserve le pilotage, les compteurs et le suivi opérationnel. Les avertissements utilisent
+des résultats SQL typés dans `matches/pg/inactivity.rs`. Les verrous et l’ordre des suppressions
+restent conservés dans la même transaction.
+
+Les projections mobile et administration partagent la conversion d’un match et reçoivent une date
+explicite issue de l’horloge du service. Le calcul d’archivage ne lit plus l’horloge système dans le
+domaine. Les régressions couvrent cette injection et la frontière exacte de J23, sans modifier les
+règles 10/23/30 jours, les crédits ou les réponses HTTP.
+
+Après refactoring : **236 tests unitaires**, **35 tests de contrat/inventaire** (matchs,
+découverte, notifications, routes) et **25 tests PostgreSQL** (matchs, inactivité, notifications,
+maintenance/outbox) réussis. Formatage et Clippy toutes cibles/features avec warnings refusés
+passent. Les migrations ont été rejouées sur le PostgreSQL jetable, supprimé à la fin du contrôle.

@@ -24,6 +24,22 @@ pub const fn notification(
 ) -> (&'static str, &'static str) {
     use NotificationType::*;
     match (language, kind) {
+        (Language::Fr, MatchExpiring) => (
+            "Conversation inactive",
+            "Une conversation sera supprimée dans les 7 prochains jours sans nouveau message.",
+        ),
+        (Language::En, MatchExpiring) => (
+            "Inactive conversation",
+            "A conversation will be deleted within 7 days unless a new message is sent.",
+        ),
+        (Language::Es, MatchExpiring) => (
+            "Conversación inactiva",
+            "Una conversación se eliminará en los próximos 7 días si no se envía un nuevo mensaje.",
+        ),
+        (Language::It, MatchExpiring) => (
+            "Conversazione inattiva",
+            "Una conversazione verrà eliminata entro 7 giorni senza un nuovo messaggio.",
+        ),
         (Language::Fr, NewMatch) => ("Nouveau match", "Vous avez un nouveau match sur Histae."),
         (Language::Fr, NewMessage) => (
             "Nouveau message",

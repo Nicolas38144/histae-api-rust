@@ -187,7 +187,7 @@ impl MatchService {
         };
         match self.store.create(record.clone()).await {
             Ok(()) => {
-                let public = PublicMatch::from(record);
+                let public = PublicMatch::from_record_at(record, now);
                 self.events.created(&public).await;
                 Ok(public)
             }
@@ -195,7 +195,7 @@ impl MatchService {
                 .store
                 .find_by_pair(user1_id, user2_id)
                 .await?
-                .map(PublicMatch::from)
+                .map(|record| PublicMatch::from_record_at(record, self.clock.now()))
                 .ok_or(MatchError::Database(DatabaseError::QueryFailed)),
             Err(error) => Err(error.into()),
         }
@@ -228,8 +228,8 @@ impl MatchService {
             None
         };
         let mut items = Vec::with_capacity(limit.min(rows.len() as u32) as usize);
+        let now = self.clock.now();
         for mut row in rows.into_iter().take(limit as usize) {
-            let now = self.clock.now();
             if row.record.status == MatchStatus::Active && row.record.expires_at <= now {
                 row.record.status = MatchStatus::AwaitingContinuation;
                 row.record.expires_at += TimeDelta::hours(MATCH_WINDOW_HOURS);
@@ -244,7 +244,7 @@ impl MatchService {
                 .url_for_key(row.other_photo.clone())
                 .await
                 .map_err(|_| MatchError::PhotoStorageUnavailable)?;
-            items.push(row.into_public(photo));
+            items.push(row.into_public(photo, now));
         }
         Ok(MatchPage { items, next_cursor })
     }

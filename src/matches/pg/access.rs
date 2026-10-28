@@ -46,6 +46,18 @@ pub(super) async fn lock_available_match(
         .try_get("database_now")
         .map_err(|error| MatchStoreError::Database(map_sqlx_error(error)))?;
     let mut record = map_match_record(&row).map_err(MatchStoreError::from)?;
+    if record.status == MatchStatus::Confirmed && record.expires_at <= now {
+        // Access expires at the deadline even when the bounded purge job is late.
+        sqlx::query("UPDATE match_init SET status='ended',purge_after=$2 WHERE id=$1")
+            .bind(match_id)
+            .bind(now)
+            .execute(connection)
+            .await
+            .map_err(map_sqlx_error)?;
+        return Ok(MatchCommandResult::Unavailable(
+            MatchAvailabilityFailure::Expired,
+        ));
+    }
     if record.status == MatchStatus::Active && record.expires_at <= now {
         let opened = sqlx::query(
             "UPDATE match_init

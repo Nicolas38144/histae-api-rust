@@ -223,3 +223,12 @@ sources sans permettre à une projection de supprimer les droits valides d’une
 sur les bases existantes sans réinitialisation. Les mots de passe des rôles PostgreSQL restent inchangés.
 Les nouveaux objets suivent les grants par défaut du migrateur ; le runtime ne possède pas le schéma.
 Voir [rétention et effacement](store-billing.md#donnees-personnelles).
+
+### Horloge des conversations confirmées
+
+Pour `match_init.status='confirmed'`, `expires_at` est l’échéance des 30 jours d’inactivité.
+Le trigger `trg_match_inactivity` la fixe à la confirmation et la renouvelle lors d’un nouveau
+`last_message_at`. Une lecture et un rejeu idempotent ne modifient pas cette horloge. L’index partiel
+`idx_match_init_confirmed_expiry` sert aux avertissements à J23 et aux clôtures à J30.
+L’archivage à J10 est calculé, sans table ni statut supplémentaire. La première migration accorde
+30 jours aux anciens matchs confirmés ; une nouvelle migration ne reporte pas leur échéance.

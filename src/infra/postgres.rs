@@ -249,6 +249,16 @@ impl Database {
         if !credits_ready {
             return Err(DatabaseError::SchemaObjectsMissing);
         }
+        let inactivity_ready: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='match_init'::regclass
+             AND tgname='trg_match_inactivity' AND tgenabled='O' AND NOT tgisinternal)",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(map_sqlx_error)?;
+        if !inactivity_ready {
+            return Err(DatabaseError::SchemaObjectsMissing);
+        }
         let spatial_ready: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM pg_extension extension
                JOIN pg_namespace namespace ON namespace.oid = extension.extnamespace

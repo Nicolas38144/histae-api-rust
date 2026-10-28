@@ -631,6 +631,7 @@ async fn lists_the_exact_public_projection_and_signs_only_the_projected_photo() 
             "matches": [{
                 "id": expected.record.id,
                 "status": "active",
+                "archived": false,
                 "expires_at": "2030-01-02T12:00:00.000Z",
                 "created_at": "2030-01-01T12:00:00.000Z",
                 "last_message_at": "2030-01-01T12:00:00.000Z",
@@ -1342,6 +1343,47 @@ async fn list_projects_elapsed_windows_before_maintenance_runs() {
                 .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
         );
     }
+}
+
+#[tokio::test]
+async fn list_uses_the_injected_clock_to_project_confirmed_inactivity() {
+    let mut row = row();
+    row.record.status = MatchStatus::Confirmed;
+    let now = row.record.created_at;
+    row.record.expires_at = now + chrono::TimeDelta::days(30);
+    let deadline = row.record.expires_at;
+    let store = FakeMatchStore::new(row);
+
+    for (at, archived) in [
+        (
+            now + chrono::TimeDelta::days(10) - chrono::TimeDelta::microseconds(1),
+            false,
+        ),
+        (now + chrono::TimeDelta::days(10), true),
+        (now + chrono::TimeDelta::days(23), true),
+    ] {
+        let service = MatchService::new(
+            Arc::new(store.clone()),
+            Arc::new(store.clone()),
+            Arc::new(PhotoUrls),
+            Arc::new(NoopMatchEventPublisher),
+            Arc::new(FixedClock(at)),
+        );
+        let page = service.list(user_id(), 20, 0, None).await.expect("list");
+        assert_eq!(page.items[0].archived, archived);
+        assert_eq!(page.items[0].status, MatchStatus::Confirmed);
+        assert_eq!(
+            page.items[0].inactivity_expires_at,
+            Some(deadline.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        );
+        let payload = serde_json::to_value(&page.items[0]).expect("public match");
+        assert!(payload.get("user1_id").is_none());
+        assert!(payload.get("user2_id").is_none());
+    }
+    assert_eq!(
+        store.state.lock().expect("state").rows[0].record.expires_at,
+        deadline
+    );
 }
 
 #[tokio::test]

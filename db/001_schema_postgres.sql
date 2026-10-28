@@ -758,6 +758,8 @@ CREATE INDEX idx_match_init_to_expire ON match_init USING btree (expires_at) WHE
 
 CREATE INDEX idx_match_init_to_purge ON match_init USING btree (purge_after) WHERE (status = ANY (ARRAY['expired'::text, 'ended'::text]));
 
+CREATE INDEX idx_match_init_confirmed_expiry ON match_init (expires_at, id) WHERE status = 'confirmed';
+
 CREATE INDEX idx_match_init_user1 ON match_init USING btree (user1_id);
 
 CREATE INDEX idx_match_init_user1_created ON match_init USING btree (user1_id, created_at, id);
@@ -1536,3 +1538,30 @@ DO $$ BEGIN
   END IF;
 END $$;
 -- END continuation guards
+
+-- BEGIN match inactivity
+-- For confirmed matches expires_at is the inactivity deadline. Only confirmation
+-- and a newly stored message renew it; reads, sessions and idempotent replays do not.
+CREATE OR REPLACE FUNCTION fct_track_match_inactivity() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.status = 'confirmed' THEN
+    IF TG_OP = 'INSERT' THEN
+      NEW.expires_at := clock_timestamp() + INTERVAL '30 days';
+    ELSIF OLD.status <> 'confirmed' THEN
+      NEW.expires_at := clock_timestamp() + INTERVAL '30 days';
+    ELSIF NEW.last_message_at IS DISTINCT FROM OLD.last_message_at
+      AND NEW.last_message_at IS NOT NULL THEN
+      NEW.expires_at := NEW.last_message_at + INTERVAL '30 days';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_match_inactivity' AND tgrelid='match_init'::regclass) THEN
+    CREATE TRIGGER trg_match_inactivity BEFORE INSERT OR UPDATE OF status, last_message_at
+      ON match_init FOR EACH ROW EXECUTE FUNCTION fct_track_match_inactivity();
+  END IF;
+END $$;
+-- END match inactivity

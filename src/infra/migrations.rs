@@ -195,6 +195,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         upgrade_weekly_advertising_credits(&mut transaction).await?;
     }
     upgrade_advertising_reward_outcomes(&mut transaction).await?;
+    upgrade_match_inactivity(&mut transaction).await?;
     if sms_safety_new {
         // Import the attempts still available locally at first activation only.
         // Missing historical OTPs cannot be reconstructed after their retention expired.
@@ -281,6 +282,29 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         .await
         .map_err(map_sqlx_error)?;
     transaction.commit().await.map_err(map_sqlx_error)
+}
+
+async fn upgrade_match_inactivity(
+    connection: &mut sqlx::PgConnection,
+) -> Result<(), DatabaseError> {
+    let ready: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='match_init'::regclass
+         AND tgname='trg_match_inactivity' AND NOT tgisinternal)",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !ready {
+        // Give existing agreements a full notice cycle instead of deleting
+        // conversations before their participants could receive a warning.
+        sqlx::query("UPDATE match_init SET expires_at=clock_timestamp()+INTERVAL '30 days' WHERE status='confirmed'")
+            .execute(&mut *connection).await.map_err(map_sqlx_error)?;
+    }
+    connection
+        .execute(sqlx::raw_sql(schema_section(SCHEMA, "match inactivity")?))
+        .await
+        .map_err(map_sqlx_error)?;
+    Ok(())
 }
 
 async fn upgrade_advertising_reward_outcomes(

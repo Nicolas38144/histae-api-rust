@@ -641,7 +641,7 @@ const TARGET_SETS_SQL: &str = r#"
   SELECT $7::uuid AS user_id FROM match_init
     WHERE user1_id = least($1::uuid, $7::uuid) AND user2_id = greatest($1::uuid, $7::uuid)
       AND NOT (
-        (status = 'confirmed'
+        ((status = 'confirmed' AND expires_at > statement_timestamp())
           OR (status = 'active' AND expires_at + INTERVAL '24 hours' > statement_timestamp())
           OR (status = 'awaiting_continuation' AND expires_at > statement_timestamp()))
         AND EXISTS (SELECT 1 FROM swipe_decision

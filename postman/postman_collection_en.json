@@ -1250,7 +1250,7 @@
                     }
                   ]
                 },
-                "description": "limit, cursor (offset deprecated) → 200 { matches, next_cursor }."
+                "description": "limit, cursor (offset deprecated) → 200 { matches, next_cursor }.\n\nAfter confirmation: archive after 10 days without a new message, warn at day 23 and delete the match and messages at day 30. archived indicates grouping; inactivity_expires_at is the deletion deadline. A new message renews the deadline without another credit."
               },
               "response": []
             },

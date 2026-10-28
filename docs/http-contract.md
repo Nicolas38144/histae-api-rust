@@ -382,6 +382,14 @@ reste exclu. Cette exception de rejeu ne réintroduit jamais le profil dans le f
 
 Le match est `active` pendant 24 h, puis `awaiting_continuation` pendant les 24 heures suivantes. **L’envoi est suspendu pendant la décision ; l’historique et les accusés de lecture restent accessibles.** Deux accords valides le rendent `confirmed`, sinon il expire. Les délais partent de l’échéance d’origine, même lorsque la maintenance est tardive. La liste expose l’état calculé selon l’horloge.
 
+Après confirmation, `archived` passe à `true` après 10 jours sans nouveau message. La conversation
+reste lisible et utilisable. À J23, les deux participants reçoivent un push `match_expiring` ; à J30,
+le match et ses messages sont supprimés par la maintenance sans délai additionnel. `inactivity_expires_at`
+indique cette échéance, également portée par `expires_at` pour un match confirmé. Un nouveau message
+relance le délai et désarchive, sans crédit supplémentaire ; une lecture, une connexion ou un rejeu
+ne le relance pas. Le match reste `confirmed` pendant l’archivage. À J30 il disparaît des listes mobiles
+et les accès sont refusés même avant le passage du job. Même règle Free/Premium.
+
 Chaque personne Free réserve son propre crédit après acceptation explicite du coût `credit_cost: 1`. Les débits sont atomiques après deux accords ; Premium annonce `credit_cost: 0` et ne consomme aucun crédit. Deux crédits gratuits sont renouvelés chaque lundi à 00:00 UTC, sans cumul. Le stock publicitaire est limité à trois et revient à zéro au même instant ; les crédits doivent être regagnés par vidéo. Free est limité à cinq continuations confirmées par semaine. `remaining` tient compte du stock, des réservations et du plafond ; `weekly_limit` et `remaining` sont omis pour Premium.
 
 Le premier accord reste privé et ne publie aucun événement au partenaire. Seul `my_continued` expose le choix du demandeur. Refus, expiration ou clôture libèrent les réservations ; l’événement terminal ne nomme pas l’auteur. Un rejeu d’un match déjà confirmé renvoie `match_confirmed: true` sans nouveau débit ni événement. Erreurs : `400 invalid_continuation_request`, `404 match_not_found`, `409 continuation_not_available_yet`, `409 continuation_plan_changed`, `409 invalid_match_state`, `409 messaging_not_available`, `410 match_expired`, `403 continuation_quota_reached`. Le client doit relire le quota avant de représenter le coût après un changement de plan. Voir [Parcours et crédits](continuation-and-rewards.md) pour les changements de semaine et la migration.
@@ -435,7 +443,7 @@ L’appareil expose UUID, `session_id`, plateforme, version et dates d’usage ;
 
 SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created, match.updated, matches.invalidated, message.created, message.read, subscription.updated`. Le flux ferme à expiration du JWT ou après échec/révocation détecté lors du contrôle de session toutes les 25 secondes. Le client SSE doit pouvoir envoyer le Bearer.
 
-**Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les alertes de paiement devenues obsolètes ne sont pas envoyées. Les types push pris en charge sont `new_match`, `new_message` et `billing_payment_failed`. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation.
+**Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les alertes de paiement devenues obsolètes ne sont pas envoyées. Les types push pris en charge sont `new_match`, `new_message`, `match_expiring` et `billing_payment_failed`. Le push d’inactivité ne contient que les identifiants techniques ; il est abandonné si un nouveau message a repoussé l’échéance ou si le match est devenu inaccessible. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation.
 
 ### Abonnement
 

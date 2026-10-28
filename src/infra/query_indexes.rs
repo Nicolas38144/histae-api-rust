@@ -5,6 +5,10 @@ use super::postgres::{DatabaseError, map_sqlx_error};
 
 const INDEXES: &[(&str, &str)] = &[
     (
+        "idx_match_init_confirmed_expiry",
+        "match_init (expires_at, id) WHERE status = 'confirmed'",
+    ),
+    (
         "idx_billing_invoice_paid_revenue",
         "billing_invoice (paid_at) WHERE status = 'paid' AND amount_paid > 0 AND stripe_subscription_id IS NOT NULL",
     ),

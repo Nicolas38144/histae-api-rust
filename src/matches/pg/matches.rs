@@ -228,8 +228,10 @@ impl MatchStore for PgMatchRepository {
                         if changed {
                             sqlx::query(
                                 "UPDATE match_init SET status = 'ended',
-                                   purge_after = COALESCE(purge_after,
-                                     clock_timestamp() + ($2::bigint * INTERVAL '1 day'))
+                                   purge_after = COALESCE(purge_after, CASE
+                                     WHEN status='confirmed' AND expires_at<=clock_timestamp()
+                                       THEN clock_timestamp()
+                                     ELSE clock_timestamp() + ($2::bigint * INTERVAL '1 day') END)
                                  WHERE id = $1",
                             )
                             .bind(match_id)
@@ -407,6 +409,7 @@ WITH page AS MATERIALIZED (
       COALESCE(match_record.last_message_at, match_record.created_at) AS activity_at
     FROM match_init AS match_record
     WHERE match_record.user1_id = $1 AND match_record.status <> 'ended'
+      AND (match_record.status <> 'confirmed' OR match_record.expires_at > statement_timestamp())
       AND EXISTS (SELECT 1 FROM user_account
                   WHERE user_id = match_record.user2_id AND deleted_at IS NULL)
       AND NOT EXISTS (
@@ -428,6 +431,7 @@ WITH page AS MATERIALIZED (
       COALESCE(match_record.last_message_at, match_record.created_at) AS activity_at
     FROM match_init AS match_record
     WHERE match_record.user2_id = $1 AND match_record.status <> 'ended'
+      AND (match_record.status <> 'confirmed' OR match_record.expires_at > statement_timestamp())
       AND EXISTS (SELECT 1 FROM user_account
                   WHERE user_id = match_record.user1_id AND deleted_at IS NULL)
       AND NOT EXISTS (

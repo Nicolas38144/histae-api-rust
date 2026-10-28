@@ -12,6 +12,9 @@ pub const FREE_WEEKLY_CONTINUATION_LIMIT: i32 = 5;
 
 pub const MATCH_WINDOW_HOURS: i64 = 24;
 pub const MATCH_PURGE_DAYS: i64 = 30;
+pub const MATCH_ARCHIVE_DAYS: i64 = 10;
+pub const MATCH_INACTIVITY_DAYS: i64 = 30;
+pub const MATCH_WARNING_DAYS: i64 = 7;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -69,6 +72,15 @@ pub struct MatchRecord {
     pub continuation_initiator_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub last_message_at: Option<DateTime<Utc>>,
+}
+
+impl MatchRecord {
+    pub fn is_archived_at(&self, now: DateTime<Utc>) -> bool {
+        self.status == MatchStatus::Confirmed
+            && self.expires_at > now
+            && self.expires_at
+                <= now + chrono::TimeDelta::days(MATCH_INACTIVITY_DAYS - MATCH_ARCHIVE_DAYS)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -172,6 +184,9 @@ pub struct PublicMatch {
     pub user1_id: Uuid,
     pub user2_id: Uuid,
     pub status: MatchStatus,
+    pub archived: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inactivity_expires_at: Option<String>,
     pub expires_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub purge_after: Option<String>,
@@ -180,13 +195,18 @@ pub struct PublicMatch {
     pub last_message_at: Option<String>,
 }
 
-impl From<MatchRecord> for PublicMatch {
-    fn from(value: MatchRecord) -> Self {
+impl PublicMatch {
+    pub fn from_record_at(value: MatchRecord, now: DateTime<Utc>) -> Self {
+        let archived = value.is_archived_at(now);
+        let inactivity_expires_at =
+            (value.status == MatchStatus::Confirmed).then(|| wire_timestamp(value.expires_at));
         Self {
             id: value.id,
             user1_id: value.user1_id,
             user2_id: value.user2_id,
             status: value.status,
+            archived,
+            inactivity_expires_at,
             expires_at: wire_timestamp(value.expires_at),
             purge_after: value.purge_after.map(wire_timestamp),
             created_at: wire_timestamp(value.created_at),
@@ -199,6 +219,9 @@ impl From<MatchRecord> for PublicMatch {
 pub struct PublicUserMatch {
     pub id: Uuid,
     pub status: MatchStatus,
+    pub archived: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inactivity_expires_at: Option<String>,
     pub expires_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub purge_after: Option<String>,
@@ -235,15 +258,17 @@ pub struct PublicLastMessage {
 }
 
 impl UserMatchRow {
-    pub fn into_public(self, photo: Option<String>) -> PublicUserMatch {
-        let record = self.record;
+    pub fn into_public(self, photo: Option<String>, now: DateTime<Utc>) -> PublicUserMatch {
+        let record = PublicMatch::from_record_at(self.record, now);
         PublicUserMatch {
             id: record.id,
             status: record.status,
-            expires_at: wire_timestamp(record.expires_at),
-            purge_after: record.purge_after.map(wire_timestamp),
-            created_at: wire_timestamp(record.created_at),
-            last_message_at: record.last_message_at.map(wire_timestamp),
+            archived: record.archived,
+            inactivity_expires_at: record.inactivity_expires_at,
+            expires_at: record.expires_at,
+            purge_after: record.purge_after,
+            created_at: record.created_at,
+            last_message_at: record.last_message_at,
             other_user: PublicMatchUser {
                 user_id: self.other_user_id,
                 firstname: self.other_firstname,
@@ -345,5 +370,26 @@ mod tests {
         let start = start_of_utc_week(sunday);
         assert_eq!(start.weekday(), Weekday::Mon);
         assert_eq!(start.to_string(), "2029-12-31");
+    }
+
+    #[test]
+    fn only_live_confirmed_matches_are_archived_from_the_tenth_day() {
+        let now = Utc.with_ymd_and_hms(2030, 1, 1, 12, 0, 0).single().unwrap();
+        let mut record = MatchRecord {
+            id: Uuid::new_v4(),
+            user1_id: Uuid::new_v4(),
+            user2_id: Uuid::new_v4(),
+            status: MatchStatus::Confirmed,
+            expires_at: now + chrono::TimeDelta::days(20),
+            purge_after: None,
+            continuation_initiator_id: None,
+            created_at: now,
+            last_message_at: None,
+        };
+        assert!(record.is_archived_at(now));
+        assert!(!record.is_archived_at(now - chrono::TimeDelta::microseconds(1)));
+        assert!(!record.is_archived_at(record.expires_at));
+        record.status = MatchStatus::Active;
+        assert!(!record.is_archived_at(now));
     }
 }

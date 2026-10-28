@@ -1250,7 +1250,7 @@
                     }
                   ]
                 },
-                "description": "limit, cursor (offset déprécié) → 200 { matches, next_cursor }."
+                "description": "limit, cursor (offset déprécié) → 200 { matches, next_cursor }.\n\nAprès confirmation : archivage après 10 jours sans nouveau message, avertissement à J23 et suppression du match et des messages à J30. archived indique le classement ; inactivity_expires_at indique la suppression. Un nouveau message renouvelle le délai sans nouveau crédit."
               },
               "response": []
             },

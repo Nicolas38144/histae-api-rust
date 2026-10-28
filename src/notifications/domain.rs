@@ -84,6 +84,10 @@ pub enum NotificationIntent {
         message_id: Uuid,
         sender_id: Uuid,
     },
+    MatchExpiring {
+        match_id: Uuid,
+        expires_at: DateTime<Utc>,
+    },
     BillingPaymentFailed {
         invoice_id: String,
     },
@@ -94,6 +98,7 @@ impl NotificationIntent {
         match self {
             Self::NewMatch { .. } => "new_match",
             Self::NewMessage { .. } => "new_message",
+            Self::MatchExpiring { .. } => "match_expiring",
             Self::BillingPaymentFailed { .. } => "billing_payment_failed",
         }
     }
@@ -111,13 +116,27 @@ impl NotificationIntent {
                 "sender_id": sender_id,
             }),
             Self::BillingPaymentFailed { .. } => json!({}),
+            Self::MatchExpiring {
+                match_id,
+                expires_at,
+            } => json!({
+                "match_id": match_id,
+                "expires_at": expires_at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+            }),
         }
     }
 
     pub fn billing_reference(&self) -> Option<&str> {
         match self {
             Self::BillingPaymentFailed { invoice_id } => Some(invoice_id),
-            Self::NewMatch { .. } | Self::NewMessage { .. } => None,
+            Self::NewMatch { .. } | Self::NewMessage { .. } | Self::MatchExpiring { .. } => None,
+        }
+    }
+
+    pub fn expires_at(&self) -> Option<DateTime<Utc>> {
+        match self {
+            Self::MatchExpiring { expires_at, .. } => Some(*expires_at),
+            _ => None,
         }
     }
 }
@@ -126,6 +145,7 @@ impl NotificationIntent {
 pub enum NotificationType {
     NewMatch,
     NewMessage,
+    MatchExpiring,
     BillingPaymentFailed,
 }
 
@@ -134,6 +154,7 @@ impl NotificationType {
         match value {
             "new_match" => Some(Self::NewMatch),
             "new_message" => Some(Self::NewMessage),
+            "match_expiring" => Some(Self::MatchExpiring),
             "billing_payment_failed" => Some(Self::BillingPaymentFailed),
             _ => None,
         }
@@ -143,6 +164,7 @@ impl NotificationType {
         match self {
             Self::NewMatch => "new_match",
             Self::NewMessage => "new_message",
+            Self::MatchExpiring => "match_expiring",
             Self::BillingPaymentFailed => "billing_payment_failed",
         }
     }

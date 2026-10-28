@@ -10,7 +10,7 @@ Ce guide décrit les règles métier, le parcours des crédits et l’activation
 | --- | --- | --- |
 | `active` | Envoi et lecture pendant les 24 premières heures | Discuter, révéler les photos à deux ou terminer le match |
 | `awaiting_continuation` | Envoi suspendu ; historique et accusés de lecture accessibles | Pendant les 24 heures suivantes, chacun choisit « Je veux continuer » ou « Mettre fin au match » |
-| `confirmed` | Conversation rouverte sans échéance hebdomadaire | Deux accords valides ; chaque personne reste libre de terminer le match |
+| `confirmed` | Conversation rouverte, soumise au délai d’inactivité ci-dessous | Deux accords valides ; chaque personne reste libre de terminer le match |
 | `expired` | Messagerie indisponible | Deux accords absents au terme de la fenêtre |
 | `ended` | Messagerie indisponible ; match retiré des listes mobiles | Refus, clôture ou blocage |
 
@@ -19,6 +19,34 @@ La fenêtre de décision se termine **48 heures après la création du match**. 
 Les choix sont indépendants. `my_continued` décrit uniquement le choix du demandeur. Le premier accord n’envoie aucun événement à l’autre personne. Deux accords valides déclenchent `match.updated` avec `match_confirmed: true`. Une clôture envoie seulement `status: ended`, sans auteur, motif ni choix individuel. Présenter **« Ce match est terminé »**. Les événements SSE ne constituent pas un historique durable : relire la liste à la reconnexion et après un changement d’état.
 
 La révélation des photos reste un accord distinct. Premium ne dispense jamais de l’accord de l’autre personne.
+
+### Conversations confirmées : inactivité 10 / 23 / 30 jours
+
+Le délai commence à la confirmation mutuelle, puis repart à zéro uniquement lorsqu’un **nouveau
+message est enregistré** par l’un des deux participants. Se connecter, lire, marquer un message
+comme lu ou rejouer un envoi ne prolonge rien. La même règle s’applique à Free et Premium.
+
+| Depuis la confirmation ou le dernier nouveau message | Effet |
+| --- | --- |
+| 10 jours | `archived: true` ; conversation dans « Archivées », toujours accessible |
+| 23 jours | Notification `match_expiring` aux deux participants, une seule fois par cycle |
+| 30 jours | Accès fermé ; match, messages et notifications associés supprimés par la maintenance, sans 30 jours supplémentaires |
+
+Un nouveau message désarchive le match et invalide les avertissements encore en attente d’envoi.
+Reprendre une conversation archivée ne demande aucun nouvel accord de continuation et ne consomme
+aucun crédit supplémentaire. Aucun bouton de conservation sans message n’est prévu.
+
+Pour un match confirmé, `expires_at` devient l’échéance d’inactivité ; `inactivity_expires_at`
+l’expose explicitement aux clients. L’archivage est calculé à la lecture et n’ajoute pas de statut
+SQL : le match reste `confirmed`. Les accès mobiles sont refusés à l’échéance, même si la purge est
+en retard. La maintenance traite les suppressions par lots bornés ; elle doit être exécutée
+régulièrement. Les signalements suivent leur propre rétention et sont détachés du match supprimé.
+
+Le trigger PostgreSQL `trg_match_inactivity` renouvelle le délai à la confirmation et lors d’un
+nouveau message. À la première migration, les matchs déjà confirmés reçoivent un délai complet
+à partir du déploiement pour permettre le préavis. Les migrations suivantes ne le renouvellent pas.
+Déployer le migrateur avant les nouvelles instances d’écriture ; les anciennes instances ne doivent
+pas continuer à créer des notifications sous l’ancien contrat pendant la mise à jour.
 
 ## 2. Crédits Free et Premium
 

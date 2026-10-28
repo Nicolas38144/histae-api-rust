@@ -65,7 +65,7 @@ impl PgNotificationDeliveryStore {
                       (session.revoked_at IS NULL AND session.expires_at > clock_timestamp()))
                  AND (({BILLING_NOTIFICATION_ELIGIBLE_SQL}) OR (
                    m.status IN ('active', 'awaiting_continuation', 'confirmed')
-                   AND (m.status = 'confirmed' OR m.expires_at > clock_timestamp())
+                   AND m.expires_at > clock_timestamp()
                    AND n.user_id IN (m.user1_id, m.user2_id)
                    AND first_account.deleted_at IS NULL AND NOT first_account.is_banned
                    AND second_account.deleted_at IS NULL AND NOT second_account.is_banned
@@ -74,7 +74,10 @@ impl PgNotificationDeliveryStore {
                      WHERE (blocker_id = m.user1_id AND blocked_id = m.user2_id)
                         OR (blocker_id = m.user2_id AND blocked_id = m.user1_id)
                    )
-                   AND (n.type = 'new_match' OR (n.type = 'new_message' AND EXISTS (
+                   AND (n.type = 'new_match'
+                     OR (n.type = 'match_expiring' AND m.status='confirmed'
+                       AND m.expires_at=(n.payload->>'expires_at')::timestamptz)
+                     OR (n.type = 'new_message' AND EXISTS (
                      SELECT 1 FROM chat_message message
                      WHERE message.id = (n.payload->>'message_id')::uuid
                        AND message.match_id = m.id AND message.sender_id <> n.user_id
@@ -175,7 +178,9 @@ fn allowlisted_data(pending: &PendingPush) -> Result<BTreeMap<String, String>, P
         pending.notification_id.hyphenated().to_string(),
     )]);
     match pending.notification_type {
-        NotificationType::NewMatch | NotificationType::NewMessage => {
+        NotificationType::NewMatch
+        | NotificationType::NewMessage
+        | NotificationType::MatchExpiring => {
             data.insert(
                 "match_id".to_owned(),
                 payload_string(&pending.payload, "match_id")?,

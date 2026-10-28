@@ -13,7 +13,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = (
-    "matches_postgres", "moderation_postgres", "privacy_rights_postgres", "account_erasure_postgres",
+    "matches_postgres", "matches_inactivity_postgres", "moderation_postgres", "privacy_rights_postgres", "account_erasure_postgres",
     "administration_reports_postgres", "billing_postgres",
     "maintenance_outbox_postgres", "notifications_postgres",
     "discovery_postgres", "profiles_postgres", "catalog_postgres", "otp_delivery", "localization_postgres", "store_billing_postgres",
@@ -154,6 +154,17 @@ def main():
             assert query(f"SELECT advertising_credits=3 AND week_start=date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date-7 FROM continuation_wallet WHERE user_id='{wallet_owner}';") == "t"
             assert query("SELECT description FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';") == "Operator weekly policy text"
             description_literal = "'" + description.replace("'", "''") + "'"
+            inactivity_peer, inactivity_match = [str(uuid.uuid4()) for _ in range(2)]
+            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{inactivity_peer}','legacy-inactivity-peer',''::bytea); INSERT INTO match_init(id,user1_id,user2_id,status) VALUES ('{inactivity_match}',LEAST('{wallet_owner}'::uuid,'{inactivity_peer}'::uuid),GREATEST('{wallet_owner}'::uuid,'{inactivity_peer}'::uuid),'confirmed');")
+            query("DROP TRIGGER trg_match_inactivity ON match_init;", "histae_migrate")
+            query(f"UPDATE match_init SET expires_at=clock_timestamp()-INTERVAL '40 days' WHERE id='{inactivity_match}';")
+            migrate()
+            assert query(f"SELECT expires_at>clock_timestamp()+INTERVAL '29 days' FROM match_init WHERE id='{inactivity_match}';") == "t"
+            deadline = query(f"SELECT expires_at FROM match_init WHERE id='{inactivity_match}';")
+            migrate()
+            assert query(f"SELECT expires_at FROM match_init WHERE id='{inactivity_match}';") == deadline
+            query(f"DELETE FROM user_account WHERE user_id='{inactivity_peer}';")
+            print("Inactivity upgrade grants one full notice cycle and never renews it on redeploy.", flush=True)
             query(f"UPDATE subscription_plan_feature_translation SET description={description_literal} WHERE plan_code='free' AND feature_code='continuations' AND language='fr'; DELETE FROM user_account WHERE user_id='{wallet_owner}';")
             print("Weekly wallet upgrade preserves current balances and never renews expired credits.", flush=True)
 
