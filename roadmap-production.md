@@ -1,7 +1,8 @@
 # Histae API — feuille de route de production
 
-Dernière mise à jour : **22 octobre 2026**, après ajout des achats natifs Apple/Google,
-du paiement Stripe sur le site par UUID/téléphone/OTP et du suivi financier des stores.
+Dernière mise à jour : **28 octobre 2026**, après ajout des achats natifs Apple/Google,
+du paiement Stripe sur le site par UUID/téléphone/OTP et du suivi financier des stores,
+et correction du redéploiement avec maintenance et de la lecture des demandes RGPD avec effacement.
 Les essais fournisseur sur appareils et la validation du déploiement final restent ouverts.
 
 Cette feuille de route suit les raccordements, décisions et preuves qui restent nécessaires avant le
@@ -66,6 +67,12 @@ sur le serveur final. Aucun fournisseur réel ni serveur distant n'a été utili
   Modification relue sans exécuter de script shell ni de test, conformément à la consigne utilisateur.
 - [ ] Reporter ce correctif de `histae-scripts` sur la cible puis vérifier un redéploiement API avec
   le timer de maintenance actif, sans erreur `No such container` sur `maintenance-run-*`.
+- [x] Corriger le type SQL du compteur de tentatives d'effacement dans la liste RGPD administrative :
+  `COALESCE` conserve `smallint`, compatible avec le décodeur Rust, même sans événement outbox.
+  Étendre la couverture PostgreSQL aux workflows avec zéro/sept tentatives et sans événement.
+  Tests Rust/PostgreSQL à exécuter sur une machine équipée ; Cargo et PostgreSQL sont absents ici.
+- [ ] Déployer ce correctif API puis vérifier la page des demandes RGPD avec une demande d'effacement
+  et ses filtres, sans HTTP 500. Aucun changement de données ni réinitialisation n'est requis.
 - [x] Ajouter le modèle d'environnement et l'exclusion des secrets du contexte de build du proxy ;
   empêcher Compose de créer silencieusement les chemins montés manquants dans cette pile.
 - [x] Normaliser les scripts Bash en LF et prévoir leur conservation avec `.gitattributes`.

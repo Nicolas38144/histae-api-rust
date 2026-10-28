@@ -99,6 +99,14 @@ async fn insert_account(
 
 async fn cleanup(database: &Database, users: &[Uuid]) -> Result<(), DatabaseError> {
     let mut connection = database.acquire().await?;
+    sqlx::query(
+        "DELETE FROM outbox_event WHERE event_type = 'account.erase'
+         AND aggregate_id IN (SELECT id FROM data_subject_request WHERE user_id = ANY($1::uuid[]))",
+    )
+    .bind(users)
+    .execute(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
     sqlx::query("DELETE FROM billing_invoice WHERE user_id = ANY($1::uuid[])")
         .bind(users)
         .execute(&mut *connection)
@@ -388,6 +396,57 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
         .fetch_one(&mut *connection)
         .await?;
         assert_eq!(audit_count, 7);
+        drop(connection);
+
+        // Reading a workflow must decode its smallint attempts counter, including
+        // the zero fallback. The list above only covered requests without a workflow.
+        for attempts in [0_i16, 7_i16] {
+            let mut connection = database.acquire().await?;
+            let event_id: Uuid = sqlx::query_scalar(
+                "UPDATE outbox_event SET attempts = $2
+                 WHERE event_type = 'account.erase' AND aggregate_id = $1 RETURNING id",
+            )
+            .bind(erasure.id)
+            .bind(attempts)
+            .fetch_one(&mut *connection)
+            .await?;
+            drop(connection);
+
+            let requests = rights
+                .requests_for_admin(Some(DataRequestStatus::InProgress), 100, 0, None)
+                .await?;
+            let progress = requests
+                .iter()
+                .find(|row| row.request.id == erasure.id)
+                .and_then(|row| row.erasure.as_ref())
+                .ok_or(FixtureError("admin erasure progress"))?;
+            assert_eq!(progress.step, "stripe");
+            assert_eq!(progress.event_id, Some(event_id));
+            assert_eq!(progress.status.as_deref(), Some("pending"));
+            assert_eq!(progress.attempts, u16::try_from(attempts)?);
+        }
+
+        let mut connection = database.acquire().await?;
+        sqlx::query(
+            "DELETE FROM outbox_event WHERE event_type = 'account.erase' AND aggregate_id = $1",
+        )
+        .bind(erasure.id)
+        .execute(&mut *connection)
+        .await?;
+        drop(connection);
+        let requests = rights
+            .requests_for_admin(Some(DataRequestStatus::InProgress), 100, 0, None)
+            .await?;
+        let progress = requests
+            .iter()
+            .find(|row| row.request.id == erasure.id)
+            .and_then(|row| row.erasure.as_ref())
+            .ok_or(FixtureError("admin erasure without outbox event"))?;
+        assert_eq!(progress.step, "stripe");
+        assert_eq!(progress.attempts, 0);
+        assert!(progress.event_id.is_none());
+        assert!(progress.status.is_none());
+        assert!(progress.last_error_code.is_none());
         Ok(())
     }
     .await;

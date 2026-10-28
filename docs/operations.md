@@ -140,6 +140,7 @@ COMPOSE=(sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml
 | SMS `provider_network_error` / `EAI_AGAIN` | DNS et accès HTTPS depuis le conteneur API ; `HISTAE_API_DNS_SERVER` règle son DNS en dev |
 | Nouveau `.env` sans effet | Recréer le service, vérifier les valeurs imposées par `environment:` et le fichier `HISTAE_ENV_FILE` |
 | Auth admin refusée malgré rôle superadmin | Session WebAuthn, origine exacte et cookie du bon hôte ; un JWT mobile ne suffit pas |
+| Liste RGPD en HTTP 500 dès qu'un effacement existe | Vérifier la livraison API : la lecture de progression doit conserver `smallint` dans `COALESCE(event.attempts, 0::smallint)` pour correspondre au décodeur Rust. Déployer le correctif puis relire la liste ; aucune migration ni modification des demandes n'est nécessaire. |
 
 Pour le détail du healthcheck, récupérer d’abord l’identifiant du conteneur puis l’inspecter :
 

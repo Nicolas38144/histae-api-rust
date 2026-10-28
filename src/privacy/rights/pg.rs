@@ -98,7 +98,7 @@ impl DataRightsStore for PgDataRightsStore {
                         erasure.request_id AS erasure_request_id, erasure.step AS erasure_step,
                         erasure.updated_at AS erasure_updated_at,
                         event.id AS event_id, event.status AS event_status,
-                        COALESCE(event.attempts, 0) AS event_attempts,
+                        COALESCE(event.attempts, 0::smallint) AS event_attempts,
                         event.last_error_code
                  FROM page AS request
                  LEFT JOIN account_erasure AS erasure ON erasure.request_id = request.id
