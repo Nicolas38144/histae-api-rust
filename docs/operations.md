@@ -80,8 +80,15 @@ Choisir explicitement `dev` pour les manifests dev/proxy. Les dépendances doive
 L’installateur conserve le fichier d’environnement existant et n’active pas le timer automatiquement.
 
 Le service appelle `run-maintenance.sh`, qui sélectionne les mêmes manifests API que le reset,
-utilise `-T` pour le lancement sans terminal et prend un verrou par pile. Le reset utilise aussi
-ce script, ce qui évite le chevauchement avec une passe planifiée sur le même hôte.
+utilise `-T` pour le lancement sans terminal et prend un verrou par pile. Avant son `up` API,
+le reset attend ce même verrou pendant 300 secondes maximum, puis le garde jusqu'à la fin du
+démarrage Compose. Une passe active termine normalement ; les nouvelles passes ne démarrent pas
+pendant cette phase. Le verrou du démarrage est libéré avant la passe de maintenance du reset.
+
+Le `up` API utilise `--remove-orphans=false` pour éviter une double suppression avec les conteneurs
+temporaires créés par `compose run --rm`. Un échec `No such container` pendant la suppression d'un
+`maintenance-run-*` correspond à cette course possible. Reporter les scripts corrigés puis relancer
+`sudo bash reset-api.sh --production` ; la recréation des volumes n'est pas nécessaire.
 
 Une même unité active ne démarre pas une seconde instance à chaque tick. `Persistent=true` permet de
 rattraper une activation manquée après arrêt ; ce n’est pas un rejeu de toutes les passes manquées.

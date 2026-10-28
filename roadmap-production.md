@@ -60,6 +60,12 @@ sur le serveur final. Aucun fournisseur réel ni serveur distant n'a été utili
 - [x] Fournir une supervision production privée via `compose.production-observability.yaml`, avec
   alias dédiés, accès WebAuthn du superadmin et label Prometheus `production`.
 - [x] Fournir des unités systemd configurables et une maintenance avec verrou partagé avec le reset.
+- [x] Couvrir le `up` API avec le verrou de maintenance et désactiver le nettoyage automatique des
+  conteneurs orphelins pendant ce démarrage, pour éviter la course avec `maintenance run --rm`.
+  Le verrou attend au plus 300 secondes et est libéré avant la passe de maintenance du reset.
+  Modification relue sans exécuter de script shell ni de test, conformément à la consigne utilisateur.
+- [ ] Reporter ce correctif de `histae-scripts` sur la cible puis vérifier un redéploiement API avec
+  le timer de maintenance actif, sans erreur `No such container` sur `maintenance-run-*`.
 - [x] Ajouter le modèle d'environnement et l'exclusion des secrets du contexte de build du proxy ;
   empêcher Compose de créer silencieusement les chemins montés manquants dans cette pile.
 - [x] Normaliser les scripts Bash en LF et prévoir leur conservation avec `.gitattributes`.
