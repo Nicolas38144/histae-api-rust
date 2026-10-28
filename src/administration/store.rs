@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use super::domain::{
     AdminUserDetailRow, AdminUserRole, AdminUserRow, AdminUserStatus, BanResult, CursorMatchRow,
-    CursorMessageRow, PageCursor, RoleChangeResult,
+    CursorMessageRow, PageCursor, PremiumGrantResult, RoleChangeResult,
 };
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::DatabaseError;
@@ -15,6 +15,14 @@ pub type AdministrationStoreFuture<'a, T> =
 
 #[allow(clippy::too_many_arguments)]
 pub trait AdministrationStore: Send + Sync {
+    fn set_complimentary_premium(
+        &self,
+        target_id: Uuid,
+        enabled: bool,
+        reason: String,
+        actor_id: Uuid,
+    ) -> AdministrationStoreFuture<'_, PremiumGrantResult>;
+
     fn user_names(
         &self,
         ids: Vec<Uuid>,

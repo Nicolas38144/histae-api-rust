@@ -537,6 +537,16 @@ CREATE TABLE user_subscription (
 
 CREATE INDEX idx_user_subscription_plan_updated ON user_subscription USING btree (plan, updated_at);
 
+-- BEGIN complimentary premium
+CREATE TABLE IF NOT EXISTS complimentary_premium_grant (
+    user_id uuid PRIMARY KEY REFERENCES user_account(user_id) ON DELETE CASCADE,
+    granted_by uuid REFERENCES user_account(user_id) ON DELETE SET NULL,
+    granted_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+COMMENT ON TABLE complimentary_premium_grant IS 'Revocable Premium access offered by a superadmin, independent of provider subscriptions. History is retained in the access audit log.';
+CREATE INDEX IF NOT EXISTS idx_complimentary_premium_granted_by ON complimentary_premium_grant(granted_by) WHERE granted_by IS NOT NULL;
+-- END complimentary premium
+
 -- BEGIN store billing
 CREATE TABLE IF NOT EXISTS billing_store_account (
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -600,15 +610,16 @@ RETURNS TABLE (
     trial_ends_at timestamptz, canceled_at timestamptz, access_granted boolean,
     provider_event_created_at timestamptz, updated_at timestamptz
 ) LANGUAGE sql STABLE AS $body$
-WITH review_accounts AS (
-    -- Only the server-owned review identity can receive complimentary access.
-    SELECT a.user_id, a.created_at
+WITH complimentary_accounts AS (
+    -- Review access and operator gifts never replace provider projections.
+    SELECT a.user_id,
+        CASE WHEN a.is_review_account THEN a.created_at ELSE gift.granted_at END AS starts_at
     FROM user_account AS a
-    WHERE a.is_review_account
-      AND a.role = 'user'
+    LEFT JOIN complimentary_premium_grant AS gift USING (user_id)
+    WHERE ((a.is_review_account AND a.role = 'user') OR gift.user_id IS NOT NULL)
       AND NOT a.is_banned
       AND a.deleted_at IS NULL
-      AND a.created_at <= p_at
+      AND CASE WHEN a.is_review_account THEN a.created_at ELSE gift.granted_at END <= p_at
       AND (p_user_id IS NULL OR a.user_id = p_user_id)
 ), subscription_candidates AS (
     -- Internal grants and Stripe projections retain their existing validity rules.
@@ -655,14 +666,14 @@ WITH review_accounts AS (
         NULL::text AS billing_period,
         NULL::text AS status,
         false AS cancel_at_period_end,
-        a.created_at AS current_period_starts_at,
+        a.starts_at AS current_period_starts_at,
         NULL::timestamptz AS current_period_ends_at,
         NULL::timestamptz AS trial_ends_at,
         NULL::timestamptz AS canceled_at,
         true AS access_granted,
         NULL::timestamptz AS provider_event_created_at,
-        a.created_at AS updated_at
-    FROM review_accounts AS a
+        a.starts_at AS updated_at
+    FROM complimentary_accounts AS a
 )
 SELECT DISTINCT ON (c.user_id) c.*
 FROM subscription_candidates AS c
@@ -1185,7 +1196,7 @@ CREATE TABLE data_access_log (
     action text NOT NULL,
     reason text,
     accessed_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT data_access_log_action_check CHECK ((action = ANY (ARRAY['view_profile'::text, 'view_messages'::text, 'view_matches'::text, 'export_data'::text, 'admin_ban'::text, 'admin_unban'::text, 'admin_promote'::text, 'admin_demote'::text, 'admin_suspend_sms'::text, 'admin_resume_sms'::text, 'admin_import_store_finance'::text, 'admin_review_report'::text, 'admin_review_dsr'::text, 'admin_reconcile_photo'::text, 'view_moderation_content'::text, 'admin_review_content'::text, 'system_anonymize'::text, 'system_export_portability'::text]))),
+    CONSTRAINT data_access_log_action_check CHECK ((action = ANY (ARRAY['view_profile'::text, 'view_messages'::text, 'view_matches'::text, 'export_data'::text, 'admin_ban'::text, 'admin_unban'::text, 'admin_promote'::text, 'admin_demote'::text, 'admin_grant_premium'::text, 'admin_revoke_premium'::text, 'admin_suspend_sms'::text, 'admin_resume_sms'::text, 'admin_import_store_finance'::text, 'admin_review_report'::text, 'admin_review_dsr'::text, 'admin_reconcile_photo'::text, 'view_moderation_content'::text, 'admin_review_content'::text, 'system_anonymize'::text, 'system_export_portability'::text]))),
     CONSTRAINT data_access_log_pkey PRIMARY KEY (id),
     CONSTRAINT data_access_log_accessor_id_fkey FOREIGN KEY (accessor_id) REFERENCES user_account(user_id) ON DELETE SET NULL
 );
@@ -1416,6 +1427,7 @@ BEGIN
   DELETE FROM notification WHERE user_id = p_user_id;
   DELETE FROM user_block WHERE blocker_id = p_user_id OR blocked_id = p_user_id;
   DELETE FROM user_subscription WHERE user_id = p_user_id;
+  DELETE FROM complimentary_premium_grant WHERE user_id = p_user_id;
   DELETE FROM web_billing_session WHERE user_id = p_user_id;
   DELETE FROM web_billing_challenge WHERE user_id = p_user_id OR requested_user_id = p_user_id;
   UPDATE billing_store_subscription SET user_id=NULL, reference_encrypted=''::bytea WHERE user_id=p_user_id;
@@ -1609,6 +1621,10 @@ DO $$ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_continuation_store_subscription' AND tgrelid = 'billing_store_subscription'::regclass) THEN
     CREATE TRIGGER trg_continuation_store_subscription BEFORE INSERT OR UPDATE OR DELETE ON billing_store_subscription FOR EACH ROW EXECUTE FUNCTION fct_lock_continuation_subscription();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_continuation_complimentary_premium' AND tgrelid = 'complimentary_premium_grant'::regclass) THEN
+    CREATE TRIGGER trg_continuation_complimentary_premium BEFORE INSERT OR UPDATE OR DELETE ON complimentary_premium_grant FOR EACH ROW EXECUTE FUNCTION fct_lock_continuation_subscription();
+    CREATE TRIGGER trg_live_complimentary_premium BEFORE INSERT OR UPDATE OF user_id,granted_at ON complimentary_premium_grant FOR EACH ROW EXECUTE FUNCTION fct_require_live_account('user_id');
   END IF;
 END $$;
 -- END continuation guards

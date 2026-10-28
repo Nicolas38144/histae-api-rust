@@ -2857,6 +2857,50 @@
               "response": []
             },
             {
+              "name": "PATCH /api/admin/users/:id/complimentary-premium",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/users/{{targetUserId}}/complimentary-premium",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"enabled\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Superadmin only. enabled=true offers Premium without expiry; enabled=false removes only this Histae gift. Optional reason (3–500 characters); a default audit reason is supplied when omitted. Idempotent and audited. Does not create a purchase, cancel a paid subscription, change the role or enable review-account access. Banned accounts cannot receive a gift; review accounts keep automatic access."
+              },
+              "response": []
+            },
+            {
               "name": "GET /api/matches/:userId",
               "request": {
                 "method": "GET",

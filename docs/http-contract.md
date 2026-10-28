@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **132 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **133 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -603,6 +603,7 @@ Erreurs : `invalid_or_expired_admin_bootstrap`, `invalid_or_expired_webauthn_cha
 | GET | `/api/admin/users/:id` | UUID + query `reason?` → détail administratif audité. |
 | PATCH | `/api/admin/users/:id/status` | `{ is_banned, reason? }` → bannissement/débannissement. Motif requis pour bannir par un admin. |
 | PATCH | `/api/admin/users/:id/role` | Superadmin uniquement : `{ role: "admin" | "user", reason? }` → promotion ou retrait des droits admin. |
+| PATCH | `/api/admin/users/:id/complimentary-premium` | Superadmin uniquement : `{ enabled: boolean, reason? }` → `200 { message }` ; active ou retire un Premium offert sans expiration. Idempotent et audité. |
 | GET | `/api/matches/:userId` | UUID utilisateur + `reason?, limit, cursor` (offset déprécié) → `200 { matches, next_cursor }`. **Route admin malgré son chemin.** |
 | GET | `/api/admin/matches/:id/messages` | UUID match + `reason?, limit, cursor` (offset déprécié) → conversation auditée. |
 | GET | `/api/admin/reports` | `status?, limit, cursor` (offset déprécié) → `200 { reports, next_cursor }`. |
@@ -611,7 +612,16 @@ Erreurs : `invalid_or_expired_admin_bootstrap`, `invalid_or_expired_webauthn_cha
 | PATCH | `/api/admin/data-subject-requests/:id` | **Récente** ; `{ status, notes?, response? }` → transition contrôlée et auditée. Pour clôturer/refuser une rectification, `response` est obligatoire ; les catégories retirées sont en lecture seule. |
 | GET | `/api/admin/data-access-logs` | `user_id, limit, cursor` (offset déprécié) → `200 { logs, next_cursor }`. |
 
-Recherche utilisateurs : prénom ou UUID exact ; `status = active | banned`, `role = user | admin | superadmin`. La liste ne signe aucune photo (`photo: null`). Le détail expose compte, profil, préférences, traits, consentements et fraîcheur de présence ; jamais téléphone, empreinte ou coordonnées précises. Les motifs fournis mesurent 3–500 caractères ; une conversation est auditée pour les deux participants.
+Recherche utilisateurs : prénom ou UUID exact ; `status = active | banned`, `role = user | admin | superadmin`. La liste ne signe aucune photo (`photo: null`). Le détail expose compte, profil, préférences, traits, consentements et fraîcheur de présence ; jamais téléphone, empreinte ou coordonnées précises. Il expose aussi `complimentary_premium` (offre Histae enregistrée) et `is_review_account` (compte de revue automatique), deux booléens en lecture seule sur le détail. Les motifs fournis mesurent 3–500 caractères ; une conversation est auditée pour les deux participants.
+
+L’offre Histae est indépendante du rôle et du marqueur de revue. Une attribution ne crée ni achat,
+facture ni revenu, n’annule aucun abonnement fournisseur et utilise la projection commune des droits.
+Le retrait ne supprime que cette offre : un abonnement payant actif continue de donner Premium.
+Un compte banni ne peut pas recevoir une offre mais peut se la voir retirer. Un compte supprimé
+renvoie `404 account_not_found`. Un administrateur ordinaire, un acteur n’étant plus superadmin
+en base ou une modification de l’offre automatique d’un compte de revue renvoie `403 admin_action_forbidden`.
+Le motif est facultatif pour le superadmin ; l’API fournit un motif d’audit par défaut.
+Seuls les changements d’état créent les événements `admin_grant_premium` / `admin_revoke_premium`.
 
 Un bannissement invalide les sessions mobiles. Un admin n’agit que sur un rôle utilisateur ; un superadmin ne peut agir ni sur lui-même ni sur un autre superadmin. Statuts de signalement : `pending | reviewed | dismissed`.
 

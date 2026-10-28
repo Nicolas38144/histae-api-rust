@@ -11,7 +11,7 @@ Utiliser des fixtures fictives et des secrets de développement, jamais une base
 | --- | --- | --- |
 | Unitaire | Modules `#[cfg(test)]` de `src/` | Règles, configuration, transports, mocks et cycles de vie |
 | Contrat | `*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, guards et permissions |
-| Inventaire | `route_inventory.rs` | Les 132 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
+| Inventaire | `route_inventory.rs` | Les 133 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
 | PostgreSQL | `*_postgres.rs`, `postgres_compatibility`, `postgres_locks` | SQL, contraintes, verrous, snapshots et concurrence réels |
 | Redis / S3 | `redis_integration`, `media_integration` | Adaptateurs sur services locaux |
 | Codec | `photo_codec.rs`, `fixtures/photos/` | Formats, taille, métadonnées, corruption et arrêt du processus Node |
@@ -459,4 +459,21 @@ cargo build --locked --bin db-migrate
 python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
   --test play_review_postgres --test otp_delivery --test administration_reports_postgres \
   --test store_billing_postgres
+```
+
+### Premium offert par Histae
+
+`complimentary_premium_postgres` couvre l’attribution et le retrait idempotents par un superadmin,
+l’audit atomique (y compris son échec), les métadonnées du détail administratif, les droits mobiles
+et les continuations, la conservation d’un abonnement payant, le refus des comptes bannis/supprimés
+ou de revue, la revalidation du rôle en base, le verrou commun aux confirmations et l’anonymisation.
+Les tests unitaires de l’administration contrôlent le corps strict et les permissions du service.
+Le lanceur isolé simule aussi une ancienne base sans la table ni les actions d’audit et vérifie
+que les migrations répétées conservent la date de l’offre.
+
+```bash
+cargo build --locked --bin db-migrate
+python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
+  --test complimentary_premium_postgres --test play_review_postgres --test billing_postgres \
+  --test store_billing_postgres --test matches_postgres --test account_erasure_postgres
 ```

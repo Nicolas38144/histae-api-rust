@@ -7,7 +7,7 @@ use uuid::{Uuid, Variant};
 
 use super::domain::{
     AdminUser, AdminUserDetail, AdminUserRole, AdminUserStatus, BanResult, PageCursor,
-    RoleChangeResult,
+    PremiumGrantResult, RoleChangeResult,
 };
 use super::store::AdministrationStore;
 use crate::identity::admin_role::AdminRole;
@@ -153,6 +153,8 @@ impl AdministrationService {
             .map_err(|_| AdministrationError::PhotoStorageUnavailable)?;
         Ok(AdminUserDetail {
             user: row.user.into_public(photo),
+            complimentary_premium: row.complimentary_premium,
+            is_review_account: row.is_review_account,
             banned_reason: row.banned_reason,
             preferences: row.preferences,
             traits: row.traits,
@@ -189,6 +191,36 @@ impl AdministrationService {
             BanResult::Updated => Ok(()),
             BanResult::NotFound => Err(AdministrationError::AccountNotFound),
             BanResult::Forbidden => Err(AdministrationError::ActionForbidden),
+        }
+    }
+
+    pub async fn update_complimentary_premium(
+        &self,
+        target_id: Uuid,
+        enabled: bool,
+        raw_reason: &str,
+        actor_id: Uuid,
+        actor_role: AdminRole,
+    ) -> Result<(), AdministrationError> {
+        if actor_role != AdminRole::Superadmin {
+            return Err(AdministrationError::ActionForbidden);
+        }
+        let reason = normalize_reason(actor_role.audit_reason(
+            raw_reason,
+            if enabled {
+                "Superadmin complimentary Premium grant"
+            } else {
+                "Superadmin complimentary Premium revocation"
+            },
+        ))?;
+        match self
+            .store
+            .set_complimentary_premium(target_id, enabled, reason, actor_id)
+            .await?
+        {
+            PremiumGrantResult::Updated | PremiumGrantResult::Unchanged => Ok(()),
+            PremiumGrantResult::NotFound => Err(AdministrationError::AccountNotFound),
+            PremiumGrantResult::Forbidden => Err(AdministrationError::ActionForbidden),
         }
     }
 
@@ -400,6 +432,22 @@ mod tests {
 
     #[allow(clippy::too_many_arguments)]
     impl AdministrationStore for FakeStore {
+        fn set_complimentary_premium(
+            &self,
+            _target_id: Uuid,
+            _enabled: bool,
+            reason: String,
+            _actor_id: Uuid,
+        ) -> AdministrationStoreFuture<'_, PremiumGrantResult> {
+            Box::pin(async move {
+                self.reasons
+                    .lock()
+                    .map_err(|_| DatabaseError::QueryFailed)?
+                    .push(reason);
+                Ok(PremiumGrantResult::Updated)
+            })
+        }
+
         fn user_names(
             &self,
             ids: Vec<Uuid>,
@@ -437,6 +485,8 @@ mod tests {
                     .push(reason);
                 Ok(Some(AdminUserDetailRow {
                     user: self.user.clone(),
+                    complimentary_premium: false,
+                    is_review_account: false,
                     banned_reason: None,
                     preferences: None,
                     traits: Vec::new(),
@@ -691,6 +741,37 @@ mod tests {
                 .reasons
                 .lock()
                 .is_ok_and(|items| items.as_slice() == ["Administrative unban"])
+        );
+    }
+
+    #[tokio::test]
+    async fn premium_gifts_require_superadmin_and_supply_audited_default_reasons() {
+        let (service, store, _) = service(BanResult::Updated);
+        let actor = Uuid::new_v4();
+        let target = Uuid::new_v4();
+        for enabled in [true, false] {
+            assert_eq!(
+                service
+                    .update_complimentary_premium(target, enabled, "", actor, AdminRole::Admin)
+                    .await,
+                Err(AdministrationError::ActionForbidden)
+            );
+        }
+        assert!(store.reasons.lock().expect("reasons").is_empty());
+        for enabled in [true, false] {
+            assert_eq!(
+                service
+                    .update_complimentary_premium(target, enabled, "", actor, AdminRole::Superadmin)
+                    .await,
+                Ok(())
+            );
+        }
+        assert_eq!(
+            store.reasons.lock().expect("reasons").as_slice(),
+            [
+                "Superadmin complimentary Premium grant",
+                "Superadmin complimentary Premium revocation"
+            ]
         );
     }
 

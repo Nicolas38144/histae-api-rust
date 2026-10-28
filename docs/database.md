@@ -6,7 +6,7 @@
 
 | Fichier | Usage |
 | --- | --- |
-| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 60 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
+| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 62 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
 | [002_insert_postgres.sql](../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
 | [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
 | [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
@@ -142,8 +142,8 @@ Il effectue un dump au format custom, restaure dans une base temporaire, compare
 public et le nombre de tables, puis supprime base temporaire et archive. Le rôle doit pouvoir créer une base.
 Il choisit Docker direct ou `sudo` selon l’accès disponible.
 
-`Development backup/restore verification passed (61 public tables)` confirme cette restauration technique
-sur le schéma actuel : 60 tables applicatives et la table spatiale de PostGIS.
+Le message `Development backup/restore verification passed (...)` confirme cette restauration technique.
+Le schéma actuel comporte 62 tables applicatives et la table spatiale de PostGIS, soit 63 tables publiques attendues.
 Le script ne conserve pas de sauvegarde, ne compare pas toutes les données et ne teste pas la reprise du S3,
 des certificats ou des fournisseurs.
 
@@ -243,9 +243,23 @@ session sont transactionnelles, avec refus des bannissements, suppressions et to
 de profil et les consentements sont ensuite gérés par les routes normales, sans acceptation automatique.
 La fonction `effective_subscription_at` ajoute un droit Premium offert sans expiration pour les comptes
 de revue actifs de rôle `user`. Le marqueur est installé avant cette fonction, sur base neuve comme
-lors d’une mise à niveau. La CTE `review_accounts` isole l’éligibilité du compte ; les candidats
+lors d’une mise à niveau. La CTE `complimentary_accounts` isole l’éligibilité du compte ; les candidats
 internes/Stripe, stores et de revue partagent ensuite une sélection unique avec un ordre de priorité explicite.
 Ce droit couvre aussi les comptes de revue déjà inscrits, sans insérer de
 projection Stripe/store ni de facture et sans écraser l’historique fournisseur. Il disparaît du calcul
 si le marqueur est retiré, le compte banni ou supprimé. Voir les champs publics dans le contrat HTTP.
 Voir [l’accès Google Play](google-play-review.md).
+
+### Premium offert par le superadmin
+
+`complimentary_premium_grant` conserve une seule offre par utilisateur, avec date et acteur de
+l’attribution. L’offre n’a pas de date de fin ; son retrait supprime cette ligne et conserve
+l’historique dans `data_access_log`. Aucun abonnement fournisseur ou identifiant de paiement
+n’est modifié. La projection `effective_subscription_at` utilise ce droit pour les comptes
+non bannis et non supprimés ; un abonnement fournisseur actif conserve sa priorité.
+
+La mutation vérifie le superadmin et l’état de la cible dans une transaction et prend les
+mêmes verrous ordonnés de portefeuille que la confirmation d’un match. Les triggers couvrent
+aussi les écritures SQL de l’offre. La suppression physique et l’anonymisation du bénéficiaire
+retirent son offre. Le migrateur installe la table avant la projection et les triggers, et ajoute
+les actions d’audit `admin_grant_premium` / `admin_revoke_premium`, sur installation neuve et existante.

@@ -125,6 +125,8 @@ pub struct AdminPresence {
 #[derive(Clone, Debug)]
 pub struct AdminUserDetailRow {
     pub user: AdminUserRow,
+    pub complimentary_premium: bool,
+    pub is_review_account: bool,
     pub banned_reason: Option<String>,
     pub preferences: Option<AdminPreferences>,
     pub traits: Vec<AdminTrait>,
@@ -137,6 +139,8 @@ pub struct AdminUserDetailRow {
 pub struct AdminUserDetail {
     #[serde(flatten)]
     pub user: AdminUser,
+    pub complimentary_premium: bool,
+    pub is_review_account: bool,
     pub banned_reason: Option<String>,
     pub preferences: Option<AdminPreferences>,
     pub traits: Vec<AdminTrait>,
@@ -172,6 +176,14 @@ pub enum BanResult {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RoleChangeResult {
+    Updated,
+    Unchanged,
+    NotFound,
+    Forbidden,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PremiumGrantResult {
     Updated,
     Unchanged,
     NotFound,

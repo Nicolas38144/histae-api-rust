@@ -39,6 +39,10 @@ pub fn routes(state: AdministrationHttpState, auth: AdminAuthHttpState) -> Route
         .route("/api/admin/users/{id}", get(user_detail))
         .route("/api/admin/users/{id}/status", patch(update_status))
         .route("/api/admin/users/{id}/role", patch(update_role))
+        .route(
+            "/api/admin/users/{id}/complimentary-premium",
+            patch(update_complimentary_premium),
+        )
         .route("/api/matches/{userId}", get(matches))
         .route("/api/admin/matches/{id}/messages", get(messages))
         .layer(Extension(state))
@@ -374,6 +378,50 @@ async fn update_role(
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateComplimentaryPremiumBody {
+    enabled: bool,
+    reason: Option<String>,
+}
+
+impl ApiDto for UpdateComplimentaryPremiumBody {
+    const ERROR_CODE: &'static str = "invalid_admin_request";
+    const ERROR_MESSAGE: &'static str = "The administrator request is invalid.";
+
+    fn is_valid(&self) -> bool {
+        self.reason
+            .as_ref()
+            .is_none_or(|reason| validator_js_length(reason) <= 500)
+    }
+}
+
+async fn update_complimentary_premium(
+    AdminIdentity(identity): AdminIdentity,
+    Extension(state): Extension<AdministrationHttpState>,
+    ValidatedPath(path): ValidatedPath<IdPath>,
+    ValidatedJson(body): ValidatedJson<UpdateComplimentaryPremiumBody>,
+) -> Result<Json<MessageResponse>, ApiError> {
+    state
+        .service
+        .update_complimentary_premium(
+            path.id().ok_or_else(invalid_user_id)?,
+            body.enabled,
+            body.reason.as_deref().unwrap_or_default(),
+            identity.user_id,
+            identity.role,
+        )
+        .await
+        .map_err(administration_error)?;
+    Ok(Json(MessageResponse {
+        message: if body.enabled {
+            "complimentary Premium granted"
+        } else {
+            "complimentary Premium revoked"
+        },
+    }))
+}
+
+#[derive(Deserialize)]
 struct UserPath {
     #[serde(rename = "userId")]
     user_id: String,
@@ -636,6 +684,29 @@ fn administration_error(error: AdministrationError) -> ApiError {
 #[cfg(test)]
 mod metrics_query_tests {
     use super::*;
+
+    #[test]
+    fn complimentary_premium_requests_require_a_boolean_and_cannot_change_identity_or_price() {
+        for body in [
+            r#"{}"#,
+            r#"{"enabled":"true"}"#,
+            r#"{"enabled":null}"#,
+            r#"{"enabled":true,"is_review_account":true}"#,
+            r#"{"enabled":true,"plan":"premium"}"#,
+        ] {
+            assert!(serde_json::from_str::<UpdateComplimentaryPremiumBody>(body).is_err());
+        }
+        let body: UpdateComplimentaryPremiumBody =
+            serde_json::from_str(r#"{"enabled":true}"#).expect("valid gift request");
+        assert!(body.is_valid());
+        assert!(
+            !UpdateComplimentaryPremiumBody {
+                enabled: true,
+                reason: Some("x".repeat(501))
+            }
+            .is_valid()
+        );
+    }
 
     #[test]
     fn user_name_lookup_accepts_only_bounded_canonical_ids() {

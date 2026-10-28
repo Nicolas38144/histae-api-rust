@@ -209,3 +209,23 @@ fixtures d’identité et de nettoyage du test PostgreSQL existant.
 Vérifications : **27 tests de contrat/inventaire** et **45 tests PostgreSQL** réussis, soit **72 tests**.
 Les migrations sur base neuve, mise à niveau et réexécution passent sur PostgreSQL jetable,
 supprimé avec ses fixtures et secrets temporaires. Aucun fournisseur de paiement n’a été contacté.
+
+### Premium offert depuis le dashboard
+
+Ajout de `PATCH /api/admin/users/:id/complimentary-premium` et de la table indépendante
+`complimentary_premium_grant`. Le superadmin peut offrir ou retirer Premium sans expiration ;
+les droits sont revalidés en base et chaque changement est journalisé atomiquement. Les rejeux
+n’ajoutent pas d’audit. Les comptes de revue restent en lecture seule pour cette action.
+Le détail administratif expose l’offre manuelle et le marqueur de revue séparément.
+
+L’offre ne crée aucun achat ou revenu et n’annule aucun abonnement fournisseur. Les mutations
+partagent les verrous de continuation ; l’anonymisation et la suppression retirent l’offre.
+Le dashboard propose confirmation, retrait et erreurs accessibles dans la boîte de dialogue,
+avec les traductions françaises, anglaises, espagnoles et italiennes des actions et de l’audit.
+Les collections Postman et l’inventaire des **133 routes** sont alignés. Aucune variable `.env`
+supplémentaire n’est nécessaire. Déployer les migrations/API avant le dashboard.
+
+Vérifications : **239 tests unitaires Rust**, **27 tests de contrat/inventaire** et **53 tests PostgreSQL**
+réussis, soit **319 tests API**. **144 tests dashboard**, typage, lint et build de production réussis.
+Les migrations neuves, historiques et répétées conservent les offres ; le PostgreSQL jetable a été
+supprimé avec ses fixtures et secrets temporaires. Aucun SMS ou paiement réel n’a été envoyé.

@@ -13,6 +13,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = (
+    "complimentary_premium_postgres",
     "play_review_postgres", "matches_postgres", "matches_inactivity_postgres", "moderation_postgres", "privacy_rights_postgres", "account_erasure_postgres",
     "administration_reports_postgres", "billing_postgres",
     "maintenance_outbox_postgres", "notifications_postgres",
@@ -152,6 +153,20 @@ def main():
             ) == "t"
             query(f"DELETE FROM user_account WHERE user_id='{review_legacy}';")
             print("Play review upgrade preserves real accounts and dedicated review markers.", flush=True)
+
+            # Simulate the pre-gift schema and verify that redeploys preserve a granted offer.
+            gift_legacy = str(uuid.uuid4())
+            old_audit_check = query("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='data_access_log'::regclass AND conname='data_access_log_action_check';")
+            old_audit_check = old_audit_check.replace("'admin_grant_premium'::text", "'admin_promote'::text").replace("'admin_revoke_premium'::text", "'admin_demote'::text")
+            query("DROP TABLE complimentary_premium_grant; ALTER TABLE data_access_log DROP CONSTRAINT data_access_log_action_check; ALTER TABLE data_access_log ADD CONSTRAINT data_access_log_action_check " + old_audit_check + ";", "histae_migrate")
+            migrate()
+            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{gift_legacy}','legacy-premium-gift',''::bytea); INSERT INTO complimentary_premium_grant(user_id) VALUES ('{gift_legacy}');")
+            gift_at = query(f"SELECT granted_at FROM complimentary_premium_grant WHERE user_id='{gift_legacy}';")
+            migrate()
+            assert query(f"SELECT granted_at FROM complimentary_premium_grant WHERE user_id='{gift_legacy}';") == gift_at
+            assert query(f"SELECT access_granted AND provider IS NULL FROM effective_user_subscription WHERE user_id='{gift_legacy}';") == "t"
+            query(f"DELETE FROM user_account WHERE user_id='{gift_legacy}';")
+            print("Complimentary Premium upgrade preserves grants and restores audit actions.", flush=True)
 
             # Upgrade the old carry-over wallet once, without renewing expired
             # credits or overwriting a later operator translation on redeploy.

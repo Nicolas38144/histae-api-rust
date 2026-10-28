@@ -1,3 +1,5 @@
+mod premium;
+
 use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{Postgres, QueryBuilder, Row as _, types::Json};
 use uuid::Uuid;
@@ -5,7 +7,7 @@ use uuid::Uuid;
 use super::domain::{
     AdminConsent, AdminPreferences, AdminPresence, AdminTrait, AdminUserDetailRow, AdminUserRole,
     AdminUserRow, AdminUserStatus, BanResult, CursorMatchRow, CursorMessageRow, PageCursor,
-    RoleChangeResult,
+    PremiumGrantResult, RoleChangeResult,
 };
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
@@ -27,6 +29,16 @@ impl PgAdministrationStore {
 
 #[allow(clippy::too_many_arguments)]
 impl AdministrationStore for PgAdministrationStore {
+    fn set_complimentary_premium(
+        &self,
+        target_id: Uuid,
+        enabled: bool,
+        reason: String,
+        actor_id: Uuid,
+    ) -> AdministrationStoreFuture<'_, PremiumGrantResult> {
+        Box::pin(self.set_premium_grant(target_id, enabled, reason, actor_id))
+    }
+
     fn user_names(
         &self,
         ids: Vec<Uuid>,
@@ -147,6 +159,12 @@ impl AdministrationStore for PgAdministrationStore {
                         };
                         let banned_reason =
                             account.try_get("banned_reason").map_err(map_sqlx_error)?;
+                        let complimentary_premium = account
+                            .try_get("complimentary_premium")
+                            .map_err(map_sqlx_error)?;
+                        let is_review_account = account
+                            .try_get("is_review_account")
+                            .map_err(map_sqlx_error)?;
                         let preferences = account
                             .try_get::<Option<Uuid>, _>("preferences_user_id")
                             .map_err(map_sqlx_error)?
@@ -212,6 +230,8 @@ impl AdministrationStore for PgAdministrationStore {
                                 })?;
                         Ok(Some(AdminUserDetailRow {
                             user,
+                            complimentary_premium,
+                            is_review_account,
                             banned_reason,
                             preferences,
                             traits,
@@ -644,6 +664,8 @@ fn canonical_uuid(value: &str) -> Option<Uuid> {
 
 const DETAIL_USER_SQL: &str = r#"
 SELECT account.user_id AS id, account.role, account.is_banned, account.banned_at,
+  account.is_review_account,
+  EXISTS (SELECT 1 FROM complimentary_premium_grant WHERE user_id=account.user_id) AS complimentary_premium,
   account.banned_reason, account.created_at, profile.firstname, profile.birthdate,
   profile.sex, photo.object_key AS photo, COALESCE(subscription.plan, 'free') AS plan,
   preferences.user_id AS preferences_user_id, preferences.min_age, preferences.max_age,

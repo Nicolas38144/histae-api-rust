@@ -191,6 +191,7 @@ impl Database {
                 AND to_regclass(current_schema() || '.mobile_otp_request') IS NOT NULL
                 AND to_regclass(current_schema() || '.billing_store_subscription') IS NOT NULL
                 AND to_regclass(current_schema() || '.effective_user_subscription') IS NOT NULL
+                AND to_regclass(current_schema() || '.complimentary_premium_grant') IS NOT NULL
                 AND to_regclass(current_schema() || '.web_billing_session') IS NOT NULL",
         )
         .fetch_one(&mut *connection)

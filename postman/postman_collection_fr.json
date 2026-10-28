@@ -2857,6 +2857,50 @@
               "response": []
             },
             {
+              "name": "PATCH /api/admin/users/:id/complimentary-premium",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/users/{{targetUserId}}/complimentary-premium",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"enabled\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Superadmin uniquement. enabled=true offre Premium sans expiration ; enabled=false retire uniquement cette offre Histae. Motif facultatif (3–500 caractères), motif d’audit par défaut si absent. Mutation idempotente et auditée. Aucun achat, annulation d’abonnement payant, changement de rôle ou activation d’un compte de revue. Attribution refusée aux comptes bannis ; les comptes de revue conservent leur accès automatique."
+              },
+              "response": []
+            },
+            {
               "name": "GET /api/matches/:userId",
               "request": {
                 "method": "GET",
