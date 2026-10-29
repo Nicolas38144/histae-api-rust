@@ -11,7 +11,7 @@ Utiliser des fixtures fictives et des secrets de développement, jamais une base
 | --- | --- | --- |
 | Unitaire | Modules `#[cfg(test)]` de `src/` | Règles, configuration, transports, mocks et cycles de vie |
 | Contrat | `*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, guards et permissions |
-| Inventaire | `route_inventory.rs` | Les 133 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
+| Inventaire | `route_inventory.rs` | Les 140 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
 | PostgreSQL | `*_postgres.rs`, `postgres_compatibility`, `postgres_locks` | SQL, contraintes, verrous, snapshots et concurrence réels |
 | Redis / S3 | `redis_integration`, `media_integration` | Adaptateurs sur services locaux |
 | Codec | `photo_codec.rs`, `fixtures/photos/` | Formats, taille, métadonnées, corruption et arrêt du processus Node |
@@ -476,4 +476,24 @@ cargo build --locked --bin db-migrate
 python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
   --test complimentary_premium_postgres --test play_review_postgres --test billing_postgres \
   --test store_billing_postgres --test matches_postgres --test account_erasure_postgres
+```
+
+### Suppression des données depuis le site
+
+`web_privacy_postgres` exerce les routes HTTP avec PostgreSQL isolé et des fournisseurs simulés :
+origine exacte, cookies absents/ambigus/expirés, refus des identités mobiles et admin, gardes avant
+validation des champs JSON, budget partagé par compte, retraits partiels idempotents et limités au compte,
+historique des consentements, nettoyage photo différé, jeton d'effacement lié au compte et invalidation
+des sessions. Le parcours OTP partage limites et cookie avec le paiement, tout en restant disponible
+avec paiement désactivé et onboarding incomplet. Checkout et portail restent désactivés dans ce cas.
+Les collections Postman FR/EN couvrent les 140 routes avec les protections de cookie et d'origine.
+Validation locale du 29 octobre 2026 : 373 tests Rust par défaut et 17 tests PostgreSQL réussis,
+dont les six nouveaux scénarios web. Formatage et Clippy sans avertissement. Les migrations neuves,
+les upgrades et leur répétition sont validés ; le lanceur supprime sa base et ses secrets temporaires.
+
+```bash
+cargo build --locked --bin db-migrate
+python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
+  --test web_privacy_postgres --test store_billing_postgres \
+  --test privacy_rights_postgres --test account_erasure_postgres
 ```

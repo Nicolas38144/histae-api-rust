@@ -39,14 +39,20 @@ pub fn routes(state: WebBillingState) -> Router<HttpState> {
         .route("/api/web/billing/session", get(session).delete(logout))
         .route("/api/web/account/otp/send", post(send))
         .route("/api/web/account/otp/verify", post(verify))
-        .route("/api/web/account/session", get(account_session).delete(logout))
+        .route(
+            "/api/web/account/session",
+            get(account_session).delete(logout),
+        )
         .route("/api/web/billing/plans", get(plans))
         .route("/api/web/billing/checkout", post(checkout))
         .route("/api/web/billing/portal", post(portal))
         .layer(axum::middleware::from_fn(no_store))
         .layer(Extension(state))
 }
-pub(crate) async fn no_store(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+pub(crate) async fn no_store(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
     let mut response = next.run(request).await;
     response
         .headers_mut()

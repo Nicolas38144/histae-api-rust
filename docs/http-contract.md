@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **133 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **140 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -525,6 +525,16 @@ L’identité cible vient uniquement de la session ; aucun `user_id` cible n’e
 suppression. Les consentements requis pour l’onboarding et les droits Premium ne conditionnent pas
 ces démarches. Le compte doit être actif et non banni pour le parcours automatique ; sinon l’assistance
 publique reste accessible. Les mutations sont limitées par compte (`RATE_LIMIT_PHOTO`, espace `web-privacy`).
+Pour `/api/web/privacy/*`, l'origine, la session et le débit précèdent la validation des champs
+du JSON. Le parseur global vérifie d'abord le format, la syntaxe et la taille du corps. Une requête
+avec des champs invalides ne contourne pas les gardes. Origine absente, dupliquée ou incorrecte : `403 invalid_web_request_origin` ; cookie
+absent, ambigu, expiré ou compte inactif : `401 web_authentication_failed` ; budget épuisé :
+`429 privacy_rate_limit_exceeded` avec `Retry-After`. Un corps invalide après ces contrôles reçoit
+`400 invalid_request_body`. Un jeton de confirmation bien formé mais expiré ou lié à un autre compte
+reçoit `401 invalid_or_expired_deletion_token`.
+Pour les appels sans corps (jeton d'effacement, déconnexion, portail), omettre `Content-Type`
+ou envoyer `{}` avec `application/json`. Déclarer du JSON avec un corps vide donne `400`,
+conformément au parseur HTTP commun.
 
 `photo` réutilise le retrait de photo et son nettoyage S3 différé. `location` retire le consentement de
 localisation et efface la présence ; `sensitive_profile` retire le consentement sensible et efface le sexe

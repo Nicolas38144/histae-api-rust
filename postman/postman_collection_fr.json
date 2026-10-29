@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection issue de docs/http-contract.md (131 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
+    "description": "Collection issue de docs/http-contract.md (140 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -4490,6 +4490,280 @@
         "description": "Métadonnées des documents courants avant vérification du téléphone : consent_type, required_document_version, document_url, document_language et document_date (YYYY-MM-DD ou null). Aucun compte ni historique de consentement."
       },
       "response": []
+    },
+    {
+      "name": "Compte et suppression des données sur le site",
+      "item": [
+        {
+          "name": "POST /api/web/account/otp/send",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/web/account/otp/send",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{webBillingOtpKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "⚠️ Peut envoyer un SMS si UUID et téléphone correspondent à un compte actif. Origin exact du site et Idempotency-Key requis. Même challenge et mêmes limites que la facturation web ; disponible avec WEB_BILLING_ENABLED=false. Réutiliser la même clé après une réponse incertaine. Ne crée jamais de compte.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{targetUserId}}\",\n  \"phone_number\": \"{{phoneNumber}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 202) { pm.collectionVariables.set(\"webBillingChallengeId\", pm.response.json().challenge_id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/web/account/otp/verify",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/web/account/otp/verify",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Vérifie l’OTP de ce challenge web. Définit le cookie HttpOnly partagé de trente minutes ; aucun jeton mobile émis. Cinq tentatives maximum. Utiliser webBillingCookie pour les requêtes compte et confidentialité suivantes.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challenge_id\": \"{{webBillingChallengeId}}\",\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"otp\": \"{{otp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/web/account/session",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/web/account/session",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{webBillingCookie}}"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Lit uniquement l’identité web : user_id et onboarding_complete, sans charger la facturation. Cookie web requis. Disponible sans onboarding terminé ni paiement web activé."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/web/account/session",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/web/account/session",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{webBillingCookie}}"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Ferme la session web partagée entre compte et paiement puis expire le cookie. Origin exact obligatoire."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/web/privacy/data",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/web/privacy/data",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{webBillingCookie}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "⚠️ Supprime uniquement la catégorie du compte connecté : photo, location ou sensitive_profile. La photo est nettoyée en arrière-plan ; les données de localisation/sensibles sont effacées avec retrait du consentement correspondant et conservation de son historique. Réponse 204. Aucun UUID cible accepté. Modifier la catégorie volontairement ; ne pas lancer toute la collection.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category\": \"photo\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/web/privacy/deletion-token",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/web/privacy/deletion-token",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{webBillingCookie}}"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Émet un jeton de confirmation à usage unique et durée limitée, lié au compte du cookie web. Réponse 201 ; copier confirmation_token dans deletionToken. Ne supprime pas encore le compte."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/web/privacy/account",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/web/privacy/account",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webBillingOrigin}}"
+              },
+              {
+                "key": "Cookie",
+                "value": "{{webBillingCookie}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "⚠️ Ferme définitivement le compte connecté avec son jeton de confirmation. Réponse 202 et cookie web expiré ; toutes les sessions deviennent invalides, puis l’effacement se poursuit en arrière-plan avec reprise possible. Cela ne confirme pas la fin du nettoyage du stockage ou des fournisseurs. Ne pas rejouer automatiquement après une réponse incertaine.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"confirmation_token\": \"{{deletionToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ],
   "variable": [

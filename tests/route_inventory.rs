@@ -28,7 +28,7 @@ fn documented_http_inventory_matches_rust_route_registrations() {
     );
     assert_eq!(
         documented.len(),
-        133,
+        140,
         "review the expected route count when the contract changes"
     );
 }
@@ -104,6 +104,34 @@ fn collect_postman_routes(items: &serde_json::Value, routes: &mut Vec<Route>) {
                     }),
                 "administrator cookie is required: {path}"
             );
+        }
+        if path.starts_with("/api/web/") {
+            assert_eq!(
+                request["auth"]["type"], "noauth",
+                "website requests must not inherit a mobile JWT: {path}"
+            );
+            let headers = request["header"].as_array().expect("website headers");
+            let has_header = |name: &str, value: &str| {
+                headers.iter().any(|header| {
+                    header["key"]
+                        .as_str()
+                        .is_some_and(|key| key.eq_ignore_ascii_case(name))
+                        && header["value"] == value
+                        && header["disabled"] != true
+                })
+            };
+            if request["method"] != "GET" {
+                assert!(
+                    has_header("Origin", "{{webBillingOrigin}}"),
+                    "website mutation origin: {path}"
+                );
+            }
+            if !path.contains("/otp/") && !path.ends_with("/plans") {
+                assert!(
+                    has_header("Cookie", "{{webBillingCookie}}"),
+                    "website session cookie: {path}"
+                );
+            }
         }
         routes.push(Route {
             method: request["method"]

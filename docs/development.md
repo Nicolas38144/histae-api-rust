@@ -207,3 +207,27 @@ Le lanceur crée une base PostgreSQL jetable, vérifie aussi l’upgrade depuis 
 sans messages et sa répétition, puis supprime ses conteneurs et identifiants temporaires.
 Il vérifie la clôture concurrente, les refus sans réponse, les catégories historiques et
 l’absence de notes internes dans l’export. Voir [Validation locale](../tests/README.md).
+
+## Suppression des données depuis le site
+
+`privacy/web/http.rs` extrait l'identité du cookie web après vérification de l'origine exacte,
+puis applique le budget par compte avant de valider les champs du JSON. Le parseur global contrôle
+d’abord le format, la syntaxe et la taille du corps. `privacy/web/service.rs` délègue les
+retraits partiels aux services photo et consentements ; l'effacement du compte utilise le service
+de suppression existant. Aucun UUID cible n'est accepté. Les alias compte et paiement partagent
+leur challenge OTP, leurs limites et leur cookie. `WEB_BILLING_ENABLED=false` bloque les achats,
+sans bloquer la connexion ni les démarches de confidentialité ; `WEB_BILLING_ORIGIN` reste requis.
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets
+cargo build --locked --bin db-migrate
+python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
+  --test web_privacy_postgres --test store_billing_postgres \
+  --test privacy_rights_postgres --test account_erasure_postgres
+```
+
+Les tests HTTP s'exécutent avec les vrais repositories dans une base jetable. SMS, Stripe et stockage
+ne contactent aucun fournisseur réel. La livraison du site et des routes du proxy, ainsi que le
+parcours SMS réel dans un navigateur, nécessitent une vérification distincte sur la cible.

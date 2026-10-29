@@ -222,10 +222,35 @@ L’offre ne crée aucun achat ou revenu et n’annule aucun abonnement fourniss
 partagent les verrous de continuation ; l’anonymisation et la suppression retirent l’offre.
 Le dashboard propose confirmation, retrait et erreurs accessibles dans la boîte de dialogue,
 avec les traductions françaises, anglaises, espagnoles et italiennes des actions et de l’audit.
-Les collections Postman et l’inventaire des **133 routes** sont alignés. Aucune variable `.env`
+Les collections Postman et l’inventaire des **140 routes** sont alignés. Aucune variable `.env`
 supplémentaire n’est nécessaire. Déployer les migrations/API avant le dashboard.
 
 Vérifications : **239 tests unitaires Rust**, **27 tests de contrat/inventaire** et **53 tests PostgreSQL**
 réussis, soit **319 tests API**. **144 tests dashboard**, typage, lint et build de production réussis.
 Les migrations neuves, historiques et répétées conservent les offres ; le PostgreSQL jetable a été
 supprimé avec ses fixtures et secrets temporaires. Aucun SMS ou paiement réel n’a été envoyé.
+
+## Parcours web de suppression — vérification du 29 octobre 2026
+
+Les gardes HTTP du parcours web vérifient l'origine exacte, le cookie actif et le budget par compte
+avant la validation des champs JSON. Le parseur global conserve ses contrôles de format, syntaxe et
+taille. Les retraits partiels sont orchestrés dans `privacy/web/service.rs`, sans SQL ni règles de
+consentement dupliquées dans le transport. L'effacement reprend le service et la file existants.
+Le client HTTP partagé du site omet `Content-Type` en l'absence de corps ; il n'envoie donc plus du
+JSON vide pour demander un jeton, se déconnecter ou ouvrir le portail.
+
+| Vérification locale | Résultat |
+| --- | --- |
+| Rust, tous les targets avec fonctionnalités par défaut | 373 tests réussis |
+| PostgreSQL isolé : parcours web, stores, RGPD, effacement, profils | 17 tests réussis, dont six nouveaux scénarios web |
+| Migrations neuves, upgrades et répétition | Réussis ; base et secrets temporaires supprimés |
+| Inventaire et collections Postman FR/EN | 140 routes, cookies web et origine contrôlés |
+| Formatage et Clippy, tous les targets et fonctionnalités | Réussis, avertissements refusés |
+| Client du site : typage, lint ciblé et tests avec `fetch` simulé | Réussis, deux tests |
+
+Les tests couvrent les cookies expirés et ambigus, les comptes bannis/supprimés, les tentatives visant
+un autre compte, les budgets partagés, les retraits idempotents et leur audit, les jetons de confirmation
+et l'invalidation des sessions. La connexion reste disponible sans facturation ni onboarding terminé ;
+Checkout et portail restent désactivés lorsque le paiement web est coupé. Aucun fournisseur réel ni pile
+déployée n'a été utilisé. Le parcours navigateur sur le serveur cible reste à vérifier après livraison
+conjointe de l'API, du site et du routage proxy. Aucun changement de `.env` ou de schéma n'est nécessaire.

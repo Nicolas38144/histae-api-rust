@@ -389,9 +389,16 @@ Référence : [Sauvegarde et restauration](docs/database.md#sauvegarde-et-restau
 - [x] Ajouter le parcours web de suppression du compte et de certaines données, dans les quatre
   langues du site, avec lien au footer, session UUID/téléphone/OTP et confirmation distincte.
   Les routes réutilisent les services d’effacement, de consentement et de photo existants.
+  Refactoring API : gardes avant validation des champs et service dédié aux retraits partiels.
+  Validation locale du 29 octobre 2026 : 373 tests Rust par défaut et 17 tests PostgreSQL réussis,
+  dont six nouveaux tests HTTP du parcours web ; migrations neuves et répétées validées en base jetable.
+  Les 140 routes sont alignées avec Postman FR/EN. Formatage et Clippy réussis.
+- [x] Corriger le client HTTP du site : les requêtes sans corps ne déclarent plus de JSON vide,
+  ce qui bloquait notamment l'émission du jeton d'effacement. Typage, lint ciblé et deux tests du
+  client avec `fetch` simulé réussis ; aucun SMS ni paiement réel utilisé pour ces vérifications.
 - [ ] Déployer ensemble l’API, le site et le routage proxy `/api/web/account/*` et `/api/web/privacy/*` ;
   vérifier OTP réel, session partagée avec l’abonnement, refus d’une autre origine, retraits partiels,
-  fermeture du compte et fin de l’effacement outbox. Rejouer les contrôles Rust sur une cible équipée.
+  fermeture du compte et fin de l’effacement outbox sur la cible.
 - [ ] Valider les durées de conservation et les sauvegardes réelles puis renseigner les URL
   `/fr/account/data/#delete-account` et `/fr/account/data/#delete-data` dans Google Play après publication.
 

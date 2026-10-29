@@ -304,8 +304,10 @@ impl ApiResources {
             limiter: limiter.clone(),
             policy: config.rate_limit.photo.clone(),
             deletion: deletion.clone(),
-            photos: photo_service.clone(),
-            profiles: profile.clone(),
+            data: crate::privacy::web::WebDataDeletionService::new(
+                photo_service.clone(),
+                profile.clone(),
+            ),
         };
 
         let moderation_photos: Arc<dyn ModerationPhotoUrlProvider> =
