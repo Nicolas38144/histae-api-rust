@@ -95,6 +95,11 @@ Les nouvelles variables sont présentes dans le `.env` local avec fournisseurs n
 | `WEB_BILLING_ORIGIN` | Défaut dev `http://localhost:3000`, prod `https://www.histae.com` ; pas de slash final |
 | Variables `STRIPE_*` et `BILLING_PROVIDER` | Conservées pour le site ; voir [Stripe](billing.md) |
 
+Le service `store-verifier` fourni par les manifests écoute en **HTTP** sur le réseau Docker privé.
+Conserver `STORE_VERIFIER_URL=http://store-verifier:8080`, y compris en production. Les appels aux API
+Google/Apple et les webhooks publics utilisent HTTPS. La valeur `https://store-verifier:8080` provoque
+un échec de connexion TLS, même lorsque le conteneur du vérificateur est sain.
+
 La prise en charge optionnelle de fichiers de clés dans le vérificateur (`APP_STORE_PRIVATE_KEY_FILE`,
 `GOOGLE_PLAY_CREDENTIALS_FILE`) exige un montage explicite en lecture seule dans un override Compose ;
 elle n’est pas nécessaire avec les valeurs `.env` prévues. Les clés privées natives sont effacées de
