@@ -240,3 +240,174 @@ async fn blocks_reports_bans_and_audits_preserve_postgres_invariants()
     cleanup(&database, &users).await?;
     result
 }
+
+// The PostgreSQL adapter is the boundary that must reject direct administrator reads.
+#[tokio::test]
+async fn administrative_messages_require_a_report_in_the_exact_conversation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&local_config()?).await?;
+    let actor = Uuid::new_v4();
+    let first = Uuid::new_v4();
+    let second = Uuid::new_v4();
+    let third = Uuid::new_v4();
+    let users = [actor, first, second, third];
+    insert_account(&database, actor, "superadmin").await?;
+    for user in [first, second, third] {
+        insert_account(&database, user, "user").await?;
+    }
+    let conversation = Uuid::new_v4();
+    let unrelated = Uuid::new_v4();
+    let report_id = Uuid::new_v4();
+    const AUDIT_COUNT_SQL: &str = "SELECT count(*) FROM data_access_log
+        WHERE accessor_id=$1 AND action='view_messages'";
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        for (id, left, right) in [(conversation, first, second), (unrelated, second, third)] {
+            sqlx::query(
+                "INSERT INTO match_init (id,user1_id,user2_id,status,expires_at)
+             VALUES ($1,$2,$3,'confirmed',clock_timestamp()+interval '1 day')",
+            )
+            .bind(id)
+            .bind(left.min(right))
+            .bind(left.max(right))
+            .execute(database.pool())
+            .await?;
+        }
+        let store = PgAdministrationStore::new(database.clone());
+        let reports = PgReportStore::new(database.clone());
+        for (context, reporter, reported, status, allowed) in [
+            (None, first, second, ReportStatus::Pending, false),
+            (Some(unrelated), third, second, ReportStatus::Pending, false),
+            (
+                Some(conversation),
+                first,
+                second,
+                ReportStatus::Pending,
+                true,
+            ),
+            (
+                Some(conversation),
+                second,
+                first,
+                ReportStatus::Reviewed,
+                true,
+            ),
+            (
+                Some(conversation),
+                first,
+                second,
+                ReportStatus::Dismissed,
+                true,
+            ),
+        ] {
+            sqlx::query("DELETE FROM user_report WHERE id=$1")
+                .bind(report_id)
+                .execute(database.pool())
+                .await?;
+            reports
+                .create(ReportRecord {
+                    id: report_id,
+                    reporter_id: reporter,
+                    reported_id: reported,
+                    match_id: context,
+                    reason: ReportReason::Harassment,
+                    description: None,
+                    status,
+                    created_at: Utc::now(),
+                    resolved_at: None,
+                })
+                .await?;
+            for role in [AdminRole::Admin, AdminRole::Superadmin] {
+                let before: i64 = sqlx::query_scalar(AUDIT_COUNT_SQL)
+                    .bind(actor)
+                    .fetch_one(database.pool())
+                    .await?;
+                let rows = store
+                    .messages(
+                        conversation,
+                        actor,
+                        role,
+                        "Report review".to_owned(),
+                        1,
+                        0,
+                        None,
+                    )
+                    .await?;
+                assert_eq!(rows.is_some(), allowed);
+                // Offset pagination must not bypass the same guard on a later page.
+                let later = store
+                    .messages(
+                        conversation,
+                        actor,
+                        role,
+                        "Report review".to_owned(),
+                        1,
+                        1,
+                        None,
+                    )
+                    .await?;
+                assert_eq!(later.is_some(), allowed);
+                let listed = store
+                    .matches(first, actor, role, "Profile review".to_owned(), 10, 0, None)
+                    .await?
+                    .expect("account");
+                let listed = listed
+                    .iter()
+                    .find(|row| row.item.id == conversation)
+                    .expect("match");
+                assert_eq!(listed.can_view_messages, allowed);
+                assert_eq!(
+                    store
+                        .messages(
+                            unrelated,
+                            actor,
+                            role,
+                            "Report review".to_owned(),
+                            1,
+                            0,
+                            None
+                        )
+                        .await?
+                        .is_some(),
+                    context == Some(unrelated)
+                );
+                let after: i64 = sqlx::query_scalar(AUDIT_COUNT_SQL)
+                    .bind(actor)
+                    .fetch_one(database.pool())
+                    .await?;
+                let authorized_reads = if allowed {
+                    2
+                } else if context == Some(unrelated) {
+                    1
+                } else {
+                    0
+                };
+                assert_eq!(after - before, authorized_reads * 2);
+            }
+        }
+        // Removing the report also removes access, even if the list previously allowed it.
+        sqlx::query("DELETE FROM user_report WHERE id=$1")
+            .bind(report_id)
+            .execute(database.pool())
+            .await?;
+        for role in [AdminRole::Admin, AdminRole::Superadmin] {
+            assert!(
+                store
+                    .messages(
+                        conversation,
+                        actor,
+                        role,
+                        "Report review".to_owned(),
+                        1,
+                        0,
+                        None
+                    )
+                    .await?
+                    .is_none()
+            );
+        }
+        Ok(())
+    }
+    .await;
+    cleanup(&database, &users).await?;
+    result
+}

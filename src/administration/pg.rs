@@ -413,7 +413,8 @@ impl AdministrationStore for PgAdministrationStore {
                         if !exists {
                             return Ok(None);
                         }
-                        let rows = sqlx::query(LIST_MATCHES_SQL)
+                        let query = list_matches_sql();
+                        let rows = sqlx::query(&query)
                             .bind(user_id)
                             .bind(i64::from(limit))
                             .bind(i64::from(offset))
@@ -455,12 +456,14 @@ impl AdministrationStore for PgAdministrationStore {
             self.database
                 .transaction(|connection| {
                     Box::pin(async move {
-                        let participants =
-                            sqlx::query("SELECT user1_id, user2_id FROM match_init WHERE id = $1")
-                                .bind(match_id)
-                                .fetch_optional(&mut *connection)
-                                .await
-                                .map_err(map_sqlx_error)?;
+                        // Recheck on every read, before loading messages or recording access.
+                        // Missing and unreported matches are deliberately indistinguishable.
+                        let query = message_participants_sql();
+                        let participants = sqlx::query(&query)
+                            .bind(match_id)
+                            .fetch_optional(&mut *connection)
+                            .await
+                            .map_err(map_sqlx_error)?;
                         let Some(participants) = participants else {
                             return Ok(None);
                         };
@@ -554,6 +557,7 @@ fn map_preferences(row: &sqlx::postgres::PgRow) -> Result<AdminPreferences, Data
 fn map_match(row: sqlx::postgres::PgRow) -> Result<CursorMatchRow, DatabaseError> {
     let status: String = row.try_get("status").map_err(map_sqlx_error)?;
     Ok(CursorMatchRow {
+        can_view_messages: row.try_get("can_view_messages").map_err(map_sqlx_error)?,
         item: MatchRecord {
             id: row.try_get("id").map_err(map_sqlx_error)?,
             user1_id: row.try_get("user1_id").map_err(map_sqlx_error)?,
@@ -699,7 +703,24 @@ LEFT JOIN effective_user_subscription AS subscription ON subscription.user_id = 
 WHERE account.user_id = $1 AND account.deleted_at IS NULL
 "#;
 
-const LIST_MATCHES_SQL: &str = r#"
+// A profile report or a report from another match must never unlock this conversation.
+const MATCH_REPORT_EXISTS_SQL: &str = r#"
+EXISTS (SELECT 1 FROM user_report AS report
+  WHERE report.match_id = match_record.id
+    AND ((report.reporter_id = match_record.user1_id AND report.reported_id = match_record.user2_id)
+      OR (report.reporter_id = match_record.user2_id AND report.reported_id = match_record.user1_id)))
+"#;
+
+fn message_participants_sql() -> String {
+    format!(
+        "SELECT user1_id, user2_id FROM match_init AS match_record
+         WHERE match_record.id = $1 AND {MATCH_REPORT_EXISTS_SQL}"
+    )
+}
+
+fn list_matches_sql() -> String {
+    format!(
+        r#"
 WITH page AS MATERIALIZED (
   SELECT match_record.*,
     COALESCE(match_record.last_message_at, match_record.created_at) AS activity_at
@@ -712,6 +733,9 @@ WITH page AS MATERIALIZED (
 )
 SELECT id, user1_id, user2_id, status, expires_at, purge_after,
   continuation_initiator_id, created_at, last_message_at,
+  {MATCH_REPORT_EXISTS_SQL} AS can_view_messages,
   to_char(activity_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at
-FROM page ORDER BY activity_at DESC, id DESC
-"#;
+FROM page AS match_record ORDER BY activity_at DESC, id DESC
+"#
+    )
+}

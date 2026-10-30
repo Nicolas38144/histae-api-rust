@@ -6,7 +6,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::domain::{AdminUser, AdminUserDetail, AdminUserRole, AdminUserStatus};
+use super::domain::{AdminMatch, AdminUser, AdminUserDetail, AdminUserRole, AdminUserStatus};
 use super::metrics::{AdminMetrics, AdminMetricsService, AdminRevenue, RevenuePeriod};
 use super::service::{AdministrationError, AdministrationService, AuditedPageRequest, Page};
 use crate::http::error::ApiError;
@@ -14,7 +14,7 @@ use crate::http::extract::{ApiDto, ValidatedJson, ValidatedPath, ValidatedQuery}
 use crate::http::router::HttpState;
 use crate::identity::admin::http::{AdminAuthHttpState, AdminIdentity};
 use crate::identity::admin_role::AdminRole;
-use crate::matches::domain::{PublicMatch, PublicMessage};
+use crate::matches::domain::PublicMessage;
 use crate::shared::text::validator_js_length;
 
 #[derive(Clone)]
@@ -516,7 +516,7 @@ impl ApiDto for AdminMessageQuery {
 
 #[derive(Serialize)]
 struct MatchesResponse {
-    matches: Vec<PublicMatch>,
+    matches: Vec<AdminMatch>,
     next_cursor: Option<String>,
 }
 

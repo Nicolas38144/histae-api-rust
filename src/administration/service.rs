@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use uuid::{Uuid, Variant};
 
 use super::domain::{
-    AdminUser, AdminUserDetail, AdminUserRole, AdminUserStatus, BanResult, PageCursor,
+    AdminMatch, AdminUser, AdminUserDetail, AdminUserRole, AdminUserStatus, BanResult, PageCursor,
     PremiumGrantResult, RoleChangeResult,
 };
 use super::store::AdministrationStore;
@@ -254,7 +254,7 @@ impl AdministrationService {
     pub async fn matches(
         &self,
         request: AuditedPageRequest<'_>,
-    ) -> Result<Page<PublicMatch>, AdministrationError> {
+    ) -> Result<Page<AdminMatch>, AdministrationError> {
         validate_pagination(request.limit, request.offset, request.cursor)?;
         let reason = normalize_reason(
             request
@@ -287,7 +287,10 @@ impl AdministrationService {
             items: rows
                 .into_iter()
                 .take(request.limit as usize)
-                .map(|row| PublicMatch::from_record_at(row.item, now))
+                .map(|row| AdminMatch {
+                    item: PublicMatch::from_record_at(row.item, now),
+                    can_view_messages: row.can_view_messages,
+                })
                 .collect(),
             next_cursor,
         })
@@ -637,6 +640,7 @@ mod tests {
             ban_result: BanResult::Updated,
             reasons: Mutex::new(Vec::new()),
             matches: vec![CursorMatchRow {
+                can_view_messages: false,
                 item: crate::matches::domain::MatchRecord {
                     id: Uuid::new_v4(),
                     user1_id: target.id,
@@ -670,9 +674,13 @@ mod tests {
             })
             .await
             .expect("admin matches");
-        assert!(page.items[0].archived);
+        assert!(page.items[0].item.archived);
+        assert!(!page.items[0].can_view_messages);
+        let json = serde_json::to_value(&page.items[0]).expect("administrative match");
+        assert_eq!(json["can_view_messages"], false);
+        assert!(json.get("item").is_none());
         assert_eq!(
-            page.items[0].inactivity_expires_at,
+            page.items[0].item.inactivity_expires_at,
             Some(crate::identity::mobile::domain::wire_timestamp(deadline))
         );
     }

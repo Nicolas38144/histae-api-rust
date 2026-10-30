@@ -647,7 +647,7 @@ Erreurs : `invalid_or_expired_admin_bootstrap`, `invalid_or_expired_webauthn_cha
 | PATCH | `/api/admin/users/:id/role` | Superadmin uniquement : `{ role: "admin" | "user", reason? }` → promotion ou retrait des droits admin. |
 | PATCH | `/api/admin/users/:id/complimentary-premium` | Superadmin uniquement : `{ enabled: boolean, reason? }` → `200 { message }` ; active ou retire un Premium offert sans expiration. Idempotent et audité. |
 | GET | `/api/matches/:userId` | UUID utilisateur + `reason?, limit, cursor` (offset déprécié) → `200 { matches, next_cursor }`. **Route admin malgré son chemin.** |
-| GET | `/api/admin/matches/:id/messages` | UUID match + `reason?, limit, cursor` (offset déprécié) → conversation auditée. |
+| GET | `/api/admin/matches/:id/messages` | UUID match + `reason?, limit, cursor` (offset déprécié) → conversation auditée uniquement si un signalement conservé référence ce match et ses deux participants (tous statuts de signalement). Sans signalement dans cette conversation, `404`, pour admin comme superadmin ; aucun message ni journal de consultation n’est produit. |
 | GET | `/api/admin/reports` | `status?, limit, cursor` (offset déprécié) → `200 { reports, next_cursor }`. |
 | PATCH | `/api/admin/reports/:id` | `{ status }` → `200 { message: "report updated" }` ; `404 report_not_found`. |
 | GET | `/api/admin/data-subject-requests` | `status?, limit, cursor` (offset déprécié) → `200 { requests, next_cursor }`, avec progression `erasure` éventuelle. |
@@ -791,3 +791,5 @@ Agreement belongs to the match, not to a photo version. Replacing a photo does n
 the newly approved current photo is used on subsequent reads of every mutually authorized match.
 Previously issued signed storage URLs retain their existing maximum 60-second validity; a withdrawal
 cannot recall downloaded bytes. Clients evict displayed images on privacy changes and realtime invalidation.
+
+La liste administrative `/api/matches/:userId` ajoute `can_view_messages` à chaque match. Ce booléen est réservé au dashboard ; il ne figure pas dans les réponses mobiles. Il est indicatif : le contrôle est répété côté serveur sur chaque page de messages. Un signalement de profil (`match_id` absent) ou lié à une autre conversation ne donne aucun droit de lecture.

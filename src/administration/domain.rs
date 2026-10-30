@@ -2,7 +2,7 @@ use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::matches::domain::{MatchRecord, MessageRecord};
+use crate::matches::domain::{MatchRecord, MessageRecord, PublicMatch};
 use crate::profiles::domain::{ConsentType, LookingFor, Sex};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -149,8 +149,17 @@ pub struct AdminUserDetail {
     pub continuation_quota: Option<crate::matches::domain::ContinuationQuota>,
 }
 
+/// Administrative-only metadata; mobile match responses do not expose report existence.
+#[derive(Clone, Debug, Serialize)]
+pub struct AdminMatch {
+    #[serde(flatten)]
+    pub item: PublicMatch,
+    pub can_view_messages: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct CursorMatchRow {
+    pub can_view_messages: bool,
     pub item: MatchRecord,
     pub cursor_at: String,
 }
