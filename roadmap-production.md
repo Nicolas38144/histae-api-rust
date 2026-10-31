@@ -1,9 +1,10 @@
 # Histae API — feuille de route de production
 
-Dernière mise à jour : **29 octobre 2026**, après ajout des achats natifs Apple/Google,
+Dernière mise à jour : **31 octobre 2026**, après ajout des achats natifs Apple/Google,
 du paiement Stripe sur le site par UUID/téléphone/OTP et du suivi financier des stores,
 correction du redéploiement avec maintenance et de la lecture des demandes RGPD avec effacement,
-et ajout du parcours web de suppression du compte et de certaines données.
+ajout du parcours web de suppression du compte et de certaines données, et restriction des lectures
+administratives aux conversations signalées.
 Les essais fournisseur sur appareils et la validation du déploiement final restent ouverts.
 
 Cette feuille de route suit les raccordements, décisions et preuves qui restent nécessaires avant le
@@ -292,6 +293,13 @@ Références : [Guide des achats](docs/store-billing.md), [Stripe](docs/billing.
 
 ## PROD-09 — Administration WebAuthn
 
+- [x] Réserver la lecture administrative des messages aux conversations ayant un signalement conservé
+  lié à leurs deux participants, pour admin comme superadmin, avec contrôle à chaque page et audit atomique.
+  Isoler les lectures dans `administration/pg/conversations.rs`, corriger les fixtures PostgreSQL et
+  vérifier l'absence de l'indicateur de signalement dans la projection mobile. Validation locale du
+  31 octobre 2026 : 373 tests Rust et 29 tests PostgreSQL réussis ; formatage et Clippy réussis.
+- [ ] Vérifier sur la cible l'indicateur du dashboard, le refus d'une conversation non signalée et
+  la lecture auditée d'une conversation signalée après authentification WebAuthn.
 - [x] Fournir `histae-scripts/bootstrap-superadmin.sh` pour promouvoir l’unique compte admissible,
   émettre le jeton temporaire et guider l’enregistrement de la passkey dans le navigateur.
   Validation locale : huit tests d’orchestration avec Docker simulé et syntaxe Bash/Python réussis ;

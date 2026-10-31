@@ -2918,7 +2918,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "UUID utilisateur + reason?, limit, cursor (offset déprécié) → 200 { matches, next_cursor }. Motif requis pour un admin, facultatif pour le superadmin. **Route admin malgré son chemin.**"
+                "description": "UUID utilisateur + reason?, limit, cursor (offset déprécié) → 200 { matches, next_cursor }. Motif requis pour un admin, facultatif pour le superadmin. **Route admin malgré son chemin.** Chaque match expose can_view_messages : indicateur administratif de lecture des messages, recontrôlé par le serveur sur chaque page ; absent des réponses mobiles."
               },
               "response": []
             },
@@ -2940,7 +2940,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "UUID match + reason?, limit, cursor (offset déprécié) → conversation auditée. Motif requis pour un admin, facultatif pour le superadmin."
+                "description": "Lecture réservée aux conversations ayant un signalement conservé qui référence ce match et ses deux participants, quel que soit son statut. Même règle pour admin et superadmin. Sans signalement correspondant : 404 match_not_found, aucun message ni journal de consultation produit. Contrôle répété sur chaque page, même avec cursor ou offset. Chaque lecture autorisée est auditée pour les deux participants."
               },
               "response": []
             },

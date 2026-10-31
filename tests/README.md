@@ -497,3 +497,29 @@ python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/d
   --test web_privacy_postgres --test store_billing_postgres \
   --test privacy_rights_postgres --test account_erasure_postgres
 ```
+
+### Lecture administrative des conversations signalées
+
+`administration_reports_postgres` utilise des messages réels et deux acteurs distincts (admin et
+superadmin). La lecture exige un signalement conservé qui référence exactement la conversation et
+ses deux participants, dans l'un ou l'autre sens. Les cas de profil, conversation différente et
+participants incohérents restent interdits. Les statuts `pending`, `reviewed` et `dismissed` sont couverts.
+
+Les assertions portent sur le contenu renvoyé, l'isolation des conversations, les pages par offset et
+curseur, le retrait d'accès après suppression du signalement et l'absence d'audit pour les refus.
+Chaque lecture autorisée produit deux audits ; un échec d'audit annule la transaction. La projection
+publique mobile reste dépourvue de `can_view_messages` ; la projection administrative reste aplatie.
+
+Validation locale du 31 octobre 2026 : 373 tests Rust par défaut et 29 tests PostgreSQL réussis
+(administration/signalements, matchs, modération et Premium offert), formatage et Clippy réussis.
+Les migrations neuves, les upgrades et leur répétition passent dans la base jetable, supprimée ensuite.
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets
+cargo build --locked --bin db-migrate
+python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
+  --test administration_reports_postgres --test matches_postgres \
+  --test moderation_postgres --test complimentary_premium_postgres
+```

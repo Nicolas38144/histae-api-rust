@@ -254,3 +254,23 @@ et l'invalidation des sessions. La connexion reste disponible sans facturation n
 Checkout et portail restent désactivés lorsque le paiement web est coupé. Aucun fournisseur réel ni pile
 déployée n'a été utilisé. Le parcours navigateur sur le serveur cible reste à vérifier après livraison
 conjointe de l'API, du site et du routage proxy. Aucun changement de `.env` ou de schéma n'est nécessaire.
+
+## Lecture administrative des messages — vérification du 31 octobre 2026
+
+Le dernier contrôle exige un signalement conservé liant exactement la conversation et ses deux
+participants, pour admin comme superadmin, quel que soit son statut. L'indicateur `can_view_messages`
+reste administratif ; la lecture réévalue l'autorisation sur chaque page. Les lectures et les deux
+audits restent transactionnels. Le refactoring isole les requêtes et projections dans
+`administration/pg/conversations.rs` et ne mémorise que le texte SQL, sans mettre les droits en cache.
+
+Les cinq accès privés au pool dans les nouvelles fixtures ont été remplacés par l'acquisition publique
+d'une connexion. Le scénario utilise désormais de vrais messages et des acteurs de chaque rôle :
+profil/autre conversation/participants incohérents refusés, deux orientations et trois statuts acceptés,
+contenu et pagination isolés, curseur refusé après suppression du signalement, absence d'audit
+de consultation pour les refus et transaction annulée si l'audit échoue.
+
+Validation locale : **373 tests Rust par défaut et 29 tests PostgreSQL réussis** (administration,
+matchs, modération et Premium offert), formatage et Clippy sans avertissement. Les migrations neuves,
+les upgrades et leur répétition passent ; la base et les secrets temporaires sont supprimés. Le contrat,
+le guide admin et Postman FR/EN décrivent la règle ; l'inventaire reste à 140 routes. Aucun changement
+de `.env` ni migration supplémentaire nécessaire. La validation du dashboard déployé reste à faire.

@@ -79,6 +79,10 @@ en mémoire ne remplace jamais un verrou transactionnel distribué. Les futures 
 - `matches/pg/{matches,messages,access,continuation,credits}.rs` sépare les repositories et les helpers de verrouillage qui reçoivent
   la connexion de l’appelant.
 - `administration/{photos,metrics}/` sépare règles, contrats et SQL de chaque fonctionnalité.
+- `administration/pg/conversations.rs` regroupe les lectures auditées et leurs projections SQL.
+  Le même prédicat de signalement pilote l'indicateur administratif et le contrôle de chaque page
+  de messages. `LazyLock` conserve uniquement le texte SQL ; l'autorisation est relue en base à
+  chaque appel, avant les deux audits et la lecture des messages dans la même transaction.
 - `privacy/{rights,export,erasure}/` regroupe les workflows indépendants avec leur transport et leur persistance.
 - `outbox/admin/` sépare les décisions opérateur de leur audit transactionnel.
 - `media/codec.rs` contient l’adaptateur du codec autonome dans `tools/photo-codec/`.

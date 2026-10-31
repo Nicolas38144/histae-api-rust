@@ -123,6 +123,22 @@ Le bannissement d’un compte et le retrait de son rôle sont deux actions disti
 Les consultations sensibles restent auditées. Un admin fournit un motif lorsque le contrat l’exige ; le
 superadmin peut l’omettre, auquel cas l’API inscrit un motif automatique. Un motif fourni reste validé.
 
+## Consulter une conversation signalée
+
+La liste administrative `GET /api/matches/:userId` expose `can_view_messages` sur chaque match.
+Cet indicateur est réservé au dashboard : les réponses mobiles ne révèlent pas l'existence d'un signalement.
+
+`GET /api/admin/matches/:id/messages` exige un signalement conservé qui référence cette conversation
+et ses deux participants, dans l'un ou l'autre sens. La règle s'applique aux admins et au superadmin,
+avec les statuts de signalement `pending`, `reviewed` et `dismissed`. Un signalement de profil ou d'une
+autre conversation n'autorise pas la lecture. Sans signalement correspondant, la réponse est
+`404 match_not_found`, comme pour une conversation inexistante.
+
+Le contrôle est répété sur chaque page, y compris avec un curseur ou un offset : un indicateur déjà
+affiché ne donne pas un droit durable. Chaque lecture autorisée est auditée pour les deux participants
+dans la transaction de lecture. Un refus n'ajoute pas de journal de consultation ; un échec d'audit
+empêche le renvoi des messages. Les règles de justification habituelles s'appliquent.
+
 ## Diagnostic d’accès
 
 | Symptôme | Vérification |
@@ -130,6 +146,7 @@ superadmin peut l’omettre, auquel cas l’API inscrit un motif automatique. Un
 | `401 admin_session_invalid` | Cookie admin présent pour le bon hôte, session non expirée, compte/passkey encore actifs |
 | `403 invalid_admin_request_origin` | Origine exacte du dashboard et en-tête `Origin` sur la mutation |
 | `admin_reauthentication_required` | Refaire la connexion WebAuthn avant l’action exigeant une session récente |
+| `404 match_not_found` lors d'une lecture admin | Match existant et signalement conservé lié à cette conversation et à ses deux participants |
 | Challenge / bootstrap invalide | Expiration, consommation antérieure, jeton complet et origine/RP ID |
 | Dialogue attendant une clé | Authentificateur disponible et vérification utilisateur, pas l’état de la session mobile |
 

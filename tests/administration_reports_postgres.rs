@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use chrono::{TimeDelta, Utc};
-use histae_api_rust::administration::domain::BanResult;
+use histae_api_rust::administration::domain::{BanResult, PageCursor};
 use histae_api_rust::administration::pg::PgAdministrationStore;
 use histae_api_rust::administration::store::AdministrationStore;
 use histae_api_rust::config::{PostgresConfig, SecretString};
@@ -241,173 +241,132 @@ async fn blocks_reports_bans_and_audits_preserve_postgres_invariants()
     result
 }
 
-// The PostgreSQL adapter is the boundary that must reject direct administrator reads.
+async fn message_audit_count(database: &Database, actor: Uuid) -> Result<i64, DatabaseError> {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM data_access_log WHERE accessor_id=$1 AND action='view_messages'",
+    )
+    .bind(actor)
+    .fetch_one(&mut *database.acquire().await?)
+    .await
+    .map_err(map_sqlx_error)
+}
+
+// Real messages ensure the adapter cannot return another conversation or leak a
+// later page after report eligibility changes. Both actor roles follow this rule.
 #[tokio::test]
 async fn administrative_messages_require_a_report_in_the_exact_conversation()
 -> Result<(), Box<dyn std::error::Error>> {
     let database = Database::connect(&local_config()?).await?;
-    let actor = Uuid::new_v4();
+    let admin = Uuid::new_v4();
+    let superadmin = Uuid::new_v4();
     let first = Uuid::new_v4();
     let second = Uuid::new_v4();
     let third = Uuid::new_v4();
-    let users = [actor, first, second, third];
-    insert_account(&database, actor, "superadmin").await?;
+    let users = [admin, superadmin, first, second, third];
+    let actors = [
+        (admin, AdminRole::Admin),
+        (superadmin, AdminRole::Superadmin),
+    ];
+    for (actor, role) in actors {
+        insert_account(&database, actor, role.as_str()).await?;
+    }
     for user in [first, second, third] {
         insert_account(&database, user, "user").await?;
     }
     let conversation = Uuid::new_v4();
     let unrelated = Uuid::new_v4();
+    let missing = Uuid::new_v4();
     let report_id = Uuid::new_v4();
-    const AUDIT_COUNT_SQL: &str = "SELECT count(*) FROM data_access_log
-        WHERE accessor_id=$1 AND action='view_messages'";
+    let latest = Uuid::new_v4();
+    let older = Uuid::new_v4();
+    let foreign = Uuid::new_v4();
     let result: Result<(), Box<dyn std::error::Error>> = async {
+        let created_at = Utc::now() - TimeDelta::minutes(2);
         for (id, left, right) in [(conversation, first, second), (unrelated, second, third)] {
             sqlx::query(
-                "INSERT INTO match_init (id,user1_id,user2_id,status,expires_at)
-             VALUES ($1,$2,$3,'confirmed',clock_timestamp()+interval '1 day')",
+                "INSERT INTO match_init (id,user1_id,user2_id,status,expires_at,created_at)
+                 VALUES ($1,$2,$3,'confirmed',clock_timestamp()+interval '1 day',$4)",
             )
-            .bind(id)
-            .bind(left.min(right))
-            .bind(left.max(right))
-            .execute(database.pool())
-            .await?;
+            .bind(id).bind(left.min(right)).bind(left.max(right)).bind(created_at)
+            .execute(&mut *database.acquire().await?).await?;
         }
+        for (id, thread, sender, content, seconds) in [
+            (older, conversation, first, "Earlier conversation message", 10),
+            (latest, conversation, second, "Latest conversation message", 20),
+            (foreign, unrelated, third, "Message from another conversation", 30),
+        ] {
+            sqlx::query("INSERT INTO chat_message(id,match_id,sender_id,content,created_at) VALUES($1,$2,$3,$4,$5)")
+                .bind(id).bind(thread).bind(sender).bind(content).bind(created_at + TimeDelta::seconds(seconds))
+                .execute(&mut *database.acquire().await?).await?;
+        }
+        let cursor_at = sqlx::query_scalar("SELECT created_at FROM chat_message WHERE id=$1")
+            .bind(latest).fetch_one(&mut *database.acquire().await?).await?;
+        let cursor = PageCursor { at: cursor_at, id: latest };
         let store = PgAdministrationStore::new(database.clone());
         let reports = PgReportStore::new(database.clone());
         for (context, reporter, reported, status, allowed) in [
             (None, first, second, ReportStatus::Pending, false),
             (Some(unrelated), third, second, ReportStatus::Pending, false),
-            (
-                Some(conversation),
-                first,
-                second,
-                ReportStatus::Pending,
-                true,
-            ),
-            (
-                Some(conversation),
-                second,
-                first,
-                ReportStatus::Reviewed,
-                true,
-            ),
-            (
-                Some(conversation),
-                first,
-                second,
-                ReportStatus::Dismissed,
-                true,
-            ),
+            // A legacy inconsistent report must not authorize either orientation.
+            (Some(conversation), first, third, ReportStatus::Pending, false),
+            (Some(conversation), third, first, ReportStatus::Pending, false),
+            (Some(conversation), first, second, ReportStatus::Pending, true),
+            (Some(conversation), second, first, ReportStatus::Reviewed, true),
+            (Some(conversation), first, second, ReportStatus::Dismissed, true),
         ] {
-            sqlx::query("DELETE FROM user_report WHERE id=$1")
-                .bind(report_id)
-                .execute(database.pool())
-                .await?;
-            reports
-                .create(ReportRecord {
-                    id: report_id,
-                    reporter_id: reporter,
-                    reported_id: reported,
-                    match_id: context,
-                    reason: ReportReason::Harassment,
-                    description: None,
-                    status,
-                    created_at: Utc::now(),
-                    resolved_at: None,
-                })
-                .await?;
-            for role in [AdminRole::Admin, AdminRole::Superadmin] {
-                let before: i64 = sqlx::query_scalar(AUDIT_COUNT_SQL)
-                    .bind(actor)
-                    .fetch_one(database.pool())
-                    .await?;
-                let rows = store
-                    .messages(
-                        conversation,
-                        actor,
-                        role,
-                        "Report review".to_owned(),
-                        1,
-                        0,
-                        None,
-                    )
-                    .await?;
+            sqlx::query("DELETE FROM user_report WHERE id=$1").bind(report_id)
+                .execute(&mut *database.acquire().await?).await?;
+            reports.create(ReportRecord {
+                id: report_id, reporter_id: reporter, reported_id: reported, match_id: context,
+                reason: ReportReason::Harassment, description: None, status,
+                created_at: Utc::now(), resolved_at: None,
+            }).await?;
+            for (actor, role) in actors {
+                let before = message_audit_count(&database, actor).await?;
+                let rows = store.messages(conversation, actor, role, "Report review".to_owned(), 1, 0, None).await?;
                 assert_eq!(rows.is_some(), allowed);
-                // Offset pagination must not bypass the same guard on a later page.
-                let later = store
-                    .messages(
-                        conversation,
-                        actor,
-                        role,
-                        "Report review".to_owned(),
-                        1,
-                        1,
-                        None,
-                    )
-                    .await?;
+                if let Some(rows) = rows {
+                    assert_eq!(rows.len(), 1);
+                    assert_eq!(rows[0].item.id, latest);
+                    assert_eq!(rows[0].item.content, "Latest conversation message");
+                }
+                let later = store.messages(conversation, actor, role, "Report review".to_owned(), 1, 1, None).await?;
                 assert_eq!(later.is_some(), allowed);
-                let listed = store
-                    .matches(first, actor, role, "Profile review".to_owned(), 10, 0, None)
-                    .await?
-                    .expect("account");
-                let listed = listed
-                    .iter()
-                    .find(|row| row.item.id == conversation)
-                    .expect("match");
+                if let Some(rows) = later { assert_eq!(rows[0].item.id, older); }
+                let cursor_page = store.messages(conversation, actor, role, "Report review".to_owned(), 1, 0, Some(cursor.clone())).await?;
+                assert_eq!(cursor_page.is_some(), allowed);
+                if let Some(rows) = cursor_page { assert_eq!(rows[0].item.id, older); }
+                let listed = store.matches(first, actor, role, "Profile review".to_owned(), 10, 0, None).await?.expect("account");
+                let listed = listed.iter().find(|row| row.item.id == conversation).expect("match");
                 assert_eq!(listed.can_view_messages, allowed);
-                assert_eq!(
-                    store
-                        .messages(
-                            unrelated,
-                            actor,
-                            role,
-                            "Report review".to_owned(),
-                            1,
-                            0,
-                            None
-                        )
-                        .await?
-                        .is_some(),
-                    context == Some(unrelated)
-                );
-                let after: i64 = sqlx::query_scalar(AUDIT_COUNT_SQL)
-                    .bind(actor)
-                    .fetch_one(database.pool())
-                    .await?;
-                let authorized_reads = if allowed {
-                    2
-                } else if context == Some(unrelated) {
-                    1
-                } else {
-                    0
-                };
+                let other = store.messages(unrelated, actor, role, "Report review".to_owned(), 1, 0, None).await?;
+                assert_eq!(other.is_some(), context == Some(unrelated));
+                if let Some(rows) = other { assert_eq!(rows[0].item.id, foreign); }
+                assert!(store.messages(missing, actor, role, "Report review".to_owned(), 1, 0, None).await?.is_none());
+                if allowed {
+                    // No message may be returned if writing its audit fails.
+                    assert!(store.messages(conversation, actor, role, "Invalid\0audit".to_owned(), 1, 0, None).await.is_err());
+                }
+                let after = message_audit_count(&database, actor).await?;
+                let authorized_reads = if allowed { 3 } else if context == Some(unrelated) { 1 } else { 0 };
                 assert_eq!(after - before, authorized_reads * 2);
             }
         }
-        // Removing the report also removes access, even if the list previously allowed it.
-        sqlx::query("DELETE FROM user_report WHERE id=$1")
-            .bind(report_id)
-            .execute(database.pool())
-            .await?;
-        for role in [AdminRole::Admin, AdminRole::Superadmin] {
-            assert!(
-                store
-                    .messages(
-                        conversation,
-                        actor,
-                        role,
-                        "Report review".to_owned(),
-                        1,
-                        0,
-                        None
-                    )
-                    .await?
-                    .is_none()
-            );
+        // A cursor obtained while authorized never bypasses a later revocation.
+        sqlx::query("DELETE FROM user_report WHERE id=$1").bind(report_id)
+            .execute(&mut *database.acquire().await?).await?;
+        for (actor, role) in actors {
+            let before = message_audit_count(&database, actor).await?;
+            for page in [None, Some(cursor.clone())] {
+                assert!(store.messages(conversation, actor, role, "Report review".to_owned(), 1, 0, page).await?.is_none());
+            }
+            assert_eq!(message_audit_count(&database, actor).await?, before);
+            let listed = store.matches(first, actor, role, "Profile review".to_owned(), 10, 0, None).await?.expect("account");
+            assert!(!listed.iter().find(|row| row.item.id == conversation).expect("match").can_view_messages);
         }
         Ok(())
-    }
-    .await;
+    }.await;
     cleanup(&database, &users).await?;
+    database.close().await;
     result
 }

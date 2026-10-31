@@ -654,6 +654,8 @@ Erreurs : `invalid_or_expired_admin_bootstrap`, `invalid_or_expired_webauthn_cha
 | PATCH | `/api/admin/data-subject-requests/:id` | **Récente** ; `{ status, notes?, response? }` → transition contrôlée et auditée. Pour clôturer/refuser une rectification, `response` est obligatoire ; les catégories retirées sont en lecture seule. |
 | GET | `/api/admin/data-access-logs` | `user_id, limit, cursor` (offset déprécié) → `200 { logs, next_cursor }`. |
 
+La liste administrative `/api/matches/:userId` ajoute `can_view_messages` à chaque match. Ce booléen est réservé au dashboard ; il ne figure pas dans les réponses mobiles. Il est indicatif : le contrôle est répété côté serveur sur chaque page de messages. Un signalement de profil (`match_id` absent) ou lié à une autre conversation ne donne aucun droit de lecture.
+
 Recherche utilisateurs : prénom ou UUID exact ; `status = active | banned`, `role = user | admin | superadmin`. La liste ne signe aucune photo (`photo: null`). Le détail expose compte, profil, préférences, traits, consentements et fraîcheur de présence ; jamais téléphone, empreinte ou coordonnées précises. Il expose aussi `complimentary_premium` (offre Histae enregistrée) et `is_review_account` (compte de revue automatique), deux booléens en lecture seule sur le détail. Les motifs fournis mesurent 3–500 caractères ; une conversation est auditée pour les deux participants.
 
 L’offre Histae est indépendante du rôle et du marqueur de revue. Une attribution ne crée ni achat,
@@ -791,5 +793,3 @@ Agreement belongs to the match, not to a photo version. Replacing a photo does n
 the newly approved current photo is used on subsequent reads of every mutually authorized match.
 Previously issued signed storage URLs retain their existing maximum 60-second validity; a withdrawal
 cannot recall downloaded bytes. Clients evict displayed images on privacy changes and realtime invalidation.
-
-La liste administrative `/api/matches/:userId` ajoute `can_view_messages` à chaque match. Ce booléen est réservé au dashboard ; il ne figure pas dans les réponses mobiles. Il est indicatif : le contrôle est répété côté serveur sur chaque page de messages. Un signalement de profil (`match_id` absent) ou lié à une autre conversation ne donne aucun droit de lecture.

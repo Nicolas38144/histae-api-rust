@@ -679,6 +679,8 @@ mod tests {
         let json = serde_json::to_value(&page.items[0]).expect("administrative match");
         assert_eq!(json["can_view_messages"], false);
         assert!(json.get("item").is_none());
+        let mobile_json = serde_json::to_value(&page.items[0].item).expect("mobile match");
+        assert!(mobile_json.get("can_view_messages").is_none());
         assert_eq!(
             page.items[0].item.inactivity_expires_at,
             Some(crate::identity::mobile::domain::wire_timestamp(deadline))

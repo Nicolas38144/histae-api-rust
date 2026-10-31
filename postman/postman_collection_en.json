@@ -2918,7 +2918,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "User UUID + reason?, limit, cursor (offset deprecated) → 200 { matches, next_cursor }. Reason is required for an admin and optional for the superadmin. **Admin route despite its path.**"
+                "description": "User UUID + reason?, limit, cursor (offset deprecated) → 200 { matches, next_cursor }. Reason is required for an admin and optional for the superadmin. **Admin route despite its path.** Each match includes can_view_messages: an administrative read hint, rechecked by the server on every message page and absent from mobile responses."
               },
               "response": []
             },
@@ -2940,7 +2940,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "Match UUID + reason?, limit, cursor (offset deprecated) → audited conversation. Reason is required for an admin and optional for the superadmin."
+                "description": "Reads require a retained report referencing this exact match and both participants, regardless of report status. The same rule applies to admins and superadmins. Without a matching report: 404 match_not_found, no messages or access-audit entries. Eligibility is checked on every page, including cursor and offset pagination. Authorized reads audit both participants."
               },
               "response": []
             },
