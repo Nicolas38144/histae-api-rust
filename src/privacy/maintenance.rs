@@ -21,6 +21,7 @@ pub struct PrivacyMaintenanceResult {
     pub expired_store_subscriptions: u64,
     pub expired_store_accounts: u64,
     pub expired_refresh_tokens: u64,
+    pub expired_refresh_recoveries: u64,
     pub expired_notifications: u64,
     pub expired_consents: u64,
     pub expired_data_subject_requests: u64,
@@ -64,6 +65,8 @@ impl PrivacyMaintenanceResult {
         self.expired_refresh_tokens = self
             .expired_refresh_tokens
             .saturating_add(next.expired_refresh_tokens);
+        self.expired_refresh_recoveries = self.expired_refresh_recoveries
+            .saturating_add(next.expired_refresh_recoveries);
         self.expired_notifications = self
             .expired_notifications
             .saturating_add(next.expired_notifications);
@@ -125,7 +128,7 @@ impl PrivacyMaintenanceResult {
             .saturating_add(next.expired_store_accounts);
     }
 
-    fn counts(self) -> [u64; 28] {
+    fn counts(self) -> [u64; 29] {
         [
             self.stale_presences,
             self.expired_presences,
@@ -155,6 +158,7 @@ impl PrivacyMaintenanceResult {
             self.expired_store_subscriptions,
             self.expired_store_accounts,
             self.expired_mobile_otp_requests,
+            self.expired_refresh_recoveries,
         ]
     }
 }
@@ -186,7 +190,7 @@ impl PrivacyMaintenanceRepository {
                         return Ok(None);
                     }
                     let limit = i64::from(batch_size);
-                    let mut counts = [0_u64; 28];
+                    let mut counts = [0_u64; 29];
                     for (index, statement) in RETENTION_QUERIES.iter().enumerate() {
                         counts[index] = sqlx::query(statement)
                             .bind(now)
@@ -203,6 +207,7 @@ impl PrivacyMaintenanceRepository {
                         expired_otps: counts[3],
                         expired_mobile_otp_requests: counts[27],
                         expired_refresh_tokens: counts[4],
+                        expired_refresh_recoveries: counts[28],
                         expired_notifications: counts[5],
                         expired_consents: counts[6],
                         expired_data_subject_requests: counts[7],
@@ -232,7 +237,7 @@ impl PrivacyMaintenanceRepository {
     }
 }
 
-const RETENTION_QUERIES: [&str; 28] = [
+const RETENTION_QUERIES: [&str; 29] = [
     "WITH stale AS (
        SELECT user_id FROM user_presence
        WHERE is_location_fresh = true AND updated_at <= $1 - INTERVAL '1 hour'
@@ -248,7 +253,9 @@ const RETENTION_QUERIES: [&str; 28] = [
     "DELETE FROM otp_verification WHERE id IN (
        SELECT id FROM otp_verification WHERE expires_at <= $1 ORDER BY expires_at LIMIT $2)",
     "DELETE FROM refresh_tokens WHERE id IN (
-       SELECT id FROM refresh_tokens WHERE expires_at <= $1 ORDER BY expires_at LIMIT $2)",
+       SELECT id FROM refresh_tokens WHERE expires_at <= $1
+         AND NOT (rotation_result IS NOT NULL AND rotated_at > $1 - INTERVAL '7 days')
+       ORDER BY expires_at,id LIMIT $2)",
     "DELETE FROM notification WHERE id IN (
        SELECT id FROM notification WHERE expires_at <= $1 ORDER BY expires_at LIMIT $2)",
     "DELETE FROM user_consent WHERE id IN (
@@ -326,6 +333,10 @@ const RETENTION_QUERIES: [&str; 28] = [
     "DELETE FROM mobile_otp_request WHERE id IN (
        SELECT id FROM mobile_otp_request WHERE expires_at <= $1 AND resend_at <= $1
        ORDER BY expires_at,id LIMIT $2)",
+    "UPDATE refresh_tokens SET rotation_result=NULL WHERE id IN (
+       SELECT id FROM refresh_tokens WHERE rotation_result IS NOT NULL
+         AND rotated_at <= $1 - INTERVAL '7 days'
+       ORDER BY rotated_at,id LIMIT $2)",
 ];
 
 #[derive(Clone)]
@@ -416,6 +427,6 @@ mod tests {
         };
         assert_eq!(result.processed(), 6);
         assert_eq!(result.maximum(), 3);
-        assert_eq!(RETENTION_QUERIES.len(), 28);
+        assert_eq!(RETENTION_QUERIES.len(), 29);
     }
 }

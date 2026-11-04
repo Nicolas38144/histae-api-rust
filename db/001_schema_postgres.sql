@@ -188,6 +188,8 @@ CREATE TABLE refresh_tokens (
     family_id uuid NOT NULL,
     parent_token_id uuid,
     rotated_at timestamp with time zone,
+    rotation_request_hash text,
+    rotation_result bytea,
     CONSTRAINT chk_refresh_not_own_parent CHECK ((parent_token_id IS DISTINCT FROM id)),
     CONSTRAINT chk_refresh_rotation CHECK (((rotated_at IS NULL) OR revoked)),
     CONSTRAINT refresh_tokens_jti_key UNIQUE (jti),
@@ -199,6 +201,8 @@ CREATE TABLE refresh_tokens (
 );
 
 CREATE INDEX idx_refresh_tokens_expires ON refresh_tokens USING btree (expires_at, id);
+
+CREATE INDEX idx_refresh_recovery_expiry ON refresh_tokens USING btree (rotated_at, id) WHERE rotation_result IS NOT NULL;
 
 CREATE INDEX idx_refresh_tokens_family ON refresh_tokens USING btree (family_id);
 

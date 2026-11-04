@@ -35,6 +35,11 @@ WebAuthn est activé par défaut via `webauthn-probe`, avec ses prérequis natif
 `--no-default-features` contrôle la compilation des outils/tests sans WebAuthn ; l’API complète l’exige.
 Les tests de contrat par domaine peuvent également être ciblés avec `--test <nom_du_fichier_sans_rs>`.
 
+Le protocole de [reprise des refresh mobiles](../docs/refresh-recovery.md) ajoute des tests
+crypto isolés, le contrat `mobile_auth_contract` et les scénarios PostgreSQL de `mobile_identity`
+(réponse perdue, concurrence, rotation suivante, expiration, purge et révocation). Les commandes
+de ce guide sont à exécuter par le propriétaire ; cette évolution n'a pas été testée localement.
+
 ## Suite complète
 
 Préparer [la pile dev](../docs/container-deployment.md#developpement-local), avec les adresses **hôte**

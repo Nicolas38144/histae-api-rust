@@ -124,7 +124,7 @@
                     }
                   }
                 },
-                "description": "{ refresh_token } → 200 { access_token, refresh_token }."
+                "description": "{ refresh_token, recovery_id? } → 200 { access_token, refresh_token }. Persist a UUIDv4 attempt before sending; recovery_id must match Idempotency-Key. Retry only with the same original token and key. The active replacement can be recovered for seven days without extending its expiry. A different-key replay still revokes the family. This legacy sample omits recovery; see docs/refresh-recovery.md."
               },
               "response": [],
               "event": [

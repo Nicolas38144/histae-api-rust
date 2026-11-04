@@ -5,6 +5,10 @@ use super::postgres::{DatabaseError, map_sqlx_error};
 
 const INDEXES: &[(&str, &str)] = &[
     (
+        "idx_refresh_recovery_expiry",
+        "refresh_tokens (rotated_at, id) WHERE rotation_result IS NOT NULL",
+    ),
+    (
         "idx_match_init_confirmed_expiry",
         "match_init (expires_at, id) WHERE status = 'confirmed'",
     ),

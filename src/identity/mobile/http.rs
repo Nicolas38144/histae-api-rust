@@ -482,6 +482,11 @@ async fn me(AuthenticatedMobile(identity): AuthenticatedMobile) -> Json<MeRespon
 #[serde(deny_unknown_fields)]
 struct RefreshBody {
     refresh_token: String,
+    #[serde(
+        default,
+        deserialize_with = "crate::shared::validation::deserialize_optional_uuid"
+    )]
+    recovery_id: Option<Uuid>,
 }
 
 impl ApiDto for RefreshBody {
@@ -493,6 +498,7 @@ impl ApiDto for RefreshBody {
 async fn refresh(
     Extension(state): Extension<MobileAuthState>,
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
+    headers: HeaderMap,
     ValidatedJson(body): ValidatedJson<RefreshBody>,
 ) -> Result<Json<TokenPair>, ApiError> {
     state
@@ -504,9 +510,23 @@ async fn refresh(
             "refresh_rate_limit_exceeded",
         )
         .await?;
+    let key_name = HeaderName::from_static("idempotency-key");
+    let attempt = if headers.contains_key(&key_name) {
+        let raw = single_header(&headers, key_name);
+        Some(OtpService::parse_idempotency_key(raw.as_deref()).map_err(otp_error)?)
+    } else {
+        None
+    };
+    if body.recovery_id.is_some() && body.recovery_id != attempt {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_idempotency_key",
+            "The recovery ID must match Idempotency-Key.",
+        ));
+    }
     state
         .service
-        .refresh(&body.refresh_token)
+        .refresh_with_attempt(&body.refresh_token, attempt)
         .await
         .map(Json)
         .map_err(api_error)

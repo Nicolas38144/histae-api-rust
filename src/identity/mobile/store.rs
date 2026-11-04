@@ -10,6 +10,7 @@ use super::domain::{
     ActiveAccount, MobileSessionIdentity, MobileSessionRow, RotationOutcome, SessionCursor,
 };
 use super::play_review::NewReviewAccount;
+use super::refresh_recovery::{RefreshRecovery, RefreshRotation};
 use super::tokens::NewRefreshToken;
 
 pub type SessionStoreFuture<'a, T> =
@@ -37,6 +38,18 @@ pub trait MobileSessionStore: Send + Sync {
         hash: String,
         next: NewRefreshToken,
     ) -> SessionStoreFuture<'_, RotationOutcome>;
+
+    // Stores must explicitly implement atomic recovery, never silently downgrade
+    // a recoverable request to legacy rotation.
+    fn rotate_recoverable(
+        &self,
+        _jti: Uuid,
+        _hash: String,
+        _next: NewRefreshToken,
+        _recovery: RefreshRecovery,
+    ) -> SessionStoreFuture<'_, RefreshRotation> {
+        Box::pin(async { Err(DatabaseError::QueryFailed) })
+    }
 
     fn logout(
         &self,

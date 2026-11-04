@@ -10,10 +10,17 @@
 | [002_insert_postgres.sql](../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
 | [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
 | [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
-| [query_indexes.rs](../src/infra/query_indexes.rs) | Installation concurrente des 19 index de performance, dont le GiST géographique, sur une base existante |
+| [query_indexes.rs](../src/infra/query_indexes.rs) | Installation concurrente des index de performance, dont le GiST géographique et la purge des reprises de session, sur une base existante |
 | [000_bootstrap_postgres.sql](../db/000_bootstrap_postgres.sql) | Bootstrap administrateur : rôles, extensions, permissions, conversion dev et rétablissement après reset |
 
 Il n’existe plus de ledger `schema_migrations`. Le migrateur retire cette ancienne table si elle est présente.
+
+Reprise de session mobile (4 novembre 2026) : `refresh_tokens.rotation_request_hash text` et
+`rotation_result bytea` contiennent le hash de la tentative et un résultat chiffré. Le migrateur
+les ajoute aux bases existantes ; le démarrage de la nouvelle API exige ces colonnes. L'index
+partiel `idx_refresh_recovery_expiry` sur `(rotated_at, id)` borne la purge des résultats après
+sept jours ; il est installé concurremment sur une base existante. La migration ne renouvelle
+aucune session. Voir [Reprise des sessions](refresh-recovery.md) pour les garanties et la livraison.
 
 Mode pause (19 octobre 2026) : `user_account.discovery_paused boolean NOT NULL DEFAULT false` est créé par le schéma neuf et ajouté de manière idempotente aux bases existantes par `db-migrate`. La vérification de démarrage exige cette colonne booléenne non nullable ; exécuter le migrateur avant la nouvelle API. Les migrations sont vérifiées sur une instance PostgreSQL jetable ; aucune modification de production n’est effectuée par ces tests. Le réglage conserve les matchs, les données et l’abonnement, figure dans l’export propriétaire et est remis à `false` lors de l’anonymisation du compte. Les contrôles de concurrence du swipe et de la création du match utilisent les verrous partagés sur les comptes, compatibles avec la mise à jour du réglage.
 

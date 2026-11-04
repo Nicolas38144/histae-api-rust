@@ -13,7 +13,8 @@ use super::domain::{
     AccountRole, ActiveAccount, MobileSessionIdentity, MobileSessionRow, RotationOutcome,
     SessionCursor,
 };
-use super::tokens::NewRefreshToken;
+use super::refresh_recovery::{RefreshRecovery, RefreshRotation};
+use super::tokens::{NewRefreshToken, TokenService};
 
 use super::store::{MobileSessionStore, SessionStoreFuture};
 
@@ -50,16 +51,53 @@ impl MobileSessionRepository {
         hash: String,
         next: NewRefreshToken,
     ) -> Result<RotationOutcome, DatabaseError> {
+        Ok(self.rotate_inner(jti, hash, next, None).await?.outcome)
+    }
+
+    pub async fn rotate_recoverable(
+        &self,
+        jti: Uuid,
+        hash: String,
+        next: NewRefreshToken,
+        recovery: RefreshRecovery,
+    ) -> Result<RefreshRotation, DatabaseError> {
+        self.rotate_inner(jti, hash, next, Some(recovery)).await
+    }
+
+    async fn rotate_inner(
+        &self,
+        jti: Uuid,
+        hash: String,
+        next: NewRefreshToken,
+        recovery: Option<RefreshRecovery>,
+    ) -> Result<RefreshRotation, DatabaseError> {
         self.database
             .transaction(|connection| {
                 Box::pin(async move {
-                    let Some(token) = lock_token(connection, jti, &hash, None).await? else {
-                        return Ok(RotationOutcome::Invalid);
+                    let request_hash = recovery.as_ref().map(|r| r.request_hash.as_str());
+                    let Some(token) = lock_token(connection, jti, &hash, None, request_hash).await?
+                    else {
+                        return Ok(RefreshRotation::outcome(RotationOutcome::Invalid));
                     };
                     if !active_family(connection, token.user_id, token.family_id).await? {
-                        return Ok(RotationOutcome::Invalid);
+                        return Ok(RefreshRotation::outcome(RotationOutcome::Invalid));
                     }
                     if token.revoked {
+                        if let Some(receipt) = recovery.as_ref() {
+                            let stored_hash: Option<String> = sqlx::query_scalar(
+                                "SELECT rotation_request_hash FROM refresh_tokens WHERE id=$1",
+                            )
+                            .bind(token.id)
+                            .fetch_one(&mut *connection)
+                            .await
+                            .map_err(map_sqlx_error)?;
+                            if stored_hash
+                                .as_deref()
+                                .is_some_and(|stored| same_hash(stored, &receipt.request_hash))
+                            {
+                                return recover_rotation(connection, &token, receipt).await;
+                            }
+                        }
                         if token.rotated_at.is_some() {
                             revoke_families(
                                 connection,
@@ -68,16 +106,19 @@ impl MobileSessionRepository {
                                 Some(token.family_id),
                             )
                             .await?;
-                            return Ok(RotationOutcome::ReplayRevoked);
+                            return Ok(RefreshRotation::outcome(RotationOutcome::ReplayRevoked));
                         }
-                        return Ok(RotationOutcome::Invalid);
+                        return Ok(RefreshRotation::outcome(RotationOutcome::Invalid));
                     }
                     sqlx::query(
                         "UPDATE refresh_tokens
-                         SET revoked = true, rotated_at = clock_timestamp()
+                         SET revoked = true, rotated_at = clock_timestamp(),
+                             rotation_request_hash = $2, rotation_result = $3
                          WHERE id = $1",
                     )
                     .bind(token.id)
+                    .bind(request_hash)
+                    .bind(recovery.as_ref().map(|r| r.encrypted_token.as_slice()))
                     .execute(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
@@ -99,10 +140,12 @@ impl MobileSessionRepository {
                     .execute(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
-                    Ok(RotationOutcome::Rotated(MobileSessionIdentity {
-                        user_id: token.user_id,
-                        session_id: token.family_id,
-                    }))
+                    Ok(RefreshRotation::outcome(RotationOutcome::Rotated(
+                        MobileSessionIdentity {
+                            user_id: token.user_id,
+                            session_id: token.family_id,
+                        },
+                    )))
                 })
             })
             .await
@@ -119,7 +162,7 @@ impl MobileSessionRepository {
         self.database
             .transaction(|connection| {
                 Box::pin(async move {
-                    let Some(token) = lock_token(connection, jti, &hash, Some(user_id)).await?
+                    let Some(token) = lock_token(connection, jti, &hash, Some(user_id), None).await?
                     else {
                         return Ok(false);
                     };
@@ -308,6 +351,18 @@ impl MobileSessionRepository {
 }
 
 impl MobileSessionStore for MobileSessionRepository {
+    fn rotate_recoverable(
+        &self,
+        jti: Uuid,
+        hash: String,
+        next: NewRefreshToken,
+        recovery: RefreshRecovery,
+    ) -> SessionStoreFuture<'_, RefreshRotation> {
+        Box::pin(MobileSessionRepository::rotate_recoverable(
+            self, jti, hash, next, recovery,
+        ))
+    }
+
     fn create_review_session(
         &self,
         account: super::play_review::NewReviewAccount,
@@ -402,6 +457,46 @@ struct StoredRefreshToken {
     rotated_at: Option<DateTime<Utc>>,
 }
 
+async fn recover_rotation(
+    connection: &mut PgConnection,
+    parent: &StoredRefreshToken,
+    recovery: &RefreshRecovery,
+) -> Result<RefreshRotation, DatabaseError> {
+    // Account, family and parent locks are already held by rotate_inner. The
+    // account lock also serializes child rotation and administrative revocation.
+    let row = sqlx::query_as::<_, (Vec<u8>, Uuid, String)>(
+        "SELECT parent.rotation_result, child.jti, child.token_hash
+         FROM refresh_tokens parent JOIN refresh_tokens child
+           ON child.parent_token_id=parent.id AND child.family_id=parent.family_id
+         WHERE parent.id=$1 AND parent.rotation_result IS NOT NULL
+           AND parent.rotated_at > clock_timestamp() - INTERVAL '7 days'
+           AND NOT child.revoked AND child.expires_at > clock_timestamp()",
+    )
+    .bind(parent.id)
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    let Some((encrypted, child_jti, child_hash)) = row else {
+        // A known old attempt is not a new replay. Never revoke a newer session
+        // merely because its receipt expired or its child has already rotated.
+        return Ok(RefreshRotation::outcome(RotationOutcome::Invalid));
+    };
+    let raw = recovery
+        .open(&encrypted)
+        .map_err(|_| DatabaseError::QueryFailed)?;
+    let parsed = TokenService::parse_refresh_token(&raw).ok_or(DatabaseError::QueryFailed)?;
+    if parsed.jti != child_jti || !same_hash(&child_hash, &parsed.hash) {
+        return Err(DatabaseError::QueryFailed);
+    }
+    Ok(RefreshRotation::recovered(
+        MobileSessionIdentity {
+            user_id: parent.user_id,
+            session_id: parent.family_id,
+        },
+        raw,
+    ))
+}
+
 #[derive(Clone, Copy)]
 enum RevocationReason {
     Replay,
@@ -426,6 +521,7 @@ async fn lock_token(
     jti: Uuid,
     supplied_hash: &str,
     owner_id: Option<Uuid>,
+    recovery_hash: Option<&str>,
 ) -> Result<Option<StoredRefreshToken>, DatabaseError> {
     let candidate = sqlx::query_as::<_, (Uuid, Uuid, String, Uuid, bool, Option<DateTime<Utc>>)>(
         "SELECT id, user_id, token_hash, family_id, revoked, rotated_at
@@ -457,10 +553,13 @@ async fn lock_token(
     let row = sqlx::query_as::<_, (Uuid, Uuid, String, Uuid, bool, Option<DateTime<Utc>>)>(
         "SELECT id, user_id, token_hash, family_id, revoked, rotated_at
          FROM refresh_tokens
-         WHERE id = $1 AND expires_at > clock_timestamp()
+         WHERE id = $1 AND (expires_at > clock_timestamp() OR
+           ($2::text IS NOT NULL AND rotation_request_hash=$2 AND revoked
+            AND rotated_at > clock_timestamp() - INTERVAL '7 days'))
          FOR UPDATE",
     )
     .bind(candidate.id)
+    .bind(recovery_hash)
     .fetch_optional(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
@@ -581,8 +680,8 @@ async fn revoke_families(
     .await
     .map_err(map_sqlx_error)?;
     sqlx::query(
-        "UPDATE refresh_tokens SET revoked = true
-         WHERE user_id = $1 AND revoked = false
+        "UPDATE refresh_tokens SET revoked = true, rotation_result = NULL
+         WHERE user_id = $1 AND (revoked = false OR rotation_result IS NOT NULL)
            AND ($2::uuid IS NULL OR family_id = $2)",
     )
     .bind(user_id)

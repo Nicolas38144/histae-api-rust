@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use super::domain::{ActiveAccount, RotationOutcome, decode_cursor, encode_cursor, wire_timestamp};
 use super::play_review::NewReviewAccount;
+use super::refresh_recovery::RefreshRecovery;
 use super::store::MobileSessionStore;
 use super::tokens::{TokenError, TokenService};
 use crate::infra::postgres::DatabaseError;
@@ -166,11 +167,33 @@ impl MobileAuthService {
     }
 
     pub async fn refresh(&self, raw_token: &str) -> Result<TokenPair, MobileAuthError> {
+        self.refresh_with_attempt(raw_token, None).await
+    }
+
+    pub async fn refresh_with_attempt(
+        &self,
+        raw_token: &str,
+        attempt: Option<Uuid>,
+    ) -> Result<TokenPair, MobileAuthError> {
         let parsed = TokenService::parse_refresh_token(raw_token)
             .ok_or(MobileAuthError::InvalidRefreshToken)?;
         let next = self.tokens.new_refresh_token()?;
-        let refresh_token = next.plain.clone();
-        let session = match self.sessions.rotate(parsed.jti, parsed.hash, next).await? {
+        let mut refresh_token = next.plain.clone();
+        let outcome = if let Some(attempt) = attempt {
+            let recovery = RefreshRecovery::new(raw_token, attempt, &refresh_token)
+                .map_err(|_| MobileAuthError::Internal)?;
+            let result = self
+                .sessions
+                .rotate_recoverable(parsed.jti, parsed.hash, next, recovery)
+                .await?;
+            if let Some(recovered) = result.recovered_token {
+                refresh_token = recovered;
+            }
+            result.outcome
+        } else {
+            self.sessions.rotate(parsed.jti, parsed.hash, next).await?
+        };
+        let session = match outcome {
             RotationOutcome::Rotated(session) => session,
             RotationOutcome::Invalid | RotationOutcome::ReplayRevoked => {
                 return Err(MobileAuthError::InvalidRefreshToken);

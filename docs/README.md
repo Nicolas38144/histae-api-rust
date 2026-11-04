@@ -46,6 +46,9 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 
 ## Conventions et entretien
 
+La [reprise des sessions mobiles](refresh-recovery.md) décrit le protocole de renouvellement
+récupérable, la rétention des résultats chiffrés, l'ordre de livraison et les commandes de validation.
+
 Les exemples utilisent Bash depuis la racine de `histae-api-rust`. Les commandes Docker utilisent `sudo` ;
 il peut être omis avec un accès Docker déjà administré. Les valeurs entre `<…>` ou `REPLACE_…` doivent être
 remplacées avant exécution. Aucun secret réel ne doit être ajouté aux guides ou aux collections partagées.
