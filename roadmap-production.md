@@ -1,10 +1,10 @@
 # Histae API — feuille de route de production
 
-Dernière mise à jour : **31 octobre 2026**, après ajout des achats natifs Apple/Google,
+Dernière mise à jour : **4 novembre 2026**, après ajout des achats natifs Apple/Google,
 du paiement Stripe sur le site par UUID/téléphone/OTP et du suivi financier des stores,
 correction du redéploiement avec maintenance et de la lecture des demandes RGPD avec effacement,
 ajout du parcours web de suppression du compte et de certaines données, et restriction des lectures
-administratives aux conversations signalées.
+administratives aux conversations signalées, puis validation de la reprise des refresh mobiles.
 Les essais fournisseur sur appareils et la validation du déploiement final restent ouverts.
 
 Cette feuille de route suit les raccordements, décisions et preuves qui restent nécessaires avant le
@@ -53,6 +53,13 @@ Les validations locales documentées restent utiles, mais ne clôturent pas une 
 Ces cases concernent les fichiers et les vérifications locales ; elles ne clôturent pas les lots
 sur le serveur final. Aucun fournisseur réel ni serveur distant n'a été utilisé pour ces corrections.
 
+- [x] Valider la reprise des refresh après réponse perdue : rotation concurrente unique, fenêtre de
+  sept jours sans prolongation, purge des secrets lors des révocations et nettoyage sans attente sur
+  une rotation en cours. L'upgrade répété préserve les sessions historiques et leurs échéances.
+  Résultats locaux : [Reprise des refresh](docs/refresh-recovery.md#organisation-et-validation).
+- [ ] Appliquer la migration des refresh, remplacer l'API et tous les workers de maintenance, puis
+  distribuer le client compatible. Vérifier sur appareil une coupure réseau après commit, un arrêt
+  avant stockage, une reprise identique, un refus temporaire et une révocation définitive.
 - [x] Corriger les chemins vers `histae-reverse-proxy` et centraliser reset/mise à jour dans `histae-scripts`.
 - [x] Prévoir la mise à jour des cinq dépôts, avec refus des modifications locales et des fusions implicites.
   Le script de mise à jour a été relu et sa syntaxe vérifiée ; aucune commande Git n'a été exécutée.

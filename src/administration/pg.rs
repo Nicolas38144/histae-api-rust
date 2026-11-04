@@ -469,11 +469,14 @@ async fn revoke_mobile_sessions(
     .execute(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
-    sqlx::query("UPDATE refresh_tokens SET revoked = true WHERE user_id = $1 AND revoked = false")
-        .bind(user_id)
-        .execute(&mut *connection)
-        .await
-        .map_err(map_sqlx_error)?;
+    sqlx::query(
+        "UPDATE refresh_tokens SET revoked = true, rotation_result = NULL
+                 WHERE user_id = $1 AND (revoked = false OR rotation_result IS NOT NULL)",
+    )
+    .bind(user_id)
+    .execute(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
     sqlx::query("DELETE FROM device_token WHERE user_id = $1")
         .bind(user_id)
         .execute(&mut *connection)

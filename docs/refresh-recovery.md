@@ -8,7 +8,8 @@
 `recovery_id` avec la même clé UUIDv4 dans `Idempotency-Key`. Le client persiste le couple
 refresh/clé avant tout envoi et le conserve après un résultat incertain. Le champ de corps est
 volontaire : une ancienne API le rejette avant de consommer le jeton, au lieu d'ignorer la clé.
-Les clients historiques sans clé gardent le comportement strict précédent.
+Le mode de reprise exige les deux identifiants, identiques : un seul des deux est refusé avant
+consommation du token. Les clients historiques sans ces deux champs gardent la rotation stricte.
 
 La transaction PostgreSQL verrouille le compte, le parent et la famille, consomme le parent,
 crée un seul descendant et stocke son refresh chiffré. `RefreshRecovery` utilise les fonctions
@@ -26,11 +27,15 @@ concurrentes portant la même clé retrouvent donc un seul refresh.
 Une autre clé sur un ancien refresh authentique non expiré reste un rejeu et révoque la famille.
 Une tentative connue devenue trop ancienne ou dont le descendant a déjà tourné renvoie `401`
 sans révoquer un descendant plus récent. La révocation ou l'indisponibilité du compte prime
-toujours sur la reprise. La limite existante de 30 refresh/15 minutes/IP s'applique aussi aux
-reprises. Ne jamais journaliser le corps, le refresh, la clé de tentative ou le résultat chiffré.
+toujours sur la reprise. Logout, logout-all, retrait de session et bannissement purgent les résultats
+chiffrés de leur périmètre ; un débannissement ne réactive pas les familles révoquées. La limite
+existante de 30 refresh/15 minutes/IP s'applique aussi aux reprises. Ne jamais journaliser le corps,
+le refresh, la clé de tentative ou le résultat chiffré.
 
-La maintenance efface les ciphertexts après sept jours, par lots comptabilisés et bornés. Un
-parent expiré peut être conservé jusqu'à cette échéance pour une reprise validée ; cela ne
+La maintenance efface les ciphertexts après sept jours, par lots comptabilisés et bornés. Les lots
+ignorent les tokens verrouillés (`FOR UPDATE SKIP LOCKED`) pour ne pas supprimer un parent dont
+la rotation est en cours ni attendre son commit. Un parent expiré peut être conservé jusqu'à
+cette échéance pour une reprise validée ; cela ne
 prolonge pas sa famille ni son descendant. La révocation efface immédiatement ses ciphertexts.
 Le hash d'une ancienne tentative reste jusqu'à la purge du parent pour reconnaître une reprise
 légitime devenue trop ancienne. Les effacements de compte suppriment ces données en cascade.
@@ -48,27 +53,38 @@ Les anciens binaires de maintenance doivent être remplacés : ils ne connaissen
 supplémentaire des parents expirés. Les jetons déjà effacés par une ancienne app sont irrécupérables.
 Cette livraison ne change pas `JWT_REFRESH_TTL` ni les échéances des jetons précédemment émis.
 
-## Validation à exécuter
+## Organisation et validation
 
-Ces changements d'API et leurs tests ont été écrits sans compilation ni exécution locale à la
-demande du propriétaire. À exécuter depuis la racine de l'API, avec les prérequis habituels :
+`identity/mobile/pg/rotation.rs` porte les transactions de rotation et de reprise. Le service
+interprète un enum distinguant les résultats ordinaires d'une reprise contenant un secret protégé ;
+il ne peut pas substituer un candidat inutilisé au token effectivement récupéré. Le module
+`refresh_recovery.rs` encapsule le chiffrement et expose ses métadonnées en lecture seule.
+
+Validation locale du **4 novembre 2026** : **375 tests** sans les features d'intégration et
+**20 tests PostgreSQL** ciblés réussis, ainsi que formatage, Clippy avec toutes les features et
+upgrade répété du schéma. La base PostgreSQL, ses fixtures et ses identifiants temporaires ont été
+supprimés après la campagne. Aucun fournisseur réel, serveur distant ou client mobile n'a été testé.
+
+Depuis la racine de l'API, avec les prérequis habituels :
 
 ```bash
-cargo fmt --all
-cargo check --locked --all-targets
-cargo test --locked --lib identity::mobile::refresh_recovery
-cargo test --locked --test mobile_auth_contract --test route_inventory
+cargo fmt --all -- --check
+cargo test --locked --all-targets
 cargo clippy --locked --all-targets --all-features -- -D warnings
 ```
 
-Pour les verrous, la reprise après réponse perdue, la concurrence, la révocation, l'expiration,
-le rollback et le schéma, utiliser une base **locale jetable**, jamais la production :
+Les scénarios couvrent la première rotation concurrente, les reprises, les ciphertexts altérés,
+un descendant ne correspondant pas au résultat déchiffré, le nettoyage avec une rotation verrouillée,
+le bannissement et les autres révocations. Le lanceur vérifie aussi l'upgrade depuis une base sans
+les colonnes de reprise, en conservant les sessions, les tokens historiques et leurs échéances.
+Utiliser une base **locale jetable**, jamais la production :
 
 ```bash
 cargo build --locked --bin db-migrate
 python3 scripts/verify-continuation-postgres.py \
   --native-migrator target/debug/db-migrate \
-  --test mobile_identity --test maintenance_outbox_postgres
+  --test mobile_identity --test maintenance_outbox_postgres \
+  --test administration_reports_postgres --test play_review_postgres --test account_erasure_postgres
 ```
 
 Le lanceur exige son image PostgreSQL/PostGIS locale et Docker ; ajouter `--sudo-docker` si

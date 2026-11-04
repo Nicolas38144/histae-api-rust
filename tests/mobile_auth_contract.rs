@@ -15,10 +15,10 @@ use histae_api_rust::identity::mobile::domain::{
     SessionCursor,
 };
 use histae_api_rust::identity::mobile::http::{MobileAuthState, routes};
+use histae_api_rust::identity::mobile::refresh_recovery::{RefreshRecovery, RefreshRotation};
 use histae_api_rust::identity::mobile::service::MobileAuthService;
 use histae_api_rust::identity::mobile::store::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::tokens::{NewRefreshToken, TokenService};
-use histae_api_rust::identity::mobile::refresh_recovery::{RefreshRecovery, RefreshRotation};
 use histae_api_rust::infra::postgres::DatabaseError;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
@@ -52,6 +52,7 @@ struct FakeStore {
 struct FakeState {
     account: Option<ActiveAccount>,
     rotation: RotationOutcome,
+    rotations: usize,
     logout: bool,
     rows: Vec<MobileSessionRow>,
     revoke: Option<u64>,
@@ -63,6 +64,7 @@ impl FakeStore {
             state: Arc::new(Mutex::new(FakeState {
                 account: Some(account),
                 rotation: RotationOutcome::Invalid,
+                rotations: 0,
                 logout: false,
                 rows: Vec::new(),
                 revoke: Some(0),
@@ -79,7 +81,11 @@ impl MobileSessionStore for FakeStore {
         next: NewRefreshToken,
         _recovery: RefreshRecovery,
     ) -> SessionStoreFuture<'_, RefreshRotation> {
-        Box::pin(async move { self.rotate(jti, hash, next).await.map(RefreshRotation::outcome) })
+        Box::pin(async move {
+            self.rotate(jti, hash, next)
+                .await
+                .map(RefreshRotation::outcome)
+        })
     }
 
     fn create(
@@ -105,7 +111,10 @@ impl MobileSessionStore for FakeStore {
         Box::pin(async move {
             self.state
                 .lock()
-                .map(|state| state.rotation)
+                .map(|mut state| {
+                    state.rotations += 1;
+                    state.rotation
+                })
                 .map_err(|_| DatabaseError::QueryFailed)
         })
     }
@@ -381,30 +390,98 @@ async fn auth_precedes_body_validation_and_refresh_is_strict() {
 async fn refresh_recovery_requires_a_single_matching_uuid_key() {
     let store = FakeStore::new(account());
     store.state.lock().expect("state").rotation = RotationOutcome::Rotated(MobileSessionIdentity {
-        user_id: user_id(), session_id: session_id(),
+        user_id: user_id(),
+        session_id: session_id(),
     });
+    let observed = store.clone();
     let (app, tokens) = app(store);
     let parent = tokens.new_refresh_token().expect("parent");
     let key = Uuid::new_v4().to_string();
     let body = json!({ "refresh_token": parent.plain, "recovery_id": key }).to_string();
     let mut valid = request("POST", "/api/auth/refresh", None, &body);
-    valid.headers_mut().insert("idempotency-key", key.parse().unwrap());
+    valid
+        .headers_mut()
+        .insert("idempotency-key", key.parse().unwrap());
     let response = app.clone().oneshot(valid).await.expect("response");
     assert_eq!(response.status(), StatusCode::OK);
     assert!(json_body(response).await["refresh_token"].is_string());
-    for header in [None, Some("invalid".to_owned()), Some(Uuid::new_v4().to_string())] {
+    for header in [
+        None,
+        Some("invalid".to_owned()),
+        Some(Uuid::new_v4().to_string()),
+    ] {
         let mut invalid = request("POST", "/api/auth/refresh", None, &body);
         if let Some(header) = header {
-            invalid.headers_mut().insert("idempotency-key", header.parse().unwrap());
+            invalid
+                .headers_mut()
+                .insert("idempotency-key", header.parse().unwrap());
         }
         let response = app.clone().oneshot(invalid).await.expect("response");
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        assert_eq!(json_body(response).await["error"]["code"], "invalid_idempotency_key");
+        assert_eq!(
+            json_body(response).await["error"]["code"],
+            "invalid_idempotency_key"
+        );
     }
     let mut duplicate = request("POST", "/api/auth/refresh", None, &body);
-    duplicate.headers_mut().append("idempotency-key", key.parse().unwrap());
-    duplicate.headers_mut().append("idempotency-key", key.parse().unwrap());
-    assert_eq!(app.oneshot(duplicate).await.expect("response").status(), StatusCode::BAD_REQUEST);
+    duplicate
+        .headers_mut()
+        .append("idempotency-key", key.parse().unwrap());
+    duplicate
+        .headers_mut()
+        .append("idempotency-key", key.parse().unwrap());
+    assert_eq!(
+        app.clone()
+            .oneshot(duplicate)
+            .await
+            .expect("response")
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    // Header-only recovery is rejected: clients must explicitly opt in through
+    // both fields so an older server cannot silently consume an unsafe retry.
+    let mut header_only = request(
+        "POST",
+        "/api/auth/refresh",
+        None,
+        &json!({"refresh_token":parent.plain}).to_string(),
+    );
+    header_only
+        .headers_mut()
+        .insert("idempotency-key", key.parse().unwrap());
+    assert_eq!(
+        app.clone()
+            .oneshot(header_only)
+            .await
+            .expect("response")
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    for recovery_id in [
+        json!(null),
+        json!(false),
+        json!("not-a-uuid"),
+        json!(Uuid::nil()),
+    ] {
+        let mut invalid = request(
+            "POST",
+            "/api/auth/refresh",
+            None,
+            &json!({"refresh_token":parent.plain,"recovery_id":recovery_id}).to_string(),
+        );
+        invalid
+            .headers_mut()
+            .insert("idempotency-key", key.parse().unwrap());
+        assert_eq!(
+            app.clone()
+                .oneshot(invalid)
+                .await
+                .expect("response")
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    assert_eq!(observed.state.lock().expect("state").rotations, 1);
 }
 
 #[tokio::test]

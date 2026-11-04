@@ -135,6 +135,19 @@ def main():
                     'case "$1" in histae_app) export PGPASSWORD="$HISTAE_BOOTSTRAP_APP_PASSWORD" ;; histae_migrate) export PGPASSWORD="$HISTAE_BOOTSTRAP_MIGRATE_PASSWORD" ;; *) exit 2 ;; esac; exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d histae-dev',
                     "sh", role, input_text=statement)
 
+            refresh_user, refresh_family, refresh_token, refresh_jti = [str(uuid.uuid4()) for _ in range(4)]
+            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{refresh_user}','legacy-refresh-{refresh_user}',''::bytea); INSERT INTO refresh_token_family(id,user_id,created_at,last_refreshed_at,expires_at) VALUES ('{refresh_family}','{refresh_user}',clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '180 days'); INSERT INTO refresh_tokens(id,user_id,family_id,jti,token_hash,created_at,expires_at) VALUES ('{refresh_token}','{refresh_user}','{refresh_family}','{refresh_jti}',repeat('a',64),clock_timestamp(),clock_timestamp()+interval '180 days');")
+            refresh_snapshot_sql = f"SELECT jsonb_build_array(family.created_at,family.last_refreshed_at,family.expires_at,token.jti,token.token_hash,token.expires_at,token.revoked) FROM refresh_token_family family JOIN refresh_tokens token ON token.family_id=family.id WHERE token.id='{refresh_token}';"
+            refresh_snapshot = query(refresh_snapshot_sql)
+            query("ALTER TABLE refresh_tokens DROP COLUMN rotation_request_hash; ALTER TABLE refresh_tokens DROP COLUMN rotation_result;", "histae_migrate")
+            for _ in range(2):
+                migrate()
+                assert query(refresh_snapshot_sql) == refresh_snapshot
+                assert query(f"SELECT rotation_request_hash IS NULL AND rotation_result IS NULL FROM refresh_tokens WHERE id='{refresh_token}';") == "t"
+                assert query("SELECT to_regclass('idx_refresh_recovery_expiry') IS NOT NULL;") == "t"
+            query(f"DELETE FROM user_account WHERE user_id='{refresh_user}';")
+            print("Refresh recovery upgrade preserves historical sessions and token deadlines.", flush=True)
+
             review_legacy = str(uuid.uuid4())
             query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{review_legacy}','legacy-play-review',''::bytea);")
             query("ALTER TABLE user_account DROP CONSTRAINT user_account_review_role_check; ALTER TABLE user_account DROP COLUMN is_review_account;", "histae_migrate")

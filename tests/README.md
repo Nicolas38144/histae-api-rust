@@ -37,8 +37,16 @@ Les tests de contrat par domaine peuvent également être ciblés avec `--test <
 
 Le protocole de [reprise des refresh mobiles](../docs/refresh-recovery.md) ajoute des tests
 crypto isolés, le contrat `mobile_auth_contract` et les scénarios PostgreSQL de `mobile_identity`
-(réponse perdue, concurrence, rotation suivante, expiration, purge et révocation). Les commandes
-de ce guide sont à exécuter par le propriétaire ; cette évolution n'a pas été testée localement.
+(réponse perdue, concurrence, rotation suivante, expiration, purge, bannissement et révocation).
+Le module `tests/mobile_identity/recovery.rs` vérifie aussi les résultats chiffrés altérés et le
+nettoyage concurrent d'une transaction de rotation encore ouverte. Le lanceur PostgreSQL vérifie l'upgrade depuis
+l'ancien schéma sans modifier les sessions historiques ni leurs échéances.
+
+Campagne locale du **4 novembre 2026** : **375 tests** avec `cargo test --locked --all-targets`,
+**20 tests PostgreSQL** ciblant sessions mobiles, maintenance/outbox, administration/signalements,
+compte de revue et effacement ; formatage et Clippy avec toutes les features réussis.
+Les commandes et limites figurent dans le guide de reprise. Les intégrations PostgreSQL ont utilisé
+une base jetable nettoyée après les tests ; les suites Redis/S3 et les appareils n'ont pas été rejoués.
 
 ## Suite complète
 

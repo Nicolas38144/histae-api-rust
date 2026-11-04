@@ -9,8 +9,8 @@ use crate::infra::crypto::{CryptoError, open_secret, seal_secret, sha256_hex};
 use super::domain::{MobileSessionIdentity, RotationOutcome};
 
 pub struct RefreshRecovery {
-    pub request_hash: String,
-    pub encrypted_token: Vec<u8>,
+    request_hash: String,
+    encrypted_token: Vec<u8>,
     key: SecretString,
     purpose: Vec<u8>,
 }
@@ -38,28 +38,45 @@ impl RefreshRecovery {
         })
     }
 
+    pub fn request_hash(&self) -> &str {
+        &self.request_hash
+    }
+
+    pub fn encrypted_token(&self) -> &[u8] {
+        &self.encrypted_token
+    }
+
     pub fn open(&self, encrypted: &[u8]) -> Result<String, CryptoError> {
         open_secret(encrypted, &self.key, &self.purpose)
     }
 }
 
-pub struct RefreshRotation {
-    pub outcome: RotationOutcome,
-    pub recovered_token: Option<String>,
+/// A recovered credential always carries its identity; invalid outcomes cannot
+/// accidentally fall back to the unused replacement generated for this request.
+pub enum RefreshRotation {
+    Outcome(RotationOutcome),
+    Recovered {
+        session: MobileSessionIdentity,
+        refresh_token: SecretString,
+    },
 }
 
 impl RefreshRotation {
     pub fn outcome(outcome: RotationOutcome) -> Self {
-        Self {
-            outcome,
-            recovered_token: None,
-        }
+        Self::Outcome(outcome)
     }
 
     pub fn recovered(session: MobileSessionIdentity, token: String) -> Self {
-        Self {
-            outcome: RotationOutcome::Rotated(session),
-            recovered_token: Some(token),
+        Self::Recovered {
+            session,
+            refresh_token: SecretString::new(token),
+        }
+    }
+
+    pub fn into_outcome(self) -> RotationOutcome {
+        match self {
+            Self::Outcome(outcome) => outcome,
+            Self::Recovered { session, .. } => RotationOutcome::Rotated(session),
         }
     }
 }
@@ -72,8 +89,12 @@ mod tests {
     fn receipt_requires_parent_and_attempt_and_authenticates_ciphertext() {
         let attempt = Uuid::new_v4();
         let receipt = RefreshRecovery::new("synthetic-parent", attempt, "synthetic-child").unwrap();
-        let retry = RefreshRecovery::new("synthetic-parent", attempt, "ignored-new-candidate").unwrap();
-        assert_eq!(retry.open(&receipt.encrypted_token).unwrap(), "synthetic-child");
+        let retry =
+            RefreshRecovery::new("synthetic-parent", attempt, "ignored-new-candidate").unwrap();
+        assert_eq!(
+            retry.open(&receipt.encrypted_token).unwrap(),
+            "synthetic-child"
+        );
         assert!(
             RefreshRecovery::new("another-parent", attempt, "ignored")
                 .unwrap()

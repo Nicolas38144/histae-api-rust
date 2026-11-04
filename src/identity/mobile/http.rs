@@ -517,7 +517,7 @@ async fn refresh(
     } else {
         None
     };
-    if body.recovery_id.is_some() && body.recovery_id != attempt {
+    if body.recovery_id != attempt {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             "invalid_idempotency_key",

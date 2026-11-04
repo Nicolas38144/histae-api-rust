@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use super::domain::{ActiveAccount, RotationOutcome, decode_cursor, encode_cursor, wire_timestamp};
 use super::play_review::NewReviewAccount;
-use super::refresh_recovery::RefreshRecovery;
+use super::refresh_recovery::{RefreshRecovery, RefreshRotation};
 use super::store::MobileSessionStore;
 use super::tokens::{TokenError, TokenService};
 use crate::infra::postgres::DatabaseError;
@@ -178,24 +178,23 @@ impl MobileAuthService {
         let parsed = TokenService::parse_refresh_token(raw_token)
             .ok_or(MobileAuthError::InvalidRefreshToken)?;
         let next = self.tokens.new_refresh_token()?;
-        let mut refresh_token = next.plain.clone();
-        let outcome = if let Some(attempt) = attempt {
-            let recovery = RefreshRecovery::new(raw_token, attempt, &refresh_token)
+        let candidate = next.plain.clone();
+        let rotation = if let Some(attempt) = attempt {
+            let recovery = RefreshRecovery::new(raw_token, attempt, &candidate)
                 .map_err(|_| MobileAuthError::Internal)?;
-            let result = self
-                .sessions
+            self.sessions
                 .rotate_recoverable(parsed.jti, parsed.hash, next, recovery)
-                .await?;
-            if let Some(recovered) = result.recovered_token {
-                refresh_token = recovered;
-            }
-            result.outcome
+                .await?
         } else {
-            self.sessions.rotate(parsed.jti, parsed.hash, next).await?
+            RefreshRotation::outcome(self.sessions.rotate(parsed.jti, parsed.hash, next).await?)
         };
-        let session = match outcome {
-            RotationOutcome::Rotated(session) => session,
-            RotationOutcome::Invalid | RotationOutcome::ReplayRevoked => {
+        let (session, refresh_token) = match rotation {
+            RefreshRotation::Outcome(RotationOutcome::Rotated(session)) => (session, candidate),
+            RefreshRotation::Recovered {
+                session,
+                refresh_token,
+            } => (session, refresh_token.expose_secret().to_owned()),
+            RefreshRotation::Outcome(RotationOutcome::Invalid | RotationOutcome::ReplayRevoked) => {
                 return Err(MobileAuthError::InvalidRefreshToken);
             }
         };

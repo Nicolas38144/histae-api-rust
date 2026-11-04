@@ -65,7 +65,8 @@ impl PrivacyMaintenanceResult {
         self.expired_refresh_tokens = self
             .expired_refresh_tokens
             .saturating_add(next.expired_refresh_tokens);
-        self.expired_refresh_recoveries = self.expired_refresh_recoveries
+        self.expired_refresh_recoveries = self
+            .expired_refresh_recoveries
             .saturating_add(next.expired_refresh_recoveries);
         self.expired_notifications = self
             .expired_notifications
@@ -255,7 +256,7 @@ const RETENTION_QUERIES: [&str; 29] = [
     "DELETE FROM refresh_tokens WHERE id IN (
        SELECT id FROM refresh_tokens WHERE expires_at <= $1
          AND NOT (rotation_result IS NOT NULL AND rotated_at > $1 - INTERVAL '7 days')
-       ORDER BY expires_at,id LIMIT $2)",
+       ORDER BY expires_at,id LIMIT $2 FOR UPDATE SKIP LOCKED)",
     "DELETE FROM notification WHERE id IN (
        SELECT id FROM notification WHERE expires_at <= $1 ORDER BY expires_at LIMIT $2)",
     "DELETE FROM user_consent WHERE id IN (
@@ -336,7 +337,7 @@ const RETENTION_QUERIES: [&str; 29] = [
     "UPDATE refresh_tokens SET rotation_result=NULL WHERE id IN (
        SELECT id FROM refresh_tokens WHERE rotation_result IS NOT NULL
          AND rotated_at <= $1 - INTERVAL '7 days'
-       ORDER BY rotated_at,id LIMIT $2)",
+       ORDER BY rotated_at,id LIMIT $2 FOR UPDATE SKIP LOCKED)",
 ];
 
 #[derive(Clone)]

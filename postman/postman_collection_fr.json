@@ -124,7 +124,7 @@
                     }
                   }
                 },
-                "description": "{ refresh_token, recovery_id? } → 200 { access_token, refresh_token }. Persister une tentative UUIDv4 avant l’envoi ; recovery_id doit correspondre à Idempotency-Key. Reprendre uniquement avec le même refresh original et la même clé. Le remplacement actif est récupérable pendant sept jours sans prolonger son échéance. Un rejeu avec une autre clé révoque toujours la famille. Cet exemple historique omet la reprise ; voir docs/refresh-recovery.md."
+                "description": "{ refresh_token, recovery_id? } → 200 { access_token, refresh_token }. Persister une tentative UUIDv4 avant l’envoi ; la reprise exige recovery_id et le même identifiant dans un unique en-tête Idempotency-Key. Un seul des deux est refusé avant rotation. Reprendre uniquement avec le même refresh original et la même clé. Le remplacement actif est récupérable pendant sept jours sans prolonger son échéance. Un parent authentique non expiré rejoué avec une autre clé révoque toujours la famille. Révocation et bannissement purgent les données de reprise. Cet exemple historique omet la reprise ; voir docs/refresh-recovery.md."
               },
               "response": [],
               "event": [
