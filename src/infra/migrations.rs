@@ -81,6 +81,10 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
+    sqlx::raw_sql(include_str!("../../db/003_notification_events.sql"))
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
     sqlx::raw_sql(
         "ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS rotation_request_hash text;
          ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS rotation_result bytea;",

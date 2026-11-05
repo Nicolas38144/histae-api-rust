@@ -200,6 +200,10 @@ impl DataRightsStore for PgDataRightsStore {
                                 return Ok(UpdateRequestResult::InvalidRequest);
                             }
                         };
+                        let has_response = input
+                            .response
+                            .as_ref()
+                            .is_some_and(|value| !value.trim().is_empty());
                         sqlx::query(
                             "UPDATE data_subject_request
                              SET status = $2, handled_by = $3, notes = $4, response = $5,
@@ -237,6 +241,28 @@ impl DataRightsStore for PgDataRightsStore {
                         .execute(&mut *connection)
                         .await
                         .map_err(map_sqlx_error)?;
+
+                        if has_response
+                            && matches!(
+                                review.stored_status(),
+                                DataRequestStatus::InProgress
+                                    | DataRequestStatus::Completed
+                                    | DataRequestStatus::Rejected
+                            )
+                        {
+                            let status = review.stored_status().as_str();
+                            let source = format!("{}:{status}", input.request_id);
+                            crate::notifications::enqueue_notification(
+                                connection,
+                                user_id,
+                                &source,
+                                &crate::notifications::domain::NotificationIntent::DataRequestReplied {
+                                    request_id: input.request_id,
+                                    response_status: status.to_owned(),
+                                },
+                            )
+                            .await?;
+                        }
 
                         if review == RequestReview::ScheduleErasure {
                             enqueue_account_erasure(connection, user_id, Some(input.request_id))

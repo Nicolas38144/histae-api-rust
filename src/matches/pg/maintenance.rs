@@ -88,6 +88,7 @@ async fn run_batch(
     let purge_after = now
         .checked_add_signed(TimeDelta::days(MATCH_PURGE_DAYS))
         .ok_or(DatabaseError::QueryFailed)?;
+    let reminded = super::reminders::enqueue_first_period_reminders(connection, now, limit).await?;
     let opened = open_continuation_windows(connection, now, limit).await?;
     let expired = expire_continuation_windows(connection, now, purge_after, limit).await?;
     let warned = super::inactivity::enqueue_warnings(connection, now, limit).await?;
@@ -97,6 +98,7 @@ async fn run_batch(
     let deleted_notifications = delete_expired_notifications(connection, now, limit).await?;
     let purged = purge_expired_matches(connection, now, limit).await?;
     Ok(MatchMaintenanceBatch {
+        reminded,
         opened,
         expired,
         warned,

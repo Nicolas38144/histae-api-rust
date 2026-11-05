@@ -29,6 +29,7 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Audit fonctionnel](feature-audit.md) : corrections, contrôles actuels et validations fournisseur restantes.
 - [Confidentialité et capacité photo](privacy-and-photo-security.md) : localisation approximative, migration, limites du convertisseur et expiration des liens photo.
 - [Internationalisation](internationalization.md) : langues, traductions des catalogues, documents, notifications et Stripe.
+- [Notifications push](push-notifications.md) : événements, prénoms, destinations, expiration et validation de livraison.
 - [Contrat HTTP](http-contract.md) : routes, entrées, réponses, permissions et idempotence.
 - [Postman](../postman/README.md) : import des JSON et parcours de test.
 - [Supervision](observability.md) : Prometheus, Grafana, alertes et runbooks.

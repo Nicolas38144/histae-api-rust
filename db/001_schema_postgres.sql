@@ -830,6 +830,7 @@ CREATE TABLE match_init (
     expires_at timestamp with time zone DEFAULT (now() + '24:00:00'::interval) NOT NULL,
     purge_after timestamp with time zone,
     continuation_initiator_id uuid,
+    photo_reveal_version bigint NOT NULL DEFAULT 0 CHECK (photo_reveal_version >= 0),
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     last_message_at timestamp with time zone,
     CONSTRAINT match_init_check CHECK ((user1_id < user2_id)),
@@ -1002,7 +1003,7 @@ CREATE TABLE notification (
     billing_reference text,
     CONSTRAINT chk_notification_billing_context CHECK ((billing_reference IS NULL) OR ((type = 'billing_payment_failed'::text) AND (billing_reference ~ '^in_[A-Za-z0-9]+$'::text))),
     CONSTRAINT notification_deduplication_key_check CHECK (((deduplication_key IS NULL) OR (deduplication_key ~ '^[0-9a-f]{64}$'::text))),
-    CONSTRAINT notification_type_check CHECK ((type = ANY (ARRAY['new_match'::text, 'new_message'::text, 'profile_liked'::text, 'match_expiring'::text, 'billing_payment_failed'::text]))),
+    CONSTRAINT notification_type_check CHECK ((type = ANY (ARRAY['new_match'::text, 'new_message'::text, 'profile_liked'::text, 'match_expiring'::text, 'billing_payment_failed'::text, 'continuation_requested'::text, 'conversation_continued'::text, 'photos_revealed'::text, 'first_period_ending'::text, 'data_request_replied'::text, 'new_session'::text]))),
     CONSTRAINT notification_deduplication_key_key UNIQUE (deduplication_key),
     CONSTRAINT notification_pkey PRIMARY KEY (id),
     CONSTRAINT notification_user_id_fkey FOREIGN KEY (user_id) REFERENCES user_account(user_id) ON DELETE CASCADE
@@ -1013,6 +1014,8 @@ CREATE INDEX idx_notification_expire ON notification USING btree (expires_at, id
 CREATE INDEX idx_notification_unread ON notification USING btree (user_id, read_at) WHERE (read_at IS NULL);
 
 CREATE INDEX idx_notification_user ON notification USING btree (user_id, created_at DESC);
+
+CREATE INDEX idx_notification_match_kind ON notification (user_id, type, (payload->>'match_id'), expires_at);
 
 CREATE TABLE outbox_event (
     id uuid NOT NULL,

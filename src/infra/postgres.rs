@@ -247,6 +247,16 @@ impl Database {
         if !request_details_ready {
             return Err(DatabaseError::SchemaObjectsMissing);
         }
+        let notification_events_ready: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.match_init') AND attname='photo_reveal_version' AND atttypid='int8'::regtype AND attnotnull AND NOT attisdropped)
+              AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass(current_schema() || '.notification') AND conname='notification_type_check' AND pg_get_constraintdef(oid) LIKE '%first_period_ending%' AND pg_get_constraintdef(oid) LIKE '%new_session%' AND pg_get_constraintdef(oid) LIKE '%data_request_replied%' AND pg_get_constraintdef(oid) LIKE '%photos_revealed%' AND pg_get_constraintdef(oid) LIKE '%conversation_continued%' AND pg_get_constraintdef(oid) LIKE '%continuation_requested%')"
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(map_sqlx_error)?;
+        if !notification_events_ready {
+            return Err(DatabaseError::SchemaObjectsMissing);
+        }
         let languages_ready: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.user_account') AND attname='preferred_language' AND atttypid='text'::regtype AND attnotnull AND NOT attisdropped)
               AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.device_token') AND attname='language' AND NOT attisdropped)

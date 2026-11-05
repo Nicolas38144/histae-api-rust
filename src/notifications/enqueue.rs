@@ -6,7 +6,7 @@ use sqlx::types::Json;
 use uuid::Uuid;
 
 use super::domain::NotificationIntent;
-use super::eligibility::BILLING_NOTIFICATION_ELIGIBLE_SQL;
+use super::eligibility::{ACCOUNT_NOTIFICATION_ELIGIBLE_SQL, BILLING_NOTIFICATION_ELIGIBLE_SQL};
 use crate::infra::postgres::{DatabaseError, map_sqlx_error};
 
 static ENQUEUE_NOTIFICATION_SQL: OnceLock<String> = OnceLock::new();
@@ -28,6 +28,7 @@ pub async fn enqueue_notification(
         .bind(prepared.deduplication_key)
         .bind(intent.billing_reference())
         .bind(intent.expires_at())
+        .bind(intent.excluded_session_id())
         .execute(connection)
         .await
         .map_err(map_sqlx_error)?;
@@ -70,11 +71,13 @@ fn enqueue_sql() -> &'static str {
               INSERT INTO notification
                 (id, user_id, type, payload, deduplication_key, billing_reference, expires_at)
               SELECT id, user_id, type, payload, deduplication_key,
-                     billing_reference, COALESCE($7::timestamptz, clock_timestamp()+INTERVAL '90 days')
+                     billing_reference, COALESCE($7::timestamptz, clock_timestamp() + CASE WHEN type IN ('continuation_requested','conversation_continued','photos_revealed','new_session') THEN INTERVAL '1 day' ELSE INTERVAL '90 days' END)
               FROM candidate n
-              WHERE n.type IN ('new_match', 'new_message', 'match_expiring') OR (
+              WHERE n.type IN ('new_match', 'new_message', 'match_expiring', 'continuation_requested', 'conversation_continued', 'photos_revealed', 'first_period_ending') OR (
             "#,
             BILLING_NOTIFICATION_ELIGIBLE_SQL,
+            ") OR (",
+            ACCOUNT_NOTIFICATION_ELIGIBLE_SQL,
             r#"
               )
               ON CONFLICT (deduplication_key) DO NOTHING
@@ -85,8 +88,9 @@ fn enqueue_sql() -> &'static str {
               FROM created_notification n
               JOIN device_token d ON d.user_id = n.user_id
               LEFT JOIN refresh_token_family session ON session.id = d.session_id
-              WHERE d.session_id IS NULL
-                 OR (session.revoked_at IS NULL AND session.expires_at > clock_timestamp())
+              WHERE (d.session_id IS NULL
+                 OR (session.revoked_at IS NULL AND session.expires_at > clock_timestamp()))
+                AND ($8::uuid IS NULL OR d.session_id IS DISTINCT FROM $8::uuid)
             ), jobs AS (
               INSERT INTO outbox_event (id, event_type, aggregate_id)
               SELECT id, 'notification.push', id FROM targets

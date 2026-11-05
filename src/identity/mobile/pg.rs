@@ -485,6 +485,13 @@ async fn insert_session(
     .await
     .map_err(map_sqlx_error)?;
     insert_token(connection, user_id, session_id, token, None).await?;
+    crate::notifications::enqueue_notification(
+        connection,
+        user_id,
+        &session_id.to_string(),
+        &crate::notifications::domain::NotificationIntent::NewSession { session_id },
+    )
+    .await?;
     Ok(MobileSessionIdentity {
         user_id,
         session_id,

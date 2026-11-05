@@ -88,54 +88,99 @@ pub enum NotificationIntent {
         match_id: Uuid,
         expires_at: DateTime<Utc>,
     },
+    ContinuationRequested {
+        match_id: Uuid,
+        actor_id: Uuid,
+    },
+    ConversationContinued {
+        match_id: Uuid,
+    },
+    PhotosRevealed {
+        match_id: Uuid,
+        reveal_version: i64,
+    },
+    FirstPeriodEnding {
+        match_id: Uuid,
+        expires_at: DateTime<Utc>,
+    },
+    DataRequestReplied {
+        request_id: Uuid,
+        response_status: String,
+    },
+    NewSession {
+        session_id: Uuid,
+    },
     BillingPaymentFailed {
         invoice_id: String,
     },
 }
 
 impl NotificationIntent {
-    pub const fn notification_type(&self) -> &'static str {
+    pub const fn kind(&self) -> NotificationType {
         match self {
-            Self::NewMatch { .. } => "new_match",
-            Self::NewMessage { .. } => "new_message",
-            Self::MatchExpiring { .. } => "match_expiring",
-            Self::BillingPaymentFailed { .. } => "billing_payment_failed",
+            Self::NewMatch { .. } => NotificationType::NewMatch,
+            Self::NewMessage { .. } => NotificationType::NewMessage,
+            Self::MatchExpiring { .. } => NotificationType::MatchExpiring,
+            Self::ContinuationRequested { .. } => NotificationType::ContinuationRequested,
+            Self::ConversationContinued { .. } => NotificationType::ConversationContinued,
+            Self::PhotosRevealed { .. } => NotificationType::PhotosRevealed,
+            Self::FirstPeriodEnding { .. } => NotificationType::FirstPeriodEnding,
+            Self::DataRequestReplied { .. } => NotificationType::DataRequestReplied,
+            Self::NewSession { .. } => NotificationType::NewSession,
+            Self::BillingPaymentFailed { .. } => NotificationType::BillingPaymentFailed,
         }
+    }
+
+    pub const fn notification_type(&self) -> &'static str {
+        self.kind().as_str()
     }
 
     pub fn payload(&self) -> Value {
         match self {
-            Self::NewMatch { match_id } => json!({ "match_id": match_id }),
-            Self::NewMessage {
-                match_id,
-                message_id,
-                sender_id,
-            } => json!({
-                "match_id": match_id,
-                "message_id": message_id,
-                "sender_id": sender_id,
-            }),
-            Self::BillingPaymentFailed { .. } => json!({}),
-            Self::MatchExpiring {
-                match_id,
-                expires_at,
-            } => json!({
+            Self::NewMatch { match_id } | Self::ConversationContinued { match_id } => {
+                json!({ "match_id": match_id })
+            }
+            Self::NewMessage { match_id, message_id, sender_id } => {
+                json!({ "match_id": match_id, "message_id": message_id, "sender_id": sender_id })
+            }
+            Self::MatchExpiring { match_id, expires_at }
+            | Self::FirstPeriodEnding { match_id, expires_at } => json!({
                 "match_id": match_id,
                 "expires_at": expires_at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
             }),
+            Self::ContinuationRequested { match_id, actor_id } => {
+                json!({ "match_id": match_id, "actor_id": actor_id })
+            }
+            Self::PhotosRevealed { match_id, reveal_version } => {
+                json!({ "match_id": match_id, "reveal_version": reveal_version })
+            }
+            Self::DataRequestReplied { request_id, response_status } => {
+                json!({ "request_id": request_id, "response_status": response_status })
+            }
+            Self::NewSession { session_id } => json!({ "session_id": session_id }),
+            Self::BillingPaymentFailed { .. } => json!({}),
         }
     }
 
     pub fn billing_reference(&self) -> Option<&str> {
         match self {
             Self::BillingPaymentFailed { invoice_id } => Some(invoice_id),
-            Self::NewMatch { .. } | Self::NewMessage { .. } | Self::MatchExpiring { .. } => None,
+            _ => None,
         }
     }
 
     pub fn expires_at(&self) -> Option<DateTime<Utc>> {
         match self {
-            Self::MatchExpiring { expires_at, .. } => Some(*expires_at),
+            Self::MatchExpiring { expires_at, .. } | Self::FirstPeriodEnding { expires_at, .. } => {
+                Some(*expires_at)
+            }
+            _ => None,
+        }
+    }
+
+    pub const fn excluded_session_id(&self) -> Option<Uuid> {
+        match self {
+            Self::NewSession { session_id } => Some(*session_id),
             _ => None,
         }
     }
@@ -147,6 +192,12 @@ pub enum NotificationType {
     NewMessage,
     MatchExpiring,
     BillingPaymentFailed,
+    ContinuationRequested,
+    ConversationContinued,
+    PhotosRevealed,
+    FirstPeriodEnding,
+    DataRequestReplied,
+    NewSession,
 }
 
 impl NotificationType {
@@ -156,6 +207,12 @@ impl NotificationType {
             "new_message" => Some(Self::NewMessage),
             "match_expiring" => Some(Self::MatchExpiring),
             "billing_payment_failed" => Some(Self::BillingPaymentFailed),
+            "continuation_requested" => Some(Self::ContinuationRequested),
+            "conversation_continued" => Some(Self::ConversationContinued),
+            "photos_revealed" => Some(Self::PhotosRevealed),
+            "first_period_ending" => Some(Self::FirstPeriodEnding),
+            "data_request_replied" => Some(Self::DataRequestReplied),
+            "new_session" => Some(Self::NewSession),
             _ => None,
         }
     }
@@ -166,6 +223,39 @@ impl NotificationType {
             Self::NewMessage => "new_message",
             Self::MatchExpiring => "match_expiring",
             Self::BillingPaymentFailed => "billing_payment_failed",
+            Self::ContinuationRequested => "continuation_requested",
+            Self::ConversationContinued => "conversation_continued",
+            Self::PhotosRevealed => "photos_revealed",
+            Self::FirstPeriodEnding => "first_period_ending",
+            Self::DataRequestReplied => "data_request_replied",
+            Self::NewSession => "new_session",
+        }
+    }
+}
+
+#[cfg(test)]
+mod notification_tests {
+    use super::*;
+
+    #[test]
+    fn new_types_round_trip_without_storing_display_copy_or_a_video_reward_type() {
+        for kind in [NotificationType::ContinuationRequested, NotificationType::ConversationContinued,
+            NotificationType::PhotosRevealed, NotificationType::FirstPeriodEnding,
+            NotificationType::DataRequestReplied, NotificationType::NewSession] {
+            assert_eq!(NotificationType::parse(kind.as_str()), Some(kind));
+        }
+        assert_eq!(NotificationType::parse("advertising_credit_added"), None);
+        let session_id = Uuid::new_v4();
+        let login = NotificationIntent::NewSession { session_id };
+        assert_eq!(login.excluded_session_id(), Some(session_id));
+        let reveal = NotificationIntent::PhotosRevealed { match_id: Uuid::new_v4(), reveal_version: 3 };
+        assert_eq!(reveal.payload()["reveal_version"], 3);
+        assert_eq!(reveal.excluded_session_id(), None);
+        let reply = NotificationIntent::DataRequestReplied { request_id: Uuid::new_v4(), response_status: "completed".to_owned() };
+        assert!(reply.payload().get("response").is_none());
+        for payload in [login.payload(), reveal.payload(), reply.payload()] {
+            assert!(payload.get("firstname").is_none());
+            assert!(payload.get("content").is_none());
         }
     }
 }

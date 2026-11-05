@@ -6,6 +6,7 @@ mod maintenance;
 mod matches;
 mod messages;
 mod reveal;
+mod reminders;
 
 pub use maintenance::MatchMaintenanceRepository;
 pub use matches::PgMatchRepository;

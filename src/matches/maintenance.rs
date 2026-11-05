@@ -11,6 +11,7 @@ pub use super::pg::MatchMaintenanceRepository;
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct MatchMaintenanceBatch {
     pub opened: u64,
+    pub reminded: u64,
     pub expired: u64,
     pub warned: u64,
     pub closed_inactive: u64,
@@ -25,6 +26,7 @@ impl MatchMaintenanceBatch {
         let limit = u64::from(batch_size);
         [
             self.opened,
+            self.reminded,
             self.expired,
             self.warned,
             self.closed_inactive,
@@ -41,6 +43,7 @@ impl MatchMaintenanceBatch {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct MatchMaintenanceResult {
     pub opened: u64,
+    pub reminded: u64,
     pub expired: u64,
     pub warned: u64,
     pub closed_inactive: u64,
@@ -55,6 +58,7 @@ pub struct MatchMaintenanceResult {
 impl MatchMaintenanceResult {
     pub fn processed(self) -> u64 {
         self.opened
+            .saturating_add(self.reminded)
             .saturating_add(self.expired)
             .saturating_add(self.warned)
             .saturating_add(self.closed_inactive)
@@ -66,6 +70,7 @@ impl MatchMaintenanceResult {
 
     pub(super) fn merge(&mut self, batch: MatchMaintenanceBatch) {
         self.opened = self.opened.saturating_add(batch.opened);
+        self.reminded = self.reminded.saturating_add(batch.reminded);
         self.expired = self.expired.saturating_add(batch.expired);
         self.warned = self.warned.saturating_add(batch.warned);
         self.closed_inactive = self.closed_inactive.saturating_add(batch.closed_inactive);

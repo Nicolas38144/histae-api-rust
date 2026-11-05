@@ -1,6 +1,8 @@
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
+use crate::notifications::{domain::NotificationIntent, enqueue_notification};
+
 use super::access::lock_available_match;
 use crate::infra::postgres::map_sqlx_error;
 use crate::matches::domain::{MatchAvailabilityFailure, MatchCommandResult, PhotoRevealConsent};
@@ -31,11 +33,19 @@ pub(super) async fn record_reveal(
         }
     }
 
+    let was_revealed: bool = sqlx::query_scalar(
+        "SELECT count(*)=2 AND COALESCE(bool_and(revealed),false) FROM match_state WHERE match_id=$1"
+    )
+    .bind(match_id)
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+
     let row = sqlx::query(RECORD_REVEAL_SQL)
         .bind(match_id)
         .bind(user_id)
         .bind(consent.is_granted())
-        .fetch_one(connection)
+        .fetch_one(&mut *connection)
         .await
         .map_err(map_sqlx_error)?;
     if !row.try_get::<bool, _>("updated").map_err(map_sqlx_error)? {
@@ -43,9 +53,23 @@ pub(super) async fn record_reveal(
             MatchAvailabilityFailure::NotFound,
         ));
     }
-    Ok(MatchCommandResult::Available(
-        row.try_get("revealed").map_err(map_sqlx_error)?,
-    ))
+    let revealed: bool = row.try_get("revealed").map_err(map_sqlx_error)?;
+    if revealed && !was_revealed {
+        let version: i64 = sqlx::query_scalar("UPDATE match_init SET photo_reveal_version=photo_reveal_version+1 WHERE id=$1 RETURNING photo_reveal_version")
+            .bind(match_id)
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(map_sqlx_error)?;
+        let intent = NotificationIntent::PhotosRevealed {
+            match_id,
+            reveal_version: version,
+        };
+        let source = format!("{match_id}:{version}");
+        for participant in [record.user1_id, record.user2_id] {
+            enqueue_notification(connection, participant, &source, &intent).await?;
+        }
+    }
+    Ok(MatchCommandResult::Available(revealed))
 }
 
 const PARTICIPANT_PHOTOS_SQL: &str = r#"

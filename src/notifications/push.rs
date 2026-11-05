@@ -52,6 +52,18 @@ pub trait PushSender: Send + Sync {
     ) -> PushFuture<'a> {
         self.send(token, kind, data)
     }
+
+    fn send_personalized<'a>(
+        &'a self,
+        token: &'a str,
+        kind: NotificationType,
+        data: BTreeMap<String, String>,
+        language: Language,
+        _firstname: Option<&'a str>,
+        _expires_at: DateTime<Utc>,
+    ) -> PushFuture<'a> {
+        self.send_in(token, kind, data, language)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -215,12 +227,23 @@ impl PushService {
         kind: NotificationType,
         data: BTreeMap<String, String>,
         language: Language,
+        firstname: Option<&str>,
+        expires_at: DateTime<Utc>,
     ) -> Result<(), PushDeliveryError> {
         if self.inner.config.provider == PushProvider::Disabled {
             return Ok(());
         }
+        if expires_at <= self.inner.clock.now() {
+            return Ok(());
+        }
         let access_token = self.google_access_token().await?;
-        let (title, message) = copy::notification(language, kind);
+        let now = self.inner.clock.now();
+        let delivery_deadline = expires_at.min(now + ChronoDuration::days(1));
+        let ttl = (delivery_deadline - now).num_seconds();
+        if ttl <= 0 {
+            return Ok(());
+        }
+        let (title, message) = copy::personalized_notification(language, kind, firstname);
         let mut public_data = data;
         public_data.insert("type".to_owned(), kind.as_str().to_owned());
         let request = json!({
@@ -228,6 +251,8 @@ impl PushService {
                 "token": token,
                 "notification": { "title": title, "body": message },
                 "data": public_data,
+                "android": { "ttl": format!("{ttl}s") },
+                "apns": { "headers": { "apns-expiration": delivery_deadline.timestamp().to_string() } },
             }
         });
         let url = Url::parse(&format!(
@@ -313,7 +338,10 @@ impl PushSender for PushService {
         kind: NotificationType,
         data: BTreeMap<String, String>,
     ) -> PushFuture<'a> {
-        Box::pin(self.send_inner(token, kind, data, Language::Fr))
+        Box::pin(self.send_inner(
+            token, kind, data, Language::Fr, None,
+            self.inner.clock.now() + ChronoDuration::days(1),
+        ))
     }
 
     fn send_in<'a>(
@@ -323,7 +351,22 @@ impl PushSender for PushService {
         data: BTreeMap<String, String>,
         language: Language,
     ) -> PushFuture<'a> {
-        Box::pin(self.send_inner(token, kind, data, language))
+        Box::pin(self.send_inner(
+            token, kind, data, language, None,
+            self.inner.clock.now() + ChronoDuration::days(1),
+        ))
+    }
+
+    fn send_personalized<'a>(
+        &'a self,
+        token: &'a str,
+        kind: NotificationType,
+        data: BTreeMap<String, String>,
+        language: Language,
+        firstname: Option<&'a str>,
+        expires_at: DateTime<Utc>,
+    ) -> PushFuture<'a> {
+        Box::pin(self.send_inner(token, kind, data, language, firstname, expires_at))
     }
 }
 
@@ -673,6 +716,48 @@ mod tests {
                 .unwrap_or_default()
                 .contains("private")
         );
+    }
+
+    #[tokio::test]
+    async fn personalized_names_stay_in_display_text_and_out_of_routing_data() {
+        let transport = Arc::new(Transport::default());
+        transport.token_responses.lock().unwrap_or_else(|_| unreachable!())
+            .push(response(200, json!({"access_token":"generated-access","expires_in":3600})));
+        transport.send_responses.lock().unwrap_or_else(|_| unreachable!())
+            .push(response(200, json!({})));
+        let now = Utc.with_ymd_and_hms(2030, 1, 1, 0, 0, 0).single().unwrap_or_else(|| unreachable!());
+        let service = PushService::with_dependencies(config(PushProvider::Fcm), Arc::new(Store::default()),
+            transport.clone(), Arc::new(Signer), Arc::new(FixedClock(now)));
+        let data = BTreeMap::from([
+            ("notification_id".to_owned(), uuid::Uuid::new_v4().to_string()),
+            ("match_id".to_owned(), uuid::Uuid::new_v4().to_string()),
+        ]);
+        service.send_personalized("generated-token", NotificationType::ContinuationRequested,
+            data, Language::Fr, Some("Lucas"), now + ChronoDuration::minutes(10))
+            .await.unwrap_or_else(|_| unreachable!());
+        let sent = transport.json.lock().unwrap_or_else(|_| unreachable!());
+        assert_eq!(sent[0].pointer("/message/notification/body").and_then(Value::as_str), Some("Lucas souhaite continuer, et vous ?"));
+        let public_data = sent[0].pointer("/message/data").unwrap_or_else(|| unreachable!());
+        assert!(!public_data.to_string().contains("Lucas"));
+        assert_eq!(public_data.get("type").and_then(Value::as_str), Some("continuation_requested"));
+        assert_eq!(sent[0].pointer("/message/android/ttl").and_then(Value::as_str), Some("600s"));
+        assert_eq!(sent[0].pointer("/message/apns/headers/apns-expiration").and_then(Value::as_str),
+            Some((now + ChronoDuration::minutes(10)).timestamp().to_string().as_str()));
+    }
+
+    #[tokio::test]
+    async fn expired_alerts_are_acknowledged_without_oauth_or_provider_calls() {
+        let transport = Arc::new(Transport::default());
+        let now = Utc::now();
+        let service = PushService::with_dependencies(
+            config(PushProvider::Fcm), Arc::new(Store::default()), transport.clone(),
+            Arc::new(Signer), Arc::new(FixedClock(now)),
+        );
+        service.send_personalized("generated-token", NotificationType::FirstPeriodEnding,
+            BTreeMap::new(), Language::Fr, Some("Lucas"), now)
+            .await.unwrap_or_else(|_| unreachable!());
+        assert!(transport.forms.lock().unwrap_or_else(|_| unreachable!()).is_empty());
+        assert!(transport.json.lock().unwrap_or_else(|_| unreachable!()).is_empty());
     }
 
     #[tokio::test]
