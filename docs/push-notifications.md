@@ -27,8 +27,10 @@ Business writes enqueue on the same PostgreSQL transaction. Replayed choices do 
 Match maintenance schedules the bounded reminder batches; `reminded` contributes to workload counts.
 The outbox rechecks access, blocks, deadlines, choices, grant version and request/session state.
 Withdrawn/replaced photo grants and superseded choices cannot revive queued alerts. Existing message
-read and failed-payment checks remain. New lifecycle/security alerts expire after one day.
-FCM/APNs storage is capped at one day and at the notification's earlier deadline, using
+read and failed-payment checks remain. New lifecycle/security alerts, including request replies,
+are retained for at most one day; the first-period reminder expires at its match deadline.
+FCM/APNs storage is capped at one day and at the earliest notification, match or recipient-session
+deadline. New-session alerts also respect the opened session's deadline, using
 [Android TTL and APNs expiration](https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-lifespan).
 Alerts already accepted by the provider cannot be recalled by these database checks.
 
@@ -49,23 +51,44 @@ Startup rejects a schema that has not been upgraded.
 cargo run --locked --bin db-migrate
 ```
 
-## Owner verification
+## Organization and verification
 
-API compilation/tests were deliberately not run during this implementation. From the API root:
+`notifications/domain.rs` owns notification kinds and retention durations. `enqueue.rs` persists
+notifications and delivery jobs in the business transaction. `delivery/pg.rs` resolves current
+eligibility, names and the earliest delivery deadline; only its SQL text is cached, never access
+decisions. `delivery.rs` coordinates delivery and `push.rs` owns the FCM transport.
 
-```bash
-cargo fmt
-cargo test --locked --lib notifications::
-cargo test --locked --lib localization::copy::notification_tests
-```
-
-For integration checks, use the guarded local `histae-dev` database with `ENV=development` and
-localhost PostgreSQL, after migration. Never point these fixture tests at production.
+From the API root:
 
 ```bash
-cargo test --locked --features postgres-integration --test notifications_postgres
-cargo test --locked --features postgres-integration --test matches_postgres --test matches_inactivity_postgres --test privacy_rights_postgres --test mobile_identity
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets
 ```
+
+For integration checks, prefer the disposable PostgreSQL launcher. It uses local PostgreSQL/PostGIS,
+generated credentials and loopback, verifies repeated upgrades, then removes its container and
+fixtures. It requires Docker access and the local PostgreSQL image described in [Tests](../tests/README.md).
+
+```bash
+cargo build --locked --bin db-migrate
+python3 scripts/verify-continuation-postgres.py \
+  --native-migrator target/debug/db-migrate \
+  --test notifications_postgres --test matches_postgres --test matches_inactivity_postgres \
+  --test privacy_rights_postgres --test mobile_identity --test maintenance_outbox_postgres \
+  --test account_erasure_postgres --test localization_postgres
+```
+
+The tests cover delivery deadlines, reply retention, changing names, old photo grants, continuation
+replays and recipients, reminder deduplication, request replies without private text and new-session
+exclusion. The upgrade test preserves existing notifications, match deadlines and photo-grant
+generations. Never point these fixture tests at production.
+
+Local validation on **5 November 2026**: **380 Rust tests passed** with
+`cargo test --locked --all-targets` and **39 PostgreSQL tests passed** across the eight suites above,
+including repeated schema upgrades. Formatting and Clippy with all targets/features and warnings
+denied passed. The disposable database, fixtures and generated credentials were removed after
+the run. Provider calls were disabled; this does not validate device reception.
 
 On devices, verify background/cold-start delivery, four languages, the actual current first name,
 mutual choices, withdrawn grants, resolved alerts, first-period timing, new-session exclusion and

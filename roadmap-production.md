@@ -1,10 +1,11 @@
 # Histae API — feuille de route de production
 
-Dernière mise à jour : **4 novembre 2026**, après ajout des achats natifs Apple/Google,
+Dernière mise à jour : **5 novembre 2026**, après ajout des achats natifs Apple/Google,
 du paiement Stripe sur le site par UUID/téléphone/OTP et du suivi financier des stores,
 correction du redéploiement avec maintenance et de la lecture des demandes RGPD avec effacement,
 ajout du parcours web de suppression du compte et de certaines données, et restriction des lectures
-administratives aux conversations signalées, puis validation de la reprise des refresh mobiles.
+administratives aux conversations signalées, puis validation de la reprise des refresh mobiles
+et revue des notifications de cycle de vie et de sécurité.
 Les essais fournisseur sur appareils et la validation du déploiement final restent ouverts.
 
 Cette feuille de route suit les raccordements, décisions et preuves qui restent nécessaires avant le
@@ -457,6 +458,11 @@ Références : [Tests API](tests/README.md), [Contrat](docs/http-contract.md),
 
 ## PROD-15 — Firebase/FCM, si les notifications push sont activées
 
+- [x] Implémenter les alertes de continuation, partage photo, première période, réponse RGPD et
+  nouvelle connexion, avec prénom actuel, règles d'obsolescence et durée FCM/APNs bornée.
+- [ ] Déployer ensemble la migration, l'API, l'outbox et la maintenance, puis vérifier les nouveaux
+  types sur appareils : destinataires, quatre langues, reprise après arrêt, consentement retiré,
+  réponse disponible et nouvelle session exclue de sa propre alerte.
 - [ ] Configurer le projet Firebase et le compte de service avec `PUSH_PROVIDER=fcm`,
   `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` et `FIREBASE_PRIVATE_KEY`.
 - [ ] Raccorder les applications mobiles, autorisations de notification et, pour iOS, l'accès APNs.
@@ -469,7 +475,8 @@ explicitement retenu avec un périmètre client et des promesses cohérents. Un 
 ne prouve pas à lui seul la réception ou l'affichage sur le téléphone.
 
 Références : [Configuration](docs/configuration.md#groupes-de-variables),
-[Appareils et temps réel](docs/http-contract.md#appareils-et-temps-reel).
+[Appareils et temps réel](docs/http-contract.md#appareils-et-temps-reel),
+[Notifications push](docs/push-notifications.md).
 
 ## PROD-16 — AdMob, si les crédits publicitaires sont activés
 

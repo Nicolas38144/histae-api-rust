@@ -140,21 +140,37 @@ impl NotificationIntent {
             Self::NewMatch { match_id } | Self::ConversationContinued { match_id } => {
                 json!({ "match_id": match_id })
             }
-            Self::NewMessage { match_id, message_id, sender_id } => {
+            Self::NewMessage {
+                match_id,
+                message_id,
+                sender_id,
+            } => {
                 json!({ "match_id": match_id, "message_id": message_id, "sender_id": sender_id })
             }
-            Self::MatchExpiring { match_id, expires_at }
-            | Self::FirstPeriodEnding { match_id, expires_at } => json!({
+            Self::MatchExpiring {
+                match_id,
+                expires_at,
+            }
+            | Self::FirstPeriodEnding {
+                match_id,
+                expires_at,
+            } => json!({
                 "match_id": match_id,
                 "expires_at": expires_at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
             }),
             Self::ContinuationRequested { match_id, actor_id } => {
                 json!({ "match_id": match_id, "actor_id": actor_id })
             }
-            Self::PhotosRevealed { match_id, reveal_version } => {
+            Self::PhotosRevealed {
+                match_id,
+                reveal_version,
+            } => {
                 json!({ "match_id": match_id, "reveal_version": reveal_version })
             }
-            Self::DataRequestReplied { request_id, response_status } => {
+            Self::DataRequestReplied {
+                request_id,
+                response_status,
+            } => {
                 json!({ "request_id": request_id, "response_status": response_status })
             }
             Self::NewSession { session_id } => json!({ "session_id": session_id }),
@@ -201,6 +217,22 @@ pub enum NotificationType {
 }
 
 impl NotificationType {
+    pub(super) const fn retention_seconds(self) -> i64 {
+        let days = match self {
+            Self::NewMatch
+            | Self::NewMessage
+            | Self::MatchExpiring
+            | Self::BillingPaymentFailed => 90,
+            Self::ContinuationRequested
+            | Self::ConversationContinued
+            | Self::PhotosRevealed
+            | Self::FirstPeriodEnding
+            | Self::DataRequestReplied
+            | Self::NewSession => 1,
+        };
+        days * 24 * 60 * 60
+    }
+
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "new_match" => Some(Self::NewMatch),
@@ -239,19 +271,30 @@ mod notification_tests {
 
     #[test]
     fn new_types_round_trip_without_storing_display_copy_or_a_video_reward_type() {
-        for kind in [NotificationType::ContinuationRequested, NotificationType::ConversationContinued,
-            NotificationType::PhotosRevealed, NotificationType::FirstPeriodEnding,
-            NotificationType::DataRequestReplied, NotificationType::NewSession] {
+        for kind in [
+            NotificationType::ContinuationRequested,
+            NotificationType::ConversationContinued,
+            NotificationType::PhotosRevealed,
+            NotificationType::FirstPeriodEnding,
+            NotificationType::DataRequestReplied,
+            NotificationType::NewSession,
+        ] {
             assert_eq!(NotificationType::parse(kind.as_str()), Some(kind));
         }
         assert_eq!(NotificationType::parse("advertising_credit_added"), None);
         let session_id = Uuid::new_v4();
         let login = NotificationIntent::NewSession { session_id };
         assert_eq!(login.excluded_session_id(), Some(session_id));
-        let reveal = NotificationIntent::PhotosRevealed { match_id: Uuid::new_v4(), reveal_version: 3 };
+        let reveal = NotificationIntent::PhotosRevealed {
+            match_id: Uuid::new_v4(),
+            reveal_version: 3,
+        };
         assert_eq!(reveal.payload()["reveal_version"], 3);
         assert_eq!(reveal.excluded_session_id(), None);
-        let reply = NotificationIntent::DataRequestReplied { request_id: Uuid::new_v4(), response_status: "completed".to_owned() };
+        let reply = NotificationIntent::DataRequestReplied {
+            request_id: Uuid::new_v4(),
+            response_status: "completed".to_owned(),
+        };
         assert!(reply.payload().get("response").is_none());
         for payload in [login.payload(), reveal.payload(), reply.payload()] {
             assert!(payload.get("firstname").is_none());

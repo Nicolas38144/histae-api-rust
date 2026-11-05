@@ -5,8 +5,8 @@ mod inactivity;
 mod maintenance;
 mod matches;
 mod messages;
-mod reveal;
 mod reminders;
+mod reveal;
 
 pub use maintenance::MatchMaintenanceRepository;
 pub use matches::PgMatchRepository;

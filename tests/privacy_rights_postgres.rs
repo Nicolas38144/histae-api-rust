@@ -268,6 +268,15 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
             UpdateRequestResult::Updated,
         );
         let resolved = rights.requests_for_user(user_id).await?;
+        let reply_payload: serde_json::Value = sqlx::query_scalar(
+            "SELECT payload FROM notification WHERE user_id=$1 AND type='data_request_replied'
+             AND payload->>'request_id'=$2"
+        ).bind(user_id).bind(correction.id.to_string())
+            .fetch_one(database.acquire().await?.as_mut()).await?;
+        assert_eq!(reply_payload, serde_json::json!({
+            "request_id": correction.id,
+            "response_status": "completed"
+        }), "a public reply notifies without its text or the private administrator note");
         assert_eq!(
             resolved.iter().find(|row| row.id == correction.id)
                 .and_then(|row| row.response.as_deref()),

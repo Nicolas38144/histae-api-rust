@@ -29,6 +29,7 @@ pub async fn enqueue_notification(
         .bind(intent.billing_reference())
         .bind(intent.expires_at())
         .bind(intent.excluded_session_id())
+        .bind(intent.kind().retention_seconds())
         .execute(connection)
         .await
         .map_err(map_sqlx_error)?;
@@ -71,7 +72,8 @@ fn enqueue_sql() -> &'static str {
               INSERT INTO notification
                 (id, user_id, type, payload, deduplication_key, billing_reference, expires_at)
               SELECT id, user_id, type, payload, deduplication_key,
-                     billing_reference, COALESCE($7::timestamptz, clock_timestamp() + CASE WHEN type IN ('continuation_requested','conversation_continued','photos_revealed','new_session') THEN INTERVAL '1 day' ELSE INTERVAL '90 days' END)
+                     billing_reference, COALESCE($7::timestamptz,
+                       clock_timestamp() + $9::bigint * INTERVAL '1 second')
               FROM candidate n
               WHERE n.type IN ('new_match', 'new_message', 'match_expiring', 'continuation_requested', 'conversation_continued', 'photos_revealed', 'first_period_ending') OR (
             "#,

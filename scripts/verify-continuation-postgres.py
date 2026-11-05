@@ -135,6 +135,26 @@ def main():
                     'case "$1" in histae_app) export PGPASSWORD="$HISTAE_BOOTSTRAP_APP_PASSWORD" ;; histae_migrate) export PGPASSWORD="$HISTAE_BOOTSTRAP_MIGRATE_PASSWORD" ;; *) exit 2 ;; esac; exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d histae-dev',
                     "sh", role, input_text=statement)
 
+            notice_users = sorted(str(uuid.uuid4()) for _ in range(2))
+            notice_match, notice_id = str(uuid.uuid4()), str(uuid.uuid4())
+            for user in notice_users:
+                query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{user}','legacy-notice-{user}',''::bytea);")
+            query(f"INSERT INTO match_init(id,user1_id,user2_id) VALUES ('{notice_match}','{notice_users[0]}','{notice_users[1]}'); INSERT INTO notification(id,user_id,type,payload) VALUES ('{notice_id}','{notice_users[0]}','new_match',jsonb_build_object('match_id','{notice_match}'));")
+            notice_snapshot_sql = f"SELECT jsonb_build_array(n.id,n.type,n.payload,n.created_at,n.expires_at,m.status,m.expires_at) FROM notification n JOIN match_init m ON m.id='{notice_match}' WHERE n.id='{notice_id}';"
+            notice_snapshot = query(notice_snapshot_sql)
+            query("ALTER TABLE match_init DROP COLUMN photo_reveal_version; ALTER TABLE notification DROP CONSTRAINT notification_type_check; ALTER TABLE notification ADD CONSTRAINT notification_type_check CHECK (type IN ('new_match','new_message','profile_liked','match_expiring','billing_payment_failed')); DROP INDEX idx_notification_match_kind;", "histae_migrate")
+            for _ in range(2):
+                migrate()
+                assert query(notice_snapshot_sql) == notice_snapshot
+                assert query(f"SELECT photo_reveal_version FROM match_init WHERE id='{notice_match}';") == "0"
+                assert query("SELECT to_regclass('idx_notification_match_kind') IS NOT NULL;") == "t"
+            query(f"UPDATE match_init SET photo_reveal_version=7 WHERE id='{notice_match}';")
+            migrate()
+            assert query(f"SELECT photo_reveal_version FROM match_init WHERE id='{notice_match}';") == "7"
+            for user in notice_users:
+                query(f"DELETE FROM user_account WHERE user_id='{user}';")
+            print("Notification upgrade preserves historical notices, match deadlines and photo grant generations.", flush=True)
+
             refresh_user, refresh_family, refresh_token, refresh_jti = [str(uuid.uuid4()) for _ in range(4)]
             query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{refresh_user}','legacy-refresh-{refresh_user}',''::bytea); INSERT INTO refresh_token_family(id,user_id,created_at,last_refreshed_at,expires_at) VALUES ('{refresh_family}','{refresh_user}',clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '180 days'); INSERT INTO refresh_tokens(id,user_id,family_id,jti,token_hash,created_at,expires_at) VALUES ('{refresh_token}','{refresh_user}','{refresh_family}','{refresh_jti}',repeat('a',64),clock_timestamp(),clock_timestamp()+interval '180 days');")
             refresh_snapshot_sql = f"SELECT jsonb_build_array(family.created_at,family.last_refreshed_at,family.expires_at,token.jti,token.token_hash,token.expires_at,token.revoked) FROM refresh_token_family family JOIN refresh_tokens token ON token.family_id=family.id WHERE token.id='{refresh_token}';"

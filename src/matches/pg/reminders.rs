@@ -34,7 +34,10 @@ pub(super) async fn enqueue_first_period_reminders(
     let count = candidates.len() as u64;
     for (match_id, first, second, expires_at) in candidates {
         let source = format!("{match_id}:{}", expires_at.timestamp_micros());
-        let intent = NotificationIntent::FirstPeriodEnding { match_id, expires_at };
+        let intent = NotificationIntent::FirstPeriodEnding {
+            match_id,
+            expires_at,
+        };
         for participant in [first, second] {
             enqueue_notification(connection, participant, &source, &intent).await?;
         }

@@ -71,6 +71,21 @@ pouvoir lire le store pnpm et lancer Node. Vérifier le résultat de chaque suit
 
 ## Isolation
 
+### Notifications de cycle de vie et de sécurité — 5 novembre 2026
+
+**380 tests Rust** avec `cargo test --locked --all-targets` et **39 tests PostgreSQL réussis** dans
+huit suites : notifications, matchs, inactivité, droits RGPD, sessions mobiles, maintenance/outbox,
+effacement et langues. Formatage et Clippy avec toutes les cibles/features et warnings refusés
+passent. La campagne utilise une base jetable avec les rôles PostgreSQL limités ; données, conteneur
+et identifiants temporaires sont supprimés.
+
+Les régressions couvrent les échéances du match, de la session destinataire et de la nouvelle
+connexion, la conservation d'un jour des réponses RGPD, les destinataires et le rejeu des
+continuations, les générations du partage photo, l'unicité des rappels et l'absence de texte privé
+dans les alertes. L'upgrade répété conserve notifications historiques, échéances des matchs et
+générations des consentements photo. Les commandes et la recette sur appareils restent dans le
+[guide des notifications push](../docs/push-notifications.md#organization-and-verification).
+
 ### Localisation et photos — 23 octobre 2026
 
 Vérifications ciblées : **251 tests unitaires/contrats/codec/inventaire**, **28 tests PostgreSQL**

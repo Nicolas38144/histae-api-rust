@@ -163,9 +163,14 @@ async fn preserves_operator_safety_leadership_and_bounded_cleanup()
     let database = Database::connect(&local_config()?)
         .await
         .map_err(|error| FixtureError(error.safe_code()))?;
-    let mut users = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+    let mut users = [
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+    ];
     users[..2].sort_unstable();
-    let [user1, user2, administrator] = users;
+    let [user1, user2, administrator, reminder_peer] = users;
     let match_id = Uuid::new_v4();
     let photo_id = Uuid::new_v4();
     let retry_event = Uuid::new_v4();
@@ -190,6 +195,7 @@ async fn preserves_operator_safety_leadership_and_bounded_cleanup()
         insert_account(&database, user1, "user").await?;
         insert_account(&database, user2, "user").await?;
         insert_account(&database, administrator, "admin").await?;
+        insert_account(&database, reminder_peer, "user").await?;
 
         let mut connection = database.acquire().await?;
         sqlx::query(
@@ -397,6 +403,18 @@ async fn preserves_operator_safety_leadership_and_bounded_cleanup()
         .execute(&mut *connection)
         .await?;
 
+        let reminder_match = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO match_init (id,user1_id,user2_id,status,expires_at)
+            VALUES ($1,LEAST($2::uuid,$3::uuid),GREATEST($2::uuid,$3::uuid),'active',$4)",
+        )
+        .bind(reminder_match)
+        .bind(user1)
+        .bind(reminder_peer)
+        .bind(maintenance_now + chrono::TimeDelta::hours(1))
+        .execute(&mut *connection)
+        .await?;
+
         let lock_acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
             .bind(MATCH_MAINTENANCE_LOCK)
             .fetch_one(&mut *connection)
@@ -416,10 +434,27 @@ async fn preserves_operator_safety_leadership_and_bounded_cleanup()
             .await?
             .ok_or(FixtureError("match_leader"))?;
         assert_eq!(result.deleted_messages, 1);
+        assert_eq!(result.reminded, 1);
         assert_eq!(result.detached_reports, 1);
         assert_eq!(result.purged, 1);
         assert_eq!(result.batches, 2);
         assert!(!result.work_remaining);
+        let repeated = matches
+            .run_as_leader(maintenance_now, 1, 4)
+            .await?
+            .ok_or(FixtureError("repeated_match_leader"))?;
+        assert_eq!(
+            repeated.reminded, 0,
+            "reminders are not recreated on the next pass"
+        );
+        let reminder_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM notification WHERE type='first_period_ending'
+             AND payload->>'match_id'=$1",
+        )
+        .bind(reminder_match.to_string())
+        .fetch_one(database.acquire().await?.as_mut())
+        .await?;
+        assert_eq!(reminder_count, 2, "both participants receive one reminder");
 
         let privacy = PrivacyMaintenanceRepository::new(database.clone())
             .run_as_leader(maintenance_now, 10)

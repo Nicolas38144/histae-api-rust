@@ -377,6 +377,16 @@ async fn creation_listing_and_reveal_keep_notifications_and_private_photo_rules_
             .map_err(|_| FixtureError("list_after_reveal"))?;
         assert_eq!(after[0].other_photo.as_deref(), Some(second_photo.as_str()));
         assert!(after[0].photos_revealed);
+        assert_eq!(
+            repository.record_reveal(match_record.id, second, PhotoRevealConsent::Granted).await?,
+            MatchCommandResult::Available(true)
+        );
+        let initial_reveal: (i64, i64) = sqlx::query_as(
+            "SELECT m.photo_reveal_version,count(n.id) FROM match_init m
+             LEFT JOIN notification n ON n.type='photos_revealed' AND n.payload->>'match_id'=m.id::text
+             WHERE m.id=$1 GROUP BY m.photo_reveal_version"
+        ).bind(match_record.id).fetch_one(database.acquire().await?.as_mut()).await?;
+        assert_eq!(initial_reveal, (1, 2), "replaying mutual consent must not notify again");
         // A moderation change hides both directions without erasing agreements.
         sqlx::query("UPDATE content_moderation_case SET status='pending' WHERE photo_id=(SELECT id FROM user_photo WHERE user_id=$1 AND status='ready')")
             .bind(second).execute(database.acquire().await?.as_mut()).await?;
@@ -438,6 +448,12 @@ async fn creation_listing_and_reveal_keep_notifications_and_private_photo_rules_
             refreshed[0].other_photo.as_deref(),
             Some(replacement.as_str())
         );
+        let renewed_reveal: (i64, i64) = sqlx::query_as(
+            "SELECT m.photo_reveal_version,count(n.id) FROM match_init m
+             LEFT JOIN notification n ON n.type='photos_revealed' AND n.payload->>'match_id'=m.id::text
+             WHERE m.id=$1 GROUP BY m.photo_reveal_version"
+        ).bind(match_record.id).fetch_one(database.acquire().await?.as_mut()).await?;
+        assert_eq!(renewed_reveal, (3, 6), "each new mutual grant has its own generation");
 
         Ok(())
     }
@@ -1052,6 +1068,24 @@ async fn free_credits_reserve_atomically_and_both_users_pay_only_at_confirmation
                 ContinuationResult::Pending
             );
         }
+        assert_eq!(
+            repository
+                .record_continuation(matches[0].id, owner, 1)
+                .await?,
+            ContinuationResult::AlreadyRecorded
+        );
+        let choices: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            "SELECT user_id,(payload->>'actor_id')::uuid FROM notification
+             WHERE type='continuation_requested' AND payload->>'match_id'=$1",
+        )
+        .bind(matches[0].id.to_string())
+        .fetch_all(database.acquire().await?.as_mut())
+        .await?;
+        assert_eq!(
+            choices,
+            vec![(peers[0], owner)],
+            "only the undecided partner is notified once"
+        );
         let (a, b) = tokio::join!(
             repository.record_continuation(matches[1].id, owner, 1),
             repository.record_continuation(matches[2].id, owner, 1)
@@ -1079,6 +1113,19 @@ async fn free_credits_reserve_atomically_and_both_users_pay_only_at_confirmation
         for user in [owner, peers[0]] {
             assert_eq!(repository.quota_snapshot(user, Utc::now()).await?.used, 1);
         }
+        let confirmed: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT user_id FROM notification WHERE type='conversation_continued'
+             AND payload->>'match_id'=$1 ORDER BY user_id",
+        )
+        .bind(matches[0].id.to_string())
+        .fetch_all(database.acquire().await?.as_mut())
+        .await?;
+        let mut expected = vec![owner, peers[0]];
+        expected.sort();
+        assert_eq!(
+            confirmed, expected,
+            "both participants are notified once on confirmation"
+        );
         let reserved_index = if results[0] == ContinuationResult::Pending {
             1
         } else {

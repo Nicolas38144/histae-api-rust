@@ -74,6 +74,9 @@ en mémoire ne remplace jamais un verrou transactionnel distribué. Les futures 
 - `advertising/{domain,error,store,http,pg,ssv}.rs` sépare les types métier, le port de persistance, les requêtes propriétaires, l’octroi transactionnel et la vérification AdMob sur les octets signés ; le mobile ne décide jamais du solde.
 - `identity/pg_guards.rs` porte les verrous de compte/consentement des transactions de matchs et de récompenses, ainsi que le verrou ordonné par paire partagé entre création de match et blocage.
 - `identity/admin/webauthn.rs` encapsule la vérification cryptographique.
+- `notifications/domain.rs` porte les types et les durées de conservation ; `enqueue.rs` crée les
+  notifications et leurs tâches dans la transaction métier. `delivery/pg.rs` vérifie l'éligibilité
+  et les échéances actuelles ; `delivery.rs` orchestre l'envoi et `push.rs` implémente FCM.
 - `billing/reconcile/` sépare modèles, ports, service, fournisseur Stripe, PostgreSQL, HTTP et worker.
 - `billing/webhook/pg.rs` isole la projection transactionnelle des événements Stripe signés.
 - `billing/stores/` sépare règles, ports fournisseur/persistance, service, transactions PostgreSQL, transport HTTP, administration et worker. `services/store-verifier/` valide les preuves Apple/Google sur le réseau privé ; il ne reçoit aucun accès à PostgreSQL.

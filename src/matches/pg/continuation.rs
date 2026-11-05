@@ -132,7 +132,14 @@ pub(super) async fn record(
     .await
     .map_err(map_sqlx_error)?;
     if reservations.len() != 2 {
-        notify_waiting(connection, match_id, user_id, record.user1_id, record.user2_id).await?;
+        notify_waiting(
+            connection,
+            match_id,
+            user_id,
+            record.user1_id,
+            record.user2_id,
+        )
+        .await?;
         return Ok(ContinuationResult::Pending);
     }
     // Validate both entitlements before applying either debit.
@@ -143,7 +150,14 @@ pub(super) async fn record(
         let week: NaiveDate = reservation.try_get("week_start").map_err(map_sqlx_error)?;
         if source == "advertising" && week != start_of_utc_week(now) {
             clear_choice(connection, match_id, participant).await?;
-            notify_waiting(connection, match_id, user_id, record.user1_id, record.user2_id).await?;
+            notify_waiting(
+                connection,
+                match_id,
+                user_id,
+                record.user1_id,
+                record.user2_id,
+            )
+            .await?;
             return Ok(ContinuationResult::Pending);
         }
         let quota = super::credits::quota_on(connection, participant, now).await?;
@@ -153,7 +167,14 @@ pub(super) async fn record(
             || quota.used >= super::credits::FREE_WEEKLY_CONTINUATION_LIMIT
         {
             clear_choice(connection, match_id, participant).await?;
-            notify_waiting(connection, match_id, user_id, record.user1_id, record.user2_id).await?;
+            notify_waiting(
+                connection,
+                match_id,
+                user_id,
+                record.user1_id,
+                record.user2_id,
+            )
+            .await?;
             return Ok(ContinuationResult::Pending);
         } else {
             charges.push((participant, source, week));
@@ -216,13 +237,18 @@ async fn expire_choice_notification(
     match_id: Uuid,
     actor_id: Uuid,
 ) -> Result<(), MatchStoreError> {
-    sqlx::query("UPDATE notification SET expires_at=LEAST(expires_at,clock_timestamp())
-        WHERE type='continuation_requested' AND (payload->>'match_id')::uuid=$1 AND (payload->>'actor_id')::uuid=$2")
-        .bind(match_id)
-        .bind(actor_id)
-        .execute(connection)
-        .await
-        .map_err(map_sqlx_error)?;
+    sqlx::query(
+        "UPDATE notification SET expires_at=clock_timestamp()
+        WHERE user_id=(SELECT CASE WHEN user1_id=$2 THEN user2_id ELSE user1_id END
+                       FROM match_init WHERE id=$1 AND $2 IN (user1_id,user2_id))
+          AND type='continuation_requested' AND payload->>'match_id'=$1::text
+          AND payload->>'actor_id'=$2::text AND expires_at>clock_timestamp()",
+    )
+    .bind(match_id)
+    .bind(actor_id)
+    .execute(connection)
+    .await
+    .map_err(map_sqlx_error)?;
     Ok(())
 }
 
@@ -234,16 +260,18 @@ async fn notify_waiting(
     second: Uuid,
 ) -> Result<(), MatchStoreError> {
     let recipient = if actor_id == first { second } else { first };
-    let needed: bool = sqlx::query_scalar("SELECT EXISTS (
+    let needed: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
         SELECT 1 FROM match_state actor JOIN match_state other ON other.match_id=actor.match_id
         WHERE actor.match_id=$1 AND actor.user_id=$2 AND actor.continued
-          AND other.user_id=$3 AND NOT other.continued)")
-        .bind(match_id)
-        .bind(actor_id)
-        .bind(recipient)
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(map_sqlx_error)?;
+          AND other.user_id=$3 AND NOT other.continued)",
+    )
+    .bind(match_id)
+    .bind(actor_id)
+    .bind(recipient)
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
     if needed {
         expire_choice_notification(connection, match_id, actor_id).await?;
         enqueue_notification(

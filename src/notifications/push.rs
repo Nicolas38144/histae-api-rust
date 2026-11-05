@@ -339,7 +339,11 @@ impl PushSender for PushService {
         data: BTreeMap<String, String>,
     ) -> PushFuture<'a> {
         Box::pin(self.send_inner(
-            token, kind, data, Language::Fr, None,
+            token,
+            kind,
+            data,
+            Language::Fr,
+            None,
             self.inner.clock.now() + ChronoDuration::days(1),
         ))
     }
@@ -352,7 +356,11 @@ impl PushSender for PushService {
         language: Language,
     ) -> PushFuture<'a> {
         Box::pin(self.send_inner(
-            token, kind, data, language, None,
+            token,
+            kind,
+            data,
+            language,
+            None,
             self.inner.clock.now() + ChronoDuration::days(1),
         ))
     }
@@ -721,28 +729,80 @@ mod tests {
     #[tokio::test]
     async fn personalized_names_stay_in_display_text_and_out_of_routing_data() {
         let transport = Arc::new(Transport::default());
-        transport.token_responses.lock().unwrap_or_else(|_| unreachable!())
-            .push(response(200, json!({"access_token":"generated-access","expires_in":3600})));
-        transport.send_responses.lock().unwrap_or_else(|_| unreachable!())
+        transport
+            .token_responses
+            .lock()
+            .unwrap_or_else(|_| unreachable!())
+            .push(response(
+                200,
+                json!({"access_token":"generated-access","expires_in":3600}),
+            ));
+        transport
+            .send_responses
+            .lock()
+            .unwrap_or_else(|_| unreachable!())
             .push(response(200, json!({})));
-        let now = Utc.with_ymd_and_hms(2030, 1, 1, 0, 0, 0).single().unwrap_or_else(|| unreachable!());
-        let service = PushService::with_dependencies(config(PushProvider::Fcm), Arc::new(Store::default()),
-            transport.clone(), Arc::new(Signer), Arc::new(FixedClock(now)));
+        let now = Utc
+            .with_ymd_and_hms(2030, 1, 1, 0, 0, 0)
+            .single()
+            .unwrap_or_else(|| unreachable!());
+        let service = PushService::with_dependencies(
+            config(PushProvider::Fcm),
+            Arc::new(Store::default()),
+            transport.clone(),
+            Arc::new(Signer),
+            Arc::new(FixedClock(now)),
+        );
         let data = BTreeMap::from([
-            ("notification_id".to_owned(), uuid::Uuid::new_v4().to_string()),
+            (
+                "notification_id".to_owned(),
+                uuid::Uuid::new_v4().to_string(),
+            ),
             ("match_id".to_owned(), uuid::Uuid::new_v4().to_string()),
         ]);
-        service.send_personalized("generated-token", NotificationType::ContinuationRequested,
-            data, Language::Fr, Some("Lucas"), now + ChronoDuration::minutes(10))
-            .await.unwrap_or_else(|_| unreachable!());
+        service
+            .send_personalized(
+                "generated-token",
+                NotificationType::ContinuationRequested,
+                data,
+                Language::Fr,
+                Some("Lucas"),
+                now + ChronoDuration::minutes(10),
+            )
+            .await
+            .unwrap_or_else(|_| unreachable!());
         let sent = transport.json.lock().unwrap_or_else(|_| unreachable!());
-        assert_eq!(sent[0].pointer("/message/notification/body").and_then(Value::as_str), Some("Lucas souhaite continuer, et vous ?"));
-        let public_data = sent[0].pointer("/message/data").unwrap_or_else(|| unreachable!());
+        assert_eq!(
+            sent[0]
+                .pointer("/message/notification/body")
+                .and_then(Value::as_str),
+            Some("Lucas souhaite continuer, et vous ?")
+        );
+        let public_data = sent[0]
+            .pointer("/message/data")
+            .unwrap_or_else(|| unreachable!());
         assert!(!public_data.to_string().contains("Lucas"));
-        assert_eq!(public_data.get("type").and_then(Value::as_str), Some("continuation_requested"));
-        assert_eq!(sent[0].pointer("/message/android/ttl").and_then(Value::as_str), Some("600s"));
-        assert_eq!(sent[0].pointer("/message/apns/headers/apns-expiration").and_then(Value::as_str),
-            Some((now + ChronoDuration::minutes(10)).timestamp().to_string().as_str()));
+        assert_eq!(
+            public_data.get("type").and_then(Value::as_str),
+            Some("continuation_requested")
+        );
+        assert_eq!(
+            sent[0]
+                .pointer("/message/android/ttl")
+                .and_then(Value::as_str),
+            Some("600s")
+        );
+        assert_eq!(
+            sent[0]
+                .pointer("/message/apns/headers/apns-expiration")
+                .and_then(Value::as_str),
+            Some(
+                (now + ChronoDuration::minutes(10))
+                    .timestamp()
+                    .to_string()
+                    .as_str()
+            )
+        );
     }
 
     #[tokio::test]
@@ -750,14 +810,37 @@ mod tests {
         let transport = Arc::new(Transport::default());
         let now = Utc::now();
         let service = PushService::with_dependencies(
-            config(PushProvider::Fcm), Arc::new(Store::default()), transport.clone(),
-            Arc::new(Signer), Arc::new(FixedClock(now)),
+            config(PushProvider::Fcm),
+            Arc::new(Store::default()),
+            transport.clone(),
+            Arc::new(Signer),
+            Arc::new(FixedClock(now)),
         );
-        service.send_personalized("generated-token", NotificationType::FirstPeriodEnding,
-            BTreeMap::new(), Language::Fr, Some("Lucas"), now)
-            .await.unwrap_or_else(|_| unreachable!());
-        assert!(transport.forms.lock().unwrap_or_else(|_| unreachable!()).is_empty());
-        assert!(transport.json.lock().unwrap_or_else(|_| unreachable!()).is_empty());
+        service
+            .send_personalized(
+                "generated-token",
+                NotificationType::FirstPeriodEnding,
+                BTreeMap::new(),
+                Language::Fr,
+                Some("Lucas"),
+                now,
+            )
+            .await
+            .unwrap_or_else(|_| unreachable!());
+        assert!(
+            transport
+                .forms
+                .lock()
+                .unwrap_or_else(|_| unreachable!())
+                .is_empty()
+        );
+        assert!(
+            transport
+                .json
+                .lock()
+                .unwrap_or_else(|_| unreachable!())
+                .is_empty()
+        );
     }
 
     #[tokio::test]
