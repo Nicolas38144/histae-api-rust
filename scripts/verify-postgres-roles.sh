@@ -4,7 +4,7 @@ set -euo pipefail
 
 PROJECT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 ROLE_TEST_IMAGE=${HISTAE_POSTGRES_IMAGE:-histae-postgres:18.6-postgis3.6.4}
-ROLE_TEST_API_IMAGE=${HISTAE_API_IMAGE:-histae-api:local}
+ROLE_TEST_API_IMAGE=${HISTAE_API_IMAGE:-histae-api-rust:local}
 ROLE_TEST_CONTAINER="histae-postgres-roles-test-$$"
 ROLE_TEST_DIRECTORY=$(mktemp -d)
 chmod 700 "$ROLE_TEST_DIRECTORY"

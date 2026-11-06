@@ -43,9 +43,11 @@ resynchronizes authentication, then rereads the authorized destination. Foregrou
 
 No new environment variables. Apply the migration with the migration role, then run matching API,
 outbox and maintenance versions. Stop the old worker before the new API produces these event kinds.
-`db/003_notification_events.sql` extends the type constraint and adds the photo-grant generation;
-`db-migrate` applies it automatically to existing databases. Fresh schemas already include it.
-Startup rejects a schema that has not been upgraded.
+The `notification events` section of `db/001_schema_postgres.sql` defines the type constraint and
+photo-grant generation once. `db-migrate` reuses that section for existing databases; a fresh
+installation applies it as part of the complete schema.
+Retired trial notifications are removed before restoring the current type constraint; other
+notifications and their deadlines are preserved. Startup rejects a schema that has not been upgraded.
 
 ```bash
 cargo run --locked --bin db-migrate

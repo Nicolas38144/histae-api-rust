@@ -6,8 +6,7 @@ use histae_api_rust::{
         otp::{BeginOtpDelivery, OtpRepository, OtpStore},
         phone_blocklist::{
             domain::*,
-            pg::PgPhoneBlocklist,
-            sync::{self, ImportedNumber, Source},
+            pg::{self, PgPhoneBlocklist},
         },
         sms_safety::{PgSmsSafetyStore, SmsSafetyStore, SmsSendRejection},
     },
@@ -138,13 +137,13 @@ async fn final_guard_and_audited_exceptions_keep_roles_expiry_imports_and_privac
         let delivery=Uuid::new_v4();let code_hash="c".repeat(64);
         otp.begin(BeginOtpDelivery {language:histae_api_rust::localization::Language::Fr,id:delivery,phone_hash:phone().hash,otp_hash:code_hash.clone(),idempotency_key:Uuid::new_v4(),ttl:Duration::from_secs(600),settlement:Duration::from_secs(15)}).await?;
         otp.mark_accepted(delivery,phone().hash,"policy-transaction".into(),"policy-message".into()).await?;
-        sync::import(&database,Source::Castle,vec![observation()],&key()).await?;
+        pg::import(&database,Source::Castle,vec![observation()],&key()).await?;
         assert!(!otp.consume(phone().hash,code_hash.clone()).await?,"a code issued before a block cannot open a new session");
         assert_eq!(guard.reserve(Uuid::new_v4(),phone().hash,policy.clone()).await?,Err(SmsSendRejection::PhoneBlocked));
         let attempts:i64=sqlx::query_scalar("SELECT count(*) FROM sms_send_attempt WHERE phone_hash=$1")
             .bind(phone().hash).fetch_one(database.acquire().await?.as_mut()).await?;
         assert_eq!(attempts,0,"a blocked request never spends the provider budget");
-        assert_eq!(sync::import(&database,Source::Castle,vec![observation()],&SecretString::new("w".repeat(32))).await,Err(PolicyError::KeyMismatch));
+        assert_eq!(pg::import(&database,Source::Castle,vec![observation()],&SecretString::new("w".repeat(32))).await,Err(PolicyError::KeyMismatch));
         let store=PgPhoneBlocklist::new(database.clone());
         let entry=store.lookup(phone()).await?;let id=entry.id.ok_or(FixtureError("policy_id"))?;
         let json=serde_json::to_string(&store.overview(25,0).await?)?;
@@ -154,7 +153,7 @@ async fn final_guard_and_audited_exceptions_keep_roles_expiry_imports_and_privac
         assert_eq!(store.change(change(admin,Decision::Block,Some(30),0,Some("Unpermitted block attempt".into()))).await,Err(PolicyError::Forbidden));
         store.change(change(admin,Decision::Allow,Some(30),0,Some("Verified reassignment through support".into()))).await?;
         assert_eq!(store.change(change(admin,Decision::Allow,Some(30),0,Some("Stale administrator view".into()))).await,Err(PolicyError::Conflict));
-        sync::import(&database,Source::Ip1,vec![observation()],&key()).await?;
+        pg::import(&database,Source::Ip1,vec![observation()],&key()).await?;
         assert!(!store.lookup(phone()).await?.blocked,"feed imports cannot override a manual exception");
         assert!(otp.consume(phone().hash,code_hash.clone()).await?);
         assert!(!otp.consume(phone().hash,code_hash).await?);
@@ -170,7 +169,7 @@ async fn final_guard_and_audited_exceptions_keep_roles_expiry_imports_and_privac
         assert!(!audits.iter().any(|(_,reason)|reason.contains("+33600000000")));
         sqlx::query("UPDATE user_account SET role='user' WHERE user_id=$1").bind(admin).execute(database.acquire().await?.as_mut()).await?;
         assert_eq!(store.change(change(admin,Decision::Allow,Some(30),3,Some("Demoted actor attempt".into()))).await,Err(PolicyError::Forbidden));
-        sync::record_failure(&database,Source::Castle).await?;
+        pg::record_failure(&database,Source::Castle).await?;
         assert!(store.overview(25,0).await?.ready,"a failed import retains the last good source");
         sqlx::query("UPDATE phone_blocklist_source SET last_success_at=clock_timestamp()-INTERVAL '8 days'")
             .execute(database.acquire().await?.as_mut()).await?;
@@ -293,7 +292,7 @@ async fn sync_credentials_cannot_read_users_or_change_manual_exceptions()
     config.password = SecretString::new(variable("PHONE_SYNC_TEST_PASSWORD")?);
     let sync_database = Database::connect(&config).await?;
     let result: Result<(), Box<dyn std::error::Error>> = async {
-        sync::import(&sync_database, Source::Castle, vec![observation()], &key()).await?;
+        pg::import(&sync_database, Source::Castle, vec![observation()], &key()).await?;
         let mut c = sync_database.acquire().await?;
         assert!(
             sqlx::query("SELECT phone_number_hash FROM user_account LIMIT 1")

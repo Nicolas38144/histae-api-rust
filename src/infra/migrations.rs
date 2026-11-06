@@ -81,11 +81,7 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
-    sqlx::raw_sql(include_str!("../../db/004_phone_blocklist.sql"))
-        .execute(&mut *transaction)
-        .await
-        .map_err(map_sqlx_error)?;
-    sqlx::raw_sql(include_str!("../../db/003_notification_events.sql"))
+    sqlx::raw_sql(schema_section(SCHEMA, "phone blocklist")?)
         .execute(&mut *transaction)
         .await
         .map_err(map_sqlx_error)?;
@@ -246,6 +242,10 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         .await
         .map_err(map_sqlx_error)?;
     retire_trial_notifications(&mut transaction).await?;
+    sqlx::raw_sql(schema_section(SCHEMA, "notification events")?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
     // Upgrade the former EUR catalogue price without overwriting custom prices.
     // Stripe Prices and existing subscriptions are managed separately.
     sqlx::query(
@@ -452,15 +452,13 @@ async fn retire_trial_notifications(
            AND delivery.notification_id = n.id AND n.type = 'subscription_trial_ending';
          DELETE FROM notification WHERE type = 'subscription_trial_ending';
          ALTER TABLE notification
-           DROP CONSTRAINT chk_notification_billing_context,
-           DROP CONSTRAINT notification_type_check,
+           DROP CONSTRAINT IF EXISTS chk_notification_billing_context,
+           DROP CONSTRAINT IF EXISTS notification_type_check,
            DROP COLUMN IF EXISTS billing_trial_ends_at;
          ALTER TABLE notification
            ADD CONSTRAINT chk_notification_billing_context CHECK (
              billing_reference IS NULL OR
-             (type = 'billing_payment_failed' AND billing_reference ~ '^in_[A-Za-z0-9]+$')),
-           ADD CONSTRAINT notification_type_check CHECK (
-             type IN ('new_match', 'new_message', 'profile_liked', 'match_expiring', 'billing_payment_failed'));",
+             (type = 'billing_payment_failed' AND billing_reference ~ '^in_[A-Za-z0-9]+$'));",
     )
     .execute(connection)
     .await
@@ -470,9 +468,9 @@ async fn retire_trial_notifications(
 
 fn schema_section<'a>(source: &'a str, name: &str) -> Result<&'a str, DatabaseError> {
     source
-        .split(&format!("-- BEGIN {name}"))
-        .nth(1)
-        .and_then(|section| section.split(&format!("-- END {name}")).next())
+        .split_once(&format!("-- BEGIN {name}"))
+        .and_then(|(_, section)| section.split_once(&format!("-- END {name}")))
+        .map(|(section, _)| section)
         .ok_or(DatabaseError::SchemaObjectsMissing)
 }
 
@@ -509,4 +507,25 @@ async fn retire_photo_verifier(connection: &mut sqlx::PgConnection) -> Result<()
           DROP COLUMN IF EXISTS content_allowed;
     "#).execute(connection).await.map_err(map_sqlx_error)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DatabaseError, schema_section};
+
+    #[test]
+    fn schema_sections_require_both_boundaries_and_exclude_neighboring_sql() {
+        let source = "DROP TABLE before_section;\n-- BEGIN policy\nSELECT 1;\n-- END policy\nDROP TABLE after_section;";
+        assert_eq!(schema_section(source, "policy"), Ok("\nSELECT 1;\n"));
+        for incomplete in [
+            "SELECT 1;",
+            "SELECT 1;\n-- END policy",
+            "-- BEGIN policy\nSELECT 1;\nDROP TABLE after_section;",
+        ] {
+            assert_eq!(
+                schema_section(incomplete, "policy"),
+                Err(DatabaseError::SchemaObjectsMissing)
+            );
+        }
+    }
 }

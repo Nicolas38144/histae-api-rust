@@ -213,7 +213,7 @@ python3 scripts/verify-continuation-postgres.py --sudo-docker \
 Cargo reste exécuté par l’utilisateur courant ; `sudo` s’applique uniquement aux commandes Docker. Avec un accès Docker déjà disponible, omettre `sudo -v` et `--sudo-docker`. Le lanceur crée un PostgreSQL avec une publication sur une adresse loopback et un port aléatoire, teste le migrateur fraîchement compilé sur base neuve et ancienne, puis exécute les suites avec `histae_app`. Ses fixtures, conteneur, tmpfs et mots de passe temporaires sont supprimés à la fin. Il ne se connecte pas au PostgreSQL de la pile dev.
 
 Pour vérifier le migrateur de l’image Docker à la place du binaire local, reconstruire cette image depuis
-le code actuel, omettre `--native-migrator` et préciser son nom avec `--api-image` (défaut : `histae-api:local`).
+le code actuel, omettre `--native-migrator` et préciser son nom avec `--api-image` (défaut : `histae-api-rust:local`).
 Les images doivent être disponibles localement : le lanceur les vérifie avant de créer PostgreSQL et ne les
 télécharge pas implicitement. En cas d’échec de migration Docker, seuls le code de sortie et les
 `error_code` structurés sont affichés ; les mots de passe, SQL et environnements restent masqués.
@@ -581,3 +581,33 @@ Les deux nouvelles règles Prometheus et les cinq topologies Compose passent leu
 Le dashboard passe son build, TypeScript, ESLint, 166 tests unitaires et 12 tests navigateur
 (`pnpm exec playwright test --grep-invert @real --workers=1`). Le premier passage avec quatre workers
 a dépassé le délai d’une navigation pendant les compilations ; le passage séquentiel complet réussit.
+
+### Consolidation SQL et protection SMS — 6 novembre 2026
+
+Les sections `phone blocklist` et `notification events` de `db/001_schema_postgres.sql` sont
+partagées par l’installation neuve et les upgrades. Les fichiers SQL séparés ont été retirés.
+Le test du lecteur de sections exige les deux délimiteurs et exclut les instructions voisines.
+Le lanceur PostgreSQL simule aussi des notifications d’essai retirées en présence de notifications
+de continuation : il vérifie leur nettoyage avant la contrainte actuelle, la conservation des autres
+notifications et leur échéance, puis l’idempotence d’un nouveau passage.
+
+Le refactoring SMS garde la vérification du rôle actif sous verrou, les versions et l’audit dans la
+transaction. Les règles de durée et de justification sont testées séparément, y compris la longueur
+UTF-16 et le motif automatique du superadmin. La recherche par téléphone utilise une seule requête.
+
+Validation locale : **387 tests Rust**, **25 tests PostgreSQL** (politiques SMS, notifications, OTP,
+identité mobile, confidentialité web et outbox) et Clippy tous targets/features réussis.
+Les migrations neuves, historiques et répétées passent. Les deux imports réels réussissent avec le
+rôle limité ; aucun SMS n’est envoyé et les données temporaires sont supprimées.
+
+```bash
+cargo fmt --all -- --check
+cargo test --locked --all-targets
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo build --locked --bin db-migrate --bin phone-blocklist-sync
+python3 scripts/verify-continuation-postgres.py \
+  --native-migrator target/debug/db-migrate \
+  --test phone_blocklist_postgres --test notifications_postgres \
+  --test maintenance_outbox_postgres --test otp_delivery --test sms_safety_postgres \
+  --test mobile_identity --test web_privacy_postgres
+```

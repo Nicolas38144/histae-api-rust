@@ -1,5 +1,5 @@
 use super::{
-    domain::{Change, Decision, Entry, Overview, PhoneKey, PolicyError, Target},
+    domain::{Change, Decision, Entry, Overview, PhoneKey, PolicyError, Target, canonical_phone},
     pg::PgPhoneBlocklist,
 };
 use crate::{
@@ -79,7 +79,7 @@ impl ApiDto for Lookup {
     const ERROR_CODE: &'static str = "invalid_admin_request";
     const ERROR_MESSAGE: &'static str = "The administrator request is invalid.";
     fn is_valid(&self) -> bool {
-        crate::identity::mobile::otp::OtpService::canonical_phone(&self.phone_number).is_ok()
+        canonical_phone(&self.phone_number).is_ok()
     }
 }
 async fn lookup(
@@ -106,13 +106,11 @@ impl ApiDto for ChangeBody {
     fn is_valid(&self) -> bool {
         self.entry_id.is_some() != self.phone_number.is_some()
             && self.version >= 0
-            && self.phone_number.as_deref().is_none_or(|p| {
-                crate::identity::mobile::otp::OtpService::canonical_phone(p).is_ok()
-            })
-            && match self.decision {
-                Decision::Automatic => self.valid_days.is_none(),
-                _ => self.valid_days.is_some_and(|d| (1..=90).contains(&d)),
-            }
+            && self
+                .phone_number
+                .as_deref()
+                .is_none_or(|p| canonical_phone(p).is_ok())
+            && self.decision.accepts_duration(self.valid_days)
             && self
                 .reason
                 .as_deref()

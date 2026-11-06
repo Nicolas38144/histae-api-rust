@@ -82,6 +82,12 @@ en mémoire ne remplace jamais un verrou transactionnel distribué. Les futures 
 - `billing/stores/` sépare règles, ports fournisseur/persistance, service, transactions PostgreSQL, transport HTTP, administration et worker. `services/store-verifier/` valide les preuves Apple/Google sur le réseau privé ; il ne reçoit aucun accès à PostgreSQL.
 - `billing/web/{domain,store,service,pg}.rs` isole le parcours OTP/session du site, ses ports et ses transactions des JWT mobiles. `web/http/` contient uniquement DTO et sécurité du transport. Le paiement web réutilise le service Stripe, sans ouvrir les anciennes routes mobiles Checkout. Les alias `/api/web/account/*` partagent cette session avec `privacy/web/` : `http.rs` contrôle origine, cookie et débit avant la validation des champs du corps ; `service.rs` orchestre les retraits partiels avec les services photo et consentements. La fermeture du compte réutilise le service d'effacement. La gestion des données reste disponible sans paiement activé ni onboarding terminé.
 - `billing/stores/administration/domain.rs` porte le modèle et les invariants des rapports financiers ; `pg.rs` conserve le contrôle transactionnel du rôle superadmin, l’import financier idempotent et son audit. Le transport HTTP impose aussi origine et authentification récente.
+- `identity/mobile/phone_blocklist/` sépare les règles locales (`domain.rs`), le transport HTTP,
+  le téléchargement et la validation des sources (`sync.rs`), les décisions transactionnelles
+  (`pg.rs`), la persistance des imports (`pg_import.rs`) et le SQL (`queries.rs`). Le job
+  `app/phone_blocklist.rs` assemble uniquement ces adaptateurs avec la configuration minimale ;
+  son binaire garde la lecture des arguments et des codes de sortie. Le rôle de l’admin reste relu
+  sous verrou dans la transaction avant toute décision ou audit.
 - `matches/pg/{matches,messages,access,continuation,credits}.rs` sépare les repositories et les helpers de verrouillage qui reçoivent
   la connexion de l’appelant.
 - `administration/{photos,metrics}/` sépare règles, contrats et SQL de chaque fonctionnalité.

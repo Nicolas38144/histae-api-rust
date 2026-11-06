@@ -33,7 +33,7 @@ class VerificationError(RuntimeError):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--api-image", default="histae-api:local",
+    parser.add_argument("--api-image", default="histae-api-rust:local",
                         help="Locally built API image containing the current migrator")
     parser.add_argument("--postgres-image", default="histae-postgres:18.6-postgis3.6.4")
     parser.add_argument("--test", action="append", choices=TESTS + ADMIN_TESTS + tuple(POSTGRES_FILTERS))
@@ -180,9 +180,22 @@ SET log_min_error_statement = panic;
             query(f"UPDATE match_init SET photo_reveal_version=7 WHERE id='{notice_match}';")
             migrate()
             assert query(f"SELECT photo_reveal_version FROM match_init WHERE id='{notice_match}';") == "7"
+            # Retired trial rows must be removed before the canonical type check is restored.
+            trial_notice, retained_notice = str(uuid.uuid4()), str(uuid.uuid4())
+            query("ALTER TABLE notification ADD COLUMN billing_trial_ends_at timestamptz; ALTER TABLE notification DROP CONSTRAINT notification_type_check; ALTER TABLE notification ADD CONSTRAINT notification_type_check CHECK (type IN ('new_match','subscription_trial_ending','continuation_requested'));", "histae_migrate")
+            query(f"INSERT INTO notification(id,user_id,type,payload) VALUES ('{trial_notice}','{notice_users[0]}','subscription_trial_ending','{{}}'), ('{retained_notice}','{notice_users[0]}','continuation_requested','{{}}');")
+            retained_snapshot_sql = f"SELECT jsonb_build_array(id,type,payload,created_at,expires_at) FROM notification WHERE id='{retained_notice}';"
+            retained_snapshot = query(retained_snapshot_sql)
+            for _ in range(2):
+                migrate()
+                assert query(retained_snapshot_sql) == retained_snapshot
+                assert query(f"SELECT count(*) FROM notification WHERE id='{trial_notice}';") == "0"
+                assert query("SELECT NOT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='notification'::regclass AND attname='billing_trial_ends_at' AND NOT attisdropped);") == "t"
+                assert query("SELECT pg_get_constraintdef(oid) LIKE '%data_request_replied%' AND pg_get_constraintdef(oid) LIKE '%first_period_ending%' FROM pg_constraint WHERE conrelid='notification'::regclass AND conname='notification_type_check';") == "t"
             for user in notice_users:
                 query(f"DELETE FROM user_account WHERE user_id='{user}';")
             print("Notification upgrade preserves historical notices, match deadlines and photo grant generations.", flush=True)
+            print("Retired trial notifications are removed before restoring current lifecycle types.", flush=True)
 
             refresh_user, refresh_family, refresh_token, refresh_jti = [str(uuid.uuid4()) for _ in range(4)]
             query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{refresh_user}','legacy-refresh-{refresh_user}',''::bytea); INSERT INTO refresh_token_family(id,user_id,created_at,last_refreshed_at,expires_at) VALUES ('{refresh_family}','{refresh_user}',clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '180 days'); INSERT INTO refresh_tokens(id,user_id,family_id,jti,token_hash,created_at,expires_at) VALUES ('{refresh_token}','{refresh_user}','{refresh_family}','{refresh_jti}',repeat('a',64),clock_timestamp(),clock_timestamp()+interval '180 days');")

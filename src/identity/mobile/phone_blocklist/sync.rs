@@ -1,41 +1,22 @@
 //! Bounded, fixed-origin imports. Network I/O always precedes the policy transaction.
-use super::domain::{OBSERVATION_DAYS, POLICY_LOCK, PhoneKey, PolicyError};
-use crate::{
-    config::SecretString,
-    infra::postgres::{Database, map_sqlx_error},
+use super::domain::{
+    ImportedNumber, MAX_IMPORT_ENTRIES, OBSERVATION_DAYS, PhoneKey, PolicyError, Source,
 };
+use crate::config::SecretString;
 use chrono::{DateTime, NaiveDate, Utc};
 use std::{collections::BTreeMap, time::Duration};
-use uuid::Uuid;
 
-pub const MAX_BYTES: usize = 16 * 1024 * 1024;
-pub const MAX_ENTRIES: usize = 200_000;
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Source {
-    Castle,
-    Ip1,
-}
-impl Source {
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Castle => "castle",
-            Self::Ip1 => "ip1",
+const MAX_BYTES: usize = 16 * 1024 * 1024;
+
+fn source_url(source: Source) -> &'static str {
+    match source {
+        Source::Castle => {
+            "https://raw.githubusercontent.com/castle/disposable-phone-numbers/master/disposable-phone-numbers.txt"
+        }
+        Source::Ip1 => {
+            "https://raw.githubusercontent.com/iP1SMS/disposable-phone-numbers/master/number-list.json"
         }
     }
-    pub const fn url(self) -> &'static str {
-        match self {
-            Self::Castle => {
-                "https://raw.githubusercontent.com/castle/disposable-phone-numbers/master/disposable-phone-numbers.txt"
-            }
-            Self::Ip1 => {
-                "https://raw.githubusercontent.com/iP1SMS/disposable-phone-numbers/master/number-list.json"
-            }
-        }
-    }
-}
-pub struct ImportedNumber {
-    pub key: PhoneKey,
-    pub last_seen_at: DateTime<Utc>,
 }
 
 pub fn parse(
@@ -76,7 +57,7 @@ pub fn parse(
         Source::Castle => 100,
         Source::Ip1 => 1000,
     };
-    if values.len() < minimum || values.len() > MAX_ENTRIES {
+    if values.len() < minimum || values.len() > MAX_IMPORT_ENTRIES {
         return Err(PolicyError::Invalid);
     }
     let mut valid = 0;
@@ -118,7 +99,7 @@ pub async fn fetch(source: Source, key: &SecretString) -> Result<Vec<ImportedNum
         .build()
         .map_err(|_| PolicyError::Unavailable)?;
     let mut response = client
-        .get(source.url())
+        .get(source_url(source))
         .send()
         .await
         .map_err(|_| PolicyError::Unavailable)?;
@@ -141,44 +122,6 @@ pub async fn fetch(source: Source, key: &SecretString) -> Result<Vec<ImportedNum
         body.extend_from_slice(&chunk);
     }
     parse(source, &body, Utc::now(), key)
-}
-
-pub async fn import(
-    database: &Database,
-    source: Source,
-    numbers: Vec<ImportedNumber>,
-    key: &SecretString,
-) -> Result<usize, PolicyError> {
-    let count = numbers.len();
-    if count > MAX_ENTRIES {
-        return Err(PolicyError::Invalid);
-    }
-    let fingerprint = super::pg::key_fingerprint(key)?;
-    database.transaction(|connection| { Box::pin(async move {
-        sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(POLICY_LOCK)
-            .execute(&mut *connection).await.map_err(map_sqlx_error)?;
-        super::pg::verify_key_on(connection,&fingerprint).await?;
-        let ids=numbers.iter().map(|_|Uuid::new_v4()).collect::<Vec<_>>();
-        let hashes=numbers.iter().map(|n|n.key.hash.clone()).collect::<Vec<_>>();
-        let hints=numbers.iter().map(|n|n.key.hint.clone()).collect::<Vec<_>>();
-        let dates=numbers.iter().map(|n|n.last_seen_at).collect::<Vec<_>>();
-        sqlx::query("INSERT INTO phone_blocklist_entry(id,phone_hash,phone_hint)
-            SELECT * FROM unnest($1::uuid[],$2::text[],$3::text[]) ON CONFLICT(phone_hash) DO NOTHING")
-            .bind(ids).bind(&hashes).bind(hints).execute(&mut *connection).await.map_err(map_sqlx_error)?;
-        sqlx::query("INSERT INTO phone_blocklist_observation(entry_id,source,last_seen_at)
-            SELECT e.id,$1,data.seen FROM unnest($2::text[],$3::timestamptz[]) data(hash,seen)
-            JOIN phone_blocklist_entry e ON e.phone_hash=data.hash
-            ON CONFLICT(entry_id,source) DO UPDATE SET last_seen_at=GREATEST(phone_blocklist_observation.last_seen_at,EXCLUDED.last_seen_at),imported_at=clock_timestamp()")
-            .bind(source.name()).bind(hashes).bind(dates).execute(&mut *connection).await.map_err(map_sqlx_error)?;
-        sqlx::query("UPDATE phone_blocklist_source SET last_attempt_at=clock_timestamp(),last_success_at=clock_timestamp(),last_error=NULL,imported_count=$2 WHERE source=$1")
-            .bind(source.name()).bind(count as i32).execute(connection).await.map_err(map_sqlx_error)?;
-        Ok(count)
-    }) }).await
-}
-pub async fn record_failure(database: &Database, source: Source) -> Result<(), PolicyError> {
-    sqlx::query("UPDATE phone_blocklist_source SET last_attempt_at=clock_timestamp(),last_error='phone_feed_unavailable' WHERE source=$1")
-        .bind(source.name()).execute(database.acquire().await?.as_mut()).await.map_err(map_sqlx_error)?;
-    Ok(())
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ pub use lifecycle::{BootstrapError, TaskSupervisor, wait_for_shutdown_signal};
 pub mod api;
 pub mod maintenance;
 pub mod outbox;
+pub mod phone_blocklist;
 
 use std::process::ExitCode;
 

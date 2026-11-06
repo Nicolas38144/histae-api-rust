@@ -64,7 +64,7 @@ Les unités et leur installateur sont fournis dans le
 Depuis `histae-scripts` :
 
 ```bash
-sudo bash systemd/install-maintenance.sh
+sudo bash systemd/install-timers.sh
 sudoedit /etc/histae/maintenance.env
 sudo systemctl start histae-maintenance.service
 sudo journalctl -u histae-maintenance.service -n 50 --no-pager

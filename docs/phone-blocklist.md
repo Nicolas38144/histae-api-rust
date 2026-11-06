@@ -97,7 +97,7 @@ Avec les dépôts API, dashboard et `histae-scripts` à jour, depuis leur dossie
 ```bash
 sudo bash histae-scripts/reset-api.sh --production
 sudo bash histae-scripts/reset-dashboard.sh --production
-sudo bash histae-scripts/systemd/install-phone-blocklist.sh
+sudo bash histae-scripts/systemd/install-timers.sh
 sudo systemctl enable --now histae-phone-blocklist.timer
 ```
 

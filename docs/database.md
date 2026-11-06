@@ -7,12 +7,15 @@
 | Fichier | Usage |
 | --- | --- |
 | [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 66 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
-| [004_phone_blocklist.sql](../db/004_phone_blocklist.sql) | Ajout idempotent de la politique des numéros publics sur une base existante ; mêmes définitions que le schéma neuf |
 | [002_insert_postgres.sql](../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
 | [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
 | [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
 | [query_indexes.rs](../src/infra/query_indexes.rs) | Installation concurrente des index de performance, dont le GiST géographique et la purge des reprises de session, sur une base existante |
 | [000_bootstrap_postgres.sql](../db/000_bootstrap_postgres.sql) | Bootstrap administrateur : rôles, extensions, permissions, conversion dev et rétablissement après reset |
+
+Les blocs idempotents délimités par `-- BEGIN …` / `-- END …` sont réutilisés par le migrateur
+pour les mises à jour. Les politiques des numéros publics et les événements de notification
+n’ont pas de seconde copie dans un fichier SQL séparé. Une section incomplète est refusée.
 
 Il n’existe plus de ledger `schema_migrations`. Le migrateur retire cette ancienne table si elle est présente.
 
@@ -44,8 +47,9 @@ elle existe encore. Les nouvelles souscriptions n'ont aucune période d'essai. L
 catalogue HTTP et des modèles clients. Les dates d'essais historiques des abonnements ne sont pas modifiées.
 
 Les notifications de fin d’essai sont retirées : le migrateur supprime leurs tâches outbox et
-leurs notifications, puis la colonne dédiée `notification.billing_trial_ends_at`. Les contraintes
-sont alignées sur le schéma neuf ; cette mise à niveau est idempotente et conserve les autres
+leurs notifications, puis la colonne dédiée `notification.billing_trial_ends_at`. La section
+`notification events` rétablit ensuite la contrainte complète des types actuels ; aucune liste
+historique de types ne la remplace. Les contraintes sont alignées sur le schéma neuf ; cette mise à niveau est idempotente et conserve les autres
 notifications et les abonnements.
 Les index de performance sont ensuite construits avec `CONCURRENTLY`, hors de la transaction de schéma.
 Un verrou advisory sérialise les migrateurs. Un index valide est conservé ; un index invalide laissé par une
@@ -59,8 +63,10 @@ en clair, reste indépendante des comptes/sessions et expire après 25 heures vi
 
 Les tables `phone_blocklist_control`, `phone_blocklist_entry`, `phone_blocklist_source` et
 `phone_blocklist_observation` séparent empreinte de contrôle de la clé, décisions administratives,
-statuts d’import et observations horodatées. Le migrateur ajoute ces objets sans écraser les décisions
-ou rajeunir les observations. La sauvegarde/restauration doit conserver ces tables et la même
+statuts d’import et observations horodatées. Leurs définitions sont conservées uniquement dans la
+section `phone blocklist` de `001_schema_postgres.sql`. Sur une base existante, le migrateur extrait
+et rejoue cette section idempotente, sans réexécuter le schéma complet, écraser les décisions ou
+rajeunir les observations. La sauvegarde/restauration doit conserver ces tables et la même
 `PHONE_HASH_KEY` ; une autre clé empêche le démarrage de l’API et l’import. Le rôle dédié n’a aucun
 accès aux comptes et ne modifie pas les exceptions. Voir [politique et rétention](phone-blocklist.md).
 
