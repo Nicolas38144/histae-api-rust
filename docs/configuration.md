@@ -46,7 +46,7 @@ Valider sans afficher les secrets avec `docker compose … config --quiet`.
 ## Configuration locale minimale
 
 Créer `.env` et remplacer les secrets applicatifs par des valeurs distinctes ; le préparateur génère
-séparément les trois mots de passe PostgreSQL.
+séparément les quatre mots de passe PostgreSQL.
 Pour chaque valeur, `openssl rand -hex 32` produit 32 octets encodés en hexadécimal. Les clés téléphone
 acceptent ce format de 64 caractères ; `JWT_SECRET` exige au moins 32 octets.
 
@@ -67,6 +67,7 @@ POSTGRES_DB=histae-dev
 POSTGRES_ADMIN_PASSWORD=REPLACE_WITH_64_RANDOM_HEX_CHARACTERS
 POSTGRES_MIGRATE_PASSWORD=REPLACE_WITH_OTHER_64_RANDOM_HEX_CHARACTERS
 POSTGRES_APP_PASSWORD=REPLACE_WITH_ANOTHER_64_RANDOM_HEX_CHARACTERS
+POSTGRES_PHONE_SYNC_PASSWORD=REPLACE_WITH_DISTINCT_64_RANDOM_HEX_CHARACTERS
 POSTGRES_USER=histae_app
 POSTGRES_PASSWORD=${POSTGRES_APP_PASSWORD}
 POSTGRES_SSLMODE=disable
@@ -92,7 +93,7 @@ METRICS_ENABLED=false
 ```
 
 `SMS_PROVIDER=disabled` ne livre aucun SMS. Pour une connexion OTP réelle, configurer Sweego.
-`python3 scripts/prepare-postgres-roles-env.py .env` prépare les trois mots de passe sans les afficher.
+`python3 scripts/prepare-postgres-roles-env.py .env` prépare les quatre mots de passe sans les afficher.
 Une base dev existante doit être convertie avant recréation selon [Rôles PostgreSQL](postgres-roles.md).
 Les documents juridiques omis en développement reçoivent une version `development-unversioned` et des
 URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
@@ -105,7 +106,7 @@ URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
 | JWT | `JWT_SECRET`, `JWT_ACTIVE_KID`, `JWT_PREVIOUS_KEYS`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` | Clés distinctes des clés téléphone ; anciens `kid` à conserver pendant la durée de validité des tokens concernés. |
 | Téléphone | `PHONE_ENCRYPTION_KEY`, `PHONE_HASH_KEY` | Deux clés de 32 octets distinctes. Leur remplacement exige une migration des données. |
 | PostgreSQL | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_SSLMODE`, `POSTGRES_POOL_MAX` | Pool par processus ; TLS obligatoire en production. |
-| Rôles PostgreSQL Docker | `POSTGRES_ADMIN_PASSWORD`, `POSTGRES_MIGRATE_PASSWORD`, `POSTGRES_APP_PASSWORD` | Trois secrets hexadécimaux de 64 caractères distincts ; Compose fournit le bon rôle et `POSTGRES_PASSWORD` à chaque service. |
+| Rôles PostgreSQL Docker | `POSTGRES_ADMIN_PASSWORD`, `POSTGRES_MIGRATE_PASSWORD`, `POSTGRES_APP_PASSWORD`, `POSTGRES_PHONE_SYNC_PASSWORD` | Quatre secrets hexadécimaux de 64 caractères distincts ; Compose fournit le bon rôle et `POSTGRES_PASSWORD` à chaque service. |
 | Pool API Docker | `HISTAE_API_POSTGRES_POOL_MAX` | Défaut : 30. Compose transmet cette valeur à l’API dans `POSTGRES_POOL_MAX` ; les autres services utilisent leur `POSTGRES_POOL_MAX`. |
 | Timeouts SQL | `POSTGRES_CONNECT_TIMEOUT`, `POSTGRES_IDLE_TIMEOUT`, `POSTGRES_STATEMENT_TIMEOUT`, `POSTGRES_IDLE_TRANSACTION_TIMEOUT` | Défauts : `5s`, `30s`, `15s`, `30s`. |
 | Redis | `RATE_LIMIT_STORE`, `REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB`, `REDIS_TLS`, `REDIS_CONNECT_TIMEOUT`, `REDIS_COMMAND_TIMEOUT` | Production : store Redis, TLS et mot de passe. Adresse `hôte:port`, sans schéma. |
@@ -286,3 +287,12 @@ Le service d’analyse photo a été supprimé. Retirer des `.env` :
 Aucune variable dashboard ne le remplace. Les photos sont immédiatement disponibles après upload ;
 leur contenu peut être modéré manuellement. La conversion WebP et le stockage privé restent utilisés.
 Le reset API utilise `--remove-orphans` pour retirer l’ancien conteneur. Pour un démarrage Compose manuel, ajouter cette option.
+
+## Synchronisation des numéros SMS publics
+
+`POSTGRES_PHONE_SYNC_PASSWORD` est le quatrième mot de passe PostgreSQL, indépendant des autres
+(64 caractères hexadécimaux aléatoires). Il sert uniquement au rôle `histae_phone_sync`.
+Le [préparateur des rôles](postgres-roles.md) le génère sans modifier les secrets existants.
+Le job `phone-blocklist-sync` reçoit ce secret et `PHONE_HASH_KEY`, sans charger le `.env` complet.
+La clé HMAC doit être identique à celle de l’API et stable entre les déploiements.
+Voir le [guide des listes et exceptions](phone-blocklist.md) pour le premier import et le timer.

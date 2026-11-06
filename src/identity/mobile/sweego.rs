@@ -27,6 +27,7 @@ pub const MAX_SMS_PROVIDER_BODY_BYTES: usize = 16_384;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SmsFailureReason {
     NotConfigured,
+    PhoneBlocked,
     ProviderRejected,
     ProviderUnavailable,
     ProviderNetworkError,
@@ -43,6 +44,7 @@ pub enum SmsFailureReason {
 impl SmsFailureReason {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::PhoneBlocked => "sms_phone_blocked",
             Self::NotConfigured => "not_configured",
             Self::ProviderRejected => "provider_rejected",
             Self::ProviderUnavailable => "provider_unavailable",
@@ -76,6 +78,7 @@ impl SmsFailureReason {
             "sms_phone_daily_limit" => Some(Self::PhoneDailyLimit),
             "sms_global_hourly_limit" => Some(Self::GlobalHourlyLimit),
             "sms_global_daily_limit" => Some(Self::GlobalDailyLimit),
+            "sms_phone_blocked" => Some(Self::PhoneBlocked),
             "sms_sending_suspended" => Some(Self::SendingSuspended),
             "sms_safety_unavailable" => Some(Self::SafetyUnavailable),
             "sms_attempt_already_reserved" => Some(Self::AttemptAlreadyReserved),
@@ -182,6 +185,7 @@ impl SweegoSmsService {
             .await
             .map_err(|reason| {
                 SmsDeliveryError::failed(match reason {
+                    SmsSendRejection::PhoneBlocked => SmsFailureReason::PhoneBlocked,
                     SmsSendRejection::HourlyLimit => SmsFailureReason::PhoneHourlyLimit,
                     SmsSendRejection::DailyLimit => SmsFailureReason::PhoneDailyLimit,
                     SmsSendRejection::GlobalHourlyLimit => SmsFailureReason::GlobalHourlyLimit,

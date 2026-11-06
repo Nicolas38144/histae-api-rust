@@ -81,6 +81,10 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
+    sqlx::raw_sql(include_str!("../../db/004_phone_blocklist.sql"))
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
     sqlx::raw_sql(include_str!("../../db/003_notification_events.sql"))
         .execute(&mut *transaction)
         .await
@@ -265,6 +269,9 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
            AND conname = 'data_access_log_action_check'
            AND pg_get_constraintdef(oid) LIKE '%admin_promote%'
            AND pg_get_constraintdef(oid) LIKE '%admin_demote%'
+           AND pg_get_constraintdef(oid) LIKE '%admin_block_phone%'
+           AND pg_get_constraintdef(oid) LIKE '%admin_allow_phone%'
+           AND pg_get_constraintdef(oid) LIKE '%admin_reset_phone_policy%'
            AND pg_get_constraintdef(oid) LIKE '%admin_suspend_sms%'
            AND pg_get_constraintdef(oid) LIKE '%admin_resume_sms%'
            AND pg_get_constraintdef(oid) LIKE '%admin_import_store_finance%'
@@ -284,6 +291,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
              CHECK (action IN (
                'view_profile', 'view_messages', 'view_matches', 'export_data',
                'admin_ban', 'admin_unban', 'admin_promote', 'admin_demote',
+               'admin_block_phone', 'admin_allow_phone', 'admin_reset_phone_policy',
                'admin_suspend_sms', 'admin_resume_sms', 'admin_import_store_finance',
                'admin_grant_premium', 'admin_revoke_premium',
                'admin_review_report', 'admin_review_dsr', 'admin_reconcile_photo',

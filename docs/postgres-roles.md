@@ -9,6 +9,7 @@ des rôles métier `user`, `admin` et `superadmin` de Histae.
 | --- | --- | --- |
 | `histae_admin` | PostgreSQL et administration manuelle | Superuser ; initialise les rôles et les extensions |
 | `histae_migrate` | `migrate` | Propriétaire du schéma `public` et des objets applicatifs ; aucun privilège superuser, création de base ou de rôle |
+| `histae_phone_sync` | `phone-blocklist-sync` | Lecture des quatre tables de politique ; insertion des empreintes et mise à jour des observations et statuts ; aucun accès aux comptes ou aux décisions manuelles |
 | `histae_app` | API, outbox, maintenance et `storage-init` en production | Connexion, usage du schéma, DML applicatif, séquences et fonctions nécessaires ; aucun DDL ou rôle privilégié |
 
 Le migrateur crée les tables et fonctions ; leurs privilèges par défaut donnent les accès nécessaires à
@@ -22,12 +23,13 @@ restent vérifiées par l'API ; `histae_app` dispose des données nécessaires �
 
 ## Mots de passe dans le fichier d'environnement
 
-Les deux modes utilisent le même fichier `.env`, avec trois mots de passe indépendants :
+Les deux modes utilisent le même fichier `.env`, avec quatre mots de passe indépendants :
 
 ```dotenv
 POSTGRES_ADMIN_PASSWORD=<64-caracteres-hexadecimaux-aleatoires>
 POSTGRES_MIGRATE_PASSWORD=<64-autres-caracteres-hexadecimaux-aleatoires>
 POSTGRES_APP_PASSWORD=<64-autres-caracteres-hexadecimaux-aleatoires>
+POSTGRES_PHONE_SYNC_PASSWORD=<64-autres-caracteres-hexadecimaux-aleatoires>
 ```
 
 Chaque valeur doit être différente, générée avec 32 octets aléatoires. Pour préparer le fichier sans
@@ -41,9 +43,9 @@ Le fichier doit déjà exister. Le script conserve les autres réglages, remplac
 de passe PostgreSQL, refuse les doublons ou valeurs invalides et écrit le fichier en `0600`.
 Il configure aussi l'accès natif avec `POSTGRES_USER=histae_app` et
 `POSTGRES_PASSWORD=${POSTGRES_APP_PASSWORD}`. Dans Compose, `environment` impose le rôle approprié à
-chaque service et vide les trois variables sources dans les conteneurs applicatifs. L'API et les workers
+chaque service et vide les quatre variables sources dans les conteneurs applicatifs. L'API et les workers
 ne reçoivent que le mot de passe applicatif ; le migrateur ne reçoit que son mot de passe.
-PostgreSQL reçoit les trois pour initialiser les rôles. Aucun fichier `.env` n'est monté dans ces conteneurs.
+Le job d’import ne reçoit que son mot de passe dédié. PostgreSQL reçoit les quatre pour initialiser les rôles. Aucun fichier `.env` n'est monté dans ces conteneurs.
 
 Le fichier réel est ignoré par Git et exclu des images. Il reste sensible sur l'hôte ; le protéger et
 ne pas afficher la sortie complète de `docker compose config`. L'exécution native depuis le dépôt charge
@@ -55,7 +57,9 @@ L'entrypoint PostgreSQL exécute [init-roles.sh](../docker/postgres/init-roles.s
 vide. Il applique [000_bootstrap_postgres.sql](../db/000_bootstrap_postgres.sql) comme administrateur.
 Ce fichier regroupe la création des rôles, les extensions, les permissions et la conversion dev. Ses
 modes `install`, `access` et `convert-dev` utilisent les mêmes règles d'accès. Le mode `access` rétablit
-les permissions après un `DROP SCHEMA`, sans recréer les rôles ni changer leurs mots de passe.
+les permissions après un `DROP SCHEMA`. Pour un cluster existant, le reset peut aussi créer le rôle
+`histae_phone_sync` et configurer son mot de passe explicitement fourni ; il ne change pas ceux des
+autres rôles. Le bootstrap refuse un rôle de synchronisation privilégié ou membre d’un autre rôle.
 
 Le schéma [001_schema_postgres.sql](../db/001_schema_postgres.sql) est ensuite exécuté par le migrateur
 limité. Fusionner ces deux étapes imposerait au migrateur les droits d'administration du cluster ;

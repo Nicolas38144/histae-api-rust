@@ -9,6 +9,7 @@ use crate::{config::SmsSafetyConfig, infra::postgres::DatabaseError};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SmsSendRejection {
     Suspended,
+    PhoneBlocked,
     HourlyLimit,
     DailyLimit,
     GlobalHourlyLimit,
@@ -30,6 +31,8 @@ pub struct SmsSafetySnapshot {
     pub provider_enabled: bool,
     pub suspended: bool,
     pub manual_suspended: bool,
+    pub phone_blocklist_ready: bool,
+    pub phone_blocklist_source_errors: i64,
     pub environment_suspended: bool,
     pub version: i64,
     pub hourly_limit_per_phone: u32,
@@ -47,6 +50,8 @@ pub struct SmsSafetySnapshot {
 #[derive(Clone, Debug)]
 pub struct SmsUsage {
     pub manual_suspended: bool,
+    pub phone_blocklist_ready: bool,
+    pub phone_blocklist_source_errors: i64,
     pub version: i64,
     pub last_5_minutes: i64,
     pub last_hour: i64,

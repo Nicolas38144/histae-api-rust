@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection issue de docs/http-contract.md (140 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
+    "description": "Collection issue de docs/http-contract.md (143 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -3773,6 +3773,114 @@
                 }
               },
               "response": []
+            },
+            {
+              "name": "GET /api/admin/sms-safety/phone-blocklist",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/sms-safety/phone-blocklist?limit=25&offset=0",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Liste des numéros masqués, décisions temporaires et état des sources. ready=false bloque les nouveaux SMS sauf exceptions actives. Les observations expirent après 90 jours."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/sms-safety/phone-blocklist/lookup",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/sms-safety/phone-blocklist/lookup",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Recherche par téléphone français envoyé dans le corps. Ne révèle aucun compte. id=null et version=0 si aucune politique existe.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/sms-safety/phone-blocklist",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/sms-safety/phone-blocklist",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Autorisation temporaire auditée. Les admins doivent fournir une justification de 3–500 caractères. Le superadmin peut omettre reason et choisir aussi block ou automatic. Pour automatic, retirer valid_days. Utiliser soit phone_number soit entry_id. Reporter la version courante ; ne pas rejouer une mutation après une réponse perdue.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"decision\": \"allow\",\n  \"version\": {{phonePolicyVersion}},\n  \"valid_days\": 30,\n  \"reason\": \"{{auditReason}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
             }
           ]
         }
@@ -5015,6 +5123,11 @@
     {
       "key": "webBillingCheckoutKey",
       "value": "",
+      "type": "string"
+    },
+    {
+      "key": "phonePolicyVersion",
+      "value": "0",
       "type": "string"
     }
   ]

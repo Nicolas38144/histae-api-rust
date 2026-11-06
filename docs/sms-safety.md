@@ -39,11 +39,14 @@ Au premier déploiement, le migrateur importe les tentatives encore présentes d
 Il ne peut pas reconstituer les OTP déjà supprimés : une fenêtre initiale complète de 24 heures
 n’est garantie qu’après une journée de fonctionnement sous cette protection.
 
+Le [blocage des numéros publics](phone-blocklist.md) précède la réservation du budget. Il est partagé
+par les envois mobiles, web et outbox ; les exceptions temporaires se gèrent dans le même onglet.
+
 ## Blocage et arrêt d’urgence
 
 - Les quotas HTTP IP/téléphone et le délai de renvoi produisent un `429` avant la mise en file. `otp_resend_too_soon` inclut le temps restant dans `Retry-After`.
 - Pour le mobile, le budget fournisseur, la suspension et les échecs Sweego sont traités dans le worker sans modifier le `202` public. Aucun SMS n’est envoyé si le garde refuse. Les autres clients conservent leurs erreurs propres.
-- Un OTP accepté antérieurement reste valable selon ses règles normales.
+- Un OTP accepté antérieurement reste soumis à sa durée de validité et au blocage courant des numéros publics.
 - Une tentative déjà autorisée avant la suspension peut encore aboutir.
 
 Le superadmin peut suspendre ou reprendre depuis l’onglet **SMS Sweego** (`/sms-safety`) du dashboard.

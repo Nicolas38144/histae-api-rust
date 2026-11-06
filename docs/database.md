@@ -6,7 +6,8 @@
 
 | Fichier | Usage |
 | --- | --- |
-| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 62 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
+| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 66 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
+| [004_phone_blocklist.sql](../db/004_phone_blocklist.sql) | Ajout idempotent de la politique des numéros publics sur une base existante ; mêmes définitions que le schéma neuf |
 | [002_insert_postgres.sql](../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
 | [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
 | [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
@@ -55,6 +56,13 @@ ajoute aux bases existantes, conserve les suspensions lors des redéploiements e
 création les tentatives fournisseur encore présentes dans `otp_verification`. Les OTP déjà purgés
 ne permettent pas de reconstituer l’historique antérieur. La comptabilité HMAC, sans code ni numéro
 en clair, reste indépendante des comptes/sessions et expire après 25 heures via la rétention bornée.
+
+Les tables `phone_blocklist_control`, `phone_blocklist_entry`, `phone_blocklist_source` et
+`phone_blocklist_observation` séparent empreinte de contrôle de la clé, décisions administratives,
+statuts d’import et observations horodatées. Le migrateur ajoute ces objets sans écraser les décisions
+ou rajeunir les observations. La sauvegarde/restauration doit conserver ces tables et la même
+`PHONE_HASH_KEY` ; une autre clé empêche le démarrage de l’API et l’import. Le rôle dédié n’a aucun
+accès aux comptes et ne modifie pas les exceptions. Voir [politique et rétention](phone-blocklist.md).
 
 ### PostGIS et mise à jour d’une installation
 
@@ -118,7 +126,7 @@ remplacer directement cette connexion de session.
 La configuration production utilise `verify-full` et une CA PEM. Les piles dev et production séparent
 `histae_admin`, `histae_migrate` et `histae_app`. Le bootstrap installe les extensions comme administrateur ;
 le migrateur crée les objets applicatifs et leurs privilèges futurs. Voir [Rôles PostgreSQL](postgres-roles.md)
-pour les trois mots de passe dans `.env`, l'installation neuve et la conversion d'une base dev existante.
+pour les quatre mots de passe dans `.env`, l'installation neuve et la conversion d'une base dev existante.
 Changer les variables d'initialisation sur un volume existant ne change pas ses rôles.
 
 ## Statistiques SQL
@@ -150,7 +158,7 @@ public et le nombre de tables, puis supprime base temporaire et archive. Le rôl
 Il choisit Docker direct ou `sudo` selon l’accès disponible.
 
 Le message `Development backup/restore verification passed (...)` confirme cette restauration technique.
-Le schéma actuel comporte 62 tables applicatives et la table spatiale de PostGIS, soit 63 tables publiques attendues.
+Le schéma actuel comporte 66 tables applicatives et la table spatiale de PostGIS, soit 67 tables publiques attendues.
 Le script ne conserve pas de sauvegarde, ne compare pas toutes les données et ne teste pas la reprise du S3,
 des certificats ou des fournisseurs.
 

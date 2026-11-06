@@ -33,6 +33,7 @@ impl SmsSafetyStore for PgSmsSafetyStore {
                 let suspended: bool = sqlx::query_scalar("SELECT suspended FROM sms_send_control WHERE singleton FOR UPDATE")
                     .fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
                 if suspended { return Ok(Err(SmsSendRejection::Suspended)); }
+                if let Err(reason)=crate::identity::mobile::phone_blocklist::pg::permit_on(connection,&phone_hash).await? {return Ok(Err(reason));}
                 sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 5459283))")
                     .bind(&phone_hash).execute(&mut *connection).await.map_err(map_sqlx_error)?;
                 let now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
@@ -72,10 +73,16 @@ impl SmsSafetyStore for PgSmsSafetyStore {
                      count(*) AS daily,
                      count(*) FILTER (WHERE reserved_at <= now - interval '5 minutes' AND reserved_at > now - interval '65 minutes') AS baseline
                    FROM sms_send_attempt CROSS JOIN instant WHERE reserved_at > now - interval '24 hours'
-                 ) SELECT control.suspended, control.version, control.updated_at, counts.* FROM sms_send_control control CROSS JOIN counts WHERE singleton"
+                 ) SELECT control.suspended, control.version, control.updated_at, counts.*,
+                   EXISTS(SELECT 1 FROM phone_blocklist_source WHERE last_success_at>clock_timestamp()-INTERVAL '7 days') AS blocklist_ready,
+                   (SELECT count(*) FROM phone_blocklist_source WHERE last_error IS NOT NULL) AS source_errors FROM sms_send_control control CROSS JOIN counts WHERE singleton"
             ).fetch_one(self.database.pool()).await.map_err(map_sqlx_error)?;
             Ok(SmsUsage {
                 manual_suspended: row.try_get("suspended").map_err(map_sqlx_error)?,
+                phone_blocklist_ready: row.try_get("blocklist_ready").map_err(map_sqlx_error)?,
+                phone_blocklist_source_errors: row
+                    .try_get("source_errors")
+                    .map_err(map_sqlx_error)?,
                 version: row.try_get("version").map_err(map_sqlx_error)?,
                 updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
                 last_5_minutes: row.try_get("recent").map_err(map_sqlx_error)?,

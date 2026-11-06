@@ -47,6 +47,8 @@ impl SmsSafetyService {
             provider_enabled: self.enabled,
             suspended: self.policy.suspended || usage.manual_suspended,
             manual_suspended: usage.manual_suspended,
+            phone_blocklist_ready: usage.phone_blocklist_ready,
+            phone_blocklist_source_errors: usage.phone_blocklist_source_errors,
             environment_suspended: self.policy.suspended,
             version: usage.version,
             hourly_limit_per_phone: self.policy.hourly_per_phone,
@@ -78,8 +80,10 @@ impl SmsSendGuard for SmsSafetyService {
             if self.policy.suspended {
                 return Err(SmsSendRejection::Suspended);
             }
+            let phone = crate::identity::mobile::otp::OtpService::canonical_phone(phone)
+                .map_err(|_| SmsSendRejection::Unavailable)?;
             let phone_hash =
-                hmac_sha256(phone, &self.hash_key).map_err(|_| SmsSendRejection::Unavailable)?;
+                hmac_sha256(&phone, &self.hash_key).map_err(|_| SmsSendRejection::Unavailable)?;
             self.store
                 .reserve(delivery_id, phone_hash, self.policy.clone())
                 .await
@@ -112,6 +116,11 @@ mod tests {
             self.calls.fetch_add(1, Ordering::Relaxed);
             assert_eq!(phone_hash.len(), 64);
             assert!(!phone_hash.contains('+'));
+            assert_eq!(
+                phone_hash,
+                hmac_sha256("+33600000000", &SecretString::new("h".repeat(32)))
+                    .expect("canonical hash")
+            );
             Box::pin(async { Err(DatabaseError::ConnectionFailed) })
         }
         fn usage(&self) -> SmsSafetyFuture<'_, SmsUsage> {
@@ -132,6 +141,8 @@ mod tests {
         Arc::new(Store {
             usage: Mutex::new(SmsUsage {
                 manual_suspended: false,
+                phone_blocklist_ready: true,
+                phone_blocklist_source_errors: 0,
                 version: 0,
                 last_5_minutes: 0,
                 last_hour: 0,
@@ -199,5 +210,15 @@ mod tests {
             Err(SmsSendRejection::Unavailable)
         );
         assert_eq!(store.calls.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            active.reserve(Uuid::new_v4(), "+33 (6) 00-00.00 00").await,
+            Err(SmsSendRejection::Unavailable)
+        );
+        assert_eq!(store.calls.load(Ordering::Relaxed), 2);
+        assert_eq!(
+            active.reserve(Uuid::new_v4(), "invalid").await,
+            Err(SmsSendRejection::Unavailable)
+        );
+        assert_eq!(store.calls.load(Ordering::Relaxed), 2);
     }
 }

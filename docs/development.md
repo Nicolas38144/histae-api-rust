@@ -34,13 +34,13 @@ WebAuthn, mais l’API complète refuse de démarrer ainsi (`webauthn_feature_re
 
 Créer `.env` avec les valeurs de [configuration locale](configuration.md#configuration-locale-minimale).
 Le préparateur `python3 scripts/prepare-postgres-roles-env.py .env` fournit les mots de passe des
-trois rôles PostgreSQL dans ce fichier unique.
+quatre rôles PostgreSQL dans ce fichier unique.
 Puis exécuter `bash scripts/prepare-observability-secrets.sh` : il crée le token métriques dans `.env`
 si nécessaire et les deux secrets fichier de supervision, sans afficher leurs valeurs. Il préserve
 le mot de passe Grafana existant. Ne pas committer `.env` ni `.secrets`.
 Le fichier `.env` est ignoré par Git. L’API Rust sur l’hôte le charge automatiquement ; les variables déjà présentes
 dans le terminal ont priorité. Compose applique ses propres overrides aux processus conteneurisés.
-Les [trois rôles PostgreSQL](postgres-roles.md) sont initialisés automatiquement sur un volume neuf ;
+Les [quatre rôles PostgreSQL](postgres-roles.md) sont initialisés automatiquement sur un volume neuf ;
 modifier le `.env` ne convertit pas une ancienne base ni ne change ses mots de passe.
 
 Les dépendances utilisent des ports hôte liés à loopback. `POSTGRES_PORT=5433` évite de concurrencer un

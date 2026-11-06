@@ -404,6 +404,11 @@ impl ApiResources {
                 config.rate_limit.sms_webhook.clone(),
             )))
             .merge(admin_auth_routes(admin_auth.clone()))
+            .merge(crate::identity::mobile::phone_blocklist::http::routes(
+                self.database.clone(),
+                config.phone.hash_key.clone(),
+                admin_auth.clone(),
+            ))
             .merge(crate::identity::mobile::sms_safety::http::routes(
                 self.sms_safety.clone(),
                 admin_auth.clone(),

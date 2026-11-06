@@ -4,6 +4,46 @@ rule_files:
 evaluation_interval: 1m
 
 tests:
+  - name: stale phone feeds alert after ten minutes and recover
+    interval: 1m
+    input_series:
+      - series: histae_phone_blocklist_unavailable
+        values: 1x12 0x2
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: HistaePhoneBlocklistUnavailable
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: HistaePhoneBlocklistUnavailable
+        exp_alerts:
+          - exp_labels: { alertname: HistaePhoneBlocklistUnavailable, severity: critical, component: sweego }
+            exp_annotations:
+              summary: Public-number policy has no fresh successful import
+              runbook_url: docs/phone-blocklist.md#exploitation
+      - eval_time: 13m
+        alertname: HistaePhoneBlocklistUnavailable
+        exp_alerts: []
+
+  - name: a failed phone feed alerts after fifteen minutes and recovers
+    interval: 1m
+    input_series:
+      - series: histae_phone_blocklist_source_errors
+        values: 1x17 0x2
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: HistaePhoneBlocklistSourceFailed
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: HistaePhoneBlocklistSourceFailed
+        exp_alerts:
+          - exp_labels: { alertname: HistaePhoneBlocklistSourceFailed, severity: warning, component: sweego }
+            exp_annotations:
+              summary: A public-number source import failed
+              runbook_url: docs/phone-blocklist.md#exploitation
+      - eval_time: 18m
+        alertname: HistaePhoneBlocklistSourceFailed
+        exp_alerts: []
+
   - name: metrics outage reaches the critical alert after two minutes
     interval: 1m
     input_series:

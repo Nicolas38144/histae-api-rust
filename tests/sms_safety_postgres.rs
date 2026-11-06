@@ -80,6 +80,9 @@ async fn budgets_are_atomic_durable_and_independent_of_otp_retention()
     let result = AssertUnwindSafe(async {
         migrations::apply(&config).await?;
         let database = Database::connect(&config).await?;
+        sqlx::query("UPDATE phone_blocklist_source SET last_success_at=clock_timestamp()")
+            .execute(database.acquire().await?.as_mut())
+            .await?;
         let result = AssertUnwindSafe(check_safety(&config, &database))
             .catch_unwind()
             .await;

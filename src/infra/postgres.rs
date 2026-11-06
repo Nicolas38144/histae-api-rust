@@ -188,6 +188,10 @@ impl Database {
         let sms_safety_ready: bool = sqlx::query_scalar(
             "SELECT to_regclass(current_schema() || '.sms_send_control') IS NOT NULL
                 AND to_regclass(current_schema() || '.sms_send_attempt') IS NOT NULL
+                AND to_regclass(current_schema() || '.phone_blocklist_control') IS NOT NULL
+                AND to_regclass(current_schema() || '.phone_blocklist_entry') IS NOT NULL
+                AND to_regclass(current_schema() || '.phone_blocklist_source') IS NOT NULL
+                AND to_regclass(current_schema() || '.phone_blocklist_observation') IS NOT NULL
                 AND to_regclass(current_schema() || '.mobile_otp_request') IS NOT NULL
                 AND to_regclass(current_schema() || '.billing_store_subscription') IS NOT NULL
                 AND to_regclass(current_schema() || '.effective_user_subscription') IS NOT NULL

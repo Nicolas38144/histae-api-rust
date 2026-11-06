@@ -22,6 +22,8 @@ pub struct PrivacyMaintenanceResult {
     pub expired_store_accounts: u64,
     pub expired_refresh_tokens: u64,
     pub expired_refresh_recoveries: u64,
+    pub expired_phone_observations: u64,
+    pub expired_phone_policies: u64,
     pub expired_notifications: u64,
     pub expired_consents: u64,
     pub expired_data_subject_requests: u64,
@@ -50,6 +52,12 @@ impl PrivacyMaintenanceResult {
     }
 
     fn merge(&mut self, next: Self) {
+        self.expired_phone_observations = self
+            .expired_phone_observations
+            .saturating_add(next.expired_phone_observations);
+        self.expired_phone_policies = self
+            .expired_phone_policies
+            .saturating_add(next.expired_phone_policies);
         self.stale_presences = self.stale_presences.saturating_add(next.stale_presences);
         self.expired_presences = self
             .expired_presences
@@ -129,7 +137,7 @@ impl PrivacyMaintenanceResult {
             .saturating_add(next.expired_store_accounts);
     }
 
-    fn counts(self) -> [u64; 29] {
+    fn counts(self) -> [u64; 31] {
         [
             self.stale_presences,
             self.expired_presences,
@@ -160,6 +168,8 @@ impl PrivacyMaintenanceResult {
             self.expired_store_accounts,
             self.expired_mobile_otp_requests,
             self.expired_refresh_recoveries,
+            self.expired_phone_observations,
+            self.expired_phone_policies,
         ]
     }
 }
@@ -190,8 +200,13 @@ impl PrivacyMaintenanceRepository {
                     if !acquired {
                         return Ok(None);
                     }
+                    sqlx::query("SELECT pg_advisory_xact_lock_shared($1)")
+                        .bind(crate::identity::mobile::phone_blocklist::domain::POLICY_LOCK)
+                        .execute(&mut *connection)
+                        .await
+                        .map_err(map_sqlx_error)?;
                     let limit = i64::from(batch_size);
-                    let mut counts = [0_u64; 29];
+                    let mut counts = [0_u64; 31];
                     for (index, statement) in RETENTION_QUERIES.iter().enumerate() {
                         counts[index] = sqlx::query(statement)
                             .bind(now)
@@ -205,6 +220,8 @@ impl PrivacyMaintenanceRepository {
                         stale_presences: counts[0],
                         expired_presences: counts[1],
                         expired_swipes: counts[2],
+                        expired_phone_observations: counts[29],
+                        expired_phone_policies: counts[30],
                         expired_otps: counts[3],
                         expired_mobile_otp_requests: counts[27],
                         expired_refresh_tokens: counts[4],
@@ -238,7 +255,7 @@ impl PrivacyMaintenanceRepository {
     }
 }
 
-const RETENTION_QUERIES: [&str; 29] = [
+const RETENTION_QUERIES: [&str; 31] = [
     "WITH stale AS (
        SELECT user_id FROM user_presence
        WHERE is_location_fresh = true AND updated_at <= $1 - INTERVAL '1 hour'
@@ -338,6 +355,14 @@ const RETENTION_QUERIES: [&str; 29] = [
        SELECT id FROM refresh_tokens WHERE rotation_result IS NOT NULL
          AND rotated_at <= $1 - INTERVAL '7 days'
        ORDER BY rotated_at,id LIMIT $2 FOR UPDATE SKIP LOCKED)",
+    "DELETE FROM phone_blocklist_observation WHERE (entry_id,source) IN (
+       SELECT entry_id,source FROM phone_blocklist_observation WHERE last_seen_at<=$1-INTERVAL '180 days'
+       ORDER BY last_seen_at,entry_id LIMIT $2 FOR UPDATE SKIP LOCKED)",
+    "DELETE FROM phone_blocklist_entry WHERE id IN (
+       SELECT e.id FROM phone_blocklist_entry e WHERE e.updated_at<=$1-INTERVAL '180 days'
+         AND (e.decision_until IS NULL OR e.decision_until<=$1)
+         AND NOT EXISTS(SELECT 1 FROM phone_blocklist_observation o WHERE o.entry_id=e.id)
+       ORDER BY e.created_at,e.id LIMIT $2 FOR UPDATE SKIP LOCKED)",
 ];
 
 #[derive(Clone)]
@@ -428,6 +453,6 @@ mod tests {
         };
         assert_eq!(result.processed(), 6);
         assert_eq!(result.maximum(), 3);
-        assert_eq!(RETENTION_QUERIES.len(), 29);
+        assert_eq!(RETENTION_QUERIES.len(), 31);
     }
 }

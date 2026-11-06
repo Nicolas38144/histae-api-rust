@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection based on docs/http-contract.md (140 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/http-contract.md.",
+    "description": "Collection based on docs/http-contract.md (143 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -3773,6 +3773,114 @@
                 }
               },
               "response": []
+            },
+            {
+              "name": "GET /api/admin/sms-safety/phone-blocklist",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/sms-safety/phone-blocklist?limit=25&offset=0",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Lists masked numbers, temporary decisions and source health. ready=false refuses new SMS except for active manual exceptions. Observations expire after 90 days."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/sms-safety/phone-blocklist/lookup",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/sms-safety/phone-blocklist/lookup",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Looks up a French phone in the request body. Never reveals an account. Returns id=null and version=0 if no policy exists.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/sms-safety/phone-blocklist",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/sms-safety/phone-blocklist",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Audited temporary allowance. Admins must supply a 3–500 character reason. Superadmins may omit reason and also choose block or automatic. Omit valid_days for automatic. Supply either phone_number or entry_id. Copy the current version; reread after an uncertain mutation response.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"decision\": \"allow\",\n  \"version\": {{phonePolicyVersion}},\n  \"valid_days\": 30,\n  \"reason\": \"{{auditReason}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
             }
           ]
         }
@@ -5015,6 +5123,11 @@
     {
       "key": "webBillingCheckoutKey",
       "value": "",
+      "type": "string"
+    },
+    {
+      "key": "phonePolicyVersion",
+      "value": "0",
       "type": "string"
     }
   ]

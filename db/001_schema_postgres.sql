@@ -1203,7 +1203,7 @@ CREATE TABLE data_access_log (
     action text NOT NULL,
     reason text,
     accessed_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT data_access_log_action_check CHECK ((action = ANY (ARRAY['view_profile'::text, 'view_messages'::text, 'view_matches'::text, 'export_data'::text, 'admin_ban'::text, 'admin_unban'::text, 'admin_promote'::text, 'admin_demote'::text, 'admin_grant_premium'::text, 'admin_revoke_premium'::text, 'admin_suspend_sms'::text, 'admin_resume_sms'::text, 'admin_import_store_finance'::text, 'admin_review_report'::text, 'admin_review_dsr'::text, 'admin_reconcile_photo'::text, 'view_moderation_content'::text, 'admin_review_content'::text, 'system_anonymize'::text, 'system_export_portability'::text]))),
+    CONSTRAINT data_access_log_action_check CHECK ((action = ANY (ARRAY['view_profile'::text, 'view_messages'::text, 'view_matches'::text, 'export_data'::text, 'admin_ban'::text, 'admin_unban'::text, 'admin_promote'::text, 'admin_demote'::text, 'admin_grant_premium'::text, 'admin_revoke_premium'::text, 'admin_block_phone'::text, 'admin_allow_phone'::text, 'admin_reset_phone_policy'::text, 'admin_suspend_sms'::text, 'admin_resume_sms'::text, 'admin_import_store_finance'::text, 'admin_review_report'::text, 'admin_review_dsr'::text, 'admin_reconcile_photo'::text, 'view_moderation_content'::text, 'admin_review_content'::text, 'system_anonymize'::text, 'system_export_portability'::text]))),
     CONSTRAINT data_access_log_pkey PRIMARY KEY (id),
     CONSTRAINT data_access_log_accessor_id_fkey FOREIGN KEY (accessor_id) REFERENCES user_account(user_id) ON DELETE SET NULL
 );
@@ -1662,3 +1662,47 @@ DO $$ BEGIN
   END IF;
 END $$;
 -- END match inactivity
+
+-- Observations never overwrite operator decisions. Numbers are never stored in plaintext.
+CREATE TABLE IF NOT EXISTS phone_blocklist_control (
+    singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+    key_fingerprint text NOT NULL CHECK (key_fingerprint ~ '^[0-9a-f]{64}$')
+);
+CREATE TABLE IF NOT EXISTS phone_blocklist_entry (
+    id uuid PRIMARY KEY,
+    phone_hash text NOT NULL UNIQUE CHECK (phone_hash ~ '^[0-9a-f]{64}$'),
+    phone_hint text NOT NULL CHECK (phone_hint ~ '^\+33……[0-9]{4}$'),
+    decision text NOT NULL DEFAULT 'automatic' CHECK (decision IN ('automatic','block','allow')),
+    decision_until timestamptz,
+    version bigint NOT NULL DEFAULT 0 CHECK (version >= 0),
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    CHECK ((decision='automatic' AND decision_until IS NULL) OR (decision<>'automatic' AND decision_until IS NOT NULL))
+);
+CREATE TABLE IF NOT EXISTS phone_blocklist_source (
+    source text PRIMARY KEY CHECK (source IN ('castle','ip1')),
+    last_attempt_at timestamptz,
+    last_success_at timestamptz,
+    last_error text CHECK (last_error ~ '^[a-z_]{1,64}$'),
+    imported_count integer NOT NULL DEFAULT 0 CHECK (imported_count >= 0)
+);
+INSERT INTO phone_blocklist_source(source) VALUES ('castle'),('ip1') ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS phone_blocklist_observation (
+    entry_id uuid NOT NULL REFERENCES phone_blocklist_entry(id) ON DELETE CASCADE,
+    source text NOT NULL REFERENCES phone_blocklist_source(source),
+    last_seen_at timestamptz NOT NULL,
+    imported_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY (entry_id,source)
+);
+CREATE INDEX IF NOT EXISTS idx_phone_blocklist_observation_seen ON phone_blocklist_observation(last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_phone_blocklist_entry_created ON phone_blocklist_entry(created_at,id);
+
+-- Dedicated sync credentials can only import observations, never change exceptions or read accounts.
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='histae_phone_sync') THEN
+        GRANT SELECT ON phone_blocklist_control,phone_blocklist_entry,phone_blocklist_source,phone_blocklist_observation TO histae_phone_sync;
+        GRANT INSERT (id,phone_hash,phone_hint) ON phone_blocklist_entry TO histae_phone_sync;
+        GRANT INSERT,UPDATE ON phone_blocklist_observation TO histae_phone_sync;
+        GRANT UPDATE ON phone_blocklist_source TO histae_phone_sync;
+    END IF;
+END $$;

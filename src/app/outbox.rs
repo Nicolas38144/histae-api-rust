@@ -60,6 +60,9 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
     );
     let outbox = Arc::new(PgOutboxRepository::new(database.clone()));
     let otp_requests = Arc::new(PgOtpRequestStore::new(database.clone()));
+    crate::identity::mobile::phone_blocklist::pg::initialize_key(&database, &config.phone.hash_key)
+        .await
+        .map_err(|error| error.safe_code())?;
     let sms_safety = SmsSafetyService::new(
         Arc::new(PgSmsSafetyStore::new(database.clone())),
         config.sms.safety.clone(),

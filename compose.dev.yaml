@@ -17,6 +17,8 @@ x-development-environment: &development-environment
   POSTGRES_ADMIN_PASSWORD: ""
   POSTGRES_MIGRATE_PASSWORD: ""
   POSTGRES_APP_PASSWORD: ""
+  HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ""
+  POSTGRES_PHONE_SYNC_PASSWORD: ""
   HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ""
   HISTAE_BOOTSTRAP_APP_PASSWORD: ""
   REDIS_ADDR: redis:6379
@@ -69,6 +71,11 @@ services:
       object-storage: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
+  phone-blocklist-sync:
+    environment:
+      ENV: development
+      POSTGRES_SSLMODE: disable
+
   maintenance:
     environment:
       <<: *development-environment
@@ -97,6 +104,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Define POSTGRES_ADMIN_PASSWORD in .env}
       HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ${POSTGRES_MIGRATE_PASSWORD:?Define POSTGRES_MIGRATE_PASSWORD in .env}
       HISTAE_BOOTSTRAP_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Define POSTGRES_APP_PASSWORD in .env}
+      HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ${POSTGRES_PHONE_SYNC_PASSWORD:?Define POSTGRES_PHONE_SYNC_PASSWORD in .env}
       POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
       PGDATA: /var/lib/postgresql/18/docker
     ports:

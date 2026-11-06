@@ -52,6 +52,24 @@ CREATE ROLE histae_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
 
 \endif
 -- Administrator-only access policy for existing Histae roles.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='histae_phone_sync') THEN
+    CREATE ROLE histae_phone_sync NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='histae_phone_sync'
+      AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls))
+     OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member='histae_phone_sync'::regrole) THEN
+    RAISE EXCEPTION 'conflicting privileged phone sync role';
+  END IF;
+END $$;
+\if :{?phone_sync_password}
+SELECT length(:'phone_sync_password') > 0 AS set_phone_password \gset
+\if :set_phone_password
+ALTER ROLE histae_phone_sync LOGIN PASSWORD :'phone_sync_password';
+\endif
+\endif
 -- Install privileged extensions as the administrator. Their objects remain
 -- administrator-owned; the migrator subsequently creates application objects.
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
@@ -62,7 +80,7 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public;
 
 SELECT current_database() AS database_name \gset
 REVOKE ALL ON DATABASE :"database_name" FROM PUBLIC;
-GRANT CONNECT ON DATABASE :"database_name" TO histae_migrate, histae_app;
+GRANT CONNECT ON DATABASE :"database_name" TO histae_migrate, histae_app, histae_phone_sync;
 -- This instance is dedicated to Histae. Runtime roles cannot use another DB
 -- to obtain the default PUBLIC CONNECT/TEMPORARY privileges.
 REVOKE CONNECT, TEMPORARY ON DATABASE postgres FROM PUBLIC;
@@ -71,6 +89,16 @@ REVOKE CONNECT, TEMPORARY ON DATABASE template1 FROM PUBLIC;
 ALTER SCHEMA public OWNER TO histae_migrate;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO histae_app;
+GRANT USAGE ON SCHEMA public TO histae_phone_sync;
+ALTER ROLE histae_phone_sync SET search_path = public, pg_catalog;
+DO $$ BEGIN
+  IF to_regclass('public.phone_blocklist_entry') IS NOT NULL THEN
+    GRANT SELECT ON phone_blocklist_control,phone_blocklist_entry,phone_blocklist_observation,phone_blocklist_source TO histae_phone_sync;
+    GRANT INSERT(id,phone_hash,phone_hint) ON phone_blocklist_entry TO histae_phone_sync;
+    GRANT INSERT,UPDATE ON phone_blocklist_observation TO histae_phone_sync;
+    GRANT UPDATE ON phone_blocklist_source TO histae_phone_sync;
+  END IF;
+END $$;
 GRANT SELECT ON public.spatial_ref_sys TO histae_migrate, histae_app;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE histae_migrate IN SCHEMA public

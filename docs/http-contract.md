@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **140 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **143 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -195,18 +195,21 @@ Les périodes historiques au niveau de l’abonnement et les références histor
 
 Les plafonds concernent les **tentatives d’appel fournisseur** : 5/heure et 10/24 h par numéro, et 100/heure et 500/24 h au total par défaut, en fenêtres glissantes. PostgreSQL sérialise les réservations entre instances. Une réponse perdue ou un échec fournisseur ne rembourse pas de tentative. Les quotas HTTP IP/téléphone restent appliqués avant la mise en file.
 
-Pour le mobile, les refus de budget, la suspension et les états Sweego restent internes au worker : la route conserve son `202` générique. Seuls les quotas HTTP et le délai de renvoi produisent un `429` public. Les autres clients du service OTP, notamment le parcours web, conservent leurs propres codes d’erreur. Aucun OTP déjà accepté n’est invalidé par un refus local d’envoi.
+Pour le mobile, les refus de budget, la suspension et les états Sweego restent internes au worker : la route conserve son `202` générique. Seuls les quotas HTTP et le délai de renvoi produisent un `429` public. Les autres clients du service OTP, notamment le parcours web, conservent leurs propres codes d’erreur. Un refus pour budget ou suspension ne modifie pas un OTP déjà accepté. La politique des numéros publics est également contrôlée lors de la vérification de l’OTP.
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
-| GET | `/api/admin/sms-safety` | Session admin → `200` état global, limites par numéro et globales, compteurs agrégés 5 min/1 h/24 h, pic de trafic et `version`. Aucun numéro ni hash exposé. |
+| GET | `/api/admin/sms-safety` | Session admin → `200` état global, limites par numéro et globales, compteurs agrégés 5 min/1 h/24 h, pic de trafic, `phone_blocklist_ready`, `phone_blocklist_source_errors` et `version`. Aucun numéro ni hash exposé. |
 | PATCH | `/api/admin/sms-safety` | **Superadmin, récente** ; `{ suspended: boolean, version: integer >= 0 }` → `204`, modification globale auditée. `409 resource_changed` si la version a changé. |
+| GET | `/api/admin/sms-safety/phone-blocklist` | Session admin ; `limit` 1–100 (50 par défaut), `offset` 0–100000 → `200 { entries, total, sources, ready }`. Numéros masqués et dates des sources, aucun hash. |
+| POST | `/api/admin/sms-safety/phone-blocklist/lookup` | Session admin ; `{ phone_number }` français → `200` politique du numéro (`id: null`, `version: 0` si absent). Le téléphone reste dans le corps. |
+| PATCH | `/api/admin/sms-safety/phone-blocklist` | **Admin ou superadmin, récente** ; une cible `entry_id` ou `phone_number`, `version`, `decision` (`allow`, `block`, `automatic`), `valid_days` 1–90 sauf `automatic`, `reason?` → `204`. L'admin peut uniquement autoriser et doit justifier (3–500 caractères) ; le superadmin peut effectuer les trois décisions sans justification. `409 resource_changed` si version dépassée. |
 
 La reprise conserve les compteurs. `SMS_SENDING_SUSPENDED=true` impose l’arrêt même si la suspension
 manuelle est levée. Les autorisations déjà accordées peuvent encore aboutir. Après une réponse de
 mutation perdue, relire le GET avant toute nouvelle décision ; ne pas rejouer automatiquement la mutation.
 Les métriques et le dashboard ne sont pas nécessaires à l’application des protections.
-Voir [configuration et exploitation](sms-safety.md).
+Voir [configuration et exploitation](sms-safety.md) et [numéros publics et exceptions](phone-blocklist.md).
 
 ### Webhook Sweego
 

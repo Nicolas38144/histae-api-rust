@@ -9,6 +9,8 @@ Le codec photo utilise un processus Node/Sharp autonome, livré dans l’image A
 `store-verifier` vérifie les achats natifs via les bibliothèques officielles Apple/Google ; Stripe
 sert uniquement aux achats sur le site. Voir le [guide de facturation](docs/store-billing.md).
 
+La [protection des numéros SMS publics](docs/phone-blocklist.md) bloque les numéros connus avant Sweego et permet des exceptions administratives temporaires.
+
 ## Organisation
 
 ```text
@@ -57,6 +59,8 @@ bash scripts/install-debian-13.sh
 source "$HOME/.profile"
 bash scripts/prepare-observability-secrets.sh
 sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
+sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml \
+  --profile jobs run --rm --no-deps -T phone-blocklist-sync
 bash scripts/smoke-api.sh
 ```
 

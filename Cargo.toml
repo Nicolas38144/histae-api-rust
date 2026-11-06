@@ -84,3 +84,7 @@ path = "src/bin/db_migrate.rs"
 [[bin]]
 name = "storage-init"
 path = "src/bin/storage_init.rs"
+
+[[bin]]
+name = "phone-blocklist-sync"
+path = "src/bin/phone_blocklist_sync.rs"

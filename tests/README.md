@@ -11,7 +11,7 @@ Utiliser des fixtures fictives et des secrets de développement, jamais une base
 | --- | --- | --- |
 | Unitaire | Modules `#[cfg(test)]` de `src/` | Règles, configuration, transports, mocks et cycles de vie |
 | Contrat | `*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, guards et permissions |
-| Inventaire | `route_inventory.rs` | Les 140 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
+| Inventaire | `route_inventory.rs` | Les 143 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
 | PostgreSQL | `*_postgres.rs`, `postgres_compatibility`, `postgres_locks` | SQL, contraintes, verrous, snapshots et concurrence réels |
 | Redis / S3 | `redis_integration`, `media_integration` | Adaptateurs sur services locaux |
 | Codec | `photo_codec.rs`, `fixtures/photos/` | Formats, taille, métadonnées, corruption et arrêt du processus Node |
@@ -551,3 +551,33 @@ python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/d
   --test administration_reports_postgres --test matches_postgres \
   --test moderation_postgres --test complimentary_premium_postgres
 ```
+
+### Numéros SMS publics et exceptions (6 novembre 2026)
+
+La fixture `phone_blocklist_postgres` nécessite le lanceur jetable. Elle vérifie le refus avant
+réservation de budget, le contrôle des OTP antérieurs, les exceptions prioritaires sur les imports,
+l’expiration, les versions concurrentes, le rôle réel de l’admin et l’audit automatique du superadmin.
+Deux cas concurrents couvrent la décision en cours et l’ordre des verrous avec la rétention. Le rôle
+`histae_phone_sync` importe réellement sans pouvoir lire les comptes ou modifier les décisions.
+Le lanceur vérifie aussi l’ajout de ce rôle sur un cluster existant et les upgrades répétés sans
+modifier les exceptions, dates des sources ou l’empreinte de contrôle de la clé.
+
+```bash
+cargo build --locked --bin db-migrate --bin phone-blocklist-sync
+python3 scripts/verify-continuation-postgres.py \
+  --native-migrator target/debug/db-migrate \
+  --test phone_blocklist_postgres --test sms_safety_postgres --test otp_delivery
+```
+
+`--native-phone-sync target/debug/phone-blocklist-sync` ajoute une consultation réelle des deux
+listes publiques, toujours dans la base jetable. Les tests standard n’en dépendent pas. Aucun envoi
+Sweego n’est effectué. Voir [le guide et les procédures](../docs/phone-blocklist.md).
+
+Validation locale : 384 tests Rust par défaut réussis ; 36 tests PostgreSQL distincts réussis sur les parcours de politique SMS,
+budget, OTP, identité mobile, confidentialité web, facturation, outbox, effacement et administration.
+Le smoke réseau a importé 7 observations françaises Castle et 228 iP1, sans données en clair
+persistées dans les tables de politique ; les volumes dépendent des sources et de la date.
+Les deux nouvelles règles Prometheus et les cinq topologies Compose passent leur validation.
+Le dashboard passe son build, TypeScript, ESLint, 166 tests unitaires et 12 tests navigateur
+(`pnpm exec playwright test --grep-invert @real --workers=1`). Le premier passage avec quatre workers
+a dépassé le délai d’une navigation pendant les compilations ; le passage séquentiel complet réussit.

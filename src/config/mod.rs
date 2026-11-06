@@ -1,4 +1,7 @@
 //! Typed configuration with stable defaults and redacted secrets.
+mod database;
+mod phone_blocklist;
+pub use phone_blocklist::PhoneBlocklistSyncConfig;
 mod environment;
 mod error;
 mod loader;

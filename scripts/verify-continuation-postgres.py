@@ -13,7 +13,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = (
-    "mobile_identity",
+    "mobile_identity", "phone_blocklist_postgres",
     "complimentary_premium_postgres", "web_privacy_postgres",
     "play_review_postgres", "matches_postgres", "matches_inactivity_postgres", "moderation_postgres", "privacy_rights_postgres", "account_erasure_postgres",
     "administration_reports_postgres", "billing_postgres",
@@ -38,6 +38,7 @@ def main():
     parser.add_argument("--postgres-image", default="histae-postgres:18.6-postgis3.6.4")
     parser.add_argument("--test", action="append", choices=TESTS + ADMIN_TESTS + tuple(POSTGRES_FILTERS))
     parser.add_argument("--native-migrator", type=Path, help="Use a freshly built local db-migrate binary over the published loopback port")
+    parser.add_argument("--native-phone-sync", type=Path, help="Optional live public-feed smoke after isolated tests; never sends SMS")
     parser.add_argument("--sudo-docker", action="store_true", help="Use sudo for Docker only, keep Cargo unprivileged")
     args = parser.parse_args()
     docker_command = ["sudo", "docker"] if args.sudo_docker else ["docker"]
@@ -73,14 +74,17 @@ def main():
                                "Build the current API image and select it with --api-image, or run "
                                "cargo build --locked --bin db-migrate and use --native-migrator target/debug/db-migrate")
 
+    if args.native_phone_sync and (not args.native_phone_sync.is_file() or not os.access(args.native_phone_sync, os.X_OK)):
+        raise VerificationError("Native phone synchronizer is missing or not executable; build phone-blocklist-sync first")
+
     with tempfile.TemporaryDirectory(prefix="histae-continuation-") as temporary:
         directory = Path(temporary)
-        admin_password, migrate_password, app_password = [secrets.token_hex(32) for _ in range(3)]
+        admin_password, migrate_password, app_password, sync_password = [secrets.token_hex(32) for _ in range(4)]
         postgres = dict(POSTGRES_DB="histae-dev", POSTGRES_USER="histae_admin",
                         POSTGRES_PASSWORD=admin_password,
                         POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256",
                         HISTAE_BOOTSTRAP_MIGRATE_PASSWORD=migrate_password,
-                        HISTAE_BOOTSTRAP_APP_PASSWORD=app_password)
+                        HISTAE_BOOTSTRAP_APP_PASSWORD=app_password, HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD=sync_password)
         runtime = dict(GOOGLE_PLAY_REVIEW_ENABLED="false", ENV="development", POSTGRES_HOST="127.0.0.1", POSTGRES_PORT="5432",
                        POSTGRES_DB="histae-dev", POSTGRES_USER="histae_migrate",
                        POSTGRES_PASSWORD=migrate_password, POSTGRES_SSLMODE="disable",
@@ -134,6 +138,31 @@ def main():
                 return docker("exec", "-i", name, "sh", "-ec",
                     'case "$1" in histae_app) export PGPASSWORD="$HISTAE_BOOTSTRAP_APP_PASSWORD" ;; histae_migrate) export PGPASSWORD="$HISTAE_BOOTSTRAP_MIGRATE_PASSWORD" ;; *) exit 2 ;; esac; exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d histae-dev',
                     "sh", role, input_text=statement)
+
+            # Simulate an existing separated cluster predating the dedicated import role.
+            docker("exec", "-i", name, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1",
+                   "-U", "histae_admin", "-d", "histae-dev", input_text=r"""
+DROP OWNED BY histae_phone_sync;
+DROP ROLE histae_phone_sync;
+SET log_statement = none;
+SET log_min_error_statement = panic;
+\set bootstrap_mode access
+\getenv phone_sync_password HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD
+\i /etc/histae/db/000_bootstrap_postgres.sql
+""")
+            print("Existing-cluster bootstrap provisions the restricted phone-sync role.", flush=True)
+
+            policy_id = str(uuid.uuid4())
+            query("DROP TABLE phone_blocklist_observation; DROP TABLE phone_blocklist_source; DROP TABLE phone_blocklist_entry; DROP TABLE phone_blocklist_control;", "histae_migrate")
+            migrate()
+            query(f"INSERT INTO phone_blocklist_entry(id,phone_hash,phone_hint,decision,decision_until,version) VALUES ('{policy_id}',repeat('b',64),'+33……0000','allow',clock_timestamp()+INTERVAL '30 days',7); UPDATE phone_blocklist_source SET last_success_at=clock_timestamp() WHERE source='castle'; INSERT INTO phone_blocklist_observation(entry_id,source,last_seen_at) VALUES ('{policy_id}','castle',clock_timestamp());")
+            policy_snapshot_sql = f"SELECT jsonb_build_array(e.decision,e.decision_until,e.version,o.last_seen_at,o.imported_at,s.last_success_at,c.key_fingerprint) FROM phone_blocklist_entry e JOIN phone_blocklist_observation o ON o.entry_id=e.id JOIN phone_blocklist_source s ON s.source=o.source CROSS JOIN phone_blocklist_control c WHERE e.id='{policy_id}';"
+            policy_snapshot = query(policy_snapshot_sql)
+            for _ in range(2):
+                migrate()
+                assert query(policy_snapshot_sql) == policy_snapshot
+            query(f"DELETE FROM phone_blocklist_entry WHERE id='{policy_id}'; UPDATE phone_blocklist_source SET last_success_at=NULL;")
+            print("Phone policy upgrade preserves exceptions, source dates and key binding.", flush=True)
 
             notice_users = sorted(str(uuid.uuid4()) for _ in range(2))
             notice_match, notice_id = str(uuid.uuid4()), str(uuid.uuid4())
@@ -338,6 +367,7 @@ def main():
             runtime.update(POSTGRES_PORT=port, POSTGRES_USER="histae_app", POSTGRES_PASSWORD=app_password)
             environment = os.environ.copy()
             environment.update(runtime)
+            environment.update(HISTAE_PHONE_BLOCKLIST_TEST_ISOLATED="true", PHONE_SYNC_TEST_PASSWORD=sync_password)
             environment.setdefault("CARGO_BUILD_JOBS", "2")
             selected = args.test or TESTS
             for administrator_fixture in (False, True):
@@ -364,6 +394,15 @@ def main():
                     cwd=ROOT, env=environment)
                 if result.returncode:
                     raise VerificationError("PostgreSQL media regression failed")
+            if args.native_phone_sync:
+                sync_environment = environment.copy()
+                sync_environment.update(POSTGRES_USER="histae_phone_sync", POSTGRES_PASSWORD=sync_password)
+                completed = subprocess.run([str(args.native_phone_sync.resolve())], cwd=ROOT, env=sync_environment)
+                if completed.returncode:
+                    raise VerificationError("Live phone feed smoke failed; no SMS provider was contacted")
+                assert query("SELECT count(*)=2 AND bool_and(last_error IS NULL AND last_success_at IS NOT NULL) FROM phone_blocklist_source;") == "t"
+                print("Live imports: " + query("SELECT string_agg(source||':'||imported_count, ', ' ORDER BY source) FROM phone_blocklist_source;"), flush=True)
+                print("Both live public phone feeds imported with restricted credentials; no SMS sent.", flush=True)
             print("Isolated continuation PostgreSQL verification passed.", flush=True)
         finally:
             if created:

@@ -3,6 +3,7 @@ pub mod domain;
 pub mod http;
 pub mod otp;
 pub mod pg;
+pub mod phone_blocklist;
 pub mod play_review;
 pub mod refresh_recovery;
 pub mod service;

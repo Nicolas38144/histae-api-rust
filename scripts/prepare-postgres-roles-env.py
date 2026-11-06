@@ -18,7 +18,7 @@ def main():
     source = path.read_text(encoding="utf-8")
     values = {}
     for line in source.splitlines():
-        match = re.fullmatch(r"\s*(POSTGRES_(?:ADMIN|MIGRATE|APP)_PASSWORD)\s*=\s*(.*?)\s*", line)
+        match = re.fullmatch(r"\s*(POSTGRES_(?:ADMIN|MIGRATE|APP|PHONE_SYNC)_PASSWORD)\s*=\s*(.*?)\s*", line)
         if match:
             name, value = match.groups()
             if name in values:
@@ -27,10 +27,10 @@ def main():
             if value and not value.startswith("REPLACE_") and not re.fullmatch("[a-f0-9]{64}", value):
                 parser.error("role passwords must contain 64 lowercase hexadecimal characters")
             values[name] = value if re.fullmatch("[a-f0-9]{64}", value) else secrets.token_hex(32)
-    for role in ("ADMIN", "MIGRATE", "APP"):
+    for role in ("ADMIN", "MIGRATE", "APP", "PHONE_SYNC"):
         values.setdefault(f"POSTGRES_{role}_PASSWORD", secrets.token_hex(32))
-    if len(set(values.values())) != 3:
-        parser.error("the three PostgreSQL role passwords must be different")
+    if len(set(values.values())) != 4:
+        parser.error("the four PostgreSQL role passwords must be different")
     replacements = dict(values, POSTGRES_USER="histae_app", POSTGRES_PASSWORD="${POSTGRES_APP_PASSWORD}")
     seen = set()
     output = []
@@ -70,7 +70,7 @@ def main():
         if temporary is not None:
             temporary.unlink(missing_ok=True)
     print("PostgreSQL role settings prepared; passwords were not displayed.")
-    print("An existing development database must be converted before recreating its containers.")
+    print("Legacy unseparated development databases require conversion; reset provisions the dedicated sync role on separated clusters.")
 
 
 if __name__ == "__main__":

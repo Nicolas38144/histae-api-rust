@@ -65,6 +65,10 @@ async fn policy_rejections_never_connect_to_sweego_or_count_as_provider_failures
     }
     for (rejection, reason) in [
         (
+            SmsSendRejection::PhoneBlocked,
+            SmsFailureReason::PhoneBlocked,
+        ),
+        (
             SmsSendRejection::HourlyLimit,
             SmsFailureReason::PhoneHourlyLimit,
         ),

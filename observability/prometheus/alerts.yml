@@ -150,6 +150,20 @@ groups:
 
   - name: histae-sms-safety
     rules:
+      - alert: HistaePhoneBlocklistUnavailable
+        expr: histae_phone_blocklist_unavailable == 1
+        for: 10m
+        labels: { severity: critical, component: sweego }
+        annotations:
+          summary: Public-number policy has no fresh successful import
+          runbook_url: docs/phone-blocklist.md#exploitation
+      - alert: HistaePhoneBlocklistSourceFailed
+        expr: histae_phone_blocklist_source_errors > 0
+        for: 15m
+        labels: { severity: warning, component: sweego }
+        annotations:
+          summary: A public-number source import failed
+          runbook_url: docs/phone-blocklist.md#exploitation
       - alert: HistaeSweegoTrafficSpike
         expr: histae_sweego_traffic_spike == 1
         labels: { severity: warning, component: sweego }

@@ -274,3 +274,17 @@ matchs, modération et Premium offert), formatage et Clippy sans avertissement. 
 les upgrades et leur répétition passent ; la base et les secrets temporaires sont supprimés. Le contrat,
 le guide admin et Postman FR/EN décrivent la règle ; l'inventaire reste à 140 routes. Aucun changement
 de `.env` ni migration supplémentaire nécessaire. La validation du dashboard déployé reste à faire.
+
+## Numéros SMS publics — 6 novembre 2026
+
+La protection est intégrée au garde commun Sweego avant budget et réseau, ainsi qu’à la validation
+des OTP antérieurs. L’import quotidien consulte les deux sources fixes avec des droits SQL dédiés,
+conserve leurs dates et laisse les décisions administratives prioritaires. Un admin peut autoriser
+un numéro avec motif ; le superadmin peut aussi bloquer ou rétablir le mode automatique, sans motif
+manuel. Les exceptions sont temporaires, versionnées et auditées ; les réponses restent masquées.
+Une incohérence de clé, une panne SQL ou l’absence d’import récent empêchent les nouveaux envois.
+
+L’inventaire actuel et les deux collections Postman couvrent **143 routes**. Le nouveau secret
+`POSTGRES_PHONE_SYNC_PASSWORD` est requis dans les deux modes ; le reset configure le rôle et le
+premier import. Le timer quotidien doit être installé et activé sur le serveur. Voir
+[le guide d’exploitation](phone-blocklist.md) et [les preuves locales](../tests/README.md).

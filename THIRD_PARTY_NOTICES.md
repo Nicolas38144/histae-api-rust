@@ -91,3 +91,11 @@ collect their full required texts and document any modifications. Base-image pac
 external service contracts and complete container dependency trees have not
 received a complete artifact-level review. No compatibility, ownership or legal-compliance
 certification is asserted. This report does not revoke any earlier valid license grant.
+
+## Public phone-number data sources
+
+The optional daily synchronizer reads [Castle’s disposable phone list](https://github.com/castle/disposable-phone-numbers)
+and [iP1’s disposable phone list](https://github.com/iP1SMS/disposable-phone-numbers), each published under MIT.
+Source numbers are not bundled in this repository or its images; imports retain HMAC identifiers,
+masked hints, source names and observation dates. These lists remain subject to their respective
+licenses and are not covered by Histae’s source-access terms.

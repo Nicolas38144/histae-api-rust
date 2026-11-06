@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && mkdir -p /artifacts \
     && cp target/release/api target/release/outbox target/release/maintenance \
           target/release/admin-bootstrap target/release/db-migrate target/release/storage-init \
-          target/release/contract-compare /artifacts/
+          target/release/contract-compare target/release/phone-blocklist-sync /artifacts/
 
 FROM node:22.22.1-bookworm-slim AS runtime
 ENV HISTAE_RUNTIME_ROOT=/app

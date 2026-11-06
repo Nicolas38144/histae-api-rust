@@ -172,7 +172,7 @@ le proxy, l’override et les listes de confiance. Voir [Administration](adminis
 ## Production
 
 Pour une installation neuve, préparer `.env` selon [Configuration](configuration.md), compléter
-les valeurs de production et préparer les trois mots de passe avec
+les valeurs de production et préparer les quatre mots de passe avec
 `python3 scripts/prepare-postgres-roles-env.py .env`. Les [rôles PostgreSQL](postgres-roles.md)
 sont créés automatiquement sur le volume vide ; aucun identifiant administrateur n'est injecté dans l'API.
 

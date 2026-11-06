@@ -326,6 +326,25 @@ fn render_persistent(
     let safety = &snapshot.sms_safety;
     gauge(
         out,
+        "histae_phone_blocklist_unavailable",
+        "Whether the public-number policy has no fresh successful import while Sweego is enabled.",
+        f64::from(safety.provider_enabled && !safety.phone_blocklist_ready),
+        "",
+    );
+    gauge(
+        out,
+        "histae_phone_blocklist_source_errors",
+        "Number of failed public-number source imports while Sweego is enabled.",
+        if safety.provider_enabled {
+            safety.phone_blocklist_source_errors as f64
+        } else {
+            0.0
+        },
+        "",
+    );
+
+    gauge(
+        out,
         "histae_sweego_sending_suspended",
         "Whether SMS dispatch is suspended by configuration or an operator.",
         f64::from(safety.suspended),

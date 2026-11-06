@@ -18,6 +18,13 @@ fail() {
 [[ $HISTAE_BOOTSTRAP_MIGRATE_PASSWORD != "${POSTGRES_PASSWORD:-}" ]] || fail
 [[ $HISTAE_BOOTSTRAP_APP_PASSWORD != "${POSTGRES_PASSWORD:-}" ]] || fail
 export HISTAE_BOOTSTRAP_MIGRATE_PASSWORD HISTAE_BOOTSTRAP_APP_PASSWORD
+if [[ -n ${HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD:-} ]]; then
+  [[ $HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD =~ ^[a-f0-9]{64}$ ]] || fail
+  [[ $HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD != "$HISTAE_BOOTSTRAP_MIGRATE_PASSWORD" && $HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD != "$HISTAE_BOOTSTRAP_APP_PASSWORD" && $HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD != "$POSTGRES_PASSWORD" ]] || fail
+  export HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD
+fi
+
+export HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD="${HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD:-}"
 
 # psql reads passwords from its environment, never command-line arguments.
 # Suppress SQL diagnostics because an interpolated CREATE ROLE could expose a
@@ -28,6 +35,7 @@ SET log_statement = 'none';
 SET log_min_error_statement = 'panic';
 \getenv migrate_password HISTAE_BOOTSTRAP_MIGRATE_PASSWORD
 \getenv app_password HISTAE_BOOTSTRAP_APP_PASSWORD
+\getenv phone_sync_password HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD
 \i /etc/histae/db/000_bootstrap_postgres.sql
 SQL
 then

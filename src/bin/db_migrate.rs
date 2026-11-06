@@ -18,6 +18,26 @@ async fn main() -> ExitCode {
     };
     match migrations::apply(&config.postgres).await {
         Ok(count) => {
+            let database =
+                match histae_api_rust::infra::postgres::Database::connect(&config.postgres).await {
+                    Ok(database) => database,
+                    Err(error) => {
+                        let _ =
+                            logging::error("postgres_migration_failed", Some(error.safe_code()));
+                        return ExitCode::FAILURE;
+                    }
+                };
+            let binding = histae_api_rust::identity::mobile::phone_blocklist::pg::initialize_key(
+                &database,
+                &config.phone.hash_key,
+            )
+            .await;
+            database.close().await;
+            if let Err(error) = binding {
+                let _ = logging::error("postgres_migration_failed", Some(error.safe_code()));
+                return ExitCode::FAILURE;
+            }
+
             let _ = logging::info(
                 "postgres_migration_completed",
                 &[("processed_count", SafeLogValue::Integer(i64::from(count)))],

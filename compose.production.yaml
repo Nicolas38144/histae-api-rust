@@ -14,6 +14,8 @@ x-production-database-environment: &production-database-environment
   POSTGRES_ADMIN_PASSWORD: ""
   POSTGRES_MIGRATE_PASSWORD: ""
   POSTGRES_APP_PASSWORD: ""
+  HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ""
+  POSTGRES_PHONE_SYNC_PASSWORD: ""
   HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ""
   HISTAE_BOOTSTRAP_APP_PASSWORD: ""
   NODE_EXTRA_CA_CERTS: /run/secrets/postgres_ca
@@ -52,6 +54,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Define POSTGRES_ADMIN_PASSWORD in .env}
       HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ${POSTGRES_MIGRATE_PASSWORD:?Define POSTGRES_MIGRATE_PASSWORD in .env}
       HISTAE_BOOTSTRAP_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Define POSTGRES_APP_PASSWORD in .env}
+      HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ${POSTGRES_PHONE_SYNC_PASSWORD:?Define POSTGRES_PHONE_SYNC_PASSWORD in .env}
       POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
       PGDATA: /var/lib/postgresql/18/docker
     volumes:
@@ -295,6 +298,14 @@ services:
     secrets:
       - postgres_ca
     restart: always
+
+  phone-blocklist-sync:
+    environment:
+      ENV: production
+      POSTGRES_SSLMODE: verify-full
+      NODE_EXTRA_CA_CERTS: /run/secrets/postgres_ca
+    secrets:
+      - postgres_ca
 
   maintenance:
     env_file: !override ["${HISTAE_ENV_FILE:-.env}"]

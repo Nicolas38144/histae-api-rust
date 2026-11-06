@@ -241,6 +241,14 @@ impl OtpRepository {
             .transaction(|connection| {
                 Box::pin(async move {
                     lock_phone(connection, &phone_hash).await?;
+                    if crate::identity::mobile::phone_blocklist::pg::otp_blocked_on(
+                        connection,
+                        &phone_hash,
+                    )
+                    .await?
+                    {
+                        return Ok(false);
+                    }
                     let result = sqlx::query(
                         "UPDATE otp_verification SET used = true
                          WHERE phone_number_hash = $1 AND otp_hash = $2

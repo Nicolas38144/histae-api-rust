@@ -1,6 +1,8 @@
 name: histae-api-rust
 
 x-store-secret-suppression: &store-secret-suppression
+  POSTGRES_PHONE_SYNC_PASSWORD: ""
+  HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ""
   GOOGLE_PLAY_REVIEW_ENABLED: "false"
   GOOGLE_PLAY_REVIEW_PHONE_NUMBER: ""
   GOOGLE_PLAY_REVIEW_OTP: ""
@@ -127,6 +129,37 @@ services:
     pids_limit: 256
     mem_limit: 768m
     cpus: 1.5
+
+  phone-blocklist-sync:
+    image: ${HISTAE_API_IMAGE:-histae-api-rust:local}
+    profiles: [jobs]
+    entrypoint: [/app/bin/phone-blocklist-sync]
+    environment:
+      ENV: ${ENV:-development}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-histae-dev}
+      POSTGRES_USER: histae_phone_sync
+      POSTGRES_PASSWORD: ${POSTGRES_PHONE_SYNC_PASSWORD:?Define POSTGRES_PHONE_SYNC_PASSWORD in .env}
+      PHONE_HASH_KEY: ${PHONE_HASH_KEY:?Define PHONE_HASH_KEY in .env}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    dns: ["${HISTAE_API_DNS_SERVER:-1.1.1.1}"]
+    init: true
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
+    restart: "no"
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
 
   maintenance:
     <<: *runtime-service
