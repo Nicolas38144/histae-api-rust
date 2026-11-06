@@ -166,3 +166,18 @@ ne remplacent pas les validations TLS, HTTP et fournisseurs de production.
 
 Références : [permissions PostgreSQL](https://www.postgresql.org/docs/18/ddl-priv.html),
 [privilèges futurs](https://www.postgresql.org/docs/18/sql-alterdefaultprivileges.html).
+
+## Réparer le rôle d’import des numéros publics
+
+Sur une base existante, le job peut échouer si `histae_phone_sync` n’a pas été créé, ou si son mot de
+passe ne correspond plus à `POSTGRES_PHONE_SYNC_PASSWORD`. Après mise à jour de l’API et des scripts,
+lancer depuis leur dossier parent :
+
+```bash
+sudo bash histae-scripts/run-phone-blocklist-sync.sh --production --prepare-role
+```
+
+La commande prépare ce rôle limité avec la valeur Compose courante et lance l’import, sous le
+verrou de maintenance. Elle n’exige pas de reconstruction d’image ou de redémarrage PostgreSQL.
+Elle conserve les données et les autres mots de passe, refuse les secrets invalides/partagés et
+les rôles privilégiés conflictuels. La préparation utilisée par le reset est identique.

@@ -124,6 +124,20 @@ sudo systemctl list-timers histae-phone-blocklist.timer
 sudo journalctl -u histae-phone-blocklist.service --since today
 ```
 
+Si PostgreSQL signale `Role "histae_phone_sync" does not exist`, ou un mot de passe de ce rôle
+invalide, préparer le rôle et relancer l’import depuis le parent des dépôts :
+
+```bash
+sudo bash histae-scripts/run-phone-blocklist-sync.sh --production --prepare-role
+```
+
+Cette préparation lit `POSTGRES_PHONE_SYNC_PASSWORD` dans la configuration Compose sélectionnée,
+plutôt que dans l’environnement éventuellement ancien du conteneur PostgreSQL. Elle réutilise le
+bootstrap administrateur, conserve les autres mots de passe et ne reconstruit ou redémarre aucun
+service. Le secret transite uniquement par l’entrée standard ; il n’est pas affiché, écrit dans un
+fichier ou passé en argument. Les fichiers API et scripts doivent être à jour. Le lancement quotidien
+ordinaire ne prépare pas les rôles : cette option est réservée à l’intervention de l’opérateur.
+
 Le job partage le verrou de maintenance/déploiement. En cas d’échec, vérifier la résolution DNS et
 l’accès HTTPS sortant depuis Docker, la disponibilité des sources, les droits du rôle dédié et la
 cohérence de `PHONE_HASH_KEY`. Garder le dernier état valide ; ne pas vider les tables pour rétablir
