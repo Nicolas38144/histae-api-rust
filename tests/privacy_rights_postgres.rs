@@ -179,7 +179,21 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
     drop(connection);
 
     let result: Result<(), Box<dyn std::error::Error>> = async {
+        let preference_matches = [Uuid::new_v4(), Uuid::new_v4()];
         let mut fixture = database.acquire().await?;
+        sqlx::query("INSERT INTO user_notification_preference(user_id,messages,discreet)
+            VALUES ($1,false,true),($2,true,false)")
+            .bind(user_id).bind(other_id).execute(&mut *fixture).await?;
+        for (match_id, partner) in preference_matches.iter().zip([other_id, admin_id]) {
+            sqlx::query("INSERT INTO match_init(id,user1_id,user2_id)
+                VALUES ($1,LEAST($2::uuid,$3::uuid),GREATEST($2::uuid,$3::uuid))")
+                .bind(match_id).bind(user_id).bind(partner).execute(&mut *fixture).await?;
+            sqlx::query("INSERT INTO match_state(match_id,user_id) VALUES ($1,$2),($1,$3)")
+                .bind(match_id).bind(user_id).bind(partner).execute(&mut *fixture).await?;
+            sqlx::query("INSERT INTO match_notification_preference(match_id,user_id,muted)
+                VALUES ($1,$2,true),($1,$3,false)")
+                .bind(match_id).bind(user_id).bind(partner).execute(&mut *fixture).await?;
+        }
         sqlx::query("INSERT INTO user_profile (user_id, firstname, birthdate) VALUES ($1, 'Fixture', '1990-02-03')")
             .bind(user_id).execute(&mut *fixture).await?;
         sqlx::query("INSERT INTO billing_invoice (stripe_invoice_id,user_id,stripe_customer_id,currency,amount_due,amount_paid,amount_remaining,period_starts_at,period_ends_at,created_at) VALUES ($1,$2,$3,'EUR',9007199254740993,0,9007199254740993,now(),now()+interval '1 month',now())")
@@ -307,6 +321,20 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
         }
         let document: Value = serde_json::from_slice(&bytes)?;
         assert_eq!(document["account"]["discovery_paused"], true);
+        let notification_preferences = document["notification_preferences"].as_array()
+            .ok_or(FixtureError("exported notification preferences"))?;
+        assert_eq!(notification_preferences.len(), 1);
+        assert_eq!(notification_preferences[0]["messages"], false);
+        assert_eq!(notification_preferences[0]["discreet"], true);
+        assert!(notification_preferences[0].get("user_id").is_none());
+        let mutes = document["conversation_notification_preferences"].as_array()
+            .ok_or(FixtureError("exported conversation preferences"))?;
+        assert_eq!(mutes.len(), 2, "the page size of one must not omit any mute");
+        for match_id in preference_matches {
+            assert!(mutes.iter().any(|entry| entry["match_id"] == match_id.to_string()));
+        }
+        assert!(mutes.iter().all(|entry| entry["muted"] == true && entry.get("user_id").is_none()),
+            "only the requesting participant's private choices are exported");
         assert_eq!(document["profile"]["birthdate"], "1990-02-03T00:00:00.000Z");
         assert_eq!(document["billing_invoices"][0]["amount_due"], "9007199254740993");
         assert_eq!(document["billing_invoices"][0]["amount_paid"], "0");

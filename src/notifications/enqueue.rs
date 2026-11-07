@@ -6,7 +6,10 @@ use sqlx::types::Json;
 use uuid::Uuid;
 
 use super::domain::NotificationIntent;
-use super::eligibility::{ACCOUNT_NOTIFICATION_ELIGIBLE_SQL, BILLING_NOTIFICATION_ELIGIBLE_SQL, PUSH_PREFERENCES_ELIGIBLE_SQL};
+use super::eligibility::{
+    ACCOUNT_NOTIFICATION_ELIGIBLE_SQL, BILLING_NOTIFICATION_ELIGIBLE_SQL,
+    PUSH_PREFERENCES_ELIGIBLE_SQL,
+};
 use crate::infra::postgres::{DatabaseError, map_sqlx_error};
 
 static ENQUEUE_NOTIFICATION_SQL: OnceLock<String> = OnceLock::new();

@@ -164,11 +164,21 @@ SET log_min_error_statement = panic;
             query(f"DELETE FROM phone_blocklist_entry WHERE id='{policy_id}'; UPDATE phone_blocklist_source SET last_success_at=NULL;")
             print("Phone policy upgrade preserves exceptions, source dates and key binding.", flush=True)
 
+            query("DROP TABLE match_notification_preference, user_notification_preference;", "histae_migrate")
+            migrate()
+
             notice_users = sorted(str(uuid.uuid4()) for _ in range(2))
             notice_match, notice_id = str(uuid.uuid4()), str(uuid.uuid4())
             for user in notice_users:
                 query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{user}','legacy-notice-{user}',''::bytea);")
             query(f"INSERT INTO match_init(id,user1_id,user2_id) VALUES ('{notice_match}','{notice_users[0]}','{notice_users[1]}'); INSERT INTO notification(id,user_id,type,payload) VALUES ('{notice_id}','{notice_users[0]}','new_match',jsonb_build_object('match_id','{notice_match}'));")
+            query(f"INSERT INTO match_state(match_id,user_id) VALUES ('{notice_match}','{notice_users[0]}'),('{notice_match}','{notice_users[1]}'); INSERT INTO user_notification_preference(user_id,messages,discreet) VALUES ('{notice_users[0]}',false,true); INSERT INTO match_notification_preference(match_id,user_id,muted) VALUES ('{notice_match}','{notice_users[0]}',true),('{notice_match}','{notice_users[1]}',false);")
+            choices_sql = f"SELECT jsonb_build_array((SELECT to_jsonb(p) FROM user_notification_preference p WHERE user_id='{notice_users[0]}'),(SELECT jsonb_agg(to_jsonb(p) ORDER BY user_id) FROM match_notification_preference p WHERE match_id='{notice_match}'));"
+            choices_snapshot = query(choices_sql)
+            for _ in range(2):
+                migrate()
+                assert query(choices_sql) == choices_snapshot
+            print("Notification preference upgrade creates tables and preserves private choices on repeated runs.", flush=True)
             notice_snapshot_sql = f"SELECT jsonb_build_array(n.id,n.type,n.payload,n.created_at,n.expires_at,m.status,m.expires_at) FROM notification n JOIN match_init m ON m.id='{notice_match}' WHERE n.id='{notice_id}';"
             notice_snapshot = query(notice_snapshot_sql)
             query("ALTER TABLE match_init DROP COLUMN photo_reveal_version; ALTER TABLE notification DROP CONSTRAINT notification_type_check; ALTER TABLE notification ADD CONSTRAINT notification_type_check CHECK (type IN ('new_match','new_message','profile_liked','match_expiring','billing_payment_failed')); DROP INDEX idx_notification_match_kind;", "histae_migrate")

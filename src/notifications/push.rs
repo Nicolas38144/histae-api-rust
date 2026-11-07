@@ -791,6 +791,12 @@ mod tests {
         );
         assert_eq!(
             sent[0]
+                .pointer("/message/android/notification/channel_id")
+                .and_then(Value::as_str),
+            Some("histae_continuations")
+        );
+        assert_eq!(
+            sent[0]
                 .pointer("/message/android/ttl")
                 .and_then(Value::as_str),
             Some("600s")

@@ -42,4 +42,3 @@ pub const PUSH_PREFERENCES_ELIGIBLE_SQL: &str = "
       ELSE COALESCE(preference.account_security,true) END
     AND NOT COALESCE(mute.muted AND
       (mute.muted_until IS NULL OR mute.muted_until>clock_timestamp()),false)";
-

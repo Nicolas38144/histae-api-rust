@@ -449,8 +449,10 @@ impl ApiResources {
                 ))),
                 mobile_auth.clone(),
             ))
-            .merge(crate::notifications::preferences_http::routes(
-                crate::notifications::preferences::NotificationPreferenceRepository::new(self.database.clone()),
+            .merge(crate::notifications::preferences::http::routes(
+                crate::notifications::preferences::NotificationPreferenceRepository::new(
+                    self.database.clone(),
+                ),
                 mobile_auth.clone(),
             ))
             .merge(sse_routes(

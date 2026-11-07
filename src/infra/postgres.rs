@@ -264,7 +264,10 @@ impl Database {
         let notification_preferences_ready: bool = sqlx::query_scalar(
             "SELECT to_regclass(current_schema() || '.user_notification_preference') IS NOT NULL
                 AND to_regclass(current_schema() || '.match_notification_preference') IS NOT NULL",
-        ).fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(map_sqlx_error)?;
         if !notification_preferences_ready {
             return Err(DatabaseError::SchemaObjectsMissing);
         }

@@ -1547,6 +1547,152 @@
           "name": "Appareils et temps réel",
           "item": [
             {
+              "name": "GET /api/users/me/notification-preferences",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/notification-preferences",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Lire les préférences push du compte. Catégories activées et mode discret désactivé par défaut."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/users/me/notification-preferences",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/notification-preferences",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Modifier uniquement les booléens fournis ; au moins un champ requis. Messages, SSE et compteurs restent disponibles.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"messages\": false,\n  \"discreet\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/matches/:id/notification-preferences",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/{{matchId}}/notification-preferences",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Lire votre sourdine privée pour un match accessible. Une sourdine expirée renvoie false/null. Un tiers reçoit 404."
+              },
+              "response": []
+            },
+            {
+              "name": "PUT /api/matches/:id/notification-preferences",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/matches/{{matchId}}/notification-preferences",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Mettre ce match en sourdine pour votre compte sur tous les appareils. true/null : sans échéance ; false/null : réactiver. Une échéance future est limitée à 31 jours. Le partenaire ne reçoit aucune notification.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"muted\": true,\n  \"muted_until\": null\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
               "name": "GET /api/users/me/devices",
               "request": {
                 "method": "GET",

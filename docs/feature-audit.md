@@ -284,7 +284,20 @@ un numéro avec motif ; le superadmin peut aussi bloquer ou rétablir le mode au
 manuel. Les exceptions sont temporaires, versionnées et auditées ; les réponses restent masquées.
 Une incohérence de clé, une panne SQL ou l’absence d’import récent empêchent les nouveaux envois.
 
-L’inventaire actuel et les deux collections Postman couvrent **143 routes**. Le nouveau secret
+L’inventaire actuel et les deux collections Postman couvrent **147 routes**. Le nouveau secret
 `POSTGRES_PHONE_SYNC_PASSWORD` est requis dans les deux modes ; le reset configure le rôle et le
 premier import. Le timer quotidien doit être installé et activé sur le serveur. Voir
 [le guide d’exploitation](phone-blocklist.md) et [les preuves locales](../tests/README.md).
+
+## Préférences de notifications — 7 novembre 2026
+
+Les catégories push, le mode discret et les sourdines privées sont persistés côté API. Les filtres
+sont vérifiés à la mise en file et à la livraison, sans masquer messages, SSE ou compteurs. Les
+préférences ne peuvent pas être réintroduites par une requête attendant un effacement concurrent.
+L’export restitue uniquement les choix du demandeur ; l’anonymisation les supprime.
+
+Le refactoring sépare modèles, HTTP, persistance et SQL. Les quatre routes figurent dans le contrat
+et les collections Postman FR/EN. Validation locale : **388 tests Rust**, **41 tests PostgreSQL**,
+formatage et Clippy sans avertissement, migrations répétées comprises. Les appels fournisseur sont
+simulés ou désactivés ; la réception et les réglages système restent à tester sur téléphone.
+Voir [le guide des notifications](push-notifications.md).

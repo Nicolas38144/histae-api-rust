@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **143 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **147 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -442,9 +442,21 @@ Erreurs : `400 invalid_reward_request`, `400 invalid_reward_id`, `400 invalid_ad
 | GET | `/api/users/me/devices` | `200 { devices: [...] }`, sans tokens FCM. |
 | POST | `/api/users/me/devices` | `{ push_token, platform: ios ou android, app_version?, language?: fr, en, es, it ou null }` → `201` avec l’appareil public. |
 | DELETE | `/api/users/me/devices/:id` | UUID d’un appareil du compte → `204` ; `404 device_not_found`. |
+| GET | `/api/users/me/notification-preferences` | `200 { messages, new_matches, continuations, photos, reminders, account_security, discreet }` ; tous booléens, catégories activées et mode discret désactivé par défaut. |
+| PATCH | `/api/users/me/notification-preferences` | Au moins un des booléens ci-dessus → `200` avec les préférences complètes ; seuls les champs fournis sont modifiés. |
+| GET | `/api/matches/:id/notification-preferences` | `200 { muted, muted_until }` ; choix privé du participant, une sourdine expirée renvoie `false`/`null`. |
+| PUT | `/api/matches/:id/notification-preferences` | `{ muted, muted_until? }` → `200` avec le choix privé ; `false`/`null` réactive, `true`/`null` désactive sans échéance, une date future doit être à 31 jours maximum. |
 | GET | `/api/users/me/events` | Flux SSE authentifié `text/event-stream`. |
 
 L’appareil expose UUID, `session_id`, plateforme, version et dates d’usage ; la session vient du Bearer, pas du corps client. Un token fournisseur déjà connu est réaffecté/rafraîchi de façon idempotente. Une ancienne liaison peut avoir `session_id: null`.
+
+Les préférences exigent une session mobile avec onboarding terminé. Les sourdines ne sont accessibles
+qu’au participant demandeur, pour un match ouvert et non expiré, sans blocage entre comptes actifs.
+Un tiers reçoit le même `404 notification_settings_unavailable` qu’un match absent ou inaccessible.
+Erreurs de validation : `400 invalid_notification_preferences`, `400 invalid_conversation_mute` et
+`400 invalid_match_id`. Les préférences filtrent uniquement les push, à la mise en file puis à l’envoi ;
+elles ne changent ni les messages, ni les compteurs, ni SSE. Les événements créés pendant une sourdine
+ne sont pas remis en file après sa levée. Le mode discret utilise le texte générique sans prénom.
 
 SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created, match.updated, matches.invalidated, message.created, message.read, subscription.updated`. Le flux ferme à expiration du JWT ou après échec/révocation détecté lors du contrôle de session toutes les 25 secondes. Le client SSE doit pouvoir envoyer le Bearer.
 

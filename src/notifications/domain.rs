@@ -225,7 +225,9 @@ impl NotificationType {
             Self::ContinuationRequested | Self::ConversationContinued => "histae_continuations",
             Self::PhotosRevealed => "histae_photos",
             Self::FirstPeriodEnding | Self::MatchExpiring => "histae_reminders",
-            Self::NewSession | Self::DataRequestReplied | Self::BillingPaymentFailed => "histae_account",
+            Self::NewSession | Self::DataRequestReplied | Self::BillingPaymentFailed => {
+                "histae_account"
+            }
         }
     }
 

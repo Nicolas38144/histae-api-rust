@@ -11,7 +11,10 @@ use crate::{
     localization::Language,
     notifications::{
         domain::NotificationType,
-        eligibility::{ACCOUNT_NOTIFICATION_ELIGIBLE_SQL, BILLING_NOTIFICATION_ELIGIBLE_SQL, PUSH_PREFERENCES_ELIGIBLE_SQL},
+        eligibility::{
+            ACCOUNT_NOTIFICATION_ELIGIBLE_SQL, BILLING_NOTIFICATION_ELIGIBLE_SQL,
+            PUSH_PREFERENCES_ELIGIBLE_SQL,
+        },
     },
 };
 

@@ -12,6 +12,8 @@ administrator notes never appear in push data or copy. Devices retain the existi
 Categories default to enabled and discreet display defaults to disabled. PATCH updates only supplied
 fields, so one device does not overwrite another device's unrelated choices. Device permission,
 registration and existing opt-outs remain independent; changing a category never registers a device.
+The account is locked and its current active status rechecked before a write, preventing a request
+started before account erasure from recreating deleted preferences after erasure commits.
 
 | Category | Types / Android channel |
 | --- | --- |
@@ -102,6 +104,9 @@ cargo run --locked --bin db-migrate
 notifications and delivery jobs in the business transaction. `delivery/pg.rs` resolves current
 eligibility, names and the earliest delivery deadline; only its SQL text is cached, never access
 decisions. `delivery.rs` coordinates delivery and `push.rs` owns the FCM transport.
+`preferences/mod.rs` defines the public models, `preferences/http.rs` owns request validation and
+mobile guards, and `preferences/pg.rs` persists private choices using `preferences/queries.rs`.
+Only SQL text is cached; settings and authorization decisions are read afresh.
 
 From the API root:
 
@@ -129,8 +134,8 @@ replays and recipients, reminder deduplication, request replies without private 
 exclusion. The upgrade test preserves existing notifications, match deadlines and photo-grant
 generations. Never point these fixture tests at production.
 
-Local validation on **5 November 2026**: **380 Rust tests passed** with
-`cargo test --locked --all-targets` and **39 PostgreSQL tests passed** across the eight suites above,
+Local validation on **7 November 2026**: **388 Rust tests passed** with
+`cargo test --locked --all-targets` and **41 PostgreSQL tests passed** across the eight suites above,
 including repeated schema upgrades. Formatting and Clippy with all targets/features and warnings
 denied passed. The disposable database, fixtures and generated credentials were removed after
 the run. Provider calls were disabled; this does not validate device reception.
@@ -139,9 +144,12 @@ On devices, verify background/cold-start delivery, four languages, the actual cu
 mutual choices, withdrawn grants, resolved alerts, first-period timing, new-session exclusion and
 both privacy destinations. A successful FCM request does not prove OS presentation.
 
-The notification-preference changes added on **7 November 2026** have **not** been compiled or tested
-here, at the owner's request; the 5 November results above concern the earlier version. Run the
-commands above, including `notifications_postgres` (now covering preference filtering, private mutes,
-expiry, discreet names and muted-period job suppression), export/erasure suites and repeated schema
-upgrades. On real devices, also verify cross-device edits, no catch-up after mute expiry, category
+Preference regressions cover filtering at enqueue and delivery, private mutes, expiry, discreet names,
+muted-period job suppression, blocked/banned participants and ended matches. Concurrent partial edits
+preserve unrelated choices; a write waiting behind account erasure cannot recreate deleted settings.
+Exports paginate the requesting participant's choices without exposing the partner's mute. Repeated
+upgrades preserve existing account preferences and both participants' private choices. The HTTP
+inventory and both Postman collections include all four preference routes, for **147 routes** total.
+
+On real devices, also verify cross-device edits, no catch-up after mute expiry, category
 sound settings, foreground silence, explicit opt-out preservation and discreet locked-screen copy.
