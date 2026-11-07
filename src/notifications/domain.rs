@@ -217,6 +217,18 @@ pub enum NotificationType {
 }
 
 impl NotificationType {
+    /// Stable IDs shared with Android's user-configurable notification channels.
+    pub const fn channel_id(self) -> &'static str {
+        match self {
+            Self::NewMessage => "histae_messages",
+            Self::NewMatch => "histae_matches",
+            Self::ContinuationRequested | Self::ConversationContinued => "histae_continuations",
+            Self::PhotosRevealed => "histae_photos",
+            Self::FirstPeriodEnding | Self::MatchExpiring => "histae_reminders",
+            Self::NewSession | Self::DataRequestReplied | Self::BillingPaymentFailed => "histae_account",
+        }
+    }
+
     pub(super) const fn retention_seconds(self) -> i64 {
         let days = match self {
             Self::NewMatch

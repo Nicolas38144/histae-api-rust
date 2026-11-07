@@ -6,7 +6,7 @@ use sqlx::types::Json;
 use uuid::Uuid;
 
 use super::domain::NotificationIntent;
-use super::eligibility::{ACCOUNT_NOTIFICATION_ELIGIBLE_SQL, BILLING_NOTIFICATION_ELIGIBLE_SQL};
+use super::eligibility::{ACCOUNT_NOTIFICATION_ELIGIBLE_SQL, BILLING_NOTIFICATION_ELIGIBLE_SQL, PUSH_PREFERENCES_ELIGIBLE_SQL};
 use crate::infra::postgres::{DatabaseError, map_sqlx_error};
 
 static ENQUEUE_NOTIFICATION_SQL: OnceLock<String> = OnceLock::new();
@@ -83,16 +83,23 @@ fn enqueue_sql() -> &'static str {
             r#"
               )
               ON CONFLICT (deduplication_key) DO NOTHING
-              RETURNING id, user_id
+              RETURNING id, user_id, type, payload
             ), targets AS MATERIALIZED (
               SELECT uuid_generate_v4() AS id, n.id AS notification_id,
                      d.id AS device_id, d.session_id
               FROM created_notification n
               JOIN device_token d ON d.user_id = n.user_id
+              LEFT JOIN user_notification_preference preference ON preference.user_id=n.user_id
+              LEFT JOIN match_notification_preference mute
+                ON mute.user_id=n.user_id AND mute.match_id=(n.payload->>'match_id')::uuid
               LEFT JOIN refresh_token_family session ON session.id = d.session_id
               WHERE (d.session_id IS NULL
                  OR (session.revoked_at IS NULL AND session.expires_at > clock_timestamp()))
                 AND ($8::uuid IS NULL OR d.session_id IS DISTINCT FROM $8::uuid)
+                AND (
+            "#,
+            PUSH_PREFERENCES_ELIGIBLE_SQL,
+            r#")
             ), jobs AS (
               INSERT INTO outbox_event (id, event_type, aggregate_id)
               SELECT id, 'notification.push', id FROM targets

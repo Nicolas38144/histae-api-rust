@@ -28,3 +28,18 @@ pub const ACCOUNT_NOTIFICATION_ELIGIBLE_SQL: &str = r#"
       AND (previous.session_id IS NULL OR (previous_session.revoked_at IS NULL AND previous_session.expires_at>clock_timestamp()))
   ))
 "#;
+/// Both enqueue and delivery bind the aliases n, preference and mute.
+/// Inbox/realtime events are independent of these push-only preferences.
+pub const PUSH_PREFERENCES_ELIGIBLE_SQL: &str = "
+    CASE n.type
+      WHEN 'new_message' THEN COALESCE(preference.messages,true)
+      WHEN 'new_match' THEN COALESCE(preference.new_matches,true)
+      WHEN 'continuation_requested' THEN COALESCE(preference.continuations,true)
+      WHEN 'conversation_continued' THEN COALESCE(preference.continuations,true)
+      WHEN 'photos_revealed' THEN COALESCE(preference.photos,true)
+      WHEN 'first_period_ending' THEN COALESCE(preference.reminders,true)
+      WHEN 'match_expiring' THEN COALESCE(preference.reminders,true)
+      ELSE COALESCE(preference.account_security,true) END
+    AND NOT COALESCE(mute.muted AND
+      (mute.muted_until IS NULL OR mute.muted_until>clock_timestamp()),false)";
+

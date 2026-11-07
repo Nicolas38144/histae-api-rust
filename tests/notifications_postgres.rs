@@ -454,3 +454,6 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
 
 #[path = "notifications_postgres/lifecycle.rs"]
 mod lifecycle;
+
+#[path = "notifications_postgres/preferences.rs"]
+mod preferences;

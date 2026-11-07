@@ -11,7 +11,7 @@ use crate::{
     localization::Language,
     notifications::{
         domain::NotificationType,
-        eligibility::{ACCOUNT_NOTIFICATION_ELIGIBLE_SQL, BILLING_NOTIFICATION_ELIGIBLE_SQL},
+        eligibility::{ACCOUNT_NOTIFICATION_ELIGIBLE_SQL, BILLING_NOTIFICATION_ELIGIBLE_SQL, PUSH_PREFERENCES_ELIGIBLE_SQL},
     },
 };
 
@@ -21,12 +21,16 @@ static PENDING_PUSH_SQL: LazyLock<String> = LazyLock::new(|| {
         r#"SELECT n.id AS notification_id, d.token, n.type, n.payload,
                  LEAST(n.expires_at, m.expires_at, session.expires_at, opened_session.expires_at) AS expires_at,
                  COALESCE(d.language, account.preferred_language) AS language,
-                 partner_profile.firstname AS partner_firstname
+                 CASE WHEN COALESCE(preference.discreet,false) THEN NULL
+                      ELSE partner_profile.firstname END AS partner_firstname
                FROM notification_push_delivery delivery
                JOIN notification n ON n.id = delivery.notification_id
                JOIN device_token d ON d.id = delivery.device_id AND d.user_id = n.user_id
                  AND d.session_id IS NOT DISTINCT FROM delivery.session_id
                JOIN user_account account ON account.user_id = n.user_id
+               LEFT JOIN user_notification_preference preference ON preference.user_id=n.user_id
+               LEFT JOIN match_notification_preference mute
+                 ON mute.user_id=n.user_id AND mute.match_id=(n.payload->>'match_id')::uuid
                LEFT JOIN refresh_token_family session ON session.id = d.session_id
                LEFT JOIN refresh_token_family opened_session
                  ON n.type='new_session' AND opened_session.id=(n.payload->>'session_id')::uuid
@@ -37,6 +41,7 @@ static PENDING_PUSH_SQL: LazyLock<String> = LazyLock::new(|| {
                  CASE WHEN n.user_id=m.user1_id THEN m.user2_id ELSE m.user1_id END
                WHERE delivery.id = $1 AND account.deleted_at IS NULL AND NOT account.is_banned
                  AND n.expires_at > clock_timestamp() AND n.read_at IS NULL
+                 AND ({PUSH_PREFERENCES_ELIGIBLE_SQL})
                  AND (d.session_id IS NULL OR
                       (session.revoked_at IS NULL AND session.expires_at > clock_timestamp()))
                  AND (n.type <> 'new_session' OR d.session_id IS DISTINCT FROM (n.payload->>'session_id')::uuid)

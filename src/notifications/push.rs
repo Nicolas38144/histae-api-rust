@@ -251,7 +251,10 @@ impl PushService {
                 "token": token,
                 "notification": { "title": title, "body": message },
                 "data": public_data,
-                "android": { "ttl": format!("{ttl}s") },
+                "android": {
+                    "ttl": format!("{ttl}s"),
+                    "notification": { "channel_id": kind.channel_id() }
+                },
                 "apns": { "headers": { "apns-expiration": delivery_deadline.timestamp().to_string() } },
             }
         });

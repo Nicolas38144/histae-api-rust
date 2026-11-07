@@ -112,6 +112,19 @@ impl PgDataExportStore {
                     .await?;
 
                     self.write_continuation_data(&mut transaction, writer, user_id, page_size).await?;
+                    writer.start_array("notification_preferences").await?;
+                    let choices = optional_json(&mut transaction,
+                        "SELECT to_jsonb(p)-'user_id' FROM user_notification_preference p WHERE user_id=$1",
+                        user_id).await?;
+                    if !choices.is_null() {
+                        writer.item(&choices).await?;
+                    }
+                    writer.end_array().await?;
+                    self.write_uuid_timestamp_pages(&mut transaction, writer, "conversation_notification_preferences", user_id, page_size,
+                        "SELECT to_jsonb(p)-'user_id' AS value,m.created_at::text AS cursor_at,m.id AS cursor_id
+                         FROM match_notification_preference p JOIN match_init m ON m.id=p.match_id
+                         WHERE p.user_id=$1 AND ($2::timestamptz IS NULL OR (m.created_at,m.id)>($2::timestamptz,$3::uuid))
+                         ORDER BY m.created_at,m.id LIMIT $4").await?;
                     self.write_traits(&mut transaction, writer, user_id, page_size)
                         .await?;
                     self.write_profile_answers(&mut transaction, writer, user_id)

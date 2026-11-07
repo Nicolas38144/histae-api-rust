@@ -5,6 +5,8 @@ pub mod eligibility;
 pub mod enqueue;
 pub mod http;
 pub mod pg;
+pub mod preferences;
+pub mod preferences_http;
 pub mod push;
 pub mod sse;
 

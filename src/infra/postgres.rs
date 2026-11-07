@@ -261,6 +261,13 @@ impl Database {
         if !notification_events_ready {
             return Err(DatabaseError::SchemaObjectsMissing);
         }
+        let notification_preferences_ready: bool = sqlx::query_scalar(
+            "SELECT to_regclass(current_schema() || '.user_notification_preference') IS NOT NULL
+                AND to_regclass(current_schema() || '.match_notification_preference') IS NOT NULL",
+        ).fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
+        if !notification_preferences_ready {
+            return Err(DatabaseError::SchemaObjectsMissing);
+        }
         let languages_ready: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.user_account') AND attname='preferred_language' AND atttypid='text'::regtype AND attnotnull AND NOT attisdropped)
               AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.device_token') AND attname='language' AND NOT attisdropped)

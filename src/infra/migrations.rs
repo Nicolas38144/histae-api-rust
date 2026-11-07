@@ -81,6 +81,10 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
+    sqlx::raw_sql(schema_section(SCHEMA, "notification preferences")?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
     sqlx::raw_sql(schema_section(SCHEMA, "phone blocklist")?)
         .execute(&mut *transaction)
         .await

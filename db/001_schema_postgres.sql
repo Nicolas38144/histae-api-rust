@@ -873,6 +873,29 @@ CREATE TABLE match_state (
 
 CREATE INDEX idx_match_state_user ON match_state USING btree (user_id);
 
+-- BEGIN notification preferences
+CREATE TABLE IF NOT EXISTS user_notification_preference (
+    user_id uuid PRIMARY KEY REFERENCES user_account(user_id) ON DELETE CASCADE,
+    messages boolean NOT NULL DEFAULT true,
+    new_matches boolean NOT NULL DEFAULT true,
+    continuations boolean NOT NULL DEFAULT true,
+    photos boolean NOT NULL DEFAULT true,
+    reminders boolean NOT NULL DEFAULT true,
+    account_security boolean NOT NULL DEFAULT true,
+    discreet boolean NOT NULL DEFAULT false
+);
+CREATE TABLE IF NOT EXISTS match_notification_preference (
+    match_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    muted boolean NOT NULL DEFAULT false,
+    muted_until timestamptz,
+    PRIMARY KEY (match_id,user_id),
+    FOREIGN KEY (match_id,user_id) REFERENCES match_state(match_id,user_id) ON DELETE CASCADE,
+    CHECK (muted OR muted_until IS NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_match_notification_preference_user ON match_notification_preference(user_id);
+-- END notification preferences
+
 CREATE TABLE chat_message (
     id uuid DEFAULT uuid_generate_v4() NOT NULL,
     match_id uuid NOT NULL,
@@ -1435,6 +1458,7 @@ BEGIN
   DELETE FROM user_presence WHERE user_id = p_user_id;
   DELETE FROM refresh_tokens WHERE user_id = p_user_id;
   DELETE FROM device_token WHERE user_id = p_user_id;
+  DELETE FROM user_notification_preference WHERE user_id = p_user_id;
   DELETE FROM notification WHERE user_id = p_user_id;
   DELETE FROM user_block WHERE blocker_id = p_user_id OR blocked_id = p_user_id;
   DELETE FROM user_subscription WHERE user_id = p_user_id;

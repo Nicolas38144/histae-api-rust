@@ -5,6 +5,46 @@ partner's current first name, resolved from the authorized match at delivery. Na
 and control/bidirectional characters removed. Message contents, photos, request replies and
 administrator notes never appear in push data or copy. Devices retain the existing opt-out rules.
 
+## User choices
+
+`GET/PATCH /api/users/me/notification-preferences` reads or changes account-wide booleans:
+`messages`, `new_matches`, `continuations`, `photos`, `reminders`, `account_security` and `discreet`.
+Categories default to enabled and discreet display defaults to disabled. PATCH updates only supplied
+fields, so one device does not overwrite another device's unrelated choices. Device permission,
+registration and existing opt-outs remain independent; changing a category never registers a device.
+
+| Category | Types / Android channel |
+| --- | --- |
+| `messages` | `new_message` / `histae_messages` |
+| `new_matches` | `new_match` / `histae_matches` |
+| `continuations` | `continuation_requested`, `conversation_continued` / `histae_continuations` |
+| `photos` | `photos_revealed` / `histae_photos` |
+| `reminders` | `first_period_ending`, `match_expiring` / `histae_reminders` |
+| `account_security` | `new_session`, `data_request_replied`, `billing_payment_failed` / `histae_account` |
+
+`GET/PUT /api/matches/{id}/notification-preferences` reads or replaces a private participant mute.
+PUT accepts `muted` and `muted_until`: false/null unmutes, true/null mutes indefinitely, and true
+with a future timestamp mutes until that instant (at most 31 days). The app offers one hour,
+tomorrow at local midnight, and indefinite mute. Only the requesting participant can read or change
+their choice on a currently authorized match; the partner is never notified. Expired mutes read as
+inactive. A conversation mute suppresses all its match alerts on all devices, regardless of category.
+
+Enqueue and delivery share the same preference predicate. Disabled categories and active mutes do
+not create push jobs, preventing replay of muted-period events. Existing jobs recheck current
+choices before sending. Inbox events, SSE, unread counters and messages remain independent.
+Discreet mode omits the partner's first name at delivery and uses the existing four-language generic
+copy; routing data never gains display names or message text. Already accepted provider alerts
+cannot be recalled. There is no scheduled quiet-hours feature.
+
+Both tables cascade on erasure; account anonymization also clears account preferences. Data exports
+include stored account choices and paginated conversation mutes. Android channel IDs are stable and
+created with translated names by the app; system sound/importance choices are never reset. iOS uses
+the normal app notification settings. System permission and device settings always take precedence.
+
+The app reads these small settings when opening their editor and on foreground recovery, writes
+only explicit changes, and rereads uncertain writes. Main-tab navigation adds no notification
+preference requests. All choices persist in the API, not in an account-independent local store.
+
 | Type | Trigger | Mobile destination |
 | --- | --- | --- |
 | `new_match` | Reciprocal like creates a match | Conversation |
@@ -46,6 +86,9 @@ outbox and maintenance versions. Stop the old worker before the new API produces
 The `notification events` section of `db/001_schema_postgres.sql` defines the type constraint and
 photo-grant generation once. `db-migrate` reuses that section for existing databases; a fresh
 installation applies it as part of the complete schema.
+The idempotent `notification preferences` section creates the two preference tables without
+rewriting any existing device registration or opt-out. Run migration **before** starting the new
+API/worker; readiness rejects the old schema. Deploy both server processes before the updated app.
 Retired trial notifications are removed before restoring the current type constraint; other
 notifications and their deadlines are preserved. Startup rejects a schema that has not been upgraded.
 
@@ -95,3 +138,10 @@ the run. Provider calls were disabled; this does not validate device reception.
 On devices, verify background/cold-start delivery, four languages, the actual current first name,
 mutual choices, withdrawn grants, resolved alerts, first-period timing, new-session exclusion and
 both privacy destinations. A successful FCM request does not prove OS presentation.
+
+The notification-preference changes added on **7 November 2026** have **not** been compiled or tested
+here, at the owner's request; the 5 November results above concern the earlier version. Run the
+commands above, including `notifications_postgres` (now covering preference filtering, private mutes,
+expiry, discreet names and muted-period job suppression), export/erasure suites and repeated schema
+upgrades. On real devices, also verify cross-device edits, no catch-up after mute expiry, category
+sound settings, foreground silence, explicit opt-out preservation and discreet locked-screen copy.
