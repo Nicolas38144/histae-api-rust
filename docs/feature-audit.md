@@ -284,7 +284,7 @@ un numéro avec motif ; le superadmin peut aussi bloquer ou rétablir le mode au
 manuel. Les exceptions sont temporaires, versionnées et auditées ; les réponses restent masquées.
 Une incohérence de clé, une panne SQL ou l’absence d’import récent empêchent les nouveaux envois.
 
-L’inventaire actuel et les deux collections Postman couvrent **147 routes**. Le nouveau secret
+L’inventaire actuel et les deux collections Postman couvrent **148 routes**. Le nouveau secret
 `POSTGRES_PHONE_SYNC_PASSWORD` est requis dans les deux modes ; le reset configure le rôle et le
 premier import. Le timer quotidien doit être installé et activé sur le serveur. Voir
 [le guide d’exploitation](phone-blocklist.md) et [les preuves locales](../tests/README.md).
@@ -301,3 +301,16 @@ et les collections Postman FR/EN. Validation locale : **388 tests Rust**, **41 t
 formatage et Clippy sans avertissement, migrations répétées comprises. Les appels fournisseur sont
 simulés ou désactivés ; la réception et les réglages système restent à tester sur téléphone.
 Voir [le guide des notifications](push-notifications.md).
+
+## Verrouillage de l’identité — 8 novembre 2026
+
+Le mobile crée l’identité une fois, puis conserve prénom, date de naissance et sexe lors des mises
+à jour de bio. Les corrections administratives exigent une authentification WebAuthn récente,
+l’origine du dashboard et un motif explicite. Les droits et le consentement sensible sont revérifiés
+avec les comptes verrouillés ; l’action est auditée dans la transaction, sans copier les valeurs
+d’identité dans le journal. Le démarrage exige la contrainte d’audit à jour.
+
+Les règles de validation sont partagées entre création et correction ; HTTP et persistance sont
+isolés. Validation locale : **392 tests Rust**, **48 tests PostgreSQL** sur dix suites, formatage
+et Clippy sans avertissement. Les migrations répétées conservent les journaux historiques.
+Voir [les corrections d’identité](administration.md).

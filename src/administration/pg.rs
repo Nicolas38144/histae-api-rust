@@ -8,8 +8,9 @@ use uuid::Uuid;
 
 use super::domain::{
     AdminConsent, AdminPreferences, AdminPresence, AdminTrait, AdminUserDetailRow, AdminUserRole,
-    AdminUserRow, AdminUserStatus, BanResult, CursorMatchRow, CursorMessageRow, PageCursor,
-    IdentityCorrectionResult, PremiumGrantResult, ProfileIdentityCorrection, RoleChangeResult,
+    AdminUserRow, AdminUserStatus, BanResult, CursorMatchRow, CursorMessageRow,
+    IdentityCorrectionResult, PageCursor, PremiumGrantResult, ProfileIdentityCorrection,
+    RoleChangeResult,
 };
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
@@ -39,8 +40,7 @@ impl AdministrationStore for PgAdministrationStore {
         actor_role: AdminRole,
         sensitive_version: String,
     ) -> AdministrationStoreFuture<'_, IdentityCorrectionResult> {
-        Box::pin(identity::correct(
-            &self.database,
+        Box::pin(self.correct_identity(
             target_id,
             correction,
             reason,

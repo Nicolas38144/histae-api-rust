@@ -87,7 +87,7 @@ impl ProfileStore for PgProfileRepository {
                         if lock != WriteOutcome::Updated {
                             return Ok(lock);
                         }
-                        let current = sqlx::query(
+                        let current = sqlx::query_as::<_, (String, NaiveDate, Option<String>, Option<String>)>(
                             "SELECT firstname, birthdate, sex, bio FROM user_profile
                              WHERE user_id = $1 FOR UPDATE",
                         )
@@ -95,22 +95,15 @@ impl ProfileStore for PgProfileRepository {
                         .fetch_optional(&mut *connection)
                         .await
                         .map_err(map_sqlx_error)?;
-                        if let Some(row) = &current {
-                            let firstname: String = row.try_get("firstname").map_err(map_sqlx_error)?;
-                            let birthdate: NaiveDate = row.try_get("birthdate").map_err(map_sqlx_error)?;
-                            let sex: Option<String> = row.try_get("sex").map_err(map_sqlx_error)?;
-                            if firstname != input.firstname
-                                || birthdate != input.birthdate
+                        if let Some((firstname, birthdate, sex, _)) = &current {
+                            if firstname != &input.firstname
+                                || *birthdate != input.birthdate
                                 || sex.as_deref() != input.sex.map(Sex::as_str)
                             {
                                 return Ok(WriteOutcome::IdentityLocked);
                             }
                         }
-                        let current_bio: Option<String> = current
-                            .as_ref()
-                            .map(|row| row.try_get("bio").map_err(map_sqlx_error))
-                            .transpose()?
-                            .flatten();
+                        let current_bio = current.and_then(|(_, _, _, bio)| bio);
                         let result = sqlx::query(
                             r#"
                             INSERT INTO user_profile (user_id, firstname, birthdate, sex, bio)

@@ -6,16 +6,18 @@ use serde::{Deserialize, Serialize};
 use uuid::{Uuid, Variant};
 
 use super::domain::{
-    AdminMatch, AdminUser, AdminUserDetail, AdminUserRole, AdminUserStatus, BanResult, PageCursor,
-    IdentityCorrectionResult, PremiumGrantResult, ProfileIdentityCorrection, RoleChangeResult,
+    AdminMatch, AdminUser, AdminUserDetail, AdminUserRole, AdminUserStatus, BanResult,
+    IdentityCorrectionResult, PageCursor, PremiumGrantResult, ProfileIdentityCorrection,
+    RoleChangeResult,
 };
 use super::store::AdministrationStore;
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::DatabaseError;
 use crate::matches::domain::{PublicMatch, PublicMessage};
+use crate::profiles::identity::{is_adult, normalize_firstname};
 use crate::profiles::service::ProfilePhotoUrlProvider;
 use crate::shared::clock::Clock;
-use crate::shared::text::{javascript_trim, utf8_len, validator_js_length};
+use crate::shared::text::{javascript_trim, validator_js_length};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdministrationError {
@@ -176,11 +178,9 @@ impl AdministrationService {
         actor_id: Uuid,
         actor_role: AdminRole,
     ) -> Result<(), AdministrationError> {
-        correction.firstname = javascript_trim(&correction.firstname).to_owned();
-        if correction.firstname.is_empty()
-            || utf8_len(&correction.firstname) > 100
-            || !crate::profiles::service::is_adult(correction.birthdate, self.clock.today_utc())
-        {
+        correction.firstname = normalize_firstname(&correction.firstname)
+            .ok_or(AdministrationError::InvalidRequest)?;
+        if !is_adult(correction.birthdate, self.clock.today_utc()) {
             return Err(AdministrationError::InvalidRequest);
         }
         let reason = normalize_reason(raw_reason)?;
@@ -486,7 +486,10 @@ mod tests {
             _sensitive_version: String,
         ) -> AdministrationStoreFuture<'_, IdentityCorrectionResult> {
             Box::pin(async move {
-                self.reasons.lock().map_err(|_| DatabaseError::QueryFailed)?.push(reason);
+                self.reasons
+                    .lock()
+                    .map_err(|_| DatabaseError::QueryFailed)?
+                    .push(reason);
                 Ok(IdentityCorrectionResult::Updated)
             })
         }
@@ -971,20 +974,52 @@ mod tests {
         let (service, store, _) = service(BanResult::Updated);
         let adult = chrono::NaiveDate::from_ymd_opt(1990, 1, 1).expect("date");
         let correction = ProfileIdentityCorrection {
-            firstname: "Alice".to_owned(), birthdate: adult, sex: Some(crate::profiles::domain::Sex::Female),
+            firstname: "Alice".to_owned(),
+            birthdate: adult,
+            sex: Some(crate::profiles::domain::Sex::Female),
         };
-        assert_eq!(service.correct_profile_identity(
-            Uuid::new_v4(), correction.clone(), "", Uuid::new_v4(), AdminRole::Superadmin,
-        ).await, Err(AdministrationError::InvalidRequest));
+        assert_eq!(
+            service
+                .correct_profile_identity(
+                    Uuid::new_v4(),
+                    correction.clone(),
+                    "",
+                    Uuid::new_v4(),
+                    AdminRole::Superadmin,
+                )
+                .await,
+            Err(AdministrationError::InvalidRequest)
+        );
         let mut minor = correction.clone();
         minor.birthdate = service.clock.today_utc();
-        assert_eq!(service.correct_profile_identity(
-            Uuid::new_v4(), minor, "Owner correction", Uuid::new_v4(), AdminRole::Admin,
-        ).await, Err(AdministrationError::InvalidRequest));
+        assert_eq!(
+            service
+                .correct_profile_identity(
+                    Uuid::new_v4(),
+                    minor,
+                    "Owner correction",
+                    Uuid::new_v4(),
+                    AdminRole::Admin,
+                )
+                .await,
+            Err(AdministrationError::InvalidRequest)
+        );
         assert!(store.reasons.lock().expect("reasons").is_empty());
-        assert_eq!(service.correct_profile_identity(
-            Uuid::new_v4(), correction, "  Owner correction  ", Uuid::new_v4(), AdminRole::Admin,
-        ).await, Ok(()));
-        assert_eq!(store.reasons.lock().expect("reasons").as_slice(), ["Owner correction"]);
+        assert_eq!(
+            service
+                .correct_profile_identity(
+                    Uuid::new_v4(),
+                    correction,
+                    "  Owner correction  ",
+                    Uuid::new_v4(),
+                    AdminRole::Admin,
+                )
+                .await,
+            Ok(())
+        );
+        assert_eq!(
+            store.reasons.lock().expect("reasons").as_slice(),
+            ["Owner correction"]
+        );
     }
 }

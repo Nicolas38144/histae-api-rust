@@ -11,7 +11,7 @@ Utiliser des fixtures fictives et des secrets de développement, jamais une base
 | --- | --- | --- |
 | Unitaire | Modules `#[cfg(test)]` de `src/` | Règles, configuration, transports, mocks et cycles de vie |
 | Contrat | `*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, guards et permissions |
-| Inventaire | `route_inventory.rs` | Les 147 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
+| Inventaire | `route_inventory.rs` | Les 148 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
 | PostgreSQL | `*_postgres.rs`, `postgres_compatibility`, `postgres_locks` | SQL, contraintes, verrous, snapshots et concurrence réels |
 | Redis / S3 | `redis_integration`, `media_integration` | Adaptateurs sur services locaux |
 | Codec | `photo_codec.rs`, `fixtures/photos/` | Formats, taille, métadonnées, corruption et arrêt du processus Node |
@@ -42,11 +42,12 @@ Le module `tests/mobile_identity/recovery.rs` vérifie aussi les résultats chif
 nettoyage concurrent d'une transaction de rotation encore ouverte. Le lanceur PostgreSQL vérifie l'upgrade depuis
 l'ancien schéma sans modifier les sessions historiques ni leurs échéances.
 
-Campagne locale du **4 novembre 2026** : **375 tests** avec `cargo test --locked --all-targets`,
-**20 tests PostgreSQL** ciblant sessions mobiles, maintenance/outbox, administration/signalements,
-compte de revue et effacement ; formatage et Clippy avec toutes les features réussis.
-Les commandes et limites figurent dans le guide de reprise. Les intégrations PostgreSQL ont utilisé
-une base jetable nettoyée après les tests ; les suites Redis/S3 et les appareils n'ont pas été rejoués.
+Campagne locale du **8 novembre 2026** : **392 tests** avec `cargo test --locked --all-targets`,
+**48 tests PostgreSQL** sur dix suites : profils, administration/signalements, notifications, matchs,
+inactivité, droits/export, sessions mobiles, maintenance/outbox, effacement et localisation.
+Formatage et Clippy avec toutes les cibles/features et avertissements refusés réussis.
+Les intégrations ont utilisé une base jetable nettoyée après les tests, avec migrations répétées
+et conservation des journaux historiques. Les suites Redis/S3 et les appareils n'ont pas été rejoués.
 
 ## Suite complète
 

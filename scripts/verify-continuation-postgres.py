@@ -244,15 +244,26 @@ SET log_min_error_statement = panic;
             gift_legacy = str(uuid.uuid4())
             old_audit_check = query("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='data_access_log'::regclass AND conname='data_access_log_action_check';")
             old_audit_check = old_audit_check.replace("'admin_grant_premium'::text", "'admin_promote'::text").replace("'admin_revoke_premium'::text", "'admin_demote'::text")
+            old_audit_check = old_audit_check.replace(", 'admin_correct_profile_identity'::text", "")
+            assert "admin_correct_profile_identity" not in old_audit_check
+            legacy_audit = str(uuid.uuid4())
+            query(f"INSERT INTO data_access_log(id,accessed_user_id,accessor_role,action,reason) VALUES ('{legacy_audit}','{gift_legacy}','system','view_profile','Historical profile access');")
+            audit_snapshot_sql = f"SELECT to_jsonb(log) FROM data_access_log log WHERE id='{legacy_audit}';"
+            audit_snapshot = query(audit_snapshot_sql)
             query("DROP TABLE complimentary_premium_grant; ALTER TABLE data_access_log DROP CONSTRAINT data_access_log_action_check; ALTER TABLE data_access_log ADD CONSTRAINT data_access_log_action_check " + old_audit_check + ";", "histae_migrate")
             migrate()
+            assert query(audit_snapshot_sql) == audit_snapshot
+            assert query("SELECT convalidated AND pg_get_constraintdef(oid) LIKE '%admin_correct_profile_identity%' FROM pg_constraint WHERE conrelid='data_access_log'::regclass AND conname='data_access_log_action_check';") == "t"
             query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{gift_legacy}','legacy-premium-gift',''::bytea); INSERT INTO complimentary_premium_grant(user_id) VALUES ('{gift_legacy}');")
             gift_at = query(f"SELECT granted_at FROM complimentary_premium_grant WHERE user_id='{gift_legacy}';")
             migrate()
+            assert query(audit_snapshot_sql) == audit_snapshot
             assert query(f"SELECT granted_at FROM complimentary_premium_grant WHERE user_id='{gift_legacy}';") == gift_at
             assert query(f"SELECT access_granted AND provider IS NULL FROM effective_user_subscription WHERE user_id='{gift_legacy}';") == "t"
             query(f"DELETE FROM user_account WHERE user_id='{gift_legacy}';")
+            query(f"DELETE FROM data_access_log WHERE id='{legacy_audit}';")
             print("Complimentary Premium upgrade preserves grants and restores audit actions.", flush=True)
+            print("Profile identity correction audit upgrade preserves historical access logs.", flush=True)
 
             # Upgrade the old carry-over wallet once, without renewing expired
             # credits or overwriting a later operator translation on redeploy.

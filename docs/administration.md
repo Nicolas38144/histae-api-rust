@@ -129,6 +129,20 @@ Les profils créés sans sexe suivent la même règle. Aucune ancienne donnée n
 
 Appliquer `db-migrate` avant la nouvelle API : la migration étend la contrainte des
 actions d’audit sur les bases existantes. Aucun compte ni consentement n’est modifié.
+Le contrôle de schéma au démarrage exige cette contrainte d’audit à jour : une API nouvelle
+ne démarre pas sur une base incapable de journaliser la correction.
+
+Les règles de prénom, date stricte et majorité sont communes à la création mobile et à la
+correction administrative, dans `profiles/identity.rs`. Le DTO et le handler de correction sont
+isolés dans `administration/http/identity.rs` ; les écritures et l’audit restent dans
+`administration/pg/identity.rs`, dans une seule transaction avec verrouillage des comptes.
+
+Validation locale du **8 novembre 2026** : **392 tests Rust** et **48 tests PostgreSQL** réussis,
+avec formatage et Clippy sans avertissement. Les tests d’identité couvrent la création concurrente,
+les modifications mobiles refusées sans écriture partielle, la conservation de la bio, les droits
+admin/superadmin et les acteurs bannis, ainsi qu’une révocation de rôle ou de consentement pendant
+l’attente du verrou. Une suppression explicite du sexe reste possible sans consentement sensible.
+La migration conserve les anciens journaux d’accès lors des passages répétés.
 
 ## Promouvoir ou retirer un administrateur
 

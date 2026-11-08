@@ -787,12 +787,20 @@ async fn existing_profile_identity_conflicts_are_explicit() {
     let store = FakeProfileStore::new();
     store.state.lock().expect("state").write_outcome = WriteOutcome::IdentityLocked;
     let (app, tokens) = app(store, true);
-    let response = app.oneshot(request(
-        "PATCH", "/api/users/me/profile", Some(&tokens.access_token),
-        r#"{"firstname":"Other","birthdate":"1995-04-12","sex":"male","bio":"Updated bio"}"#,
-    )).await.expect("response");
+    let response = app
+        .oneshot(request(
+            "PATCH",
+            "/api/users/me/profile",
+            Some(&tokens.access_token),
+            r#"{"firstname":"Other","birthdate":"1995-04-12","sex":"male","bio":"Updated bio"}"#,
+        ))
+        .await
+        .expect("response");
     assert_eq!(response.status(), StatusCode::CONFLICT);
-    assert_eq!(json_body(response).await["error"]["code"], "profile_identity_locked");
+    assert_eq!(
+        json_body(response).await["error"]["code"],
+        "profile_identity_locked"
+    );
 }
 
 #[tokio::test]

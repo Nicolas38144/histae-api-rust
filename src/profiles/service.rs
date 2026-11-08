@@ -4,7 +4,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use chrono::{NaiveDate, SecondsFormat};
+use chrono::SecondsFormat;
 use uuid::Uuid;
 
 use super::domain::{
@@ -12,6 +12,7 @@ use super::domain::{
     ProfileInput, PublicConsent, PublicModeration, PublicModerationState, PublicPreferences,
     PublicProfile, Sex, VersionedConsentChange, WriteOutcome,
 };
+use super::identity::{is_adult, normalize_firstname, strict_birthdate};
 use super::legal::LegalDocumentCatalog;
 use super::store::ProfileStore;
 use crate::config::LegalConfig;
@@ -123,12 +124,9 @@ impl ProfileService {
         sex: Option<Sex>,
         bio: Option<String>,
     ) -> Result<(), ProfileError> {
-        let firstname = javascript_trim(&firstname).to_owned();
+        let firstname = normalize_firstname(&firstname).ok_or(ProfileError::InvalidProfile)?;
         let birthdate = strict_birthdate(&birthdate).ok_or(ProfileError::InvalidProfile)?;
-        if firstname.is_empty()
-            || utf8_len(&firstname) > 100
-            || !is_adult(birthdate, self.clock.today_utc())
-        {
+        if !is_adult(birthdate, self.clock.today_utc()) {
             return Err(ProfileError::InvalidProfile);
         }
         let bio = bio.map(|value| javascript_trim(&value).to_owned());
@@ -334,27 +332,6 @@ impl ProfileService {
     }
 }
 
-pub(crate) fn strict_birthdate(value: &str) -> Option<NaiveDate> {
-    if value.len() != 10
-        || value.as_bytes().get(4) != Some(&b'-')
-        || value.as_bytes().get(7) != Some(&b'-')
-        || value
-            .bytes()
-            .enumerate()
-            .any(|(index, byte)| index != 4 && index != 7 && !byte.is_ascii_digit())
-    {
-        return None;
-    }
-    NaiveDate::parse_from_str(value, "%Y-%m-%d").ok()
-}
-
-pub(crate) fn is_adult(birthdate: NaiveDate, today: NaiveDate) -> bool {
-    let threshold_year = today.year() - 18;
-    birthdate.year() < threshold_year
-        || (birthdate.year() == threshold_year
-            && (birthdate.month(), birthdate.day()) <= (today.month(), today.day()))
-}
-
 fn valid_integer(value: f64) -> bool {
     value.is_finite()
         && value.fract() == 0.0
@@ -362,34 +339,9 @@ fn valid_integer(value: f64) -> bool {
         && value <= i32::MAX as f64
 }
 
-use chrono::Datelike as _;
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn validates_calendar_dates_and_the_utc_eighteenth_birthday() {
-        let today = NaiveDate::from_ymd_opt(2026, 9, 21).expect("valid date");
-        assert!(is_adult(
-            strict_birthdate("2008-09-21").expect("valid date"),
-            today
-        ));
-        assert!(!is_adult(
-            strict_birthdate("2008-09-22").expect("valid date"),
-            today
-        ));
-        for invalid in [
-            "2000-02-30",
-            "2001-13-01",
-            "2001-00-10",
-            "2001-01-00",
-            "2001-1-01",
-            "2001-01-01T00:00:00Z",
-        ] {
-            assert_eq!(strict_birthdate(invalid), None, "{invalid}");
-        }
-    }
 
     #[test]
     fn accepts_json_numbers_that_are_mathematical_integers() {

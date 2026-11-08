@@ -149,7 +149,7 @@ muted-period job suppression, blocked/banned participants and ended matches. Con
 preserve unrelated choices; a write waiting behind account erasure cannot recreate deleted settings.
 Exports paginate the requesting participant's choices without exposing the partner's mute. Repeated
 upgrades preserve existing account preferences and both participants' private choices. The HTTP
-inventory and both Postman collections include all four preference routes, for **147 routes** total.
+inventory and both Postman collections include all four preference routes, for **148 routes** total.
 
 On real devices, also verify cross-device edits, no catch-up after mute expiry, category
 sound settings, foreground silence, explicit opt-out preservation and discreet locked-screen copy.

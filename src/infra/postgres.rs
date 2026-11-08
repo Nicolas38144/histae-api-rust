@@ -210,6 +210,18 @@ impl Database {
         if !sms_safety_ready {
             return Err(DatabaseError::SchemaObjectsMissing);
         }
+        let identity_audit_ready: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_constraint
+             WHERE conrelid=to_regclass(current_schema() || '.data_access_log')
+               AND conname='data_access_log_action_check' AND convalidated
+               AND pg_get_constraintdef(oid) LIKE '%admin_correct_profile_identity%')",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(map_sqlx_error)?;
+        if !identity_audit_ready {
+            return Err(DatabaseError::SchemaObjectsMissing);
+        }
         let visibility_ready: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM pg_attribute
              WHERE attrelid=to_regclass(current_schema() || '.user_account')
