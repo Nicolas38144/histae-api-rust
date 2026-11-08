@@ -1,4 +1,5 @@
 mod conversations;
+mod identity;
 mod premium;
 
 use chrono::{DateTime, NaiveDate, Utc};
@@ -8,7 +9,7 @@ use uuid::Uuid;
 use super::domain::{
     AdminConsent, AdminPreferences, AdminPresence, AdminTrait, AdminUserDetailRow, AdminUserRole,
     AdminUserRow, AdminUserStatus, BanResult, CursorMatchRow, CursorMessageRow, PageCursor,
-    PremiumGrantResult, RoleChangeResult,
+    IdentityCorrectionResult, PremiumGrantResult, ProfileIdentityCorrection, RoleChangeResult,
 };
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
@@ -29,6 +30,26 @@ impl PgAdministrationStore {
 
 #[allow(clippy::too_many_arguments)]
 impl AdministrationStore for PgAdministrationStore {
+    fn correct_profile_identity(
+        &self,
+        target_id: Uuid,
+        correction: ProfileIdentityCorrection,
+        reason: String,
+        actor_id: Uuid,
+        actor_role: AdminRole,
+        sensitive_version: String,
+    ) -> AdministrationStoreFuture<'_, IdentityCorrectionResult> {
+        Box::pin(identity::correct(
+            &self.database,
+            target_id,
+            correction,
+            reason,
+            actor_id,
+            actor_role,
+            sensitive_version,
+        ))
+    }
+
     fn set_complimentary_premium(
         &self,
         target_id: Uuid,

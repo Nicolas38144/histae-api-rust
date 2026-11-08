@@ -30,6 +30,7 @@ pub trait ProfilePhotoUrlProvider: Send + Sync {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProfileError {
     InvalidProfile,
+    IdentityLocked,
     ProfileNotFound,
     InvalidPreferences,
     PreferencesNotFound,
@@ -325,6 +326,7 @@ impl ProfileService {
     fn apply_write(&self, outcome: WriteOutcome) -> Result<(), ProfileError> {
         match outcome {
             WriteOutcome::Updated => Ok(()),
+            WriteOutcome::IdentityLocked => Err(ProfileError::IdentityLocked),
             WriteOutcome::AccountNotFound => Err(ProfileError::AccountNotFound),
             WriteOutcome::RequiredConsentMissing => Err(ProfileError::RequiredConsentMissing),
             WriteOutcome::PresenceUpdateLimited => Err(ProfileError::PresenceUpdateLimited),
@@ -332,7 +334,7 @@ impl ProfileService {
     }
 }
 
-fn strict_birthdate(value: &str) -> Option<NaiveDate> {
+pub(crate) fn strict_birthdate(value: &str) -> Option<NaiveDate> {
     if value.len() != 10
         || value.as_bytes().get(4) != Some(&b'-')
         || value.as_bytes().get(7) != Some(&b'-')
@@ -346,7 +348,7 @@ fn strict_birthdate(value: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(value, "%Y-%m-%d").ok()
 }
 
-fn is_adult(birthdate: NaiveDate, today: NaiveDate) -> bool {
+pub(crate) fn is_adult(birthdate: NaiveDate, today: NaiveDate) -> bool {
     let threshold_year = today.year() - 18;
     birthdate.year() < threshold_year
         || (birthdate.year() == threshold_year

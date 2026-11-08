@@ -107,6 +107,29 @@ ferme les sessions qui en dépendent. Le logout ferme la session courante ; la r
 la conserve. Si toutes les passkeys sont perdues, un opérateur disposant de l’accès serveur peut émettre
 un nouveau jeton de bootstrap pour ce compte administratif.
 
+## Corriger l’identité d’un profil
+
+Le prénom, la date de naissance et le sexe ne sont modifiables par le mobile
+qu’à la création du profil. Une modification ultérieure, même depuis une session
+mobile administrateur, reçoit `409 profile_identity_locked` ; la bio reste modifiable.
+
+`PATCH /api/admin/users/:id/profile-identity` utilise une authentification WebAuthn
+récente et l’origine du dashboard. Envoyer `firstname`, `birthdate` au format
+`YYYY-MM-DD`, `sex` (valeur ou `null` explicite) et un `reason` de 3 à 500 caractères. La
+majorité est vérifiée ; renseigner un sexe exige le consentement sensible courant.
+Un admin peut corriger les comptes utilisateurs ; le superadmin peut aussi corriger
+les comptes administrateurs. Les droits de l’acteur sont revérifiés dans la transaction.
+L’action `admin_correct_profile_identity` est auditée avec son motif, sans recopier
+les anciennes/nouvelles valeurs d’identité dans le journal. La bio reste intacte.
+
+Le retrait du consentement sensible continue d’effacer le sexe et les préférences.
+Une nouvelle acceptation ne contourne pas le verrouillage : le sexe d’un profil
+existant doit alors être renseigné par l’administrateur sur demande de l’utilisateur.
+Les profils créés sans sexe suivent la même règle. Aucune ancienne donnée n’est restaurée.
+
+Appliquer `db-migrate` avant la nouvelle API : la migration étend la contrainte des
+actions d’audit sur les bases existantes. Aucun compte ni consentement n’est modifié.
+
 ## Promouvoir ou retirer un administrateur
 
 Seul le superadmin peut appeler `PATCH /api/admin/users/:id/role` :
@@ -122,6 +145,7 @@ Le bannissement d’un compte et le retrait de son rôle sont deux actions disti
 
 Les consultations sensibles restent auditées. Un admin fournit un motif lorsque le contrat l’exige ; le
 superadmin peut l’omettre, auquel cas l’API inscrit un motif automatique. Un motif fourni reste validé.
+Les corrections d’identité exigent toujours un motif explicite, y compris pour le superadmin.
 
 ## Consulter une conversation signalée
 

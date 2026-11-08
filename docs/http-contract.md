@@ -294,7 +294,15 @@ Les CGU et la notice ne peuvent pas être retirées via cette route : on peut re
 
 Le profil expose `user_id, firstname, birthdate, profile_answers, moderation`, et `sex, bio, photo` lorsqu’ils existent. Le propriétaire voit son contenu même non approuvé. `moderation.bio` et `moderation.photo` contiennent `status, reasons` ; les réponses ont `moderation_status, moderation_reasons`. Une URL photo propriétaire n’est fournie que si la photo est techniquement prête.
 
-Pour le profil, prénom et naissance sont requis même avec PATCH ; prénom limité à 100 octets, âge minimal 18 ans. `sex` accepte `male | female | other | null`, `bio` accepte du texte ou `null` et au plus 2 000 octets. **Omettre `sex` ou `bio` les remet à `null`** : ce PATCH ne conserve pas automatiquement ces valeurs absentes. Cette route n’accepte aucune photo. Une bio modifiée est réanalysée.
+Pour le profil, prénom et naissance sont requis même avec PATCH ; prénom limité à 100 octets, âge minimal 18 ans. `sex` accepte `male | female | other | null`, `bio` accepte du texte ou `null` et au plus 2 000 octets. Le prénom, la date de naissance et le sexe sont figés dès la première création du profil.
+Le mobile continue d’envoyer les valeurs courantes avec la bio ; toute différence renvoie
+`409 profile_identity_locked` sans modifier la bio ni sa modération. Une session mobile
+administrateur ne contourne pas cette règle. La correction utilise la route admin dédiée.
+Le retrait du consentement sensible continue d’effacer le sexe et les préférences.
+
+Omettre `bio` la remet à `null`. Omettre `sex` équivaut à `null` à la création ;
+sur un profil dont le sexe est déjà renseigné, cette omission est refusée avec
+`profile_identity_locked`. Cette route n’accepte aucune photo. Une bio modifiée est réanalysée.
 
 Préférences : âges entiers 18–99, distance entière 1–500 km, `looking_for = male | female | both | other`. Présence : latitude entre -90 et 90, longitude entre -180 et 180.
 
@@ -659,6 +667,7 @@ Erreurs : `invalid_or_expired_admin_bootstrap`, `invalid_or_expired_webauthn_cha
 | GET | `/api/admin/user-names` | `ids` : 1 à 100 UUID séparés par des virgules → `200 { users: [{ user_id, firstname }] }`. Comptes actifs uniquement. |
 | GET | `/api/admin/users/:id` | UUID + query `reason?` → détail administratif audité. |
 | PATCH | `/api/admin/users/:id/status` | `{ is_banned, reason? }` → bannissement/débannissement. Motif requis pour bannir par un admin. |
+| PATCH | `/api/admin/users/:id/profile-identity` | **Récente** ; `{ firstname, birthdate: "YYYY-MM-DD", sex: "male" \| "female" \| "other" \| null, reason }` → `200 { message: "profile identity corrected" }`. Les quatre champs sont obligatoires, même `sex: null`. Correction atomique et auditée ; majorité et consentement sensible courant contrôlés. |
 | PATCH | `/api/admin/users/:id/role` | Superadmin uniquement : `{ role: "admin" | "user", reason? }` → promotion ou retrait des droits admin. |
 | PATCH | `/api/admin/users/:id/complimentary-premium` | Superadmin uniquement : `{ enabled: boolean, reason? }` → `200 { message }` ; active ou retire un Premium offert sans expiration. Idempotent et audité. |
 | GET | `/api/matches/:userId` | UUID utilisateur + `reason?, limit, cursor` (offset déprécié) → `200 { matches, next_cursor }`. **Route admin malgré son chemin.** |

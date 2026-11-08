@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection based on docs/http-contract.md (143 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/http-contract.md.",
+    "description": "Collection based on docs/http-contract.md (148 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -608,7 +608,7 @@
                     }
                   }
                 },
-                "description": "{ firstname, birthdate, sex?, bio? } → 200 { message: \"profile updated\" }."
+                "description": "Initially sets first name, birthdate (18+), optional sex and biography. Existing profiles may update biography only; send the current identity values, otherwise 409 profile_identity_locked. Omitting bio clears it. Identity corrections use the administrator profile-identity endpoint."
               },
               "response": []
             },
@@ -2999,6 +2999,50 @@
                   }
                 },
                 "description": "⚠️ Superadmin only. role=admin promotes a user; role=user removes admin rights and revokes sessions, passkeys, and enrollment tokens. An optional reason must be 3–500 characters. Cannot create another superadmin."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/users/:id/profile-identity",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/users/{{targetUserId}}/profile-identity",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"firstname\": \"Alice\",\n  \"birthdate\": \"1990-01-01\",\n  \"sex\": \"female\",\n  \"reason\": \"Correction requested by the account owner\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Requires recent WebAuthn authentication and an explicit reason. Corrects first name, birthdate and sex only. All four fields are required; sex=null clears the value. Checks adulthood and current sensitive-data consent. Atomic and audited; biography is preserved. Admins can correct user accounts; superadmins can also correct administrator accounts."
               },
               "response": []
             },

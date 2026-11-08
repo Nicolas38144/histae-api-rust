@@ -87,22 +87,35 @@ impl ProfileStore for PgProfileRepository {
                         if lock != WriteOutcome::Updated {
                             return Ok(lock);
                         }
-                        let current_bio: Option<String> = sqlx::query_scalar(
-                            "SELECT bio FROM user_profile WHERE user_id = $1 FOR UPDATE",
+                        let current = sqlx::query(
+                            "SELECT firstname, birthdate, sex, bio FROM user_profile
+                             WHERE user_id = $1 FOR UPDATE",
                         )
                         .bind(user_id)
                         .fetch_optional(&mut *connection)
                         .await
-                        .map_err(map_sqlx_error)?
-                        .flatten();
+                        .map_err(map_sqlx_error)?;
+                        if let Some(row) = &current {
+                            let firstname: String = row.try_get("firstname").map_err(map_sqlx_error)?;
+                            let birthdate: NaiveDate = row.try_get("birthdate").map_err(map_sqlx_error)?;
+                            let sex: Option<String> = row.try_get("sex").map_err(map_sqlx_error)?;
+                            if firstname != input.firstname
+                                || birthdate != input.birthdate
+                                || sex.as_deref() != input.sex.map(Sex::as_str)
+                            {
+                                return Ok(WriteOutcome::IdentityLocked);
+                            }
+                        }
+                        let current_bio: Option<String> = current
+                            .as_ref()
+                            .map(|row| row.try_get("bio").map_err(map_sqlx_error))
+                            .transpose()?
+                            .flatten();
                         let result = sqlx::query(
                             r#"
                             INSERT INTO user_profile (user_id, firstname, birthdate, sex, bio)
                             VALUES ($1, $2, $3, $4, $5)
                             ON CONFLICT (user_id) DO UPDATE SET
-                                firstname = EXCLUDED.firstname,
-                                birthdate = EXCLUDED.birthdate,
-                                sex = EXCLUDED.sex,
                                 bio = EXCLUDED.bio
                             "#,
                         )

@@ -360,6 +360,7 @@ pub struct PublicConsent {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WriteOutcome {
     Updated,
+    IdentityLocked,
     AccountNotFound,
     RequiredConsentMissing,
     PresenceUpdateLimited,

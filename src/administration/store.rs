@@ -5,7 +5,8 @@ use uuid::Uuid;
 
 use super::domain::{
     AdminUserDetailRow, AdminUserRole, AdminUserRow, AdminUserStatus, BanResult, CursorMatchRow,
-    CursorMessageRow, PageCursor, PremiumGrantResult, RoleChangeResult,
+    CursorMessageRow, IdentityCorrectionResult, PageCursor, PremiumGrantResult,
+    ProfileIdentityCorrection, RoleChangeResult,
 };
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::DatabaseError;
@@ -15,6 +16,16 @@ pub type AdministrationStoreFuture<'a, T> =
 
 #[allow(clippy::too_many_arguments)]
 pub trait AdministrationStore: Send + Sync {
+    fn correct_profile_identity(
+        &self,
+        target_id: Uuid,
+        correction: ProfileIdentityCorrection,
+        reason: String,
+        actor_id: Uuid,
+        actor_role: AdminRole,
+        sensitive_version: String,
+    ) -> AdministrationStoreFuture<'_, IdentityCorrectionResult>;
+
     fn set_complimentary_premium(
         &self,
         target_id: Uuid,

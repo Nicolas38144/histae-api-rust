@@ -7,7 +7,7 @@ use uuid::{Uuid, Variant};
 
 use super::domain::{
     AdminMatch, AdminUser, AdminUserDetail, AdminUserRole, AdminUserStatus, BanResult, PageCursor,
-    PremiumGrantResult, RoleChangeResult,
+    IdentityCorrectionResult, PremiumGrantResult, ProfileIdentityCorrection, RoleChangeResult,
 };
 use super::store::AdministrationStore;
 use crate::identity::admin_role::AdminRole;
@@ -15,7 +15,7 @@ use crate::infra::postgres::DatabaseError;
 use crate::matches::domain::{PublicMatch, PublicMessage};
 use crate::profiles::service::ProfilePhotoUrlProvider;
 use crate::shared::clock::Clock;
-use crate::shared::text::{javascript_trim, validator_js_length};
+use crate::shared::text::{javascript_trim, utf8_len, validator_js_length};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdministrationError {
@@ -24,6 +24,7 @@ pub enum AdministrationError {
     AccountNotFound,
     MatchNotFound,
     ActionForbidden,
+    SensitiveConsentRequired,
     PhotoStorageUnavailable,
     Database(DatabaseError),
 }
@@ -56,6 +57,7 @@ pub struct AdministrationService {
     photos: Arc<dyn ProfilePhotoUrlProvider>,
     terms_version: Arc<str>,
     privacy_version: Arc<str>,
+    sensitive_version: Arc<str>,
     clock: Arc<dyn Clock>,
 }
 
@@ -65,6 +67,7 @@ impl AdministrationService {
         photos: Arc<dyn ProfilePhotoUrlProvider>,
         terms_version: String,
         privacy_version: String,
+        sensitive_version: String,
         clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
@@ -72,6 +75,7 @@ impl AdministrationService {
             photos,
             terms_version: terms_version.into(),
             privacy_version: privacy_version.into(),
+            sensitive_version: sensitive_version.into(),
             clock,
         }
     }
@@ -162,6 +166,43 @@ impl AdministrationService {
             presence: row.presence,
             continuation_quota: row.continuation_quota,
         })
+    }
+
+    pub async fn correct_profile_identity(
+        &self,
+        target_id: Uuid,
+        mut correction: ProfileIdentityCorrection,
+        raw_reason: &str,
+        actor_id: Uuid,
+        actor_role: AdminRole,
+    ) -> Result<(), AdministrationError> {
+        correction.firstname = javascript_trim(&correction.firstname).to_owned();
+        if correction.firstname.is_empty()
+            || utf8_len(&correction.firstname) > 100
+            || !crate::profiles::service::is_adult(correction.birthdate, self.clock.today_utc())
+        {
+            return Err(AdministrationError::InvalidRequest);
+        }
+        let reason = normalize_reason(raw_reason)?;
+        match self
+            .store
+            .correct_profile_identity(
+                target_id,
+                correction,
+                reason,
+                actor_id,
+                actor_role,
+                self.sensitive_version.to_string(),
+            )
+            .await?
+        {
+            IdentityCorrectionResult::Updated => Ok(()),
+            IdentityCorrectionResult::NotFound => Err(AdministrationError::AccountNotFound),
+            IdentityCorrectionResult::Forbidden => Err(AdministrationError::ActionForbidden),
+            IdentityCorrectionResult::ConsentRequired => {
+                Err(AdministrationError::SensitiveConsentRequired)
+            }
+        }
     }
 
     pub async fn update_ban(
@@ -435,6 +476,21 @@ mod tests {
 
     #[allow(clippy::too_many_arguments)]
     impl AdministrationStore for FakeStore {
+        fn correct_profile_identity(
+            &self,
+            _target_id: Uuid,
+            _correction: ProfileIdentityCorrection,
+            reason: String,
+            _actor_id: Uuid,
+            _actor_role: AdminRole,
+            _sensitive_version: String,
+        ) -> AdministrationStoreFuture<'_, IdentityCorrectionResult> {
+            Box::pin(async move {
+                self.reasons.lock().map_err(|_| DatabaseError::QueryFailed)?.push(reason);
+                Ok(IdentityCorrectionResult::Updated)
+            })
+        }
+
         fn set_complimentary_premium(
             &self,
             _target_id: Uuid,
@@ -612,6 +668,7 @@ mod tests {
                 photos.clone(),
                 "terms-v1".to_owned(),
                 "privacy-v1".to_owned(),
+                "sensitive-v1".to_owned(),
                 Arc::new(crate::shared::clock::SystemClock),
             ),
             store,
@@ -660,6 +717,7 @@ mod tests {
             Arc::new(Photos::default()),
             "terms-v1".to_owned(),
             "privacy-v1".to_owned(),
+            "sensitive-v1".to_owned(),
             Arc::new(FixedClock(now)),
         );
         let page = service
@@ -906,5 +964,27 @@ mod tests {
             .unwrap_or_else(|_| unreachable!())
             .unwrap_or_else(|| unreachable!());
         assert_eq!(decoded.id, id);
+    }
+
+    #[tokio::test]
+    async fn identity_corrections_keep_adult_validation_and_require_a_reason_for_every_admin() {
+        let (service, store, _) = service(BanResult::Updated);
+        let adult = chrono::NaiveDate::from_ymd_opt(1990, 1, 1).expect("date");
+        let correction = ProfileIdentityCorrection {
+            firstname: "Alice".to_owned(), birthdate: adult, sex: Some(crate::profiles::domain::Sex::Female),
+        };
+        assert_eq!(service.correct_profile_identity(
+            Uuid::new_v4(), correction.clone(), "", Uuid::new_v4(), AdminRole::Superadmin,
+        ).await, Err(AdministrationError::InvalidRequest));
+        let mut minor = correction.clone();
+        minor.birthdate = service.clock.today_utc();
+        assert_eq!(service.correct_profile_identity(
+            Uuid::new_v4(), minor, "Owner correction", Uuid::new_v4(), AdminRole::Admin,
+        ).await, Err(AdministrationError::InvalidRequest));
+        assert!(store.reasons.lock().expect("reasons").is_empty());
+        assert_eq!(service.correct_profile_identity(
+            Uuid::new_v4(), correction, "  Owner correction  ", Uuid::new_v4(), AdminRole::Admin,
+        ).await, Ok(()));
+        assert_eq!(store.reasons.lock().expect("reasons").as_slice(), ["Owner correction"]);
     }
 }

@@ -266,6 +266,11 @@ async fn update_presence(
 
 pub(crate) fn profile_error(error: ProfileError) -> ApiError {
     match error {
+        ProfileError::IdentityLocked => ApiError::new(
+            StatusCode::CONFLICT,
+            "profile_identity_locked",
+            "Only an administrator can correct an existing profile's identity.",
+        ),
         ProfileError::InvalidProfile => ApiError::new(
             StatusCode::BAD_REQUEST,
             "invalid_profile",

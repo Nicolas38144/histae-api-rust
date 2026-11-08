@@ -343,6 +343,7 @@ impl ApiResources {
             Arc::clone(&photo_urls),
             config.legal.terms_version.clone(),
             config.legal.privacy_version.clone(),
+            config.legal.sensitive_data_consent_version.clone(),
             Arc::clone(&clock),
         );
 

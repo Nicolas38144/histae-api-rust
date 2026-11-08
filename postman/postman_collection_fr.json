@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection issue de docs/http-contract.md (143 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
+    "description": "Collection issue de docs/http-contract.md (148 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -608,7 +608,7 @@
                     }
                   }
                 },
-                "description": "{ firstname, birthdate, sex?, bio? } → 200 { message: \"profile updated\" }."
+                "description": "À la création, définit le prénom, la date de naissance (18 ans minimum), le sexe facultatif et la bio. Ensuite, seuls les changements de bio sont autorisés ; conserver les valeurs d’identité courantes. Sinon : 409 profile_identity_locked. Omettre bio la remet à null. Les corrections d’identité passent par la route admin profile-identity."
               },
               "response": []
             },
@@ -2999,6 +2999,50 @@
                   }
                 },
                 "description": "⚠️ Réservé au superadmin. role=admin promeut un utilisateur ; role=user retire les droits admin et révoque sessions, passkeys et jetons d’enrôlement. Motif facultatif de 3 à 500 caractères. Impossible de créer un autre superadmin."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/users/:id/profile-identity",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept-Language",
+                    "value": "{{language}}",
+                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/users/{{targetUserId}}/profile-identity",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"firstname\": \"Alice\",\n  \"birthdate\": \"1990-01-01\",\n  \"sex\": \"female\",\n  \"reason\": \"Correction demandée par la personne concernée\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Authentification WebAuthn récente et motif explicite requis. Corrige uniquement le prénom, la date de naissance et le sexe. Les quatre champs sont obligatoires ; sex=null efface cette donnée. Majorité et consentement sensible courant contrôlés. Action atomique et auditée, sans modification de la bio. Un admin corrige les comptes utilisateurs ; le superadmin peut aussi corriger les comptes administrateurs."
               },
               "response": []
             },

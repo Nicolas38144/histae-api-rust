@@ -199,6 +199,21 @@ pub enum PremiumGrantResult {
     Forbidden,
 }
 
+#[derive(Clone, Debug)]
+pub struct ProfileIdentityCorrection {
+    pub firstname: String,
+    pub birthdate: NaiveDate,
+    pub sex: Option<Sex>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IdentityCorrectionResult {
+    Updated,
+    NotFound,
+    Forbidden,
+    ConsentRequired,
+}
+
 pub fn wire_timestamp(value: DateTime<Utc>) -> String {
     value.to_rfc3339_opts(SecondsFormat::Millis, true)
 }

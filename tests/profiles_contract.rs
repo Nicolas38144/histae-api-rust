@@ -655,7 +655,7 @@ async fn authentication_and_onboarding_precede_profile_body_validation() {
 }
 
 #[tokio::test]
-async fn profile_projection_and_omitted_nullable_fields_match_nest() {
+async fn profile_projection_preserves_identity_when_updating_biography() {
     let store = FakeProfileStore::new();
     store.state.lock().expect("state").profile = Some(ProfileRecord {
         user_id: user_id(),
@@ -705,7 +705,7 @@ async fn profile_projection_and_omitted_nullable_fields_match_nest() {
             "PATCH",
             "/api/users/me/profile",
             Some(&tokens.access_token),
-            r#"{"firstname":"  Alice  ","birthdate":"1995-04-12"}"#,
+            r#"{"firstname":"  Alice  ","birthdate":"1995-04-12","sex":"female"}"#,
         ))
         .await
         .expect("response");
@@ -717,7 +717,7 @@ async fn profile_projection_and_omitted_nullable_fields_match_nest() {
     let state = store.state.lock().expect("state");
     let saved = state.last_profile.as_ref().expect("profile write");
     assert_eq!(saved.firstname, "Alice");
-    assert_eq!(saved.sex, None);
+    assert_eq!(saved.sex, Some(Sex::Female));
     assert_eq!(saved.bio, None);
 }
 
@@ -780,6 +780,19 @@ async fn validation_keeps_dto_and_business_error_codes_distinct() {
         json_body(invalid_presence).await["error"]["code"],
         "invalid_presence"
     );
+}
+
+#[tokio::test]
+async fn existing_profile_identity_conflicts_are_explicit() {
+    let store = FakeProfileStore::new();
+    store.state.lock().expect("state").write_outcome = WriteOutcome::IdentityLocked;
+    let (app, tokens) = app(store, true);
+    let response = app.oneshot(request(
+        "PATCH", "/api/users/me/profile", Some(&tokens.access_token),
+        r#"{"firstname":"Other","birthdate":"1995-04-12","sex":"male","bio":"Updated bio"}"#,
+    )).await.expect("response");
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(json_body(response).await["error"]["code"], "profile_identity_locked");
 }
 
 #[tokio::test]
