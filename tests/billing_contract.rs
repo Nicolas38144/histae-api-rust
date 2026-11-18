@@ -4,10 +4,11 @@ use std::time::Duration;
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
-use histae_api_rust::billing::domain::SubscriptionView;
-use histae_api_rust::billing::http::{
-    BillingHttpFuture, BillingHttpState, BillingUseCases, routes,
-};
+use chrono::{DateTime, Utc};
+use histae_api_rust::billing::domain::{BillingError, SubscriptionView};
+use histae_api_rust::billing::http::{BillingHttpState, routes};
+use histae_api_rust::billing::service::BillingService;
+use histae_api_rust::billing::store::{BillingStore, BillingStoreFuture};
 use histae_api_rust::config::{Environment, JwtConfig, LimitPolicy, SecretString, TrustProxy};
 use histae_api_rust::http::health::{DependencyProbe, ProbeFuture, Readiness};
 use histae_api_rust::http::rate_limit::RateLimiter;
@@ -20,6 +21,8 @@ use histae_api_rust::identity::mobile::http::MobileAuthState;
 use histae_api_rust::identity::mobile::service::MobileAuthService;
 use histae_api_rust::identity::mobile::store::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::tokens::{NewRefreshToken, TokenService};
+use histae_api_rust::infra::postgres::DatabaseError;
+use histae_api_rust::shared::clock::SystemClock;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use uuid::Uuid;
@@ -118,15 +121,22 @@ impl MobileSessionStore for AuthStore {
 }
 
 #[derive(Clone)]
-struct FakeBilling;
+struct FakeBilling {
+    error: Option<BillingError>,
+}
 impl FakeBilling {
     fn successful() -> Self {
-        Self
+        Self { error: None }
     }
 }
-impl BillingUseCases for FakeBilling {
-    fn subscription(&self, _user_id: Uuid) -> BillingHttpFuture<'_, SubscriptionView> {
-        Box::pin(async { Ok(SubscriptionView::free()) })
+impl BillingStore for FakeBilling {
+    fn effective_subscription_for_user(
+        &self,
+        _user_id: Uuid,
+        _now: DateTime<Utc>,
+    ) -> BillingStoreFuture<'_, Option<SubscriptionView>> {
+        let result = self.error.map_or(Ok(None), Err);
+        Box::pin(async move { result })
     }
 }
 
@@ -141,7 +151,7 @@ fn jwt_config() -> JwtConfig {
     }
 }
 
-fn app(service: Arc<dyn BillingUseCases>) -> (axum::Router, String) {
+fn app(store: Arc<dyn BillingStore>) -> (axum::Router, String) {
     let tokens = TokenService::new(jwt_config());
     let auth = MobileAuthService::new(
         tokens.clone(),
@@ -157,7 +167,8 @@ fn app(service: Arc<dyn BillingUseCases>) -> (axum::Router, String) {
         window: Duration::from_secs(60),
     };
     let auth_state = MobileAuthState::new(auth, limiter.clone(), global_policy.clone());
-    let billing_state = BillingHttpState::new(service);
+    let billing_state =
+        BillingHttpState::new(Arc::new(BillingService::new(store, Arc::new(SystemClock))));
     let readiness = Readiness::new(Arc::new(Probe), Arc::new(Probe), Arc::new(Probe));
     let http_state = HttpState::new(
         readiness,
@@ -241,6 +252,39 @@ async fn exposes_effective_subscription_but_removes_website_purchase_mutations()
             json_response(response).await["error"]["code"],
             "route_not_found"
         );
+    }
+}
+
+#[tokio::test]
+async fn subscription_failures_never_become_free_access_or_expose_database_details() {
+    for (error, status, code) in [
+        (
+            BillingError::InvalidStoredData,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "billing_unavailable",
+        ),
+        (
+            BillingError::Database(DatabaseError::ConnectionFailed),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal_error",
+        ),
+    ] {
+        let (app, token) = app(Arc::new(FakeBilling { error: Some(error) }));
+        let response = app
+            .oneshot(authenticated(
+                "/api/users/me/subscription",
+                "GET",
+                &token,
+                None,
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        let body = json_response(response).await;
+        assert_eq!(body["error"]["code"], code);
+        assert!(body.get("plan").is_none());
+        assert!(!body.to_string().contains("postgres"));
     }
 }
 

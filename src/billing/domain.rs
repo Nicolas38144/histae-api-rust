@@ -1,4 +1,29 @@
+use crate::infra::postgres::DatabaseError;
 use serde::{Deserialize, Serialize};
+use std::fmt;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BillingError {
+    Database(DatabaseError),
+    InvalidStoredData,
+}
+
+impl From<DatabaseError> for BillingError {
+    fn from(value: DatabaseError) -> Self {
+        Self::Database(value)
+    }
+}
+
+impl fmt::Display for BillingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Database(error) => error.safe_code(),
+            Self::InvalidStoredData => "invalid_billing_data",
+        })
+    }
+}
+
+impl std::error::Error for BillingError {}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -37,6 +62,13 @@ impl SubscriptionProvider {
             "app_store" => Some(Self::AppStore),
             "google_play" => Some(Self::GooglePlay),
             _ => None,
+        }
+    }
+
+    pub const fn management_url(self) -> &'static str {
+        match self {
+            Self::AppStore => "https://apps.apple.com/account/subscriptions",
+            Self::GooglePlay => "https://play.google.com/store/account/subscriptions",
         }
     }
 }

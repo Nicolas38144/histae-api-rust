@@ -1,13 +1,13 @@
 use super::{
     ConfigError, Environment, EnvironmentSource, SecretString, StoreBillingConfig,
-    WebAccountConfig, validation::boolean,
+    validation::boolean,
 };
 use url::Url;
 
 pub(super) fn load(
     source: &EnvironmentSource,
     environment: Environment,
-) -> Result<(StoreBillingConfig, WebAccountConfig), ConfigError> {
+) -> Result<StoreBillingConfig, ConfigError> {
     let flag = |name| boolean(source.value(name)?.as_deref(), false, name);
     let apple_enabled = flag("APP_STORE_ENABLED")?;
     let google_enabled = flag("GOOGLE_PLAY_ENABLED")?;
@@ -46,37 +46,16 @@ pub(super) fn load(
     {
         return Err(ConfigError::invalid("STORE_VERIFIER_URL"));
     }
-    let origin = source.or(
-        "WEB_ACCOUNT_ORIGIN",
-        if environment == Environment::Production {
-            "https://www.histae.com"
-        } else {
-            "http://localhost:3000"
-        },
-    )?;
-    let origin_url = Url::parse(&origin).map_err(|_| ConfigError::invalid("WEB_ACCOUNT_ORIGIN"))?;
-    if origin_url.origin().ascii_serialization() != origin
-        || (environment == Environment::Production && origin_url.scheme() != "https")
-        || !matches!(origin_url.scheme(), "http" | "https")
-    {
-        return Err(ConfigError::invalid("WEB_ACCOUNT_ORIGIN"));
-    }
-    Ok((
-        StoreBillingConfig {
-            apple_enabled,
-            google_enabled,
-            apple_monthly_product,
-            apple_annual_product,
-            google_product,
-            google_monthly_plan,
-            google_annual_plan,
-            verifier_url,
-            verifier_token: SecretString::new(token),
-            production: environment == Environment::Production,
-        },
-        WebAccountConfig {
-            origin,
-            secure_cookie: origin_url.scheme() == "https",
-        },
-    ))
+    Ok(StoreBillingConfig {
+        apple_enabled,
+        google_enabled,
+        apple_monthly_product,
+        apple_annual_product,
+        google_product,
+        google_monthly_plan,
+        google_annual_plan,
+        verifier_url,
+        verifier_token: SecretString::new(token),
+        production: environment == Environment::Production,
+    })
 }

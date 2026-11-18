@@ -600,7 +600,8 @@ impl AppConfig {
             admin_auth: limit(source, "RATE_LIMIT_ADMIN_AUTH", 10, "5m")?,
         };
 
-        let (store_billing, web_account) = super::stores::load(source, environment)?;
+        let store_billing = super::stores::load(source, environment)?;
+        let web_account = super::web_account::load(source, environment)?;
         Ok(Self {
             environment,
             port,

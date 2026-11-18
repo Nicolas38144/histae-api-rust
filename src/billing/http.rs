@@ -1,6 +1,6 @@
 use super::{
-    domain::SubscriptionView,
-    service::{BillingError, BillingService},
+    domain::{BillingError, SubscriptionView},
+    service::BillingService,
 };
 use crate::{
     http::{error::ApiError, router::HttpState},

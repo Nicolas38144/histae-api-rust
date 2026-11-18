@@ -3,7 +3,7 @@ use chrono::{TimeDelta, Utc};
 use histae_api_rust::identity::web::WebAccountRepository;
 use histae_api_rust::{
     billing::{
-        domain::BillingPeriod,
+        domain::{BillingPeriod, SubscriptionProvider},
         pg::PgBillingRepository,
         store::BillingStore,
         stores::{StoreError, StoreProvider, StoreSnapshot, pg::StoreRepository},
@@ -165,13 +165,19 @@ async fn providers_ownership_ordering_ack_and_erasure_are_independent()
         Some(first)
     );
     let billing = PgBillingRepository::new(db.clone());
-    assert!(
-        billing
-            .effective_subscription_for_user(first, Utc::now())
-            .await?
-            .unwrap()
-            .access_granted
+    let subscription = billing
+        .effective_subscription_for_user(first, Utc::now())
+        .await?
+        .unwrap();
+    assert!(subscription.access_granted);
+    assert_eq!(subscription.provider, Some(SubscriptionProvider::AppStore));
+    assert_eq!(subscription.billing_period, Some(BillingPeriod::Monthly));
+    assert_eq!(
+        subscription.management_url.as_deref(),
+        Some("https://apps.apple.com/account/subscriptions")
     );
+    assert!(!subscription.customer_portal_available);
+    assert!(subscription.trial_ends_at.is_none());
     // A non-commercial free row must not override native access.
     let mut c = db.acquire().await?;
     sqlx::query("INSERT INTO user_subscription(user_id,plan) VALUES($1,'free')")
@@ -218,6 +224,19 @@ async fn providers_ownership_ordering_ack_and_erasure_are_independent()
             newer,
         )
         .await?;
+    let subscription = billing
+        .effective_subscription_for_user(first, Utc::now())
+        .await?
+        .unwrap();
+    assert!(subscription.access_granted);
+    assert_eq!(
+        subscription.provider,
+        Some(SubscriptionProvider::GooglePlay)
+    );
+    assert_eq!(
+        subscription.management_url.as_deref(),
+        Some("https://play.google.com/store/account/subscriptions")
+    );
     let mut c = db.acquire().await?;
     let (id,encrypted):(Uuid,Vec<u8>)=sqlx::query_as("SELECT id,reference_encrypted FROM billing_store_subscription WHERE provider='google_play' AND user_id=$1").bind(first).fetch_one(&mut *c).await?;
     assert_ne!(encrypted, b"synthetic-play-token");

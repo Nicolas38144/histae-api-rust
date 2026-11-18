@@ -9,6 +9,7 @@ mod play_review;
 mod stores;
 mod types;
 mod validation;
+mod web_account;
 
 pub use environment::EnvironmentSource;
 pub use error::{ConfigError, ConfigErrorKind};

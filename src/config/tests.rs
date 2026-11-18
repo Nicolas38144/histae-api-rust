@@ -34,6 +34,10 @@ fn loads_compatible_defaults_without_exposing_secrets() {
         .unwrap_or_else(|error| panic!("unexpected safe config failure: {error}"));
     assert_eq!(config.port, 8080);
     assert!(config.play_review.is_none());
+    assert!(!config.store_billing.apple_enabled);
+    assert!(!config.store_billing.google_enabled);
+    assert_eq!(config.web_account.origin, "http://localhost:3000");
+    assert!(!config.web_account.secure_cookie);
     assert_eq!(
         config.object_storage.endpoint.as_str(),
         "http://storage.histae.localhost:8333/"

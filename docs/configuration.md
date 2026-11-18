@@ -259,8 +259,14 @@ Voir [Internationalisation](internationalization.md) pour la préférence du com
 Voir [la liste des nouvelles variables, leurs valeurs par défaut et leur activation](store-billing.md#configuration-et-activation).
 Les secrets Apple/Google sont réservés au service privé. Les paiements web sont retirés.
 `WEB_ACCOUNT_ORIGIN` contrôle uniquement la session du site pour les données personnelles.
+Cette configuration est indépendante de l’activation des achats natifs : elle reste utilisée quand
+`APP_STORE_ENABLED=false` et `GOOGLE_PLAY_ENABLED=false`. Aucune clé de paiement n’est nécessaire
+pour accéder au parcours RGPD du site. L’origine doit être exacte (schéma, hôte et port éventuel,
+sans chemin, identifiants, query ni fragment) ; HTTPS est obligatoire en production.
 Supprimer les anciennes variables `STRIPE_*`, `BILLING_PROVIDER` et `WEB_BILLING_ENABLED` ;
 renommer `WEB_BILLING_ORIGIN` en `WEB_ACCOUNT_ORIGIN`. Voir [Migration](billing.md#retrait-de-lancien-paiement-web).
+Retirer aussi les anciens exemples de clés Stripe commentés. Les limites `RATE_LIMIT_BILLING*`
+restent utilisées par les achats et callbacks natifs et doivent être conservées.
 
 ### Retrait du vérificateur photo
 
