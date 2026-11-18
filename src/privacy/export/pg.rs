@@ -98,8 +98,6 @@ impl PgDataExportStore {
                              to_char(current_period_starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END,
                            'current_period_ends_at', CASE WHEN current_period_ends_at IS NULL THEN NULL ELSE
                              to_char(current_period_ends_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END,
-                           'trial_ends_at', CASE WHEN trial_ends_at IS NULL THEN NULL ELSE
-                             to_char(trial_ends_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END,
                            'canceled_at', CASE WHEN canceled_at IS NULL THEN NULL ELSE
                              to_char(canceled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END,
                            'provider_event_created_at', CASE WHEN provider_event_created_at IS NULL THEN NULL ELSE
@@ -138,8 +136,6 @@ impl PgDataExportStore {
                     self.write_reports(&mut transaction, writer, user_id, page_size)
                         .await?;
                     self.write_blocks(&mut transaction, writer, user_id, page_size)
-                        .await?;
-                    self.write_invoices(&mut transaction, writer, user_id, page_size)
                         .await?;
                     self.write_uuid_timestamp_pages(&mut transaction, writer, "devices", user_id, page_size,
                         "SELECT jsonb_build_object('id', id, 'session_id', session_id, 'platform', platform,
@@ -501,65 +497,6 @@ impl PgDataExportStore {
              ORDER BY created_at, blocked_id LIMIT $4",
         )
         .await
-    }
-
-    async fn write_invoices(
-        &self,
-        connection: &mut sqlx::PgConnection,
-        writer: &mut JsonExportWriter,
-        user_id: Uuid,
-        page_size: u32,
-    ) -> Result<(), ExportBuildError> {
-        writer.start_array("billing_invoices").await?;
-        let mut cursor: Option<(String, String)> = None;
-        loop {
-            let rows = sqlx::query(
-                "SELECT jsonb_build_object(
-                   'stripe_invoice_id', stripe_invoice_id,
-                   'stripe_subscription_id', stripe_subscription_id, 'status', status,
-                   'currency', currency, 'amount_due', amount_due::text, 'amount_paid', amount_paid::text,
-                   'amount_remaining', amount_remaining::text,
-                   'period_starts_at', CASE WHEN period_starts_at IS NULL THEN NULL ELSE
-                     to_char(period_starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END,
-                   'period_ends_at', CASE WHEN period_ends_at IS NULL THEN NULL ELSE
-                     to_char(period_ends_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END,
-                   'paid_at', CASE WHEN paid_at IS NULL THEN NULL ELSE
-                     to_char(paid_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END,
-                   'created_at', to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),
-                   'provider_event_created_at', CASE WHEN provider_event_created_at IS NULL THEN NULL ELSE
-                     to_char(provider_event_created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END) AS value,
-                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS cursor_at,
-                   stripe_invoice_id AS cursor_id
-                 FROM billing_invoice WHERE user_id = $1
-                   AND ($2::timestamptz IS NULL OR (created_at, stripe_invoice_id) > ($2::timestamptz, $3))
-                 ORDER BY created_at, stripe_invoice_id LIMIT $4",
-            )
-            .bind(user_id)
-            .bind(cursor.as_ref().map(|value| value.0.as_str()))
-            .bind(cursor.as_ref().map(|value| value.1.as_str()))
-            .bind(i64::from(page_size))
-            .fetch_all(&mut *connection)
-            .await
-            .map_err(map_sqlx_error)?;
-            for row in &rows {
-                writer
-                    .item(
-                        &row.try_get::<Json<Value>, _>("value")
-                            .map_err(map_sqlx_error)?
-                            .0,
-                    )
-                    .await?;
-            }
-            if rows.len() < page_size as usize {
-                break;
-            }
-            let last = rows.last().ok_or(DatabaseError::QueryFailed)?;
-            cursor = Some((
-                last.try_get("cursor_at").map_err(map_sqlx_error)?,
-                last.try_get("cursor_id").map_err(map_sqlx_error)?,
-            ));
-        }
-        writer.end_array().await
     }
 
     async fn write_mobile_sessions(

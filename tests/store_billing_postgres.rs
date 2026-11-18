@@ -1,12 +1,12 @@
 #![cfg(feature = "postgres-integration")]
 use chrono::{TimeDelta, Utc};
+use histae_api_rust::identity::web::WebAccountRepository;
 use histae_api_rust::{
     billing::{
         domain::BillingPeriod,
         pg::PgBillingRepository,
         store::BillingStore,
         stores::{StoreError, StoreProvider, StoreSnapshot, pg::StoreRepository},
-        web::WebBillingRepository,
     },
     config::{LegalConfig, PostgresConfig, SecretString},
     infra::postgres::{Database, DatabaseError, map_sqlx_error},
@@ -172,9 +172,12 @@ async fn providers_ownership_ordering_ack_and_erasure_are_independent()
             .unwrap()
             .access_granted
     );
-    // A later Stripe projection with no access must not override native access.
+    // A non-commercial free row must not override native access.
     let mut c = db.acquire().await?;
-    sqlx::query("INSERT INTO user_subscription(user_id,plan,provider) VALUES($1,'premium','stripe') ON CONFLICT(user_id) DO UPDATE SET plan='premium',provider='stripe',status=NULL,current_period_ends_at=NULL").bind(first).execute(&mut *c).await?;
+    sqlx::query("INSERT INTO user_subscription(user_id,plan) VALUES($1,'free')")
+        .bind(first)
+        .execute(&mut *c)
+        .await?;
     drop(c);
     assert!(
         billing
@@ -292,7 +295,7 @@ async fn web_challenge_does_not_create_accounts_and_limits_parallel_attempts()
     let db = Database::connect(&postgres_config()?).await?;
     let user = Uuid::new_v4();
     insert_user(&db, user).await?;
-    let repo = WebBillingRepository::new(db.clone(), legal());
+    let repo = WebAccountRepository::new(db.clone(), legal());
     let phone = format!("s20-{user}");
     let key = Uuid::new_v4();
     let challenge = repo.challenge(key, user, &phone, "fr").await?.unwrap();
@@ -519,16 +522,9 @@ async fn native_entitlement_does_not_start_before_the_paid_period()
 async fn website_service_keeps_identity_otp_and_session_authorization_together()
 -> Result<(), Box<dyn std::error::Error>> {
     use histae_api_rust::{
-        billing::{
-            service::BillingService,
-            stripe::StripeClient,
-            web::{WebBillingError, WebBillingService},
-        },
-        config::{BillingConfig, BillingProvider},
         identity::mobile::otp::{OtpRepository, OtpService},
-        infra::postgres_locks::AccountActivityPool,
+        identity::web::{WebAccountError, WebAccountService},
         localization::Language,
-        shared::clock::SystemClock,
     };
     use std::sync::Arc;
     let config = postgres_config()?;
@@ -544,45 +540,13 @@ async fn website_service_keeps_identity_otp_and_session_authorization_together()
         Duration::from_secs(2),
         Duration::from_secs(300),
     );
-    let billing_config = BillingConfig {
-        provider: BillingProvider::Disabled,
-        stripe_secret_key: SecretString::new(String::new()),
-        stripe_webhook_secret: SecretString::new(String::new()),
-        premium_monthly_price_id: String::new(),
-        premium_annual_price_id: String::new(),
-        checkout_success_url: None,
-        checkout_cancel_url: None,
-        portal_return_url: None,
-        automatic_tax: false,
-        allow_promotion_codes: false,
-        timeout: Duration::from_secs(1),
-        max_network_retries: 0,
-        reconciliation_interval: Duration::from_secs(300),
-        reconciliation_freshness: Duration::from_secs(3600),
-        reconciliation_batch_size: 25,
-    };
-    // Billing is disabled and even accidental provider calls can only target loopback.
-    let stripe =
-        StripeClient::with_endpoint(billing_config.clone(), Url::parse("http://127.0.0.1:9/")?)?;
-    let activity = AccountActivityPool::connect(&config).await?;
-    let billing = Arc::new(BillingService::new(
-        Arc::new(PgBillingRepository::new(db.clone())),
-        Arc::new(stripe),
-        billing_config,
-        activity.clone(),
-        Arc::new(SystemClock),
-    ));
     let legal = LegalConfig {
         document_dates: Default::default(),
         terms_version: "web-refactor-test".into(),
         privacy_version: "web-refactor-test".into(),
         ..legal()
     };
-    let service = WebBillingService::new(
-        WebBillingRepository::new(db.clone(), legal),
-        otp.clone(),
-        billing,
-    );
+    let service = WebAccountService::new(WebAccountRepository::new(db.clone(), legal), otp.clone());
     let phone = "+33600000002";
     let hash = service.phone_key(phone).unwrap();
     let user = Uuid::new_v4();
@@ -599,7 +563,7 @@ async fn website_service_keeps_identity_otp_and_session_authorization_together()
     assert!(sms.0.lock().unwrap().is_none());
     assert!(matches!(
         service.verify(unknown.challenge_id, phone, "123456").await,
-        Err(WebBillingError::Authentication)
+        Err(WebAccountError::Authentication)
     ));
     let key = Uuid::new_v4();
     let challenge = service.start(key, user, phone, Language::Fr).await.unwrap();
@@ -622,27 +586,23 @@ async fn website_service_keeps_identity_otp_and_session_authorization_together()
     assert_eq!(token.expose_secret().len(), 43);
     assert_eq!(
         service
-            .session(token.expose_secret())
+            .identity(token.expose_secret())
             .await
             .unwrap()
             .user_id,
         user
     );
-    assert!(matches!(
-        service.payer(token.expose_secret()).await,
-        Err(WebBillingError::OnboardingIncomplete)
-    ));
     sqlx::query("UPDATE user_account SET is_banned=true WHERE user_id=$1")
         .bind(user)
         .execute(&mut *db.acquire().await?)
         .await?;
     assert!(matches!(
-        service.session(token.expose_secret()).await,
-        Err(WebBillingError::Authentication)
+        service.identity(token.expose_secret()).await,
+        Err(WebAccountError::Authentication)
     ));
     service.logout(token.expose_secret()).await.unwrap();
     cleanup(&db, &[user]).await?;
-    sqlx::query("DELETE FROM web_billing_challenge WHERE id=$1")
+    sqlx::query("DELETE FROM web_account_challenge WHERE id=$1")
         .bind(unknown.challenge_id)
         .execute(&mut *db.acquire().await?)
         .await?;
@@ -650,6 +610,5 @@ async fn website_service_keeps_identity_otp_and_session_authorization_together()
         .bind(hash)
         .execute(&mut *db.acquire().await?)
         .await?;
-    activity.close().await;
     Ok(())
 }

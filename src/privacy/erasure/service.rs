@@ -9,7 +9,6 @@ use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use serde::Serialize;
 use uuid::{Uuid, Variant, Version};
 
-use crate::billing::service::{BillingError, BillingService};
 use crate::infra::crypto::sha256_hex;
 use crate::infra::postgres::DatabaseError;
 use crate::infra::postgres_locks::{AccountActivityError, AccountActivityPool, TryExclusive};
@@ -196,7 +195,6 @@ fn parse_deletion_token(value: &str) -> Option<Uuid> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ErasureStep {
-    Stripe,
     Photos,
     Swipes,
     Postgres,
@@ -206,7 +204,6 @@ pub enum ErasureStep {
 impl ErasureStep {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Stripe => "stripe",
             Self::Photos => "photos",
             Self::Swipes => "swipes",
             Self::Postgres => "postgres",
@@ -216,7 +213,6 @@ impl ErasureStep {
 
     pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "stripe" => Some(Self::Stripe),
             "photos" => Some(Self::Photos),
             "swipes" => Some(Self::Swipes),
             "postgres" => Some(Self::Postgres),
@@ -227,7 +223,6 @@ impl ErasureStep {
 
     const fn unavailable_code(self) -> &'static str {
         match self {
-            Self::Stripe => "erasure_stripe_unavailable",
             Self::Photos => "erasure_photos_unavailable",
             Self::Swipes => "erasure_swipes_unavailable",
             Self::Postgres | Self::Completed => "erasure_postgres_unavailable",
@@ -273,25 +268,6 @@ pub trait ErasureStore: Send + Sync {
 
 pub type ErasureDependencyFuture<'a> =
     Pin<Box<dyn Future<Output = Result<bool, ErasureStepError>> + Send + 'a>>;
-
-pub trait CustomerEraser: Send + Sync {
-    fn delete_customer_for_account(&self, user_id: Uuid) -> ErasureDependencyFuture<'_>;
-}
-
-impl CustomerEraser for BillingService {
-    fn delete_customer_for_account(&self, user_id: Uuid) -> ErasureDependencyFuture<'_> {
-        Box::pin(async move {
-            BillingService::delete_customer_for_account(self, user_id)
-                .await
-                .map_err(|error| match error {
-                    BillingError::ErasureStripeReconciliationRequired => {
-                        ErasureStepError::new("erasure_stripe_reconciliation_required")
-                    }
-                    _ => ErasureStepError::new("erasure_stripe_unavailable"),
-                })
-        })
-    }
-}
 
 pub trait PhotoEraser: Send + Sync {
     fn delete_photos_for_account(&self, user_id: Uuid) -> ErasureDependencyFuture<'_>;
@@ -346,7 +322,6 @@ impl From<AccountActivityError> for ErasureStepError {
 pub struct ErasureService {
     store: Arc<dyn ErasureStore>,
     activity: AccountActivityPool,
-    billing: Arc<dyn CustomerEraser>,
     photos: Arc<dyn PhotoEraser>,
 }
 
@@ -354,13 +329,11 @@ impl ErasureService {
     pub fn new(
         store: Arc<dyn ErasureStore>,
         activity: AccountActivityPool,
-        billing: Arc<dyn CustomerEraser>,
         photos: Arc<dyn PhotoEraser>,
     ) -> Self {
         Self {
             store,
             activity,
-            billing,
             photos,
         }
     }
@@ -378,7 +351,6 @@ impl ErasureService {
 
         let store = Arc::clone(&self.store);
         let deferred_store = Arc::clone(&self.store);
-        let billing = Arc::clone(&self.billing);
         let photos = Arc::clone(&self.photos);
         let step = initial.step;
         let result: Result<TryExclusive<bool>, ErasureStepError> = self
@@ -396,13 +368,6 @@ impl ErasureService {
                         return Ok(true);
                     }
                     let next = match current.step {
-                        ErasureStep::Stripe => {
-                            if billing.delete_customer_for_account(current.user_id).await? {
-                                ErasureStep::Photos
-                            } else {
-                                ErasureStep::Stripe
-                            }
-                        }
                         ErasureStep::Photos => {
                             if photos.delete_photos_for_account(current.user_id).await? {
                                 ErasureStep::Swipes
@@ -439,8 +404,7 @@ impl ErasureService {
                 })
             })
             .await;
-        // Dependency errors are already normalized. In particular an uncertain
-        // Stripe creation needs reconciliation, not an ordinary provider retry.
+        // Dependency errors are already normalized.
         let result = result?;
 
         match result {

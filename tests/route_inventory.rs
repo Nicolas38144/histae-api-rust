@@ -28,7 +28,7 @@ fn documented_http_inventory_matches_rust_route_registrations() {
     );
     assert_eq!(
         documented.len(),
-        148,
+        137,
         "review the expected route count when the contract changes"
     );
 }
@@ -122,13 +122,13 @@ fn collect_postman_routes(items: &serde_json::Value, routes: &mut Vec<Route>) {
             };
             if request["method"] != "GET" {
                 assert!(
-                    has_header("Origin", "{{webBillingOrigin}}"),
+                    has_header("Origin", "{{webAccountOrigin}}"),
                     "website mutation origin: {path}"
                 );
             }
             if !path.contains("/otp/") && !path.ends_with("/plans") {
                 assert!(
-                    has_header("Cookie", "{{webBillingCookie}}"),
+                    has_header("Cookie", "{{webAccountCookie}}"),
                     "website session cookie: {path}"
                 );
             }

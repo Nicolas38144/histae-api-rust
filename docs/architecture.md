@@ -17,7 +17,7 @@ responsabilités doivent être séparées.
 | `service.rs` | Cas d’usage, invariants, coordination et erreurs métier |
 | `pg.rs` ou `pg/` | SQL, transactions, verrous et mapping des lignes |
 | `http.rs` | DTO/extracteurs, authentification, routeur Axum et erreurs HTTP |
-| Adaptateur nommé (`stripe.rs`, `s3.rs`, etc.) | Protocole et limites du fournisseur |
+| Adaptateur nommé (`s3.rs`, etc.) | Protocole et limites du fournisseur |
 
 Il n’est pas nécessaire de créer chacun de ces fichiers pour une fonctionnalité minuscule. Certains types de
 projection utilisent Serde directement lorsqu’ils représentent déjà exactement le contrat public. Les erreurs
@@ -37,7 +37,7 @@ transaction. `infra/` fournit les mécanismes communs, pas un repository génér
 | `profiles`, `catalog`, `discovery` | Profils/préférences, traits/questions/plans, feed et swipes |
 | `matches` | Matchs, continuation, messages et échéances |
 | `media`, `moderation` | Photos privées, codec, stockage et modération de contenus |
-| `billing`, `advertising`, `notifications` | Stripe web, achats Apple/Google et réconciliation, récompenses AdMob, notifications durables, push et SSE |
+| `billing`, `advertising`, `notifications` | Achats Apple/Google et réconciliation, récompenses AdMob, notifications durables, push et SSE |
 | `privacy`, `reports`, `administration` | Consentements/droits/effacement, signalements et gestion admin |
 | `outbox`, `operations`, `shared` | Effets durables, suivi/metrics/logs et fonctions partagées |
 
@@ -77,10 +77,8 @@ en mémoire ne remplace jamais un verrou transactionnel distribué. Les futures 
 - `notifications/domain.rs` porte les types et les durées de conservation ; `enqueue.rs` crée les
   notifications et leurs tâches dans la transaction métier. `delivery/pg.rs` vérifie l'éligibilité
   et les échéances actuelles ; `delivery.rs` orchestre l'envoi et `push.rs` implémente FCM.
-- `billing/reconcile/` sépare modèles, ports, service, fournisseur Stripe, PostgreSQL, HTTP et worker.
-- `billing/webhook/pg.rs` isole la projection transactionnelle des événements Stripe signés.
 - `billing/stores/` sépare règles, ports fournisseur/persistance, service, transactions PostgreSQL, transport HTTP, administration et worker. `services/store-verifier/` valide les preuves Apple/Google sur le réseau privé ; il ne reçoit aucun accès à PostgreSQL.
-- `billing/web/{domain,store,service,pg}.rs` isole le parcours OTP/session du site, ses ports et ses transactions des JWT mobiles. `web/http/` contient uniquement DTO et sécurité du transport. Le paiement web réutilise le service Stripe, sans ouvrir les anciennes routes mobiles Checkout. Les alias `/api/web/account/*` partagent cette session avec `privacy/web/` : `http.rs` contrôle origine, cookie et débit avant la validation des champs du corps ; `service.rs` orchestre les retraits partiels avec les services photo et consentements. La fermeture du compte réutilise le service d'effacement. La gestion des données reste disponible sans paiement activé ni onboarding terminé.
+- `identity/web/{domain,store,service,pg}.rs` isole le parcours OTP/session du site des JWT mobiles. `web/http/` contient les DTO et la sécurité du transport. Les routes `/api/web/account/*` partagent cette session avec `privacy/web/`, qui contrôle origine, cookie et débit avant les actions sur les données. La fermeture du compte réutilise le service d’effacement ; aucun achat web n’est proposé.
 - `billing/stores/administration/domain.rs` porte le modèle et les invariants des rapports financiers ; `pg.rs` conserve le contrôle transactionnel du rôle superadmin, l’import financier idempotent et son audit. Le transport HTTP impose aussi origine et authentification récente.
 - `identity/mobile/phone_blocklist/` sépare les règles locales (`domain.rs`), le transport HTTP,
   le téléchargement et la validation des sources (`sync.rs`), les décisions transactionnelles
@@ -159,7 +157,7 @@ Les traductions des catalogues n’affectent ni les règles d’éligibilité ni
 
 ## Droits Premium multicanal
 
-Stripe et les stores conservent leurs projections indépendantes. La fonction PostgreSQL
+Les achats natifs et les droits internes ou offerts conservent leurs projections indépendantes. La fonction PostgreSQL
 `effective_subscription_at` résout les droits à une date donnée ; le feed, les matchs, les quotas,
 les métriques et la lecture d’abonnement utilisent cette même projection. Les transactions natives
 partagent les verrous des wallets de continuation. L’expiration est vérifiée même sans webhook.

@@ -18,18 +18,18 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Numéros SMS publics](phone-blocklist.md) : listes locales, exceptions administratives, import quotidien et alertes.
 - [Configuration](configuration.md) : chargement, priorité des variables, contraintes et secrets.
 - [Déploiement](container-deployment.md) : topologies, réseaux, TLS, démarrage et mise à jour.
-- [Secrets de production](production-secrets.md) : génération S3, CA PostgreSQL/Redis, certificat public S3 et identifiants Stripe.
+- [Secrets de production](production-secrets.md) : génération S3, CA PostgreSQL/Redis, certificat public S3 et secrets des fournisseurs natifs.
 - [Scripts serveur](../../histae-scripts/README.md) : procédures dev/production, vérifications et timer de maintenance.
 - [Base de données](database.md) : schéma, migrateur, sauvegarde, restauration et suppression.
 - [Rôles PostgreSQL](postgres-roles.md) : comptes séparés, mots de passe dans `.env`, installation et conversion dev.
 - [Administration](administration.md) : premier superadmin, enrôlement, sessions et rôles.
 - [Exploitation](operations.md) : processus, passes de maintenance et incidents de démarrage.
-- [Achats Apple / Google et paiement web](store-billing.md) : configuration, OTP du site, restaurations, rapports et exploitation.
-- [Parcours Stripe](billing.md) : configuration, Checkout, Premium, renouvellements, reprises et revenus.
+- [Achats Apple / Google](store-billing.md) : configuration, OTP du site, restaurations, rapports et exploitation.
+- [Abonnements](billing.md) : droits Premium, revenus issus des rapports et retrait du paiement web.
 - [Continuations et récompenses](continuation-and-rewards.md) : fenêtres, crédits, confidentialité des choix et activation AdMob.
 - [Audit fonctionnel](feature-audit.md) : corrections, contrôles actuels et validations fournisseur restantes.
 - [Confidentialité et capacité photo](privacy-and-photo-security.md) : localisation approximative, migration, limites du convertisseur et expiration des liens photo.
-- [Internationalisation](internationalization.md) : langues, traductions des catalogues, documents, notifications et Stripe.
+- [Internationalisation](internationalization.md) : langues, traductions des catalogues, documents, notifications et préférences.
 - [Notifications push](push-notifications.md) : événements, prénoms, destinations, expiration et validation de livraison.
 - [Contrat HTTP](http-contract.md) : routes, entrées, réponses, permissions et idempotence.
 - [Postman](../postman/README.md) : import des JSON et parcours de test.

@@ -19,8 +19,7 @@ use histae_api_rust::outbox::pg::PgOutboxRepository;
 use histae_api_rust::outbox::store::OutboxStore;
 use histae_api_rust::privacy::erasure::pg::PgErasureRepository;
 use histae_api_rust::privacy::erasure::{
-    AccountDeletionError, AccountDeletionService, CustomerEraser, ErasureDependencyFuture,
-    ErasureService, ErasureStepError,
+    AccountDeletionError, AccountDeletionService, ErasureService, ErasureStepError,
 };
 use histae_api_rust::shared::clock::Clock;
 use uuid::Uuid;
@@ -116,29 +115,6 @@ struct FixedClock(DateTime<Utc>);
 impl Clock for FixedClock {
     fn now(&self) -> DateTime<Utc> {
         self.0
-    }
-}
-
-#[derive(Default)]
-struct CustomerPort(AtomicU32);
-
-impl CustomerEraser for CustomerPort {
-    fn delete_customer_for_account(&self, _user_id: Uuid) -> ErasureDependencyFuture<'_> {
-        Box::pin(async move {
-            self.0.fetch_add(1, Ordering::Relaxed);
-            Ok(true)
-        })
-    }
-}
-
-struct ReconciliationRequired;
-impl CustomerEraser for ReconciliationRequired {
-    fn delete_customer_for_account(&self, _: Uuid) -> ErasureDependencyFuture<'_> {
-        Box::pin(async {
-            Err(ErasureStepError::new(
-                "erasure_stripe_reconciliation_required",
-            ))
-        })
     }
 }
 
@@ -324,7 +300,6 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
         .await?;
         assert_eq!(token_count, 0);
 
-        let customers = Arc::new(CustomerPort::default());
         let deleted_objects = Arc::new(AtomicU32::new(0));
         let storage = Arc::new(CheckingStorage {
             database: database.clone(),
@@ -344,12 +319,7 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
         let worker_id = Uuid::new_v4();
         claim(&database, event_id, worker_id).await?;
         let wrong_worker = Uuid::new_v4();
-        let service = ErasureService::new(
-            repository.clone(),
-            activity.clone(),
-            customers.clone(),
-            photos.clone(),
-        );
+        let service = ErasureService::new(repository.clone(), activity.clone(), photos.clone());
         let mut blocker = database.acquire().await?;
         let shared_lock: bool = sqlx::query_scalar(
             "SELECT pg_try_advisory_lock_shared(hashtextextended($1, 13092026))",
@@ -365,7 +335,6 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
                 .fetch_one(&mut *connection)
                 .await?;
         assert_eq!(deferred, ("pending".to_owned(), 0));
-        assert_eq!(customers.0.load(Ordering::Relaxed), 0);
         sqlx::query("SELECT pg_advisory_unlock_all()")
             .execute(&mut *blocker)
             .await?;
@@ -377,29 +346,7 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
             Err(ErasureStepError::new("erasure_invalid_state"))
         );
 
-        let blocked = ErasureService::new(
-            repository.clone(),
-            activity.clone(),
-            Arc::new(ReconciliationRequired),
-            photos.clone(),
-        );
-        assert_eq!(
-            blocked.process(event_id, worker_id).await,
-            Err(ErasureStepError::new(
-                "erasure_stripe_reconciliation_required"
-            ))
-        );
-        assert_eq!(step(&database, accepted.request_id).await?, "stripe");
-        assert!(!service.process(event_id, worker_id).await?);
-        assert_eq!(step(&database, accepted.request_id).await?, "photos");
-        claim(&database, event_id, worker_id).await?;
-
-        let restarted = ErasureService::new(
-            repository.clone(),
-            activity.clone(),
-            customers.clone(),
-            photos.clone(),
-        );
+        let restarted = ErasureService::new(repository.clone(), activity.clone(), photos.clone());
         assert!(!restarted.process(event_id, worker_id).await?);
         assert_eq!(step(&database, accepted.request_id).await?, "swipes");
         claim(&database, event_id, worker_id).await?;
@@ -445,7 +392,6 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
         .fetch_one(&mut *connection)
         .await?;
         assert_eq!(audits, 1);
-        assert_eq!(customers.0.load(Ordering::Relaxed), 1);
         assert_eq!(deleted_objects.load(Ordering::Relaxed), 1);
 
         let outbox = PgOutboxRepository::new(database.clone());

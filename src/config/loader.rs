@@ -434,8 +434,6 @@ impl AppConfig {
             "SWEEGO_API_KEY",
             "SWEEGO_WEBHOOK_SECRET",
             "FIREBASE_PRIVATE_KEY",
-            "STRIPE_SECRET_KEY",
-            "STRIPE_WEBHOOK_SECRET",
             "GRAFANA_ADMIN_PASSWORD",
         ];
         if metrics_enabled
@@ -549,7 +547,6 @@ impl AppConfig {
             timeout: push_timeout,
         };
 
-        let billing = billing_config(source, environment)?;
         let advertising_provider = source.or("ADVERTISING_PROVIDER", "disabled")?;
         let advertising_enabled = match advertising_provider.as_str() {
             "disabled" => false,
@@ -603,7 +600,7 @@ impl AppConfig {
             admin_auth: limit(source, "RATE_LIMIT_ADMIN_AUTH", 10, "5m")?,
         };
 
-        let (store_billing, web_billing) = super::stores::load(source, environment)?;
+        let (store_billing, web_account) = super::stores::load(source, environment)?;
         Ok(Self {
             environment,
             port,
@@ -615,9 +612,8 @@ impl AppConfig {
             sms,
             redis,
             push,
-            billing,
             store_billing,
-            web_billing,
+            web_account,
             advertising,
             object_storage,
             admin_auth,

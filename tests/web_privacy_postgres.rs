@@ -38,7 +38,7 @@ async fn origin_and_cookie_guards_precede_field_validation_and_never_accept_targ
                 .headers_mut()
                 .insert(header::AUTHORIZATION, "Bearer mobile-token".parse()?);
             let admin_cookie = format!("__Host-histae_admin={}", "a".repeat(43));
-            let forged_cookie = format!("__Host-histae_billing={}", "a".repeat(43));
+            let forged_cookie = format!("__Host-histae_account={}", "a".repeat(43));
             for (request, status, code) in [
                 (no_origin, 403, "invalid_web_request_origin"),
                 (bad_origin, 403, "invalid_web_request_origin"),
@@ -184,22 +184,20 @@ async fn account_erasure_requires_its_own_unexpired_token_and_invalidates_all_se
         let (_, _, token) = f.send(f.request("POST", "/api/web/privacy/deletion-token", Some(&f.cookie), "")).await?;
         let body = json!({"confirmation_token":token["confirmation_token"]}).to_string();
         let second_token = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, Uuid::new_v4().as_bytes().repeat(2));
-        sqlx::query("INSERT INTO web_billing_session(token_hash,user_id) VALUES($1,$2)").bind(sha256_hex(second_token.as_bytes())).bind(f.user).execute(&mut *f.db.acquire().await?).await?;
+        sqlx::query("INSERT INTO web_account_session(token_hash,user_id) VALUES($1,$2)").bind(sha256_hex(second_token.as_bytes())).bind(f.user).execute(&mut *f.db.acquire().await?).await?;
         let (status, headers, accepted) = f.send(f.request("DELETE", "/api/web/privacy/account", Some(&f.cookie), &body)).await?;
         assert_eq!(status, StatusCode::ACCEPTED);
         assert_eq!(accepted["status"], "in_progress");
         let cookie = headers[header::SET_COOKIE].to_str()?;
         assert!(cookie.contains("Max-Age=0") && cookie.contains("Secure") && cookie.contains("HttpOnly"));
         let request = Uuid::parse_str(accepted["request_id"].as_str().unwrap())?;
-        let queued: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_erasure WHERE user_id=$1 AND request_id=$2 AND step='stripe') AND EXISTS(SELECT 1 FROM outbox_event WHERE aggregate_id=$2 AND event_type='account.erase') AND NOT EXISTS(SELECT 1 FROM account_deletion_token WHERE user_id=$1)")
+        let queued: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_erasure WHERE user_id=$1 AND request_id=$2 AND step='photos') AND EXISTS(SELECT 1 FROM outbox_event WHERE aggregate_id=$2 AND event_type='account.erase') AND NOT EXISTS(SELECT 1 FROM account_deletion_token WHERE user_id=$1)")
             .bind(f.user).bind(request).fetch_one(&mut *f.db.acquire().await?).await?;
         assert!(queued);
-        let second_cookie = format!("__Host-histae_billing={second_token}");
+        let second_cookie = format!("__Host-histae_account={second_token}");
         for cookie in [&f.cookie, &second_cookie] {
-            for path in ["/api/web/account/session", "/api/web/billing/session"] {
-                let (status, _, _) = f.send(f.request("GET", path, Some(cookie), "")).await?;
-                assert_eq!(status, StatusCode::UNAUTHORIZED);
-            }
+            let (status, _, _) = f.send(f.request("GET", "/api/web/account/session", Some(cookie), "")).await?;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
             let (status, _, _) = f.send(f.request("DELETE", "/api/web/privacy/account", Some(cookie), &body)).await?;
             assert_eq!(status, StatusCode::UNAUTHORIZED);
         }
@@ -216,7 +214,7 @@ async fn expired_banned_and_deleted_accounts_cannot_use_website_privacy() -> Tes
     let f = Fixture::new(100, 100).await?;
     let result: TestResult = async {
         for query in [
-            "UPDATE web_billing_session SET expires_at=clock_timestamp()-INTERVAL '1 second' WHERE user_id=$1",
+            "UPDATE web_account_session SET expires_at=clock_timestamp()-INTERVAL '1 second' WHERE user_id=$1",
             "UPDATE user_account SET is_banned=true WHERE user_id=$1",
             "UPDATE user_account SET deleted_at=clock_timestamp() WHERE user_id=$1",
         ] {
@@ -225,7 +223,7 @@ async fn expired_banned_and_deleted_accounts_cannot_use_website_privacy() -> Tes
                 let (status, _, _) = f.send(f.request(method,path,Some(&f.cookie),"{}")).await?;
                 assert_eq!(status, StatusCode::UNAUTHORIZED);
             }
-            sqlx::query("UPDATE web_billing_session SET expires_at=clock_timestamp()+INTERVAL '30 minutes' WHERE user_id=$1").bind(f.user).execute(&mut *f.db.acquire().await?).await?;
+            sqlx::query("UPDATE web_account_session SET expires_at=clock_timestamp()+INTERVAL '30 minutes' WHERE user_id=$1").bind(f.user).execute(&mut *f.db.acquire().await?).await?;
             sqlx::query("UPDATE user_account SET is_banned=false WHERE user_id=$1").bind(f.user).execute(&mut *f.db.acquire().await?).await?;
         }
         Ok(())
@@ -235,7 +233,7 @@ async fn expired_banned_and_deleted_accounts_cannot_use_website_privacy() -> Tes
 }
 
 #[tokio::test]
-async fn account_otp_aliases_share_limits_and_session_without_enabling_payment() -> TestResult {
+async fn account_otp_replays_share_limits_and_session_without_website_payments() -> TestResult {
     let f = Fixture::new(100, 3).await?;
     let result: TestResult = async {
         let mut unknown = f.request(
@@ -252,10 +250,10 @@ async fn account_otp_aliases_share_limits_and_session_without_enabling_payment()
         assert!(f.sms.0.lock().unwrap().is_empty());
         let key = Uuid::new_v4();
         let mut challenge = None;
-        for prefix in ["account", "billing"] {
+        for _ in 0..2 {
             let mut send = f.request(
                 "POST",
-                &format!("/api/web/{prefix}/otp/send"),
+                "/api/web/account/otp/send",
                 None,
                 &json!({"user_id":f.user,"phone_number":PHONE}).to_string(),
             );
@@ -283,7 +281,7 @@ async fn account_otp_aliases_share_limits_and_session_without_enabling_payment()
         let verify =
             json!({"challenge_id":challenge.unwrap(),"phone_number":PHONE,"otp":code}).to_string();
         let (status, headers, _) = f
-            .send(f.request("POST", "/api/web/billing/otp/verify", None, &verify))
+            .send(f.request("POST", "/api/web/account/otp/verify", None, &verify))
             .await?;
         assert_eq!(status, StatusCode::NO_CONTENT);
         let set_cookie = headers[header::SET_COOKIE].to_str()?;
@@ -310,8 +308,8 @@ async fn account_otp_aliases_share_limits_and_session_without_enabling_payment()
             ("/api/web/billing/portal", ""),
         ] {
             let (status, _, body) = f.send(f.request("POST", path, Some(cookie), body)).await?;
-            assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-            assert_eq!(body["error"]["code"], "web_billing_unavailable");
+            assert_eq!(status, StatusCode::NOT_FOUND);
+            assert_eq!(body["error"]["code"], "route_not_found");
         }
         let (status, headers, _) = f
             .send(f.request("DELETE", "/api/web/account/session", Some(cookie), ""))
@@ -319,7 +317,7 @@ async fn account_otp_aliases_share_limits_and_session_without_enabling_payment()
         assert_eq!(status, StatusCode::NO_CONTENT);
         assert!(headers[header::SET_COOKIE].to_str()?.contains("Max-Age=0"));
         let (status, _, _) = f
-            .send(f.request("GET", "/api/web/billing/session", Some(cookie), ""))
+            .send(f.request("GET", "/api/web/account/session", Some(cookie), ""))
             .await?;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let (status, _, _) = f

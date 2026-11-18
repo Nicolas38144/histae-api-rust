@@ -510,36 +510,15 @@ CREATE TABLE subscription_plan_feature (
     CONSTRAINT subscription_plan_feature_plan_code_fkey FOREIGN KEY (plan_code) REFERENCES subscription_plan(code) ON DELETE CASCADE
 );
 
+-- Internal, non-commercial entitlements. Purchases are verified by stores only.
 CREATE TABLE user_subscription (
-    user_id uuid NOT NULL,
-    plan text DEFAULT 'free'::text NOT NULL,
-    provider text,
-    provider_subscription_id text,
-    provider_price_id text,
-    billing_period text,
-    status text,
-    cancel_at_period_end boolean DEFAULT false NOT NULL,
-    current_period_starts_at timestamp with time zone,
-    current_period_ends_at timestamp with time zone,
-    trial_ends_at timestamp with time zone,
-    canceled_at timestamp with time zone,
-    provider_event_created_at timestamp with time zone,
-    projection_version bigint DEFAULT 0 NOT NULL,
-    provider_snapshot_at timestamp with time zone,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT user_subscription_billing_period_check CHECK (((billing_period IS NULL) OR (billing_period = ANY (ARRAY['monthly'::text, 'annual'::text])))),
-    CONSTRAINT user_subscription_provider_check CHECK (((provider IS NULL) OR (provider = 'stripe'::text))),
-    CONSTRAINT user_subscription_provider_price_id_check CHECK (((provider_price_id IS NULL) OR (provider_price_id ~ '^price_[A-Za-z0-9]+$'::text))),
-    CONSTRAINT user_subscription_provider_subscription_id_check CHECK (((provider_subscription_id IS NULL) OR (provider_subscription_id ~ '^sub_[A-Za-z0-9]+$'::text))),
-    CONSTRAINT user_subscription_projection_version_check CHECK ((projection_version >= 0)),
-    CONSTRAINT user_subscription_status_check CHECK (((status IS NULL) OR (status = ANY (ARRAY['incomplete'::text, 'incomplete_expired'::text, 'trialing'::text, 'active'::text, 'past_due'::text, 'canceled'::text, 'unpaid'::text, 'paused'::text])))),
-    CONSTRAINT user_subscription_pkey PRIMARY KEY (user_id),
-    CONSTRAINT user_subscription_provider_subscription_id_key UNIQUE (provider_subscription_id),
-    CONSTRAINT user_subscription_plan_fkey FOREIGN KEY (plan) REFERENCES subscription_plan(code),
-    CONSTRAINT user_subscription_user_id_fkey FOREIGN KEY (user_id) REFERENCES user_account(user_id) ON DELETE CASCADE
+    user_id uuid PRIMARY KEY REFERENCES user_account(user_id) ON DELETE CASCADE,
+    plan text NOT NULL DEFAULT 'free' REFERENCES subscription_plan(code),
+    current_period_starts_at timestamptz,
+    current_period_ends_at timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now()
 );
-
-CREATE INDEX idx_user_subscription_plan_updated ON user_subscription USING btree (plan, updated_at);
+CREATE INDEX idx_user_subscription_plan_updated ON user_subscription(plan,updated_at);
 
 -- BEGIN complimentary premium
 CREATE TABLE IF NOT EXISTS complimentary_premium_grant (
@@ -611,7 +590,7 @@ RETURNS TABLE (
     user_id uuid, plan text, provider text, provider_subscription_id text, provider_price_id text,
     billing_period text, status text, cancel_at_period_end boolean,
     current_period_starts_at timestamptz, current_period_ends_at timestamptz,
-    trial_ends_at timestamptz, canceled_at timestamptz, access_granted boolean,
+    canceled_at timestamptz, access_granted boolean,
     provider_event_created_at timestamptz, updated_at timestamptz
 ) LANGUAGE sql STABLE AS $body$
 WITH complimentary_accounts AS (
@@ -625,21 +604,18 @@ WITH complimentary_accounts AS (
       AND a.deleted_at IS NULL
       AND CASE WHEN a.is_review_account THEN a.created_at ELSE gift.granted_at END <= p_at
       AND (p_user_id IS NULL OR a.user_id = p_user_id)
-), subscription_candidates AS (
-    -- Internal grants and Stripe projections retain their existing validity rules.
-    SELECT
-        s.user_id, s.plan, s.provider, s.provider_subscription_id, s.provider_price_id,
-        s.billing_period, s.status, s.cancel_at_period_end,
-        s.current_period_starts_at, s.current_period_ends_at,
-        s.trial_ends_at, s.canceled_at,
-        COALESCE(s.plan = 'premium' AND (
-            (s.provider IS NULL AND (s.current_period_ends_at IS NULL OR s.current_period_ends_at > p_at))
-            OR (s.provider = 'stripe' AND s.status IN ('trialing', 'active', 'past_due')
-                AND s.current_period_ends_at > p_at)
-        ), false) AS access_granted,
-        s.provider_event_created_at, s.updated_at
-    FROM user_subscription AS s
-    WHERE p_user_id IS NULL OR s.user_id = p_user_id
+), subscription_candidates (
+    user_id, plan, provider, provider_subscription_id, provider_price_id,
+    billing_period, status, cancel_at_period_end,
+    current_period_starts_at, current_period_ends_at, canceled_at, access_granted,
+    provider_event_created_at, updated_at
+) AS (
+    -- Internal non-commercial entitlements retain their validity.
+    SELECT s.user_id,s.plan,NULL::text,NULL::text,NULL::text,NULL::text,NULL::text,false,
+        s.current_period_starts_at,s.current_period_ends_at,NULL::timestamptz,
+        COALESCE(s.plan='premium' AND (s.current_period_ends_at IS NULL OR s.current_period_ends_at>p_at),false),
+        NULL::timestamptz,s.updated_at
+    FROM user_subscription s WHERE p_user_id IS NULL OR s.user_id=p_user_id
 
     UNION ALL
 
@@ -647,7 +623,7 @@ WITH complimentary_accounts AS (
     SELECT
         s.user_id, 'premium', s.provider, s.original_id, s.product_id,
         s.billing_period, s.status, NOT s.auto_renew,
-        s.starts_at, s.expires_at, NULL::timestamptz,
+        s.starts_at, s.expires_at,
         CASE WHEN NOT s.auto_renew THEN s.verified_at END,
         s.starts_at <= p_at AND s.expires_at > p_at
             AND (s.status IN ('active', 'grace_period')
@@ -672,7 +648,6 @@ WITH complimentary_accounts AS (
         false AS cancel_at_period_end,
         a.starts_at AS current_period_starts_at,
         NULL::timestamptz AS current_period_ends_at,
-        NULL::timestamptz AS trial_ends_at,
         NULL::timestamptz AS canceled_at,
         true AS access_granted,
         NULL::timestamptz AS provider_event_created_at,
@@ -685,8 +660,8 @@ FROM subscription_candidates AS c
 ORDER BY
     c.user_id,
     c.access_granted DESC,
-    (c.status IN ('pending', 'incomplete', 'trialing', 'active', 'grace_period',
-                  'past_due', 'on_hold', 'paused', 'unpaid')) DESC NULLS LAST,
+    (c.status IN ('pending', 'active', 'grace_period',
+                  'past_due', 'on_hold', 'paused')) DESC NULLS LAST,
     (c.plan = 'premium') DESC,
     c.current_period_ends_at DESC NULLS FIRST,
     c.updated_at DESC,
@@ -696,8 +671,8 @@ CREATE OR REPLACE VIEW effective_user_subscription AS
 SELECT * FROM effective_subscription_at(NULL, statement_timestamp());
 -- END store billing
 
--- BEGIN web billing
-CREATE TABLE IF NOT EXISTS web_billing_challenge (
+-- BEGIN web account
+CREATE TABLE IF NOT EXISTS web_account_challenge (
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     idempotency_key uuid NOT NULL UNIQUE,
     requested_user_id uuid NOT NULL,
@@ -709,118 +684,15 @@ CREATE TABLE IF NOT EXISTS web_billing_challenge (
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     expires_at timestamptz NOT NULL DEFAULT clock_timestamp()+interval '10 minutes'
 );
-CREATE INDEX IF NOT EXISTS idx_web_challenge_expiry ON web_billing_challenge(expires_at, id);
-CREATE TABLE IF NOT EXISTS web_billing_session (
+CREATE INDEX IF NOT EXISTS idx_web_challenge_expiry ON web_account_challenge(expires_at, id);
+CREATE TABLE IF NOT EXISTS web_account_session (
     token_hash text PRIMARY KEY,
     user_id uuid NOT NULL REFERENCES user_account(user_id) ON DELETE CASCADE,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     expires_at timestamptz NOT NULL DEFAULT clock_timestamp()+interval '30 minutes'
 );
-CREATE INDEX IF NOT EXISTS idx_web_session_expiry ON web_billing_session(expires_at);
--- END web billing
-
-CREATE TABLE billing_customer (
-    user_id uuid NOT NULL,
-    stripe_customer_id text NOT NULL,
-    stripe_customer_deleted_at timestamp with time zone,
-    trial_used_at timestamp with time zone,
-    stripe_reconciliation_due_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
-    stripe_reconciled_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT billing_customer_reconciliation_order_check CHECK (((stripe_reconciled_at IS NULL) OR (stripe_reconciliation_due_at >= stripe_reconciled_at))),
-    CONSTRAINT billing_customer_stripe_customer_id_check CHECK ((stripe_customer_id ~ '^cus_[A-Za-z0-9]+$'::text)),
-    CONSTRAINT billing_customer_pkey PRIMARY KEY (user_id),
-    CONSTRAINT billing_customer_stripe_customer_id_key UNIQUE (stripe_customer_id),
-    CONSTRAINT billing_customer_user_id_fkey FOREIGN KEY (user_id) REFERENCES user_account(user_id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_billing_customer_active_stripe_id ON billing_customer USING btree (stripe_customer_id) WHERE (stripe_customer_deleted_at IS NULL);
-
-CREATE INDEX idx_billing_customer_reconciliation_due ON billing_customer USING btree (stripe_reconciliation_due_at, user_id) WHERE (stripe_customer_deleted_at IS NULL);
-
-CREATE TABLE billing_checkout_session (
-    id uuid NOT NULL,
-    user_id uuid NOT NULL,
-    idempotency_key uuid NOT NULL,
-    billing_period text NOT NULL,
-    stripe_session_id text,
-    checkout_url text,
-    status text NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    customer_creation_started_at timestamp with time zone,
-    created_customer_id text,
-    customer_erased_at timestamp with time zone,
-    stripe_checkout_request jsonb,
-    creation_generation bigint DEFAULT 0 NOT NULL,
-    CONSTRAINT billing_checkout_session_billing_period_check CHECK ((billing_period = ANY (ARRAY['monthly'::text, 'annual'::text]))),
-    CONSTRAINT billing_checkout_session_checkout_url_check CHECK (((checkout_url IS NULL) OR (octet_length(checkout_url) <= 4096))),
-    CONSTRAINT billing_checkout_created_customer_id_check CHECK (((created_customer_id IS NULL) OR (created_customer_id ~ '^cus_[A-Za-z0-9]+$'::text))),
-    CONSTRAINT billing_checkout_session_status_check CHECK ((status = ANY (ARRAY['creating'::text, 'open'::text, 'completed'::text, 'expired'::text, 'failed'::text]))),
-    CONSTRAINT billing_checkout_session_stripe_session_id_check CHECK (((stripe_session_id IS NULL) OR (stripe_session_id ~ '^cs_(test_|live_)?[A-Za-z0-9]+$'::text))),
-    CONSTRAINT billing_checkout_session_pkey PRIMARY KEY (id),
-    CONSTRAINT billing_checkout_session_stripe_session_id_key UNIQUE (stripe_session_id),
-    CONSTRAINT billing_checkout_session_user_id_idempotency_key_key UNIQUE (user_id, idempotency_key),
-    CONSTRAINT billing_checkout_session_user_id_fkey FOREIGN KEY (user_id) REFERENCES user_account(user_id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_billing_checkout_expiry ON billing_checkout_session USING btree (expires_at) WHERE (status = ANY (ARRAY['creating'::text, 'open'::text]));
-
-CREATE UNIQUE INDEX idx_billing_checkout_one_live_per_user ON billing_checkout_session USING btree (user_id) WHERE (status = ANY (ARRAY['creating'::text, 'open'::text]));
-
-CREATE INDEX idx_checkout_customer_erasure ON billing_checkout_session USING btree (user_id, id) WHERE ((customer_creation_started_at IS NOT NULL) AND (customer_erased_at IS NULL));
-
-CREATE TABLE billing_invoice (
-    stripe_invoice_id text NOT NULL,
-    user_id uuid,
-    stripe_customer_id text NOT NULL,
-    stripe_subscription_id text,
-    status text,
-    currency character(3) NOT NULL,
-    amount_due bigint NOT NULL,
-    amount_paid bigint NOT NULL,
-    amount_remaining bigint NOT NULL,
-    period_starts_at timestamp with time zone NOT NULL,
-    period_ends_at timestamp with time zone NOT NULL,
-    paid_at timestamp with time zone,
-    created_at timestamp with time zone NOT NULL,
-    provider_event_created_at timestamp with time zone,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT billing_invoice_amount_due_check CHECK ((amount_due >= 0)),
-    CONSTRAINT billing_invoice_amount_paid_check CHECK ((amount_paid >= 0)),
-    CONSTRAINT billing_invoice_amount_remaining_check CHECK ((amount_remaining >= 0)),
-    CONSTRAINT billing_invoice_currency_check CHECK ((currency ~ '^[A-Z]{3}$'::text)),
-    CONSTRAINT billing_invoice_stripe_customer_id_check CHECK ((stripe_customer_id ~ '^cus_[A-Za-z0-9]+$'::text)),
-    CONSTRAINT billing_invoice_stripe_invoice_id_check CHECK ((stripe_invoice_id ~ '^in_[A-Za-z0-9]+$'::text)),
-    CONSTRAINT billing_invoice_stripe_subscription_id_check CHECK (((stripe_subscription_id IS NULL) OR (stripe_subscription_id ~ '^sub_[A-Za-z0-9]+$'::text))),
-    CONSTRAINT billing_invoice_pkey PRIMARY KEY (stripe_invoice_id),
-    CONSTRAINT billing_invoice_user_id_fkey FOREIGN KEY (user_id) REFERENCES user_account(user_id) ON DELETE SET NULL
-);
-
-CREATE INDEX idx_billing_invoice_user_created ON billing_invoice USING btree (user_id, created_at DESC) WHERE (user_id IS NOT NULL);
-
-CREATE INDEX idx_billing_invoice_user_created_id ON billing_invoice USING btree (user_id, created_at, stripe_invoice_id) WHERE (user_id IS NOT NULL);
-
-CREATE INDEX idx_billing_invoice_paid_revenue ON billing_invoice (paid_at) WHERE (status = 'paid' AND amount_paid > 0 AND stripe_subscription_id IS NOT NULL);
-
-CREATE TABLE stripe_webhook_event (
-    id text NOT NULL,
-    event_type text NOT NULL,
-    object_id text,
-    livemode boolean NOT NULL,
-    api_version text,
-    stripe_created_at timestamp with time zone NOT NULL,
-    processed_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT stripe_webhook_event_event_type_check CHECK (((octet_length(event_type) >= 1) AND (octet_length(event_type) <= 150))),
-    CONSTRAINT stripe_webhook_event_id_check CHECK ((id ~ '^evt_[A-Za-z0-9]+$'::text)),
-    CONSTRAINT stripe_webhook_event_pkey PRIMARY KEY (id)
-);
-
-CREATE INDEX idx_stripe_webhook_processed ON stripe_webhook_event USING btree (processed_at DESC);
-
--- Matchs, messages et sûreté
+CREATE INDEX IF NOT EXISTS idx_web_session_expiry ON web_account_session(expires_at);
+-- END web account
 
 CREATE TABLE match_init (
     id uuid DEFAULT uuid_generate_v4() NOT NULL,
@@ -1022,8 +894,6 @@ CREATE TABLE notification (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     expires_at timestamp with time zone DEFAULT (now() + '90 days'::interval) NOT NULL,
     deduplication_key text,
-    billing_reference text,
-    CONSTRAINT chk_notification_billing_context CHECK ((billing_reference IS NULL) OR ((type = 'billing_payment_failed'::text) AND (billing_reference ~ '^in_[A-Za-z0-9]+$'::text))),
     CONSTRAINT notification_deduplication_key_check CHECK (((deduplication_key IS NULL) OR (deduplication_key ~ '^[0-9a-f]{64}$'::text))),
     CONSTRAINT notification_deduplication_key_key UNIQUE (deduplication_key),
     CONSTRAINT notification_pkey PRIMARY KEY (id),
@@ -1040,7 +910,7 @@ CREATE INDEX idx_notification_user ON notification USING btree (user_id, created
 -- Idempotent upgrade for personalized lifecycle push notifications.
 ALTER TABLE match_init ADD COLUMN IF NOT EXISTS photo_reveal_version bigint NOT NULL DEFAULT 0 CHECK (photo_reveal_version >= 0);
 ALTER TABLE notification DROP CONSTRAINT IF EXISTS notification_type_check;
-ALTER TABLE notification ADD CONSTRAINT notification_type_check CHECK ((type = ANY (ARRAY['new_match'::text, 'new_message'::text, 'profile_liked'::text, 'match_expiring'::text, 'billing_payment_failed'::text, 'continuation_requested'::text, 'conversation_continued'::text, 'photos_revealed'::text, 'first_period_ending'::text, 'data_request_replied'::text, 'new_session'::text])));
+ALTER TABLE notification ADD CONSTRAINT notification_type_check CHECK ((type = ANY (ARRAY['new_match'::text, 'new_message'::text, 'profile_liked'::text, 'match_expiring'::text, 'continuation_requested'::text, 'conversation_continued'::text, 'photos_revealed'::text, 'first_period_ending'::text, 'data_request_replied'::text, 'new_session'::text])));
 CREATE INDEX IF NOT EXISTS idx_notification_match_kind ON notification (user_id, type, (payload->>'match_id'), expires_at);
 -- END notification events
 
@@ -1147,7 +1017,7 @@ CREATE TABLE maintenance_job_status (
     CONSTRAINT chk_maintenance_job_finished CHECK ((((status = 'running'::text) AND (finished_at IS NULL) AND (duration_ms IS NULL)) OR ((status <> 'running'::text) AND (finished_at IS NOT NULL) AND (duration_ms IS NOT NULL)))),
     CONSTRAINT maintenance_job_status_duration_ms_check CHECK (((duration_ms IS NULL) OR ((duration_ms >= 0) AND (duration_ms <= 86400000)))),
     CONSTRAINT maintenance_job_status_batch_count_check CHECK ((batch_count >= 0)),
-    CONSTRAINT maintenance_job_status_job_name_check CHECK ((job_name = ANY (ARRAY['matches'::text, 'photos'::text, 'privacy'::text, 'outbox'::text, 'billing'::text]))),
+    CONSTRAINT maintenance_job_status_job_name_check CHECK ((job_name = ANY (ARRAY['matches'::text, 'photos'::text, 'privacy'::text, 'outbox'::text]))),
     CONSTRAINT maintenance_job_status_last_error_code_check CHECK (((last_error_code IS NULL) OR (last_error_code ~ '^[a-z][a-z0-9_]{0,63}$'::text))),
     CONSTRAINT maintenance_job_status_processed_count_check CHECK ((processed_count >= 0)),
     CONSTRAINT maintenance_job_status_status_check CHECK ((status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'skipped'::text]))),
@@ -1195,12 +1065,12 @@ CREATE INDEX idx_dsr_user ON data_subject_request USING btree (user_id, requeste
 CREATE TABLE account_erasure (
     request_id uuid NOT NULL,
     user_id uuid NOT NULL,
-    step text DEFAULT 'stripe'::text NOT NULL,
+    step text DEFAULT 'photos'::text NOT NULL,
     created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     completed_at timestamp with time zone,
     CONSTRAINT account_erasure_check CHECK (((step = 'completed'::text) = (completed_at IS NOT NULL))),
-    CONSTRAINT account_erasure_step_check CHECK ((step = ANY (ARRAY['stripe'::text, 'photos'::text, 'swipes'::text, 'postgres'::text, 'completed'::text]))),
+    CONSTRAINT account_erasure_step_check CHECK ((step = ANY (ARRAY['photos'::text, 'swipes'::text, 'postgres'::text, 'completed'::text]))),
     CONSTRAINT account_erasure_pkey PRIMARY KEY (request_id),
     CONSTRAINT account_erasure_user_id_key UNIQUE (user_id),
     CONSTRAINT account_erasure_request_id_fkey FOREIGN KEY (request_id) REFERENCES data_subject_request(id) ON DELETE CASCADE,
@@ -1463,8 +1333,8 @@ BEGIN
   DELETE FROM user_block WHERE blocker_id = p_user_id OR blocked_id = p_user_id;
   DELETE FROM user_subscription WHERE user_id = p_user_id;
   DELETE FROM complimentary_premium_grant WHERE user_id = p_user_id;
-  DELETE FROM web_billing_session WHERE user_id = p_user_id;
-  DELETE FROM web_billing_challenge WHERE user_id = p_user_id OR requested_user_id = p_user_id;
+  DELETE FROM web_account_session WHERE user_id = p_user_id;
+  DELETE FROM web_account_challenge WHERE user_id = p_user_id OR requested_user_id = p_user_id;
   UPDATE billing_store_subscription SET user_id=NULL, reference_encrypted=''::bytea WHERE user_id=p_user_id;
   UPDATE billing_store_account SET user_id=NULL WHERE user_id=p_user_id;
   DELETE FROM continuation_reservation WHERE user_id = p_user_id
@@ -1504,17 +1374,6 @@ BEGIN
     RAISE EXCEPTION 'User must be at least 18 years old';
   END IF;
 
-  RETURN NEW;
-END;
-$$;
-
-CREATE FUNCTION fct_cleanup_billing_identity() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-  UPDATE billing_invoice SET user_id = NULL WHERE user_id = NEW.user_id;
-  DELETE FROM billing_checkout_session WHERE user_id = NEW.user_id;
-  DELETE FROM billing_customer WHERE user_id = NEW.user_id;
   RETURN NEW;
 END;
 $$;
@@ -1580,7 +1439,6 @@ $$;
 
 -- Triggers (installés après toutes les tables et fonctions)
 
-CREATE TRIGGER trg_cleanup_billing_identity AFTER UPDATE OF anonymized_at ON user_account FOR EACH ROW WHEN (((old.anonymized_at IS DISTINCT FROM new.anonymized_at) AND (new.anonymized_at IS NOT NULL))) EXECUTE FUNCTION fct_cleanup_billing_identity();
 
 CREATE TRIGGER trg_enforce_user_age BEFORE INSERT OR UPDATE ON user_profile FOR EACH ROW EXECUTE FUNCTION fct_check_user_age();
 
@@ -1590,11 +1448,9 @@ CREATE TRIGGER trg_erase_notifications AFTER UPDATE OF deleted_at ON user_accoun
 
 CREATE TRIGGER trg_live_answer BEFORE INSERT OR UPDATE ON user_profile_answer FOR EACH ROW EXECUTE FUNCTION fct_require_live_account('user_id');
 
-CREATE TRIGGER trg_live_billing_customer BEFORE INSERT OR UPDATE ON billing_customer FOR EACH ROW WHEN ((new.stripe_customer_deleted_at IS NULL)) EXECUTE FUNCTION fct_require_live_account('user_id');
 
 CREATE TRIGGER trg_live_block BEFORE INSERT ON user_block FOR EACH ROW EXECUTE FUNCTION fct_require_live_account('blocker_id', 'blocked_id');
 
-CREATE TRIGGER trg_live_checkout BEFORE INSERT ON billing_checkout_session FOR EACH ROW EXECUTE FUNCTION fct_require_live_account('user_id');
 
 CREATE TRIGGER trg_live_consent BEFORE INSERT ON user_consent FOR EACH ROW EXECUTE FUNCTION fct_require_live_account('user_id');
 

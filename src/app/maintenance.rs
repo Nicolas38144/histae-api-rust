@@ -2,9 +2,6 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use crate::billing::reconcile::{
-    BillingReconciliationScheduler, PgBillingReconciliationStore, ReconciliationStoreError,
-};
 use crate::config::AppConfig;
 use crate::infra::postgres::Database;
 use crate::matches::maintenance::{MatchMaintenanceRepository, MatchMaintenanceService};
@@ -45,11 +42,6 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
         );
         let photos =
             PhotoMaintenanceService::new(photo_maintenance_store, storage, tracker.clone());
-        let billing = BillingReconciliationScheduler::new(
-            Arc::new(PgBillingReconciliationStore::new(database.clone())),
-            tracker,
-            config.billing.clone(),
-        );
         if config.store_billing.apple_enabled || config.store_billing.google_enabled {
             crate::billing::stores::pg::StoreRepository::new(
                 database.clone(),
@@ -60,19 +52,13 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
             .map_err(|_| "store_reconciliation_schedule_failed")?;
         }
         let now = Utc::now();
-        let (match_result, privacy_result, photo_result, billing_result) = tokio::join!(
-            matches.run_once(now),
-            privacy.run_once(),
-            photos.run_once(),
-            billing.run_once(now),
-        );
+        let (match_result, privacy_result, photo_result) =
+            tokio::join!(matches.run_once(now), privacy.run_once(), photos.run_once(),);
         let match_result = match_result.map_err(|_| "match_maintenance_failed")?;
         let privacy_result = privacy_result.map_err(|_| "privacy_maintenance_failed")?;
         let photo_result = photo_result.map_err(|_| "photo_maintenance_failed")?;
-        let billing_result = billing_result.map_err(map_billing_error)?;
         let matches_processed = match_result.map_or(0, |result| result.processed());
         let privacy_processed = privacy_result.map_or(0, |run| run.result.processed());
-        let billing_processed = u64::from(billing_result.unwrap_or_default());
         logging::info(
             "maintenance_completed",
             &[
@@ -96,10 +82,6 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
                     "photos_expired_requests",
                     SafeLogValue::Unsigned(photo_result.result.expired_idempotency_records),
                 ),
-                (
-                    "billing_processed",
-                    SafeLogValue::Unsigned(billing_processed),
-                ),
             ],
         )
         .map_err(|_| "maintenance_log_failed")?;
@@ -108,11 +90,4 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
     .await;
     database.close().await;
     result
-}
-
-fn map_billing_error(error: ReconciliationStoreError) -> &'static str {
-    match error {
-        ReconciliationStoreError::Database(_) => "billing_reconciliation_schedule_failed",
-        ReconciliationStoreError::InvalidStoredData => "billing_reconciliation_state_invalid",
-    }
 }

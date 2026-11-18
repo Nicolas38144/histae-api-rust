@@ -9,12 +9,12 @@ Importer l’un des fichiers JSON avec **Import → Files** :
 - [Collection française](postman_collection_fr.json).
 - [Collection anglaise](postman_collection_en.json).
 
-Chaque collection contient 148 requêtes correspondant au contrat HTTP. Aucun script Python ou générateur
+Chaque collection contient 137 requêtes correspondant au contrat HTTP. Aucun script Python ou générateur
 n’est nécessaire pour l’import. Les collections incluent déjà quelques actions après réponse pour stocker
 les tokens et challenges ; elles ne fabriquent ni preuve WebAuthn ni signature de fournisseur.
 
 Exécuter les requêtes choisies une par une. Certaines modifient/suppriment des données, envoient des SMS ou
-créent des opérations Stripe : les titres marqués `⚠️` signalent ces effets. Ne pas lancer toute la collection
+créent des opérations d’achat natives : les titres marqués `⚠️` signalent ces effets. Ne pas lancer toute la collection
 avec Collection Runner sur une base utilisée.
 
 ## Variables
@@ -82,7 +82,7 @@ Une réponse `401` sur les traits admin doit être diagnostiquée avec le cookie
 
 - Photo : sélectionner un vrai fichier dans le corps multipart ; conserver sa clé pour rejouer la même intention.
 - URL S3 signée : l’endpoint doit être joignable depuis la machine cliente ; voir [Accès LAN](../docs/container-deployment.md#acces-lan).
-- Sweego et Stripe : une signature valide porte sur les octets exacts du corps. Les placeholders de collection
+- Sweego et Apple/Google : une signature valide porte sur les octets exacts du corps. Les placeholders de collection
   ne constituent pas un test d’acceptation signé. Voir le [contrat des intégrations](../docs/http-contract.md#routes-publiques-et-integrations).
 - Effacement, suppression de catalogue, retrait de rôle et abandon outbox : relire la description et la cible
   avant l’envoi ; réserver ces essais aux données de test.
@@ -100,17 +100,15 @@ Le dossier de récompenses prépare, lit et annule une intention propriétaire. 
 
 Voir [Internationalisation](../docs/internationalization.md). Vérifier les quatre langues du catalogue,
 les champs `translations` des traits/questions admin, les URL documentaires et la langue acceptée,
-l’exception `language` des appareils, puis Checkout/portail. Les prix, UUID, catégories, réponses personnelles
-et curseurs ne changent pas. Un changement de langue avec une même clé OTP est un conflit ; une reprise
-Checkout conserve la langue de la tentative originale.
+l’exception `language` des appareils, puis les prix localisés du store. Les prix, UUID, catégories, réponses personnelles
+et curseurs ne changent pas. Un changement de langue avec une même clé OTP est un conflit.
 
-## Stores et paiement du site
+## Stores et accès aux données sur le site
 
 La section correspondante couvre les intentions/vérifications natives, webhooks Apple/Google, rapports
 admin et session web OTP. Renseigner `storeProvider`, IDs/receipts réels de test et signatures valides.
 Les placeholders ne donnent jamais Premium. Ne pas exporter les purchaseTokens ni cookies.
-Pour le site, configurer `webBillingOrigin` exact, deux clés UUIDv4 distinctes `webBillingOtpKey` et
-`webBillingCheckoutKey`, puis `webBillingCookie` (ou le gestionnaire de cookies Postman). Le challenge
+Pour le site, configurer `webAccountOrigin` exact, une clé UUIDv4 `webAccountOtpKey`, puis `webAccountCookie` (ou le gestionnaire de cookies Postman). Le challenge
 est mémorisé après 202. Le cookie web est distinct du cookie admin et du Bearer mobile.
-Les anciennes routes Stripe mobiles renvoient 410. Le template financier du JSON est synthétique : ne pas
+Les anciennes routes de paiement web ont été retirées (404). Le template financier du JSON est synthétique : ne pas
 l’importer comme chiffre réel. Voir [le guide](../docs/store-billing.md).

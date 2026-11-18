@@ -7,8 +7,8 @@
 | Binaire / service | Fonction | Cycle de vie |
 | --- | --- | --- |
 | `api` | HTTP métier, SSE et listener métriques privé | Permanent ; maintenance désactivée dans Compose |
-| `outbox` / `outbox-worker` | Effets durables : envois OTP mobiles, suppression photo, push, effacement de compte et réconciliation Stripe | Permanent, claims et retries bornés |
-| `maintenance` | Matchs et inactivité 10/23/30, photos, rétention RGPD, programmation de réconciliation Stripe | Une passe puis sortie |
+| `outbox` / `outbox-worker` | Effets durables : envois OTP mobiles, suppression photo, push, effacement de compte et réconciliation Apple/Google | Permanent, claims et retries bornés |
+| `maintenance` | Matchs et inactivité 10/23/30, photos, rétention RGPD, programmation des relectures Apple/Google | Une passe puis sortie |
 | `db-migrate` / `migrate` | Installation et mise à niveau PostgreSQL | Une exécution puis sortie |
 | `storage-init` | Vérification/création du bucket privé de production | Une exécution puis sortie |
 | `admin-bootstrap` | Émission d’un jeton d’enrôlement administratif | Une exécution avec UUID puis sortie |
@@ -45,7 +45,7 @@ En production, sélectionner `.env`, `compose.yaml`, `compose.production.yaml` e
 | Matchs | Appliquer les échéances et transitions devenues dues, par lots bornés |
 | Photos | Nettoyer les traitements/objets éligibles et les anciennes demandes idempotentes |
 | Rétention RGPD | Purger les données dont les durées de rétention sont dépassées |
-| Stripe | Programmer les réconciliations dues dans l’outbox ; le worker appelle ensuite Stripe |
+| Stores | Programmer les relectures natives dues dans l’outbox ; le worker utilise le vérificateur privé |
 
 Les échéances et nouvelles données arrivent après chaque passe. Une exécution au démarrage ne traite
 donc pas le travail futur. Le budget de lots peut aussi laisser `work_remaining=true` : la passe suivante
@@ -53,8 +53,8 @@ poursuit le travail. Un intervalle initial de cinq minutes doit être ajusté se
 Ne pas augmenter les budgets sans regarder la charge SQL.
 
 Dans le dashboard, « Jamais exécuté » signifie qu’aucun état n’a été enregistré pour ce traitement.
-Outbox peut avoir réussi alors que maintenance n’a jamais été lancée. La réconciliation Stripe ne s’exécute
-pas lorsque `BILLING_PROVIDER=disabled` ; son absence peut donc être attendue en développement.
+Outbox peut avoir réussi alors que maintenance n’a jamais été lancée. Les relectures natives sont
+planifiées pendant la passe de maintenance ; il n’existe plus de job de paiement web séparé.
 Vérifier `status`, `last_error_code`, progression et travail restant après une passe, pas seulement son existence.
 
 ### Timer systemd sur Debian
@@ -104,7 +104,7 @@ supprime pas l’intention PostgreSQL ; une reprise ne doit pas contourner cette
 
 Corriger la dépendance puis utiliser les routes protégées du dashboard pour reprendre une dead letter.
 Ces actions exigent une authentification récente et un audit ; le motif est facultatif pour le superadmin.
-L’abandon des événements d’effacement de compte et Stripe est interdit ; une suppression photo encore
+L’abandon des événements d’effacement de compte est interdit ; une suppression photo encore
 nécessaire ne peut pas non plus être abandonnée. Le [contrat](http-contract.md#exploitation-et-reprises)
 décrit les réponses et conflits. Un acquittement push ne prouve pas la réception sur le terminal.
 

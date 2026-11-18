@@ -89,11 +89,11 @@ mapping = {
 }
 assert set(versions) == set(mapping)
 for key in list(env):
-    if key.startswith(('JWT_', 'SWEEGO_', 'STRIPE_', 'FIREBASE_')):
+    if key.startswith(('JWT_', 'SWEEGO_', 'APP_STORE_', 'GOOGLE_PLAY_', 'STORE_VERIFIER_', 'FIREBASE_')):
         del env[key]
 env.update(JWT_SECRET=secrets.token_hex(32), JWT_ACTIVE_KID='load-validation',
            JWT_ACCESS_TTL='60m', JWT_REFRESH_TTL='168h',
-           SMS_PROVIDER='disabled', BILLING_PROVIDER='disabled', PUSH_PROVIDER='disabled',
+           SMS_PROVIDER='disabled', APP_STORE_ENABLED='false', GOOGLE_PLAY_ENABLED='false', PUSH_PROVIDER='disabled',
            METRICS_ENABLED='true', METRICS_HOST='0.0.0.0',
            METRICS_TOKEN=secrets.token_hex(32), RATE_LIMIT_GLOBAL='120000',
            RATE_LIMIT_GLOBAL_WINDOW='1m', MAINTENANCE_MODE='disabled')

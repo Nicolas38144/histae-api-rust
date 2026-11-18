@@ -22,7 +22,7 @@ started before account erasure from recreating deleted preferences after erasure
 | `continuations` | `continuation_requested`, `conversation_continued` / `histae_continuations` |
 | `photos` | `photos_revealed` / `histae_photos` |
 | `reminders` | `first_period_ending`, `match_expiring` / `histae_reminders` |
-| `account_security` | `new_session`, `data_request_replied`, `billing_payment_failed` / `histae_account` |
+| `account_security` | `new_session`, `data_request_replied` / `histae_account` |
 
 `GET/PUT /api/matches/{id}/notification-preferences` reads or replaces a private participant mute.
 PUT accepts `muted` and `muted_until`: false/null unmutes, true/null mutes indefinitely, and true
@@ -58,7 +58,6 @@ preference requests. All choices persist in the API, not in an account-independe
 | `first_period_ending` | One reminder within two hours of the first 24-hour deadline | Conversation |
 | `data_request_replied` | A public reply accompanies a request status update | My requests, matching entry expanded |
 | `new_session` | A new refresh-token family opens while another push device exists | My sessions |
-| `billing_payment_failed` | An outstanding Stripe invoice payment fails | Subscription |
 
 There is no advertising-credit notification. Before the first period ends, continuation is not
 yet available: its reminder explains that the choice comes afterwards.
@@ -69,7 +68,7 @@ Business writes enqueue on the same PostgreSQL transaction. Replayed choices do 
 Match maintenance schedules the bounded reminder batches; `reminded` contributes to workload counts.
 The outbox rechecks access, blocks, deadlines, choices, grant version and request/session state.
 Withdrawn/replaced photo grants and superseded choices cannot revive queued alerts. Existing message
-read and failed-payment checks remain. New lifecycle/security alerts, including request replies,
+read checks remain. New lifecycle/security alerts, including request replies,
 are retained for at most one day; the first-period reminder expires at its match deadline.
 FCM/APNs storage is capped at one day and at the earliest notification, match or recipient-session
 deadline. New-session alerts also respect the opened session's deadline, using

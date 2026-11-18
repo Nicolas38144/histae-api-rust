@@ -11,6 +11,8 @@ use histae_api_rust::administration::metrics::{
 use histae_api_rust::config::{PostgresConfig, SecretString};
 use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use uuid::Uuid;
+#[path = "support/store_subscription.rs"]
+mod paid_store;
 
 #[derive(Debug)]
 struct FixtureError(&'static str);
@@ -121,7 +123,7 @@ async fn admin_metrics_and_revenue_execute_against_the_real_schema()
         let revenue = repository.revenue(RevenuePeriod::Last7Days).await?;
         assert_eq!(revenue.period, RevenuePeriod::Last7Days);
         assert!(revenue.period_start.is_some());
-        assert_eq!(revenue.basis, "stripe_paid_invoices");
+        assert_eq!(revenue.basis, "store_financial_reports");
         assert_eq!(revenue.currency, "EUR");
 
         let metrics = repository.metrics(RevenuePeriod::MonthToDate).await?;
@@ -178,9 +180,10 @@ async fn admin_metrics_and_revenue_execute_against_the_real_schema()
             assert_eq!(actual, count);
         }
         let expected_premium: i64 = sqlx::query_scalar(
-            "SELECT count(DISTINCT stripe_subscription_id)::bigint FROM billing_invoice
-             WHERE status='paid' AND amount_paid > 0 AND currency='EUR'
-               AND stripe_subscription_id IS NOT NULL AND paid_at < clock_timestamp()",
+            "SELECT count(*)::bigint FROM billing_store_subscription
+             WHERE user_id IS NOT NULL AND NOT superseded AND starts_at<=clock_timestamp()
+               AND expires_at>clock_timestamp() AND
+               (status IN ('active','grace_period') OR (provider='google_play' AND status='canceled'))",
         )
         .fetch_one(&mut *connection)
         .await?;
@@ -231,20 +234,21 @@ async fn subscription_offer_metrics_follow_effective_access_and_billing_period()
             count(&before, "premium_annual")
         );
 
+        sqlx::query("DELETE FROM user_subscription WHERE user_id=$1")
+            .bind(user_id).execute(database.acquire().await?.as_mut()).await?;
+        paid_store::grant(&database,user_id,&Uuid::new_v4().to_string()).await?;
         for (period, status, expired, expected_monthly, expected_annual) in [
             ("monthly", "active", false, 1, 0),
-            ("annual", "trialing", false, 0, 1),
-            ("annual", "past_due", false, 0, 1),
+            ("annual", "grace_period", false, 0, 1),
+            ("annual", "past_due", false, 0, 0),
             ("annual", "active", true, 0, 0),
             ("monthly", "canceled", false, 0, 0),
         ] {
             let mut connection = database.acquire().await?;
             sqlx::query(
-                "UPDATE user_subscription SET provider = 'stripe', billing_period = $2,
-                 status = $3, current_period_ends_at = now() +
-                 CASE WHEN $4::boolean THEN -INTERVAL '1 day' ELSE INTERVAL '1 day' END
-                 WHERE user_id = $1",
-            )
+                "UPDATE billing_store_subscription SET billing_period=$2,status=$3,
+                 expires_at=now()+CASE WHEN $4::boolean THEN -INTERVAL '1 day' ELSE INTERVAL '1 day' END
+                 WHERE user_id=$1",            )
             .bind(user_id)
             .bind(period)
             .bind(status)
@@ -292,71 +296,46 @@ async fn subscription_offer_metrics_follow_effective_access_and_billing_period()
 }
 
 #[tokio::test]
-async fn revenue_uses_paid_invoice_amounts_and_dates_without_mixing_currencies()
+async fn revenue_uses_imported_store_reports_without_mixing_currencies_or_catalog_estimates()
 -> Result<(), Box<dyn std::error::Error>> {
     let database = Database::connect(&local_config()?).await?;
     let repository = PgAdminMetricsRepository::new(database.clone(), "test".into(), "test".into());
     let before = repository.revenue(RevenuePeriod::Last7Days).await?;
     let before_all = repository.revenue(RevenuePeriod::AllTime).await?;
     let before_previous = repository.revenue(RevenuePeriod::PreviousMonth).await?;
-    let user_id = Uuid::new_v4();
-    let suffix = user_id.simple().to_string();
-    let customer = format!("cus_{suffix}");
-    insert_premium_account(&database, user_id).await?;
-    let result: Result<(), Box<dyn std::error::Error>> = async {
-        // One monthly renewal, an annual payment, a discount, an anonymized
-        // account, a foreign currency, and invoices which must not earn revenue.
-        sqlx::query(r#"INSERT INTO billing_invoice
-          (stripe_invoice_id,user_id,stripe_customer_id,stripe_subscription_id,status,currency,
-           amount_due,amount_paid,amount_remaining,period_starts_at,period_ends_at,paid_at,created_at)
-          SELECT 'in_' || $2 || entry.name,
-            CASE WHEN entry.name='Deleted' THEN NULL ELSE $1::uuid END,
-            $3, CASE WHEN entry.name='Standalone' THEN NULL ELSE 'sub_' || $2 || entry.subscription END,
-            entry.status, entry.currency, entry.amount, entry.amount, 0,
-            clock_timestamp()-interval '1 day',clock_timestamp()+interval '30 days',
-            entry.paid_at,clock_timestamp()-interval '1 day'
-          FROM (VALUES
-            ('Monthly','Monthly','paid','EUR',500::bigint,clock_timestamp()-interval '1 minute'),
-            ('Renewal','Monthly','paid','EUR',300,clock_timestamp()-interval '2 minutes'),
-            ('Annual','Annual','paid','EUR',4800,clock_timestamp()-interval '1 minute'),
-            ('Deleted','Deleted','paid','EUR',500,clock_timestamp()-interval '1 minute'),
-            ('Foreign','Foreign','paid','USD',900,clock_timestamp()-interval '1 minute'),
-            ('Trial','Trial','paid','EUR',0,clock_timestamp()-interval '1 minute'),
-            ('Unpaid','Unpaid','open','EUR',500,clock_timestamp()-interval '1 minute'),
-            ('UnknownDate','Unknown','paid','EUR',500,NULL::timestamptz),
-            ('Standalone','Other','paid','EUR',500,clock_timestamp()-interval '1 minute'),
-            ('Old','Old','paid','EUR',500,clock_timestamp()-interval '90 days'),
-            ('Previous','Previous','paid','EUR',700,
-              (date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Paris')-interval '1 month'+interval '1 hour') AT TIME ZONE 'Europe/Paris')
-          ) AS entry(name,subscription,status,currency,amount,paid_at)"#)
-            .bind(user_id).bind(&suffix).bind(&customer)
-            .execute(&mut *database.acquire().await?).await?;
-        let revenue = repository.revenue(RevenuePeriod::Last7Days).await?;
-        assert_eq!(revenue.estimated_revenue_cents - before.estimated_revenue_cents, 6100);
-        assert_eq!(revenue.paid_invoices - before.paid_invoices, 4);
-        assert_eq!(revenue.premium_subscriptions - before.premium_subscriptions, 3);
-        assert_eq!(revenue.excluded_currency_invoices - before.excluded_currency_invoices, 1);
-        assert_eq!(revenue.basis, "stripe_paid_invoices");
-        let all = repository.metrics(RevenuePeriod::AllTime).await?.revenue;
-        assert_eq!(all.estimated_revenue_cents - before_all.estimated_revenue_cents, 7300);
-        assert_eq!(all.paid_invoices - before_all.paid_invoices, 6);
-        let previous = repository.revenue(RevenuePeriod::PreviousMonth).await?;
-        assert_eq!(previous.estimated_revenue_cents - before_previous.estimated_revenue_cents, 700);
-        // Reconciliation and cancellation cannot move receipts to another period.
-        sqlx::query("UPDATE user_subscription SET plan='free',updated_at=clock_timestamp() WHERE user_id=$1")
-            .bind(user_id).execute(&mut *database.acquire().await?).await?;
-        let after = repository.revenue(RevenuePeriod::Last7Days).await?;
-        assert_eq!(after.estimated_revenue_cents, revenue.estimated_revenue_cents);
-        assert_eq!(after.paid_invoices, revenue.paid_invoices);
-        Ok(())
-    }.await;
-    let invoices_cleanup = sqlx::query("DELETE FROM billing_invoice WHERE stripe_customer_id=$1")
-        .bind(customer)
-        .execute(&mut *database.acquire().await?)
-        .await;
-    let account_cleanup = cleanup(&database, user_id).await;
-    result?;
-    invoices_cleanup?;
-    account_cleanup?;
-    Ok(())
+    let report = Uuid::new_v4().to_string();
+    let result:Result<(),Box<dyn std::error::Error>>=async {
+  sqlx::query(r#"INSERT INTO billing_store_finance(provider,report_id,row_id,paid_at,currency,gross_cents,net_cents)
+   SELECT 'app_store',$1,name,paid_at,currency,amount,NULL FROM (VALUES
+    ('Monthly','EUR',500::bigint,clock_timestamp()-interval '1 minute'),
+    ('Renewal','EUR',300,clock_timestamp()-interval '2 minutes'),
+    ('Annual','EUR',4800,clock_timestamp()-interval '1 minute'),
+    ('Other','EUR',500,clock_timestamp()-interval '1 minute'),
+    ('Foreign','USD',900,clock_timestamp()-interval '1 minute'),
+    ('Historical','EUR',500,clock_timestamp()-interval '50 days'),
+    ('PreviousMonth','EUR',700,(date_trunc('month',clock_timestamp() AT TIME ZONE 'Europe/Paris')-interval '1 second') AT TIME ZONE 'Europe/Paris')
+   ) entries(name,currency,amount,paid_at)"#).bind(&report)
+    .execute(database.acquire().await?.as_mut()).await?;
+  let revenue=repository.revenue(RevenuePeriod::Last7Days).await?;
+  assert_eq!(revenue.gross_revenue_cents-before.gross_revenue_cents,6100);
+  assert_eq!(revenue.financial_rows-before.financial_rows,4);
+  assert_eq!(revenue.excluded_currency_rows-before.excluded_currency_rows,1);
+  assert_eq!(revenue.basis,"store_financial_reports");
+  let all=repository.metrics(RevenuePeriod::AllTime).await?.revenue;
+  assert_eq!(all.gross_revenue_cents-before_all.gross_revenue_cents,7300);
+  assert_eq!(all.financial_rows-before_all.financial_rows,6);
+  let previous=repository.revenue(RevenuePeriod::PreviousMonth).await?;
+  // Fifty days ago may also fall in the previous calendar month.
+  let expected:i64=sqlx::query_scalar("SELECT COALESCE(sum(gross_cents),0)::bigint FROM billing_store_finance
+    WHERE report_id=$1 AND currency='EUR' AND paid_at>=$2 AND paid_at<$3")
+    .bind(&report).bind(previous.period_start).bind(previous.period_end)
+    .fetch_one(database.acquire().await?.as_mut()).await?;
+  assert_eq!(previous.gross_revenue_cents-before_previous.gross_revenue_cents,expected);
+  Ok(())
+ }.await;
+    sqlx::query("DELETE FROM billing_store_finance WHERE report_id=$1")
+        .bind(report)
+        .execute(database.acquire().await?.as_mut())
+        .await?;
+    result
 }

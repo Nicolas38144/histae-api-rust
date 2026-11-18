@@ -107,11 +107,6 @@ async fn cleanup(database: &Database, users: &[Uuid]) -> Result<(), DatabaseErro
     .execute(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
-    sqlx::query("DELETE FROM billing_invoice WHERE user_id = ANY($1::uuid[])")
-        .bind(users)
-        .execute(&mut *connection)
-        .await
-        .map_err(map_sqlx_error)?;
     sqlx::query("DELETE FROM data_access_log WHERE accessed_user_id = ANY($1::uuid[])")
         .bind(users)
         .execute(&mut *connection)
@@ -196,9 +191,6 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
         }
         sqlx::query("INSERT INTO user_profile (user_id, firstname, birthdate) VALUES ($1, 'Fixture', '1990-02-03')")
             .bind(user_id).execute(&mut *fixture).await?;
-        sqlx::query("INSERT INTO billing_invoice (stripe_invoice_id,user_id,stripe_customer_id,currency,amount_due,amount_paid,amount_remaining,period_starts_at,period_ends_at,created_at) VALUES ($1,$2,$3,'EUR',9007199254740993,0,9007199254740993,now(),now()+interval '1 month',now())")
-            .bind(format!("in_{}", Uuid::new_v4().simple())).bind(user_id).bind(format!("cus_{}",Uuid::new_v4().simple()))
-            .execute(&mut *fixture).await?;
         drop(fixture);
         let rights = Arc::new(PgDataRightsStore::new(database.clone()));
         let access = rights
@@ -336,8 +328,6 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
         assert!(mutes.iter().all(|entry| entry["muted"] == true && entry.get("user_id").is_none()),
             "only the requesting participant's private choices are exported");
         assert_eq!(document["profile"]["birthdate"], "1990-02-03T00:00:00.000Z");
-        assert_eq!(document["billing_invoices"][0]["amount_due"], "9007199254740993");
-        assert_eq!(document["billing_invoices"][0]["amount_paid"], "0");
         let exported_requests = document["data_requests"]
             .as_array()
             .ok_or(FixtureError("data requests"))?;
@@ -457,7 +447,7 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
                 .find(|row| row.request.id == erasure.id)
                 .and_then(|row| row.erasure.as_ref())
                 .ok_or(FixtureError("admin erasure progress"))?;
-            assert_eq!(progress.step, "stripe");
+            assert_eq!(progress.step, "photos");
             assert_eq!(progress.event_id, Some(event_id));
             assert_eq!(progress.status.as_deref(), Some("pending"));
             assert_eq!(progress.attempts, u16::try_from(attempts)?);
@@ -479,7 +469,7 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
             .find(|row| row.request.id == erasure.id)
             .and_then(|row| row.erasure.as_ref())
             .ok_or(FixtureError("admin erasure without outbox event"))?;
-        assert_eq!(progress.step, "stripe");
+        assert_eq!(progress.step, "photos");
         assert_eq!(progress.attempts, 0);
         assert!(progress.event_id.is_none());
         assert!(progress.status.is_none());

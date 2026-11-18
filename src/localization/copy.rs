@@ -45,30 +45,14 @@ pub const fn notification(
             "Nouveau message",
             "Vous avez reçu un nouveau message sur Histae.",
         ),
-        (Language::Fr, BillingPaymentFailed) => (
-            "Paiement à vérifier",
-            "Votre paiement Premium a échoué. Vérifiez votre moyen de paiement.",
-        ),
         (Language::En, NewMatch) => ("New match", "You have a new match on Histae."),
         (Language::En, NewMessage) => ("New message", "You have received a new message on Histae."),
-        (Language::En, BillingPaymentFailed) => (
-            "Payment needs attention",
-            "Your Premium payment failed. Please check your payment method.",
-        ),
         (Language::Es, NewMatch) => ("Nuevo match", "Tienes un nuevo match en Histae."),
         (Language::Es, NewMessage) => ("Nuevo mensaje", "Has recibido un nuevo mensaje en Histae."),
-        (Language::Es, BillingPaymentFailed) => (
-            "Revisa tu pago",
-            "Tu pago Premium ha fallado. Revisa tu método de pago.",
-        ),
         (Language::It, NewMatch) => ("Nuovo match", "Hai un nuovo match su Histae."),
         (Language::It, NewMessage) => (
             "Nuovo messaggio",
             "Hai ricevuto un nuovo messaggio su Histae.",
-        ),
-        (Language::It, BillingPaymentFailed) => (
-            "Pagamento da verificare",
-            "Il pagamento Premium non è riuscito. Controlla il metodo di pagamento.",
         ),
         (Language::Fr, ContinuationRequested) => (
             "Continuer cette conversation ?",
@@ -315,7 +299,6 @@ mod notification_tests {
         for kind in [
             NotificationType::NewSession,
             NotificationType::DataRequestReplied,
-            NotificationType::BillingPaymentFailed,
         ] {
             let (_, body) = personalized_notification(Language::Fr, kind, Some("PRIVATE_NAME"));
             assert!(!body.contains("PRIVATE_NAME"));

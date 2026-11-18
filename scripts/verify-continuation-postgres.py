@@ -16,13 +16,13 @@ TESTS = (
     "mobile_identity", "phone_blocklist_postgres",
     "complimentary_premium_postgres", "web_privacy_postgres",
     "play_review_postgres", "matches_postgres", "matches_inactivity_postgres", "moderation_postgres", "privacy_rights_postgres", "account_erasure_postgres",
-    "administration_reports_postgres", "billing_postgres",
+    "administration_reports_postgres", "admin_metrics_postgres", "query_performance_postgres",
     "maintenance_outbox_postgres", "notifications_postgres",
     "discovery_postgres", "profiles_postgres", "catalog_postgres", "otp_delivery", "localization_postgres", "store_billing_postgres",
 )
 # These fixtures create their own disposable databases; application-role suites
 # must continue to run separately with histae_app.
-ADMIN_TESTS = ("sms_safety_postgres",)
+ADMIN_TESTS = ("sms_safety_postgres", "outbox_postgres")
 # This target also contains a separate S3 integration test.
 POSTGRES_FILTERS = {"media_integration": "postgres_protocol_preserves_replay_replacement_and_consumption"}
 
@@ -90,8 +90,8 @@ def main():
                        POSTGRES_PASSWORD=migrate_password, POSTGRES_SSLMODE="disable",
                        POSTGRES_POOL_MAX="4", JWT_SECRET=secrets.token_hex(32),
                        PHONE_ENCRYPTION_KEY=secrets.token_hex(32), PHONE_HASH_KEY=secrets.token_hex(32),
-                       RATE_LIMIT_STORE="memory", SMS_PROVIDER="disabled", BILLING_PROVIDER="disabled",
-                       APP_STORE_ENABLED="false", GOOGLE_PLAY_ENABLED="false", WEB_BILLING_ENABLED="false",
+                       RATE_LIMIT_STORE="memory", SMS_PROVIDER="disabled",
+                       APP_STORE_ENABLED="false", GOOGLE_PLAY_ENABLED="false",
                        PUSH_PROVIDER="disabled",
                        ADVERTISING_PROVIDER="disabled", METRICS_ENABLED="false",
                        TERMS_OF_SERVICE_VERSION="continuation-test-v1", PRIVACY_POLICY_VERSION="continuation-test-v1",
@@ -138,6 +138,26 @@ def main():
                 return docker("exec", "-i", name, "sh", "-ec",
                     'case "$1" in histae_app) export PGPASSWORD="$HISTAE_BOOTSTRAP_APP_PASSWORD" ;; histae_migrate) export PGPASSWORD="$HISTAE_BOOTSTRAP_MIGRATE_PASSWORD" ;; *) exit 2 ;; esac; exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d histae-dev',
                     "sh", role, input_text=statement)
+
+            # Recreate the retired web-payment schema, without contacting any provider.
+            legacy_user, native_user, internal_user, gift_user = [str(uuid.uuid4()) for _ in range(4)]
+            legacy_request, native_account, native_receipt = [str(uuid.uuid4()) for _ in range(3)]
+            for owner in (legacy_user,native_user,internal_user,gift_user):
+                query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{owner}','retirement-{owner}',''::bytea);")
+            query("ALTER TABLE user_subscription ADD COLUMN provider text, ADD COLUMN provider_subscription_id text, ADD COLUMN provider_price_id text, ADD COLUMN billing_period text, ADD COLUMN status text, ADD COLUMN cancel_at_period_end boolean DEFAULT false, ADD COLUMN trial_ends_at timestamptz, ADD COLUMN canceled_at timestamptz, ADD COLUMN provider_event_created_at timestamptz, ADD COLUMN projection_version bigint DEFAULT 0, ADD COLUMN provider_snapshot_at timestamptz; CREATE TABLE billing_customer(user_id uuid); CREATE TABLE billing_checkout_session(id uuid); CREATE TABLE billing_invoice(id text); CREATE TABLE stripe_webhook_event(id text); ALTER TABLE web_account_challenge RENAME TO web_billing_challenge; ALTER TABLE web_account_session RENAME TO web_billing_session; ALTER TABLE account_erasure DROP CONSTRAINT account_erasure_step_check; ALTER TABLE account_erasure ADD CONSTRAINT account_erasure_step_check CHECK(step IN ('stripe','photos','swipes','postgres','completed')); ALTER TABLE account_erasure ALTER COLUMN step SET DEFAULT 'stripe';", "histae_migrate")
+            query(f"INSERT INTO user_subscription(user_id,plan,provider) VALUES ('{legacy_user}','premium','stripe'),('{internal_user}','premium',NULL); INSERT INTO complimentary_premium_grant(user_id) VALUES ('{gift_user}'); INSERT INTO billing_store_account(id,user_id,google_account_id) VALUES ('{native_account}','{native_user}',repeat('a',64)); INSERT INTO billing_store_subscription(id,user_id,account_id,provider,original_id,reference_encrypted,environment,product_id,transaction_id,billing_period,status,starts_at,expires_at,auto_renew,acknowledged,verified_at) VALUES ('{native_receipt}','{native_user}','{native_account}','app_store','retirement-native',''::bytea,'sandbox','premium','retirement-tx','monthly','active',clock_timestamp()-interval '1 day',clock_timestamp()+interval '30 days',true,true,clock_timestamp()); INSERT INTO outbox_event(id,event_type,aggregate_id) VALUES (uuid_generate_v4(),'billing.subscription.reconcile','{legacy_user}'),(uuid_generate_v4(),'billing.customer.reconcile','{legacy_user}'); INSERT INTO data_subject_request(id,user_id,type,status) VALUES ('{legacy_request}','{legacy_user}','erasure','in_progress'); INSERT INTO account_erasure(request_id,user_id,step) VALUES ('{legacy_request}','{legacy_user}','stripe'); INSERT INTO outbox_event(id,event_type,aggregate_id,status,attempts,dead_lettered_at,last_error_code) VALUES (uuid_generate_v4(),'account.erase','{legacy_request}','dead_letter',8,clock_timestamp(),'billing_reconciliation_failed');")
+            native_snapshot_sql = f"SELECT to_jsonb(s) FROM billing_store_subscription s WHERE id='{native_receipt}';"
+            native_snapshot = query(native_snapshot_sql)
+            for _ in range(2):
+                migrate()
+                assert query(native_snapshot_sql)==native_snapshot
+                assert query("SELECT to_regclass('billing_customer') IS NULL AND to_regclass('billing_checkout_session') IS NULL AND to_regclass('billing_invoice') IS NULL AND to_regclass('stripe_webhook_event') IS NULL AND to_regclass('web_account_session') IS NOT NULL AND to_regclass('web_billing_session') IS NULL;")=="t"
+                assert query(f"SELECT NOT EXISTS(SELECT 1 FROM user_subscription WHERE user_id='{legacy_user}') AND EXISTS(SELECT 1 FROM user_account WHERE user_id='{legacy_user}') AND EXISTS(SELECT 1 FROM account_erasure WHERE request_id='{legacy_request}' AND step='photos') AND NOT EXISTS(SELECT 1 FROM outbox_event WHERE event_type IN ('billing.customer.reconcile','billing.subscription.reconcile'));")=="t"
+                assert query(f"SELECT status='pending' AND attempts=0 AND dead_lettered_at IS NULL AND last_error_code IS NULL FROM outbox_event WHERE event_type='account.erase' AND aggregate_id='{legacy_request}';")=="t"
+                for owner in (native_user,internal_user,gift_user):
+                    assert query(f"SELECT access_granted FROM effective_user_subscription WHERE user_id='{owner}';")=="t"
+            query(f"DELETE FROM outbox_event WHERE event_type='account.erase' AND aggregate_id='{legacy_request}'; DELETE FROM billing_store_subscription WHERE id='{native_receipt}'; DELETE FROM billing_store_account WHERE id='{native_account}'; DELETE FROM user_account WHERE user_id IN ('{legacy_user}','{native_user}','{internal_user}','{gift_user}');")
+            print("Retired web-payment migration removes only test payment state; native receipts, internal rights and gifts are preserved, and erasure resumes at photos.",flush=True)
 
             # Simulate an existing separated cluster predating the dedicated import role.
             docker("exec", "-i", name, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1",
@@ -318,7 +338,7 @@ SET log_min_error_statement = panic;
                   f"INSERT INTO continuation_usage(user_id,week_start,used_count,free_used_count) VALUES ('{first}',date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date,2,2);")
             assert query("SELECT NOT EXISTS (SELECT 1 FROM trait CROSS JOIN (VALUES('en'),('es'),('it')) langs(language) WHERE NOT EXISTS (SELECT 1 FROM trait_translation t WHERE t.trait_id=trait.id AND t.language=langs.language)) AND NOT EXISTS (SELECT 1 FROM profile_question CROSS JOIN (VALUES('en'),('es'),('it')) langs(language) WHERE NOT EXISTS (SELECT 1 FROM profile_question_translation t WHERE t.question_id=profile_question.id AND t.language=langs.language));") == "t"
             assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
-            query(f"INSERT INTO user_subscription(user_id,plan,provider,provider_subscription_id,status) VALUES ('{first}','free','stripe','sub_LegacyStoreMigration','canceled') ON CONFLICT(user_id) DO UPDATE SET plan='free',provider='stripe',provider_subscription_id='sub_LegacyStoreMigration',status='canceled';")
+            query(f"INSERT INTO user_subscription(user_id,plan) VALUES ('{first}','free') ON CONFLICT(user_id) DO UPDATE SET plan='free';")
             query(f"INSERT INTO user_presence(user_id,latitude,longitude,is_location_fresh) VALUES ('{first}',48.856613,2.352222,true);")
             # A pre-message request keeps its history when nullable columns are added.
             legacy_request = str(uuid.uuid4())
@@ -338,7 +358,7 @@ SET log_min_error_statement = panic;
                 reviewed = "NULL" if index == 0 else "clock_timestamp()"
                 query(f"INSERT INTO content_moderation_case(user_id,content_type,photo_id,status,reason_codes,policy_version,reviewed_at,review_reason,face_count,sharpness_score,nsfw_score) VALUES ('{owner}','photo','{photo_id}','{status}',ARRAY['blurry'],'local_vision_v1',{reviewed},'Human decision kept',1,40,0.1);")
             query("ALTER TABLE user_presence DROP COLUMN location_changed_at;", "histae_migrate")
-            query("DROP VIEW effective_user_subscription; DROP FUNCTION effective_subscription_at(uuid,timestamptz); DROP TABLE billing_store_subscription,billing_store_notification,billing_store_finance,billing_store_account,web_billing_challenge,web_billing_session;", "histae_migrate")
+            query("DROP VIEW effective_user_subscription; DROP FUNCTION effective_subscription_at(uuid,timestamptz); DROP TABLE billing_store_subscription,billing_store_notification,billing_store_finance,billing_store_account,web_account_challenge,web_account_session;", "histae_migrate")
             query("DROP TABLE continuation_reservation,advertising_reward_intent,continuation_wallet; ALTER TABLE continuation_usage DROP COLUMN free_used_count; ALTER TABLE user_account DROP COLUMN discovery_paused, DROP COLUMN preferred_language; ALTER TABLE device_token DROP COLUMN language; ALTER TABLE user_consent DROP COLUMN document_language; ALTER TABLE otp_verification DROP COLUMN language; DROP TABLE trait_translation, profile_question_translation, subscription_plan_translation, subscription_plan_feature_translation;", "histae_migrate")
             query("UPDATE profile_question SET prompt='Question personnalisée avant migration ?' WHERE id='51000000-0000-4000-8000-000000000001';")
             migrate()
@@ -367,8 +387,8 @@ SET log_min_error_statement = panic;
             assert query(f"SELECT latitude IS NULL AND longitude IS NULL AND NOT is_location_fresh FROM user_presence WHERE user_id='{first}';") == "t"
             assert query("SELECT count(*) FROM profile_question_translation WHERE question_id='51000000-0000-4000-8000-000000000001';") == "0"
             query("UPDATE profile_question SET prompt='À quoi ressemble ton dimanche idéal ?' WHERE id='51000000-0000-4000-8000-000000000001';")
-            assert query("SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename IN ('billing_store_account','billing_store_subscription','billing_store_notification','billing_store_finance','web_billing_challenge','web_billing_session');") == "6"
-            assert query(f"SELECT provider||':'||provider_subscription_id FROM effective_user_subscription WHERE user_id='{first}';") == "stripe:sub_LegacyStoreMigration"
+            assert query("SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename IN ('billing_store_account','billing_store_subscription','billing_store_notification','billing_store_finance','web_account_challenge','web_account_session');") == "6"
+            assert query(f"SELECT plan='free' AND provider IS NULL FROM effective_user_subscription WHERE user_id='{first}';") == "t"
             assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
             assert query(f"SELECT used_count||':'||free_used_count FROM continuation_usage WHERE user_id='{first}';") == "2:2"
             assert query(f"SELECT count(*) FROM match_state WHERE match_id='{match_id}' AND continued;") == "0"
@@ -403,7 +423,7 @@ SET log_min_error_statement = panic;
             environment.update(runtime)
             environment.update(HISTAE_PHONE_BLOCKLIST_TEST_ISOLATED="true", PHONE_SYNC_TEST_PASSWORD=sync_password)
             environment.setdefault("CARGO_BUILD_JOBS", "2")
-            selected = args.test or TESTS
+            selected = args.test or (TESTS + ADMIN_TESTS + tuple(POSTGRES_FILTERS))
             for administrator_fixture in (False, True):
                 targets = [target for target in selected if target not in POSTGRES_FILTERS and (target in ADMIN_TESTS) == administrator_fixture]
                 if not targets:

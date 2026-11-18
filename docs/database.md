@@ -39,7 +39,7 @@ ensuite le schéma applicatif et le catalogue avec `histae_migrate`.
 
 Le migrateur vérifie les objets attendus, ajoute les évolutions prises en charge et retire le ledger obsolète.
 Il met aussi à jour l'ancien tarif annuel Premium de 30 EUR à 48 EUR dans le catalogue, sans modifier
-les autres tarifs personnalisés ni les abonnements Stripe existants ; voir [Configuration](configuration.md#tarifs-du-catalogue-et-stripe).
+les autres tarifs personnalisés ni les achats existants ; voir [Configuration](configuration.md#tarifs-du-catalogue-et-achats-natifs).
 
 Le catalogue n'a plus de colonne `subscription_plan.trial_days` ni de contrainte associée dans le
 schéma initial ; le seed et les requêtes sont alignés. Le migrateur retire aussi cette colonne si
@@ -236,11 +236,11 @@ Voir [Internationalisation](internationalization.md).
 
 ## Projections de paiement et sessions du site
 
-`user_subscription` conserve Stripe et les attributions manuelles. `billing_store_account` / `_subscription`
+`user_subscription` conserve uniquement les attributions internes non commerciales. `billing_store_account` / `_subscription`
 portent les liaisons et projections natives ; `_notification` est l’inbox dédupliquée, `_finance` les
 lignes financières importées. `effective_subscription_at` et `effective_user_subscription` réunissent les
 sources sans permettre à une projection de supprimer les droits valides d’une autre.
-`web_billing_challenge` et `web_billing_session` ne créent aucun compte. Le migrateur introduit ces objets
+`web_account_challenge` et `web_account_session` ne créent aucun compte. Le migrateur introduit ces objets
 sur les bases existantes sans réinitialisation. Les mots de passe des rôles PostgreSQL restent inchangés.
 Les nouveaux objets suivent les grants par défaut du migrateur ; le runtime ne possède pas le schéma.
 Voir [rétention et effacement](store-billing.md#donnees-personnelles).
@@ -265,9 +265,9 @@ de profil et les consentements sont ensuite gérés par les routes normales, san
 La fonction `effective_subscription_at` ajoute un droit Premium offert sans expiration pour les comptes
 de revue actifs de rôle `user`. Le marqueur est installé avant cette fonction, sur base neuve comme
 lors d’une mise à niveau. La CTE `complimentary_accounts` isole l’éligibilité du compte ; les candidats
-internes/Stripe, stores et de revue partagent ensuite une sélection unique avec un ordre de priorité explicite.
+internes, stores et de revue partagent ensuite une sélection unique avec un ordre de priorité explicite.
 Ce droit couvre aussi les comptes de revue déjà inscrits, sans insérer de
-projection Stripe/store ni de facture et sans écraser l’historique fournisseur. Il disparaît du calcul
+projection de store ni de facture et sans écraser l’historique fournisseur. Il disparaît du calcul
 si le marqueur est retiré, le compte banni ou supprimé. Voir les champs publics dans le contrat HTTP.
 Voir [l’accès Google Play](google-play-review.md).
 

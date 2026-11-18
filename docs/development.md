@@ -150,7 +150,7 @@ sudo bash scripts/purge-dev-users.sh
 
 Cette commande supprime **tous les comptes autres que le superadmin**, y compris les admins, et leurs données
 PostgreSQL associées dans `histae-dev`. Elle refuse la suppression si les comptes ciblés ont encore des photos
-dans le stockage objet ou une identité Stripe. Sauvegarder avant exécution si ces données doivent être récupérables.
+dans le stockage objet. Sauvegarder avant exécution si ces données doivent être récupérables.
 Voir [Base de données](database.md) pour la sauvegarde et le test de restauration.
 
 ## Espace de compilation
@@ -214,9 +214,8 @@ l’absence de notes internes dans l’export. Voir [Validation locale](../tests
 puis applique le budget par compte avant de valider les champs du JSON. Le parseur global contrôle
 d’abord le format, la syntaxe et la taille du corps. `privacy/web/service.rs` délègue les
 retraits partiels aux services photo et consentements ; l'effacement du compte utilise le service
-de suppression existant. Aucun UUID cible n'est accepté. Les alias compte et paiement partagent
-leur challenge OTP, leurs limites et leur cookie. `WEB_BILLING_ENABLED=false` bloque les achats,
-sans bloquer la connexion ni les démarches de confidentialité ; `WEB_BILLING_ORIGIN` reste requis.
+de suppression existant. Aucun UUID cible n'est accepté. Les routes de compte partagent leur challenge OTP,
+leurs limites et leur cookie ; `WEB_ACCOUNT_ORIGIN` définit l’origine autorisée. Aucun paiement web n’est proposé.
 
 ```bash
 cargo fmt --all -- --check
@@ -228,6 +227,6 @@ python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/d
   --test privacy_rights_postgres --test account_erasure_postgres
 ```
 
-Les tests HTTP s'exécutent avec les vrais repositories dans une base jetable. SMS, Stripe et stockage
+Les tests HTTP s'exécutent avec les vrais repositories dans une base jetable. SMS et stockage
 ne contactent aucun fournisseur réel. La livraison du site et des routes du proxy, ainsi que le
 parcours SMS réel dans un navigateur, nécessitent une vérification distincte sur la cible.

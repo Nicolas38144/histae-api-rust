@@ -2,12 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::app::{BootstrapError, TaskSupervisor, wait_for_shutdown_signal};
-use crate::billing::pg::PgBillingRepository;
-use crate::billing::reconcile::{
-    BillingReconciliationHandler, BillingReconciliationService, PgBillingReconciliationStore,
-};
-use crate::billing::service::BillingService;
-use crate::billing::stripe::StripeClient;
 use crate::config::{AppConfig, SmsProvider};
 use crate::identity::mobile::account::MobileAccountRepository;
 use crate::identity::mobile::otp::{
@@ -34,7 +28,6 @@ use crate::outbox::pg::PgOutboxRepository;
 use crate::outbox::worker::{OutboxEventDispatcher, OutboxWorker, OutboxWorkerConfig};
 use crate::privacy::erasure::ErasureService;
 use crate::privacy::erasure::pg::PgErasureRepository;
-use crate::shared::clock::SystemClock;
 
 const WORKER_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -54,9 +47,6 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
     let storage: Arc<dyn PhotoObjectStorage> = Arc::new(
         S3ObjectStorage::new(&config.object_storage)
             .map_err(|_| "object_storage_invalid_configuration")?,
-    );
-    let stripe = Arc::new(
-        StripeClient::new(config.billing.clone()).map_err(|_| "stripe_invalid_configuration")?,
     );
     let outbox = Arc::new(PgOutboxRepository::new(database.clone()));
     let otp_requests = Arc::new(PgOtpRequestStore::new(database.clone()));
@@ -91,31 +81,13 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
     let push_store = Arc::new(PgNotificationDeliveryStore::new(database.clone()));
     let push_sender = Arc::new(PushService::new(config.push.clone(), push_store.clone()));
     let push_handler = Arc::new(NotificationPushHandler::new(push_store, push_sender));
-    let billing_store = Arc::new(PgBillingRepository::new(database.clone()));
-    let billing = Arc::new(BillingService::new(
-        billing_store,
-        stripe.clone(),
-        config.billing.clone(),
-        activity.clone(),
-        Arc::new(SystemClock),
-    ));
     let erasure_store = Arc::new(PgErasureRepository::new(database.clone()));
     let erasure = Arc::new(ErasureService::new(
         erasure_store,
         activity.clone(),
-        billing,
         photo_handler.clone(),
     ));
-    let reconciliation_store = Arc::new(PgBillingReconciliationStore::new(database.clone()));
     let delivery = Arc::new(MobileDeliveryService::new(realtime));
-    let reconciliation = BillingReconciliationService::new(
-        reconciliation_store,
-        stripe,
-        delivery.clone(),
-        Arc::new(activity.clone()),
-        Arc::new(SystemClock),
-        config.billing.clone(),
-    );
     let native_billing = Arc::new(
         crate::billing::stores::StoreBillingService::new(
             crate::billing::stores::pg::StoreRepository::new(
@@ -130,17 +102,10 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
         )
         .with_events(delivery.clone()),
     );
-    let billing_handler = Arc::new(BillingReconciliationHandler::new(reconciliation));
     let dispatcher = Arc::new(
-        OutboxEventDispatcher::new(
-            photo_handler,
-            push_handler,
-            erasure,
-            billing_handler.clone(),
-            billing_handler,
-        )
-        .with_store_billing(native_billing)
-        .with_mobile_otp(otp_handler),
+        OutboxEventDispatcher::new(photo_handler, push_handler, erasure)
+            .with_store_billing(native_billing)
+            .with_mobile_otp(otp_handler),
     );
     let tracker = MaintenanceTracker::new(Arc::new(PgMaintenanceStatusRepository::new(
         database.clone(),

@@ -1,4 +1,6 @@
 #![cfg(feature = "postgres-integration")]
+#[path = "support/store_subscription.rs"]
+mod paid_store;
 
 use chrono::Utc;
 use histae_api_rust::{
@@ -117,8 +119,7 @@ async fn gifts_are_idempotent_audited_and_shared_by_mobile_and_admin_views() -> 
         assert_eq!(detail.continuation_quota.expect("quota").weekly_limit, None);
         let no_payment: bool = sqlx::query_scalar(
             "SELECT NOT EXISTS(SELECT 1 FROM user_subscription WHERE user_id=$1)
-             AND NOT EXISTS(SELECT 1 FROM billing_store_subscription WHERE user_id=$1)
-             AND NOT EXISTS(SELECT 1 FROM billing_invoice WHERE user_id=$1)",
+             AND NOT EXISTS(SELECT 1 FROM billing_store_subscription WHERE user_id=$1)",
         )
         .bind(fixture.target)
         .fetch_one(fixture.database.acquire().await?.as_mut())
@@ -157,24 +158,23 @@ async fn gifts_and_revocation_never_replace_or_cancel_a_paid_subscription() -> T
     let fixture = Fixture::new().await?;
     let result: TestResult = async {
         let provider_id = format!("sub_{}", Uuid::new_v4().simple());
-        sqlx::query("INSERT INTO user_subscription(user_id,plan,provider,provider_subscription_id,status,current_period_ends_at) VALUES($1,'premium','stripe',$2,'active',clock_timestamp()+INTERVAL '30 days')")
-            .bind(fixture.target).bind(&provider_id).execute(fixture.database.acquire().await?.as_mut()).await?;
+        paid_store::grant(&fixture.database,fixture.target,&provider_id).await?;
         let billing = PgBillingRepository::new(fixture.database.clone());
         for enabled in [true, false] {
             assert_eq!(fixture.set(enabled).await?, PremiumGrantResult::Updated);
             let view = billing.effective_subscription_for_user(fixture.target, Utc::now()).await?.expect("paid subscription");
             assert!(view.access_granted);
-            assert_eq!(view.provider, Some(SubscriptionProvider::Stripe));
+            assert_eq!(view.provider, Some(SubscriptionProvider::AppStore));
         }
         fixture.set(true).await?;
-        sqlx::query("UPDATE user_subscription SET status='canceled',current_period_ends_at=clock_timestamp()-INTERVAL '1 day' WHERE user_id=$1")
+        sqlx::query("UPDATE billing_store_subscription SET status='expired',expires_at=clock_timestamp()-INTERVAL '1 day' WHERE user_id=$1")
             .bind(fixture.target).execute(fixture.database.acquire().await?.as_mut()).await?;
         let view = billing.effective_subscription_for_user(fixture.target, Utc::now()).await?.expect("gift fallback");
         assert!(view.access_granted);
         assert_eq!(view.provider, None);
         fixture.set(false).await?;
         assert!(!billing.effective_subscription_for_user(fixture.target, Utc::now()).await?.expect("historical subscription").access_granted);
-        let retained: bool = sqlx::query_scalar("SELECT provider_subscription_id=$2 AND provider='stripe' AND status='canceled' FROM user_subscription WHERE user_id=$1")
+        let retained: bool = sqlx::query_scalar("SELECT original_id=$2 AND provider='app_store' AND status='expired' FROM billing_store_subscription WHERE user_id=$1")
             .bind(fixture.target).bind(provider_id).fetch_one(fixture.database.acquire().await?.as_mut()).await?;
         assert!(retained);
         Ok(())

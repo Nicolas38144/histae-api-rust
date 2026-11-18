@@ -11,7 +11,7 @@ Utiliser des fixtures fictives et des secrets de développement, jamais une base
 | --- | --- | --- |
 | Unitaire | Modules `#[cfg(test)]` de `src/` | Règles, configuration, transports, mocks et cycles de vie |
 | Contrat | `*_contract.rs`, `http_contract.rs` | Statuts, JSON, validation, guards et permissions |
-| Inventaire | `route_inventory.rs` | Les 148 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
+| Inventaire | `route_inventory.rs` | Les 137 couples méthode/chemin correspondent aux déclarations Axum et aux collections Postman FR/EN ; les requêtes admin utilisent leur cookie |
 | PostgreSQL | `*_postgres.rs`, `postgres_compatibility`, `postgres_locks` | SQL, contraintes, verrous, snapshots et concurrence réels |
 | Redis / S3 | `redis_integration`, `media_integration` | Adaptateurs sur services locaux |
 | Codec | `photo_codec.rs`, `fixtures/photos/` | Formats, taille, métadonnées, corruption et arrêt du processus Node |
@@ -42,12 +42,14 @@ Le module `tests/mobile_identity/recovery.rs` vérifie aussi les résultats chif
 nettoyage concurrent d'une transaction de rotation encore ouverte. Le lanceur PostgreSQL vérifie l'upgrade depuis
 l'ancien schéma sans modifier les sessions historiques ni leurs échéances.
 
-Campagne locale du **8 novembre 2026** : **392 tests** avec `cargo test --locked --all-targets`,
-**48 tests PostgreSQL** sur dix suites : profils, administration/signalements, notifications, matchs,
-inactivité, droits/export, sessions mobiles, maintenance/outbox, effacement et localisation.
-Formatage et Clippy avec toutes les cibles/features et avertissements refusés réussis.
-Les intégrations ont utilisé une base jetable nettoyée après les tests, avec migrations répétées
-et conservation des journaux historiques. Les suites Redis/S3 et les appareils n'ont pas été rejoués.
+Campagne du **18 novembre 2026**, après retrait des paiements web : **360 tests Rust** avec
+`cargo test --locked --all-targets` et **102 tests PostgreSQL** : 100 dans la campagne isolée principale, puis deux contrôles SQL ciblés.
+Formatage et Clippy toutes cibles/fonctionnalités avec avertissements refusés réussis.
+La migration a aussi été testée deux fois depuis le schéma complet du commit précédent.
+Les cinq tests du vérificateur privé, les 26 règles Prometheus et leurs tests réussissent.
+Le reverse proxy passe sa validation Caddy et six contrôles de routage avec backend simulé.
+Aucun fournisseur réel, appareil ou déploiement de production n’a été testé ; Redis/S3 réels
+n’ont pas été rejoués. Les bases jetables et leurs identifiants sont supprimés après vérification.
 
 ## Suite complète
 
@@ -152,7 +154,7 @@ permissions applicatives dans un conteneur temporaire. Voir [Rôles PostgreSQL](
 
 `cargo test --test catalog_offers` vérifie les trois offres Free/Premium Mensuel/Premium Annuel,
 la conservation des deux niveaux de droits, la sérialisation et la propagation des prix/devise/essai
-du catalogue. Il ne contacte ni PostgreSQL ni Stripe. Les tests clients vérifient l'affichage séparé
+du catalogue. Il ne contacte ni PostgreSQL ni fournisseur de paiement. Les tests clients vérifient l'affichage séparé
 et le choix de la bonne périodicité ; ils ne prouvent pas un paiement réel.
 
 | Sujet | Exemples |
@@ -160,8 +162,8 @@ et le choix de la bonne périodicité ; ils ne prouvent pas un paiement réel.
 | Auth / transport | JWT aux bornes temporelles, claims invalides, IP socket/X-Forwarded-For falsifié, coercition numérique, corps JSON invalides ou trop grands |
 | Consentements / administration | Onboarding des appareils/SSE, données sensibles, sessions admin, rôles et consultations auditées |
 | Cycle de vie | Drain après échec, worker terminé inopinément, annulation au drop, SSE bloqué, expiration prioritaire du JWT et scrape interrompu |
-| Abonnements Stripe / revenus | Requêtes Checkout figées, reprises bornées, concurrence, abonnement distant sans webhook, prix historiques, projections dépassées et montants des factures payées |
-| Fournisseurs / exports | Durées OAuth hors plage, diagnostics Stripe préservés pendant effacement, date UTC et bigint exportés sans perte, nettoyage des fichiers temporaires |
+| Achats natifs / revenus | Liaison au compte, rejeux, concurrence, périodes, projections dépassées, acquittement et rapports financiers |
+| Fournisseurs / exports | Durées OAuth hors plage, date UTC et bigint exportés sans perte, nettoyage des fichiers temporaires |
 | SQL | Filtres et pages admin, compte sans profil, compteurs, curseurs, fiche/audit et équivalence des agrégats de files |
 | Découverte et blocage | Rejeu d’un like après création du match, filtres toujours appliqués, match terminé jamais rouvert, création concurrente d’un blocage et d’un match sérialisée |
 | Clôture de match | Participants uniquement, rejeux, fermeture concurrente, messages en attente refusés, événement SSE et rétention/quota conservés |
@@ -292,7 +294,7 @@ Le déploiement exige le passage du migrateur avant le démarrage de la nouvelle
 ## Internationalisation
 
 Les scénarios multilingues sont couverts par `localization_postgres`, les contrats de profil et de session,
-les transports simulés Sweego/Stripe/FCM et les règles de modération. Le runner PostgreSQL inclut ces
+les transports simulés Sweego/FCM et les règles de modération. Le runner PostgreSQL inclut ces
 suites, vérifie la couverture initiale des traductions, simule l’ancien schéma puis prouve que les migrations
 répétées conservent les préférences, les modifications et les traductions supprimées. Voir le
 [guide d’internationalisation](../docs/internationalization.md).
@@ -334,98 +336,30 @@ reproduction avec les rôles de test sont dans [Protection des SMS](../docs/sms-
 
 <a id="achats-multicanaux"></a>
 
-## Achats Apple/Google et Stripe web — 22 octobre 2026
+## Achats natifs et retrait du paiement web — 18 novembre 2026
 
-Le [guide de facturation](../docs/store-billing.md) décrit les nouveaux contrats, les variables,
-la livraison et les essais fournisseur restant nécessaires. L’API et Postman FR/EN comprennent
-**131 routes**. Les anciennes routes mobiles Stripe Checkout/portail sont des refus authentifiés
-`410 billing_web_only` ; le site utilise sa propre session OTP.
+Le [guide des achats](../docs/store-billing.md) et le [guide de migration](../docs/billing.md)
+décrivent le contrat natif, les variables et les étapes de livraison. L’inventaire et les deux
+collections Postman couvrent 137 routes. Les anciennes routes de paiement web retournent 404.
 
-### Résultats locaux
-
-| Vérification | Résultat |
-| --- | --- |
-| Rust bibliothèque + contrats billing/webhooks/OTP + inventaire | 237 tests réussis (221 + 2 + 5 + 7 + 2) |
-| Binaires Rust, contrôle sans features par défaut, rustfmt et Clippy tous targets/features avec `-D warnings` | Réussis |
-| Migration PostgreSQL fraîche, répétée et upgrade quota/pause/langue | Réussies avec le migrateur natif et les rôles limités |
-| Régressions PostgreSQL Stripe, matchs/continuations, maintenance, export et effacement | 29 tests réussis |
-| Nouvelle suite PostgreSQL des achats natifs, OTP web et import financier | 6 tests réussis |
-| Vérificateur Node privé | 5 tests réussis ; image Docker construite |
-| Flutter | Analyse sans problème ; 236 tests réussis après refactoring et ajout de l’UUID |
-| Site | TypeScript, lint, export statique et 4 tests navigateur/DTO réussis |
-| Dashboard | TypeScript, lint et build ; 98 tests initiaux, puis 12 contrôles ciblés et 2 parcours Chromium stores réussis après refactoring |
-| Compose dev/production et deux Caddyfiles modifiés | Configurations valides ; clés privées réservées au vérificateur |
-| Alertes Prometheus | Règles valides ; déclenchement et résolution des trois alertes stores vérifiés |
-
-Les 35 tests PostgreSQL ont été rejoués ensemble dans un serveur jetable, avec simulation
-d’un ancien schéma sans tables de stores et conservation d’une projection Stripe, sans accès à la base partagée. Les fichiers de logs locaux ne constituent pas des artefacts
-à versionner : garder les commandes et preuves synthétiques ci-dessous, sans secrets.
-
-### Scénarios prouvés
-
-- Les droits Stripe et natifs restent indépendants ; début de période inclusif et fin exclusive.
-  Une observation fournisseur ancienne ne remplace pas la nouvelle ; un token Google remplacé
-  reste exclu même s’il est rejoué.
-- La liaison opaque ne permet pas de réattribuer un achat à un autre compte. L’effacement coupe
-  les références et sessions sans recréer un lien lors d’une restauration.
-- L’acquittement Google est durable. Produit/environnement invalides sont refusés avant écriture ;
-  un JWS Apple forgé est rejeté par la bibliothèque officielle et ses certificats de confiance.
-- UUID/téléphone incorrects ne créent aucun compte. Les cinq tentatives d’un challenge sont
-  consommées atomiquement ; son OTP ne peut servir ni au mobile ni à un autre challenge.
-  Les sessions expirent et vérifient l’état courant du compte.
-- Le site exige l’OTP avant paiement, reprend une réponse Checkout perdue avec la même clé,
-  refuse les redirections non autorisées et ne propose pas de second achat Stripe à un abonné natif.
-- L’import financier vérifie le rôle superadmin courant, accepte un rejeu identique et annule tout
-  le rapport si une ligne contredit une ligne existante ; le dashboard exige une confirmation.
-
-### Refactoring du parcours et identifiant du profil
-
-Le service web est testé avec OTP et persistance réels, fournisseur SMS fictif et Stripe désactivé :
-aucun SMS pour un couple UUID/téléphone incorrect, code inutilisable sur le mobile, exactement une
-session lors de deux confirmations concurrentes, onboarding requis pour payer et refus après ban.
-Les handlers ne possèdent plus ce workflow ; les projections web et administratives sont typées.
-
-Flutter vérifie l’UUID copiable/sélectionnable dans quatre langues et à 200 %, ainsi que le refus
-localisé d’une copie impossible. Les tests de vie privée, logout et vidéo ont confirmé le défilement
-du profil avec la nouvelle zone de sélection. Les contrôleurs et fixtures d’achat utilisent des
-valeurs immuables, sans types du SDK ; seul l’adaptateur natif les manipule.
-
-Les contrôles frontend ciblent aussi les réponses admin malformées (erreur localisée contrôlée),
-les totaux par devise et les nets inconnus. Les parcours de confirmation d’import et les quatre
-parcours web passent avec les nouveaux hooks/composants. Les tests n’appellent aucun fournisseur réel.
-
-### Rejouer les contrôles ciblés
+Contrôles à rejouer :
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
-cargo test --locked --lib --test billing_contract --test billing_webhook_contract \
-  --test otp_sweego_contract --test route_inventory
+cargo test --locked --all-targets
 cargo build --locked --bin db-migrate
-python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate \
-  --test store_billing_postgres --test billing_postgres --test matches_postgres \
-  --test maintenance_outbox_postgres --test privacy_rights_postgres --test account_erasure_postgres
+python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/db-migrate
 npm --prefix services/store-verifier test
 ```
 
-L’option `--native-migrator` teste le binaire fraîchement compilé via le port loopback jetable ;
-omettre cette option pour employer le migrateur de l’image API reconstruite. Ajouter
-`--sudo-docker` après `sudo -v` si nécessaire. Les tests HTTP factices exigent le droit d’ouvrir
-un listener loopback. Aucune commande de cette section ne doit viser une base de production.
-
-Dans les dépôts clients : `flutter analyze` et `flutter test` ; site `pnpm typecheck`, `pnpm lint`,
-`pnpm build`, `pnpm test` ; dashboard `pnpm check`, `pnpm test:unit` et
-`pnpm exec playwright test tests/e2e/store-billing.spec.ts`.
-
-### Limites
-
-Aucun SMS ni paiement réel, achat Sandbox/Play test, build Android signé ou build iOS n’a été effectué.
-Le SDK Flutter temporaire a permis l’analyse et les tests Dart/widgets sur ce poste, pas une validation
-native des stores. Les tests navigateur interceptent l’API ; les tests PostgreSQL vérifient séparément
-ses transactions réelles avec des fournisseurs simulés. Les credentials/produits, notifications réelles,
-réconciliation fournisseur, essais sur appareils et déploiement derrière Cloudflare restent à valider.
-Les fournisseurs natifs et `BILLING_ENABLED` mobile restent désactivés avant cette configuration.
-Les brouillons juridiques mis à jour exigent une validation avant publication.
+Le runner utilise une base jetable, les rôles limités et des fournisseurs simulés. Il vérifie aussi
+la migration d’anciens paiements web de test, la conservation des preuves Apple/Google, des droits
+internes et des Premium offerts, et l’idempotence d’une seconde migration. Les suites
+`outbox_postgres` et `sms_safety_postgres` sont incluses par défaut et utilisent leur propre base
+jetable sous l’administrateur temporaire. `--test` permet de sélectionner une suite. Aucun SMS ni paiement réel n’est déclenché.
+Les essais Sandbox/Play test/TestFlight et les validations du tunnel distant restent nécessaires.
+Cette intervention ne modifie ni ne valide les dépôts clients.
 
 ## Retrait du vérificateur photo (2026-10-26)
 
@@ -475,7 +409,7 @@ vérifie la création concurrente d’un seul compte, les refus pour les comptes
 supprimés ou sous tombstone, la contrainte de rôle, le refus de promotion par un superadmin et la suppression concurrente.
 Il vérifie aussi le Premium offert aux nouveaux comptes de revue comme aux comptes déjà inscrits,
 les continuations Premium illimitées, le blocage d’un achat inutile, l’absence de facture ou de
-projection fournisseur créée, la conservation de l’historique Stripe et le retrait des droits
+projection fournisseur créée, la conservation de l’historique natif et le retrait des droits
 offerts si le compte n’est plus marqué pour la revue, est banni ou supprimé.
 Ces scénarios de facturation sont regroupés dans `play_review/premium.rs`, avec des helpers pour
 l’inscription de la fixture, la forme du droit offert et l’absence d’achat. Les scénarios
@@ -514,7 +448,7 @@ origine exacte, cookies absents/ambigus/expirés, refus des identités mobiles e
 validation des champs JSON, budget partagé par compte, retraits partiels idempotents et limités au compte,
 historique des consentements, nettoyage photo différé, jeton d'effacement lié au compte et invalidation
 des sessions. Le parcours OTP partage limites et cookie avec le paiement, tout en restant disponible
-avec paiement désactivé et onboarding incomplet. Checkout et portail restent désactivés dans ce cas.
+avec paiement désactivé et onboarding incomplet. Aucun achat web n’est proposé.
 Les collections Postman FR/EN couvrent les 140 routes avec les protections de cookie et d'origine.
 Validation locale du 29 octobre 2026 : 373 tests Rust par défaut et 17 tests PostgreSQL réussis,
 dont les six nouveaux scénarios web. Formatage et Clippy sans avertissement. Les migrations neuves,

@@ -17,7 +17,7 @@ pub const DURATION_BUCKETS_MS: [f64; 11] = [
     5_000.0,
     f64::INFINITY,
 ];
-pub const DEPENDENCIES: [&str; 5] = ["postgres", "redis", "object_storage", "sweego", "stripe"];
+pub const DEPENDENCIES: [&str; 4] = ["postgres", "redis", "object_storage", "sweego"];
 const MAX_HTTP_ROUTES: usize = 200;
 
 #[derive(Clone, Debug, Default)]

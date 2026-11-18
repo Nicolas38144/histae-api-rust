@@ -202,7 +202,7 @@ impl Database {
                 AND EXISTS (SELECT 1 FROM pg_attribute
                   WHERE attrelid=to_regclass(current_schema() || '.refresh_tokens')
                     AND attname='rotation_result' AND atttypid='bytea'::regtype AND NOT attisdropped)
-                AND to_regclass(current_schema() || '.web_billing_session') IS NOT NULL",
+                AND to_regclass(current_schema() || '.web_account_session') IS NOT NULL",
         )
         .fetch_one(&mut *connection)
         .await

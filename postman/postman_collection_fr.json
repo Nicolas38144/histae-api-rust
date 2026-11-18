@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection issue de docs/http-contract.md (148 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
+    "description": "Collection issue de docs/http-contract.md (137 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -162,47 +162,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "200 { plans: [...], offers: [...] }. Trois offres : Free (0 EUR, billing_period=null), Premium Mensuel (500 centimes/mois, monthly), Premium Annuel (4800 centimes/an, annual), selon le catalogue initial. offers expose code, plan_code, display_name, billing_period, price_cents, currency ; plan_code référence les fonctionnalités et quotas de plans (free/premium). Les champs plans et offers sont obligatoires ; aucun champ trial_days. Les prix viennent du catalogue actif. Checkout reçoit seulement la périodicité et une clé d'idempotence."
-              },
-              "response": []
-            }
-          ]
-        },
-        {
-          "name": "Webhook Stripe",
-          "item": [
-            {
-              "name": "POST /api/billing/stripe/webhook",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Stripe-Signature",
-                    "value": "{{stripeSignature}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": "{{baseUrl}}/api/billing/stripe/webhook",
-                "auth": {
-                  "type": "noauth"
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "description": "Corps JSON brut + Stripe-Signature → 200 { received: true }.\n\nLa signature doit correspondre exactement au corps brut. Utiliser un événement signé par Stripe ; le placeholder renverra 401."
+                "description": "200 { plans: [...], offers: [...] }. Trois offres : Free (0 EUR, billing_period=null), Premium Mensuel (500 centimes/mois, monthly), Premium Annuel (4800 centimes/an, annual), selon le catalogue initial. offers expose code, plan_code, display_name, billing_period, price_cents, currency ; plan_code référence les fonctionnalités et quotas de plans (free/premium). Les champs plans et offers sont obligatoires ; aucun champ trial_days. Les prix viennent du catalogue actif. Le SDK natif fournit le prix réellement proposé à l’achat."
               },
               "response": []
             }
@@ -1857,83 +1817,6 @@
                   ]
                 },
                 "description": "200 avec l’état d’abonnement public."
-              },
-              "response": []
-            },
-            {
-              "name": "POST /api/users/me/subscription/checkout",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Idempotency-Key",
-                    "value": "{{$guid}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Accept-Language",
-                    "value": "{{language}}",
-                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
-                  }
-                ],
-                "url": "{{baseUrl}}/api/users/me/subscription/checkout",
-                "auth": {
-                  "type": "bearer",
-                  "bearer": [
-                    {
-                      "key": "token",
-                      "value": "{{accessToken}}",
-                      "type": "string"
-                    }
-                  ]
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"billing_period\": \"monthly\"\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "description": "Route mobile retirée : 410 billing_web_only après authentification. Utiliser le parcours natif dans l’application ou la session OTP du site."
-              },
-              "response": []
-            },
-            {
-              "name": "POST /api/users/me/subscription/portal",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Accept-Language",
-                    "value": "{{language}}",
-                    "description": "fr, en, es, it; region tags and quality values supported. Disable to use the account preference."
-                  }
-                ],
-                "url": "{{baseUrl}}/api/users/me/subscription/portal",
-                "auth": {
-                  "type": "bearer",
-                  "bearer": [
-                    {
-                      "key": "token",
-                      "value": "{{accessToken}}",
-                      "type": "string"
-                    }
-                  ]
-                },
-                "description": "Route mobile retirée : 410 billing_web_only après authentification. Utiliser le parcours natif dans l’application ou la session OTP du site."
               },
               "response": []
             }
@@ -3689,7 +3572,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "revenue_period? → synthèse métier et operations. Les revenus partagent le calcul stripe_paid_invoices de /api/admin/revenue."
+                "description": "revenue_period? → métriques métier et opérations. Les revenus utilisent le même calcul store_financial_reports que /api/admin/revenue."
               },
               "response": []
             },
@@ -3711,7 +3594,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "revenue_period? → revenus bruts estimés des factures d’abonnement Stripe payées, selon paid_at. basis=stripe_paid_invoices ; montants historiques (mensuel/annuel, remises, renouvellements), essais à zéro exclus. paid_invoices compte les factures ; premium_subscriptions les abonnements distincts. Devise du catalogue uniquement ; excluded_currency_invoices signale les autres devises exclues. Taxes facturées incluses, frais et remboursements non déduits ; webhooks absents possibles. Ni MRR ni bénéfice ni versements bancaires."
+                "description": "revenue_period? → revenus bruts des rapports financiers App Store / Google Play importés. basis=store_financial_reports ; financial_rows compte les lignes de la devise du catalogue, gross_revenue_cents additionne leurs montants bruts signés (remboursements négatifs inclus), excluded_currency_rows compte les autres devises exclues. Aucun revenu déduit du nombre d’abonnés ; sans rapport le revenu vaut zéro. premium_subscriptions compte les abonnements natifs éligibles à period_end. Ni bénéfice ni versements bancaires."
               },
               "response": []
             },
@@ -3773,28 +3656,6 @@
                   }
                 },
                 "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\nUUID photo + { reason? } → 202 ; motif facultatif pour le superadmin."
-              },
-              "response": []
-            },
-            {
-              "name": "GET /api/admin/billing-reconciliation",
-              "request": {
-                "method": "GET",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Cookie",
-                    "value": "{{adminCookie}}"
-                  }
-                ],
-                "url": "{{baseUrl}}/api/admin/billing-reconciliation",
-                "auth": {
-                  "type": "noauth"
-                },
-                "description": "kind?, limit, cursor → dead letters Stripe 200 { events, next_cursor }."
               },
               "response": []
             },
@@ -4216,7 +4077,7 @@
       ]
     },
     {
-      "name": "Achats stores et paiement du site",
+      "name": "Achats stores et compte du site",
       "item": [
         {
           "name": "GET /api/billing/store-products",
@@ -4269,7 +4130,7 @@
                 }
               ]
             },
-            "description": "Prépare les identifiants opaques de liaison au compte. Refus si un abonnement ou Checkout doit encore être résolu. Retour 200.",
+            "description": "Prépare les identifiants opaques de liaison au compte. Refus si un abonnement doit encore être résolu. Retour 200.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"provider\": \"{{storeProvider}}\"\n}",
@@ -4466,7 +4327,7 @@
             "auth": {
               "type": "noauth"
             },
-            "description": "Cookie administrateur requis. Sources natives et chiffres issus des rapports importés ; Stripe reste séparé."
+            "description": "Cookie administrateur requis. Abonnements natifs et rapports financiers importés."
           },
           "response": []
         },
@@ -4512,262 +4373,6 @@
             }
           },
           "response": []
-        },
-        {
-          "name": "POST /api/web/billing/otp/send",
-          "request": {
-            "method": "POST",
-            "url": "{{baseUrl}}/api/web/billing/otp/send",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "{{language}}"
-              },
-              {
-                "key": "Origin",
-                "value": "{{webBillingOrigin}}"
-              },
-              {
-                "key": "Idempotency-Key",
-                "value": "{{webBillingOtpKey}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "auth": {
-              "type": "noauth"
-            },
-            "description": "⚠️ Peut envoyer un SMS si UUID ET téléphone correspondent à un compte actif. Réponse générique 202. Nouvelle intention : nouvelle clé ; réponse perdue : conserver et rejouer la même webBillingOtpKey. Aucun compte créé.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"user_id\": \"{{targetUserId}}\",\n  \"phone_number\": \"{{phoneNumber}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "if (pm.response.code === 202) { pm.collectionVariables.set(\"webBillingChallengeId\", pm.response.json().challenge_id); }"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "POST /api/web/billing/otp/verify",
-          "request": {
-            "method": "POST",
-            "url": "{{baseUrl}}/api/web/billing/otp/verify",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "{{language}}"
-              },
-              {
-                "key": "Origin",
-                "value": "{{webBillingOrigin}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "auth": {
-              "type": "noauth"
-            },
-            "description": "Valide le code de CE challenge (5 essais maximum) et pose un cookie HttpOnly pour 30 minutes. Le code ne permet pas une connexion mobile. Le gestionnaire de cookies Postman peut conserver le cookie ; renseigner webBillingCookie manuellement si nécessaire.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"challenge_id\": \"{{webBillingChallengeId}}\",\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"otp\": \"{{otp}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "GET /api/web/billing/session",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/api/web/billing/session",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "{{language}}"
-              },
-              {
-                "key": "Origin",
-                "value": "{{webBillingOrigin}}"
-              },
-              {
-                "key": "Cookie",
-                "value": "{{webBillingCookie}}"
-              }
-            ],
-            "auth": {
-              "type": "noauth"
-            },
-            "description": "Session de paiement du site uniquement, avec cookie webBillingCookie. Un JWT mobile ou un cookie admin ne convient pas."
-          },
-          "response": []
-        },
-        {
-          "name": "DELETE /api/web/billing/session",
-          "request": {
-            "method": "DELETE",
-            "url": "{{baseUrl}}/api/web/billing/session",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "{{language}}"
-              },
-              {
-                "key": "Origin",
-                "value": "{{webBillingOrigin}}"
-              },
-              {
-                "key": "Cookie",
-                "value": "{{webBillingCookie}}"
-              }
-            ],
-            "auth": {
-              "type": "noauth"
-            },
-            "description": "Ferme uniquement la session de paiement courante. Origin exact obligatoire."
-          },
-          "response": []
-        },
-        {
-          "name": "GET /api/web/billing/plans",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/api/web/billing/plans",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "{{language}}"
-              },
-              {
-                "key": "Origin",
-                "value": "{{webBillingOrigin}}"
-              }
-            ],
-            "auth": {
-              "type": "noauth"
-            },
-            "description": "Offres Stripe du site localisées via Accept-Language. Pas de secret ni de prix natif."
-          },
-          "response": []
-        },
-        {
-          "name": "POST /api/web/billing/checkout",
-          "request": {
-            "method": "POST",
-            "url": "{{baseUrl}}/api/web/billing/checkout",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "{{language}}"
-              },
-              {
-                "key": "Origin",
-                "value": "{{webBillingOrigin}}"
-              },
-              {
-                "key": "Cookie",
-                "value": "{{webBillingCookie}}"
-              },
-              {
-                "key": "Idempotency-Key",
-                "value": "{{webBillingCheckoutKey}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "auth": {
-              "type": "noauth"
-            },
-            "description": "⚠️ Crée une session Stripe uniquement après OTP et consentements courants. Nouvelle intention : nouvelle webBillingCheckoutKey ; réponse incertaine : rejouer la même clé et la même période. Ne donne pas accès avant confirmation fournisseur. Retour 201.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"billing_period\": \"monthly\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "POST /api/web/billing/portal",
-          "request": {
-            "method": "POST",
-            "url": "{{baseUrl}}/api/web/billing/portal",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "{{language}}"
-              },
-              {
-                "key": "Origin",
-                "value": "{{webBillingOrigin}}"
-              },
-              {
-                "key": "Cookie",
-                "value": "{{webBillingCookie}}"
-              }
-            ],
-            "auth": {
-              "type": "noauth"
-            },
-            "description": "⚠️ Ouvre le portail Stripe du compte authentifié par cookie web. Retour 201. Les achats Apple/Google se gèrent dans leur store."
-          },
-          "response": []
         }
       ]
     },
@@ -4808,11 +4413,11 @@
               },
               {
                 "key": "Origin",
-                "value": "{{webBillingOrigin}}"
+                "value": "{{webAccountOrigin}}"
               },
               {
                 "key": "Idempotency-Key",
-                "value": "{{webBillingOtpKey}}"
+                "value": "{{webAccountOtpKey}}"
               },
               {
                 "key": "Content-Type",
@@ -4822,7 +4427,7 @@
             "auth": {
               "type": "noauth"
             },
-            "description": "⚠️ Peut envoyer un SMS si UUID et téléphone correspondent à un compte actif. Origin exact du site et Idempotency-Key requis. Même challenge et mêmes limites que la facturation web ; disponible avec WEB_BILLING_ENABLED=false. Réutiliser la même clé après une réponse incertaine. Ne crée jamais de compte.",
+            "description": "⚠️ Peut envoyer un SMS si UUID et téléphone correspondent à un compte actif. Origin exact du site et Idempotency-Key requis. Challenge propre à la session du site et limites OTP partagées. Réutiliser la même clé après une réponse incertaine. Ne crée jamais de compte.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"user_id\": \"{{targetUserId}}\",\n  \"phone_number\": \"{{phoneNumber}}\"\n}",
@@ -4840,7 +4445,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 202) { pm.collectionVariables.set(\"webBillingChallengeId\", pm.response.json().challenge_id); }"
+                  "if (pm.response.code === 202) { pm.collectionVariables.set(\"webAccountChallengeId\", pm.response.json().challenge_id); }"
                 ]
               }
             }
@@ -4862,7 +4467,7 @@
               },
               {
                 "key": "Origin",
-                "value": "{{webBillingOrigin}}"
+                "value": "{{webAccountOrigin}}"
               },
               {
                 "key": "Content-Type",
@@ -4872,10 +4477,10 @@
             "auth": {
               "type": "noauth"
             },
-            "description": "Vérifie l’OTP de ce challenge web. Définit le cookie HttpOnly partagé de trente minutes ; aucun jeton mobile émis. Cinq tentatives maximum. Utiliser webBillingCookie pour les requêtes compte et confidentialité suivantes.",
+            "description": "Vérifie l’OTP de ce challenge web. Définit le cookie HttpOnly partagé de trente minutes ; aucun jeton mobile émis. Cinq tentatives maximum. Utiliser webAccountCookie pour les requêtes compte et confidentialité suivantes.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"challenge_id\": \"{{webBillingChallengeId}}\",\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"otp\": \"{{otp}}\"\n}",
+              "raw": "{\n  \"challenge_id\": \"{{webAccountChallengeId}}\",\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"otp\": \"{{otp}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4901,17 +4506,17 @@
               },
               {
                 "key": "Origin",
-                "value": "{{webBillingOrigin}}"
+                "value": "{{webAccountOrigin}}"
               },
               {
                 "key": "Cookie",
-                "value": "{{webBillingCookie}}"
+                "value": "{{webAccountCookie}}"
               }
             ],
             "auth": {
               "type": "noauth"
             },
-            "description": "Lit uniquement l’identité web : user_id et onboarding_complete, sans charger la facturation. Cookie web requis. Disponible sans onboarding terminé ni paiement web activé."
+            "description": "Lit uniquement l’identité web : user_id et onboarding_complete, sans charger la facturation. Cookie web requis. Disponible sans onboarding terminé."
           },
           "response": []
         },
@@ -4931,11 +4536,11 @@
               },
               {
                 "key": "Origin",
-                "value": "{{webBillingOrigin}}"
+                "value": "{{webAccountOrigin}}"
               },
               {
                 "key": "Cookie",
-                "value": "{{webBillingCookie}}"
+                "value": "{{webAccountCookie}}"
               }
             ],
             "auth": {
@@ -4961,11 +4566,11 @@
               },
               {
                 "key": "Origin",
-                "value": "{{webBillingOrigin}}"
+                "value": "{{webAccountOrigin}}"
               },
               {
                 "key": "Cookie",
-                "value": "{{webBillingCookie}}"
+                "value": "{{webAccountCookie}}"
               },
               {
                 "key": "Content-Type",
@@ -5004,11 +4609,11 @@
               },
               {
                 "key": "Origin",
-                "value": "{{webBillingOrigin}}"
+                "value": "{{webAccountOrigin}}"
               },
               {
                 "key": "Cookie",
-                "value": "{{webBillingCookie}}"
+                "value": "{{webAccountCookie}}"
               }
             ],
             "auth": {
@@ -5034,11 +4639,11 @@
               },
               {
                 "key": "Origin",
-                "value": "{{webBillingOrigin}}"
+                "value": "{{webAccountOrigin}}"
               },
               {
                 "key": "Cookie",
-                "value": "{{webBillingCookie}}"
+                "value": "{{webAccountCookie}}"
               },
               {
                 "key": "Content-Type",
@@ -5201,11 +4806,6 @@
       "type": "string"
     },
     {
-      "key": "stripeSignature",
-      "value": "",
-      "type": "string"
-    },
-    {
       "key": "sweegoWebhookId",
       "value": "",
       "type": "string"
@@ -5291,27 +4891,22 @@
       "type": "string"
     },
     {
-      "key": "webBillingOrigin",
+      "key": "webAccountOrigin",
       "value": "http://localhost:3000",
       "type": "string"
     },
     {
-      "key": "webBillingCookie",
+      "key": "webAccountCookie",
       "value": "",
       "type": "string"
     },
     {
-      "key": "webBillingChallengeId",
+      "key": "webAccountChallengeId",
       "value": "",
       "type": "string"
     },
     {
-      "key": "webBillingOtpKey",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "webBillingCheckoutKey",
+      "key": "webAccountOtpKey",
       "value": "",
       "type": "string"
     },

@@ -14,8 +14,6 @@ use uuid::Uuid;
 use super::domain::NotificationType;
 use super::push::{PushDeliveryError, PushSender};
 use super::sse::{MobileEventType, RealtimeService};
-use crate::billing::domain::StripeSubscriptionStatus;
-use crate::billing::webhook::{BillingRealtimePublisher, RealtimeFuture, status_name};
 use crate::infra::postgres::DatabaseError;
 use crate::matches::domain::{PublicMatch, PublicMessage};
 use crate::matches::service::{MatchEventFuture, MatchEventPublisher, MatchUpdate};
@@ -110,7 +108,7 @@ fn allowlisted_data(pending: &PendingPush) -> Result<BTreeMap<String, String>, P
                 payload_string(&pending.payload, "request_id")?,
             );
         }
-        NotificationType::BillingPaymentFailed | NotificationType::NewSession => {}
+        NotificationType::NewSession => {}
     }
     if pending.notification_type == NotificationType::NewMessage {
         data.insert(
@@ -244,27 +242,6 @@ impl MatchEventPublisher for MobileDeliveryService {
                 ]),
             )
             .await;
-        })
-    }
-}
-
-impl BillingRealtimePublisher for MobileDeliveryService {
-    fn subscription_updated(
-        &self,
-        user_id: Uuid,
-        status: StripeSubscriptionStatus,
-    ) -> RealtimeFuture<'_> {
-        Box::pin(async move {
-            self.deliver(
-                &[user_id],
-                MobileEventType::SubscriptionUpdated,
-                serde_json::Map::from_iter([(
-                    "status".to_owned(),
-                    Value::String(status_name(status).to_owned()),
-                )]),
-            )
-            .await;
-            Ok(())
         })
     }
 }

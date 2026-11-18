@@ -71,7 +71,7 @@ as_role() {
   printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)"
   printf 'PHONE_ENCRYPTION_KEY=%s\n' "$(openssl rand -hex 32)"
   printf 'PHONE_HASH_KEY=%s\n' "$(openssl rand -hex 32)"
-  printf 'RATE_LIMIT_STORE=memory\nSMS_PROVIDER=disabled\nBILLING_PROVIDER=disabled\n'
+  printf 'RATE_LIMIT_STORE=memory\nSMS_PROVIDER=disabled\n'
   printf 'PUSH_PROVIDER=disabled\nMETRICS_ENABLED=false\n'
 } > "$ROLE_TEST_DIRECTORY/migrate.env"
 migrate() {

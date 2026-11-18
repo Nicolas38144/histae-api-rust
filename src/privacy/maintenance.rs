@@ -343,8 +343,8 @@ const RETENTION_QUERIES: [&str; 31] = [
     "DELETE FROM sms_send_attempt WHERE delivery_id IN (
        SELECT delivery_id FROM sms_send_attempt WHERE reserved_at <= $1 - interval '25 hours'
        ORDER BY reserved_at LIMIT $2)",
-    "DELETE FROM web_billing_challenge WHERE id IN (SELECT id FROM web_billing_challenge WHERE expires_at <= $1 ORDER BY expires_at,id LIMIT $2)",
-    "DELETE FROM web_billing_session WHERE token_hash IN (SELECT token_hash FROM web_billing_session WHERE expires_at <= $1 ORDER BY expires_at,token_hash LIMIT $2)",
+    "DELETE FROM web_account_challenge WHERE id IN (SELECT id FROM web_account_challenge WHERE expires_at <= $1 ORDER BY expires_at,id LIMIT $2)",
+    "DELETE FROM web_account_session WHERE token_hash IN (SELECT token_hash FROM web_account_session WHERE expires_at <= $1 ORDER BY expires_at,token_hash LIMIT $2)",
     "DELETE FROM billing_store_notification WHERE id IN (SELECT id FROM billing_store_notification WHERE processed_at <= $1 - interval '7 days' OR received_at <= $1 - interval '90 days' ORDER BY received_at,id LIMIT $2)",
     "DELETE FROM billing_store_subscription WHERE id IN (SELECT id FROM billing_store_subscription WHERE expires_at <= $1 - interval '400 days' AND next_check_at <= $1 ORDER BY expires_at,id LIMIT $2)",
     "DELETE FROM billing_store_account WHERE id IN (SELECT a.id FROM billing_store_account a WHERE a.user_id IS NULL AND a.created_at <= $1 - interval '400 days' AND NOT EXISTS(SELECT 1 FROM billing_store_subscription s WHERE s.account_id=a.id) ORDER BY a.created_at,a.id LIMIT $2)",

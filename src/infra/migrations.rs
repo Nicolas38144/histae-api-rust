@@ -81,6 +81,7 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
 async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
+    retire_stripe(&mut transaction).await?;
     sqlx::raw_sql(schema_section(SCHEMA, "notification preferences")?)
         .execute(&mut *transaction)
         .await
@@ -132,23 +133,6 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
     sqlx::raw_sql("ALTER TABLE user_account ADD COLUMN IF NOT EXISTS preferred_language text NOT NULL DEFAULT 'fr' CHECK (preferred_language IN ('fr','en','es','it')); ALTER TABLE device_token ADD COLUMN IF NOT EXISTS language text CHECK (language IN ('fr','en','es','it')); ALTER TABLE user_consent ADD COLUMN IF NOT EXISTS document_language text NOT NULL DEFAULT 'fr' CHECK (document_language IN ('fr','en','es','it')); ALTER TABLE otp_verification ADD COLUMN IF NOT EXISTS language text NOT NULL DEFAULT 'fr' CHECK (language IN ('fr','en','es','it'))")
         .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
-    let legacy_checkout: bool = sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'billing_checkout_session' AND column_name = 'stripe_checkout_request')")
-        .fetch_one(&mut *transaction).await.map_err(map_sqlx_error)?;
-    sqlx::query("ALTER TABLE billing_checkout_session ADD COLUMN IF NOT EXISTS stripe_checkout_request jsonb")
-        .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
-    sqlx::query("ALTER TABLE billing_checkout_session ADD COLUMN IF NOT EXISTS creation_generation bigint NOT NULL DEFAULT 0")
-        .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
-    if legacy_checkout {
-        // Old attempts did not retain their POST parameters. Never replay a
-        // potentially executed Checkout with newly reconstructed parameters.
-        sqlx::query(r#"UPDATE billing_checkout_session AS checkout
-                     SET status='failed', stripe_checkout_request='{"legacy_unrecoverable":true}'::jsonb
-                     WHERE status IN ('creating','failed')
-                       AND (created_customer_id IS NOT NULL OR EXISTS (
-                         SELECT 1 FROM billing_customer AS customer
-                         WHERE customer.user_id=checkout.user_id AND stripe_customer_deleted_at IS NULL))"#)
-            .execute(&mut *transaction).await.map_err(map_sqlx_error)?;
-    }
     let legacy_quota: bool = sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'continuation_usage' AND column_name = 'free_used_count')")
         .fetch_one(&mut *transaction).await.map_err(map_sqlx_error)?;
     sqlx::query("ALTER TABLE continuation_usage ADD COLUMN IF NOT EXISTS free_used_count smallint NOT NULL DEFAULT 0 CHECK (free_used_count >= 0)")
@@ -193,7 +177,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         (SCHEMA, "play review account"),
         (SCHEMA, "complimentary premium"),
         (SCHEMA, "store billing"),
-        (SCHEMA, "web billing"),
+        (SCHEMA, "web account"),
         (SCHEMA, "continuation credits"),
         (SCHEMA, "continuation guards"),
         (SCHEMA, "account anonymization"),
@@ -245,13 +229,13 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         .execute(&mut *transaction)
         .await
         .map_err(map_sqlx_error)?;
-    retire_trial_notifications(&mut transaction).await?;
+    retire_payment_notifications(&mut transaction).await?;
     sqlx::raw_sql(schema_section(SCHEMA, "notification events")?)
         .execute(&mut *transaction)
         .await
         .map_err(map_sqlx_error)?;
     // Upgrade the former EUR catalogue price without overwriting custom prices.
-    // Stripe Prices and existing subscriptions are managed separately.
+    // Store prices are managed in the stores; this updates display-only catalog data.
     sqlx::query(
         "UPDATE subscription_plan
          SET annual_price_cents = 4800, updated_at = clock_timestamp()
@@ -429,58 +413,19 @@ async fn shorten_swipe_retention(connection: &mut sqlx::PgConnection) -> Result<
     Ok(())
 }
 
-async fn retire_trial_notifications(
+async fn retire_payment_notifications(
     connection: &mut sqlx::PgConnection,
 ) -> Result<(), DatabaseError> {
-    let legacy: bool = sqlx::query_scalar(
-        "SELECT EXISTS (
-           SELECT 1 FROM pg_attribute
-           WHERE attrelid = to_regclass(current_schema() || '.notification')
-             AND attname = 'billing_trial_ends_at' AND NOT attisdropped
-         ) OR EXISTS (
-           SELECT 1 FROM pg_constraint
-           WHERE conrelid = to_regclass(current_schema() || '.notification')
-             AND conname = 'notification_type_check'
-             AND pg_get_constraintdef(oid) LIKE '%subscription_trial_ending%'
-         )",
-    )
-    .fetch_one(&mut *connection)
-    .await
-    .map_err(map_sqlx_error)?;
-    if !legacy {
-        return Ok(());
-    }
-    // Remove jobs before their delivery references cascade away. Retain all
-    // other notifications and the historical subscription projections.
-    sqlx::raw_sql(
-        "DELETE FROM outbox_event job USING notification_push_delivery delivery, notification n
-         WHERE job.id = delivery.id AND job.event_type = 'notification.push'
-           AND delivery.notification_id = n.id AND n.type = 'subscription_trial_ending';
-         DELETE FROM notification WHERE type = 'subscription_trial_ending';
-         ALTER TABLE notification
-           DROP CONSTRAINT IF EXISTS chk_notification_billing_context,
-           DROP CONSTRAINT IF EXISTS notification_type_check,
-           DROP COLUMN IF EXISTS billing_trial_ends_at;
-         ALTER TABLE notification
-           ADD CONSTRAINT chk_notification_billing_context CHECK (
-             billing_reference IS NULL OR
-             (type = 'billing_payment_failed' AND billing_reference ~ '^in_[A-Za-z0-9]+$'));",
-    )
-    .execute(connection)
-    .await
-    .map_err(map_sqlx_error)?;
+    sqlx::raw_sql("DELETE FROM outbox_event job USING notification_push_delivery delivery, notification n
+      WHERE job.id=delivery.id AND job.event_type='notification.push'
+        AND delivery.notification_id=n.id AND n.type IN ('subscription_trial_ending','billing_payment_failed');
+      DELETE FROM notification WHERE type IN ('subscription_trial_ending','billing_payment_failed');
+      ALTER TABLE notification DROP CONSTRAINT IF EXISTS chk_notification_billing_context,
+        DROP COLUMN IF EXISTS billing_reference, DROP COLUMN IF EXISTS billing_trial_ends_at;")
+        .execute(connection).await.map_err(map_sqlx_error)?;
     Ok(())
 }
 
-fn schema_section<'a>(source: &'a str, name: &str) -> Result<&'a str, DatabaseError> {
-    source
-        .split_once(&format!("-- BEGIN {name}"))
-        .and_then(|(_, section)| section.split_once(&format!("-- END {name}")))
-        .map(|(section, _)| section)
-        .ok_or(DatabaseError::SchemaObjectsMissing)
-}
-
-/// Remove automatic photo analysis once while retaining audited human decisions.
 async fn retire_photo_verifier(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
     sqlx::raw_sql(r#"
         ALTER TABLE content_moderation_case
@@ -513,6 +458,54 @@ async fn retire_photo_verifier(connection: &mut sqlx::PgConnection) -> Result<()
           DROP COLUMN IF EXISTS content_allowed;
     "#).execute(connection).await.map_err(map_sqlx_error)?;
     Ok(())
+}
+
+/// Retire local test-only web-payment state. Store receipts and grants are preserved.
+async fn retire_stripe(connection: &mut sqlx::PgConnection) -> Result<(), DatabaseError> {
+    sqlx::raw_sql(r#"
+      DELETE FROM outbox_event WHERE event_type IN ('billing.subscription.reconcile','billing.customer.reconcile');
+      DELETE FROM maintenance_job_status WHERE job_name='billing';
+      ALTER TABLE maintenance_job_status DROP CONSTRAINT maintenance_job_status_job_name_check;
+      ALTER TABLE maintenance_job_status ADD CONSTRAINT maintenance_job_status_job_name_check
+        CHECK(job_name IN ('matches','photos','privacy','outbox'));
+      DROP VIEW IF EXISTS effective_user_subscription;
+      DROP FUNCTION IF EXISTS effective_subscription_at(uuid,timestamptz);
+      DROP TRIGGER IF EXISTS trg_cleanup_billing_identity ON user_account;
+      DROP FUNCTION IF EXISTS fct_cleanup_billing_identity();
+      DROP TABLE IF EXISTS stripe_webhook_event,billing_invoice,billing_checkout_session,billing_customer;
+      DO $retire$ BEGIN
+        IF EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='user_subscription'::regclass AND attname='provider' AND NOT attisdropped) THEN
+          DELETE FROM user_subscription WHERE provider IS NOT NULL;
+          ALTER TABLE user_subscription
+            DROP COLUMN provider, DROP COLUMN provider_subscription_id, DROP COLUMN provider_price_id,
+            DROP COLUMN billing_period, DROP COLUMN status, DROP COLUMN cancel_at_period_end,
+            DROP COLUMN trial_ends_at, DROP COLUMN canceled_at, DROP COLUMN provider_event_created_at,
+            DROP COLUMN projection_version, DROP COLUMN provider_snapshot_at;
+        END IF;
+        IF to_regclass(current_schema()||'.web_billing_challenge') IS NOT NULL THEN
+          ALTER TABLE web_billing_challenge RENAME TO web_account_challenge;
+          ALTER TABLE web_billing_session RENAME TO web_account_session;
+        END IF;
+      END $retire$;
+      UPDATE outbox_event SET status='pending',attempts=0,available_at=clock_timestamp(),
+        locked_at=NULL,locked_by=NULL,last_error_code=NULL,dead_lettered_at=NULL
+      WHERE event_type='account.erase' AND status IN ('pending','dead_letter')
+        AND aggregate_id IN (SELECT request_id FROM account_erasure WHERE step='stripe');
+      UPDATE account_erasure SET step='photos' WHERE step='stripe';
+      ALTER TABLE account_erasure ALTER COLUMN step SET DEFAULT 'photos';
+      ALTER TABLE account_erasure DROP CONSTRAINT account_erasure_step_check;
+      ALTER TABLE account_erasure ADD CONSTRAINT account_erasure_step_check
+        CHECK(step IN ('photos','swipes','postgres','completed'));
+    "#).execute(connection).await.map_err(map_sqlx_error)?;
+    Ok(())
+}
+
+fn schema_section<'a>(source: &'a str, name: &str) -> Result<&'a str, DatabaseError> {
+    source
+        .split_once(&format!("-- BEGIN {name}"))
+        .and_then(|(_, section)| section.split_once(&format!("-- END {name}")))
+        .map(|(section, _)| section)
+        .ok_or(DatabaseError::SchemaObjectsMissing)
 }
 
 #[cfg(test)]

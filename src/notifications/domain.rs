@@ -110,9 +110,6 @@ pub enum NotificationIntent {
     NewSession {
         session_id: Uuid,
     },
-    BillingPaymentFailed {
-        invoice_id: String,
-    },
 }
 
 impl NotificationIntent {
@@ -127,7 +124,6 @@ impl NotificationIntent {
             Self::FirstPeriodEnding { .. } => NotificationType::FirstPeriodEnding,
             Self::DataRequestReplied { .. } => NotificationType::DataRequestReplied,
             Self::NewSession { .. } => NotificationType::NewSession,
-            Self::BillingPaymentFailed { .. } => NotificationType::BillingPaymentFailed,
         }
     }
 
@@ -174,14 +170,6 @@ impl NotificationIntent {
                 json!({ "request_id": request_id, "response_status": response_status })
             }
             Self::NewSession { session_id } => json!({ "session_id": session_id }),
-            Self::BillingPaymentFailed { .. } => json!({}),
-        }
-    }
-
-    pub fn billing_reference(&self) -> Option<&str> {
-        match self {
-            Self::BillingPaymentFailed { invoice_id } => Some(invoice_id),
-            _ => None,
         }
     }
 
@@ -207,7 +195,6 @@ pub enum NotificationType {
     NewMatch,
     NewMessage,
     MatchExpiring,
-    BillingPaymentFailed,
     ContinuationRequested,
     ConversationContinued,
     PhotosRevealed,
@@ -225,18 +212,13 @@ impl NotificationType {
             Self::ContinuationRequested | Self::ConversationContinued => "histae_continuations",
             Self::PhotosRevealed => "histae_photos",
             Self::FirstPeriodEnding | Self::MatchExpiring => "histae_reminders",
-            Self::NewSession | Self::DataRequestReplied | Self::BillingPaymentFailed => {
-                "histae_account"
-            }
+            Self::NewSession | Self::DataRequestReplied => "histae_account",
         }
     }
 
     pub(super) const fn retention_seconds(self) -> i64 {
         let days = match self {
-            Self::NewMatch
-            | Self::NewMessage
-            | Self::MatchExpiring
-            | Self::BillingPaymentFailed => 90,
+            Self::NewMatch | Self::NewMessage | Self::MatchExpiring => 90,
             Self::ContinuationRequested
             | Self::ConversationContinued
             | Self::PhotosRevealed
@@ -252,7 +234,6 @@ impl NotificationType {
             "new_match" => Some(Self::NewMatch),
             "new_message" => Some(Self::NewMessage),
             "match_expiring" => Some(Self::MatchExpiring),
-            "billing_payment_failed" => Some(Self::BillingPaymentFailed),
             "continuation_requested" => Some(Self::ContinuationRequested),
             "conversation_continued" => Some(Self::ConversationContinued),
             "photos_revealed" => Some(Self::PhotosRevealed),
@@ -268,7 +249,6 @@ impl NotificationType {
             Self::NewMatch => "new_match",
             Self::NewMessage => "new_message",
             Self::MatchExpiring => "match_expiring",
-            Self::BillingPaymentFailed => "billing_payment_failed",
             Self::ContinuationRequested => "continuation_requested",
             Self::ConversationContinued => "conversation_continued",
             Self::PhotosRevealed => "photos_revealed",

@@ -112,13 +112,6 @@ groups:
         annotations:
           summary: The oldest pending push notification is older than 2 minutes
           runbook_url: docs/observability.md#outbox-delay
-      - alert: HistaeBillingReconciliationLate
-        expr: histae_outbox_queue_oldest_pending_age_seconds{queue="billing_reconciliation"} > 900
-        for: 5m
-        labels: { severity: critical, component: billing }
-        annotations:
-          summary: Billing reconciliation has been pending for more than 15 minutes
-          runbook_url: docs/observability.md#billing-reconciliation
       - alert: HistaeMaintenanceMissing
         expr: histae_maintenance_missing == 1
         for: 10m

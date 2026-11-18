@@ -274,12 +274,6 @@ fn render_persistent(
         "",
     );
     render_queue(out, "notification_push", &snapshot.notification_push, now);
-    render_queue(
-        out,
-        "billing_reconciliation",
-        &snapshot.billing_reconciliation,
-        now,
-    );
     for (state, value) in [
         ("pending", snapshot.otp.states.pending),
         ("accepted", snapshot.otp.states.accepted),

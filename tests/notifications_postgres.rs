@@ -146,7 +146,6 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
         .await
         .map_err(|error| FixtureError(error.safe_code()))?;
     let repository = PgNotificationRepository::new(database.clone());
-    let delivery_repository = PgNotificationDeliveryStore::new(database.clone());
     let user_id = Uuid::new_v4();
     let sessions = [Uuid::new_v4(), Uuid::new_v4()];
     cleanup(&database, user_id, &[]).await?;
@@ -159,7 +158,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
                 user_id,
                 sessions[0],
                 DeviceRegistration {
-            language: None,
+                    language: None,
                     token: format!("provider-token-{user_id}"),
                     platform: DevicePlatform::Ios,
                     app_version: Some("1.0.0".to_owned()),
@@ -172,7 +171,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
                 user_id,
                 sessions[0],
                 DeviceRegistration {
-            language: None,
+                    language: None,
                     token: format!("provider-token-{user_id}"),
                     platform: DevicePlatform::Android,
                     app_version: Some("2.0.0".to_owned()),
@@ -190,7 +189,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
                 user_id,
                 sessions[1],
                 DeviceRegistration {
-            language: None,
+                    language: None,
                     token: format!("provider-revoked-{user_id}"),
                     platform: DevicePlatform::Ios,
                     app_version: None,
@@ -226,7 +225,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
                     user_id,
                     sessions[1],
                     DeviceRegistration {
-            language: None,
+                        language: None,
                         token: format!("provider-rejected-{user_id}"),
                         platform: DevicePlatform::Ios,
                         app_version: None,
@@ -328,91 +327,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
         assert_eq!(counts, (2, 4, 4));
         drop(query_connection);
 
-        let missing_invoice = format!("in_{}", Uuid::new_v4().simple());
-        let missing_billing_source = Uuid::new_v4().hyphenated().to_string();
-        let missing_billing_intent = NotificationIntent::BillingPaymentFailed {
-            invoice_id: missing_invoice,
-        };
-        database
-            .transaction(|connection| {
-                Box::pin(async move {
-                    enqueue_notification(
-                        connection,
-                        user_id,
-                        &missing_billing_source,
-                        &missing_billing_intent,
-                    )
-                    .await
-                })
-            })
-            .await?;
-
-        let invoice_id = format!("in_{}", Uuid::new_v4().simple());
-        let customer_id = format!("cus_{}", Uuid::new_v4().simple());
-        let mut billing_connection = database.acquire().await?;
-        sqlx::query(
-            "INSERT INTO billing_invoice
-               (stripe_invoice_id, user_id, stripe_customer_id, status, currency,
-                amount_due, amount_paid, amount_remaining, period_starts_at,
-                period_ends_at, created_at)
-             VALUES ($1, $2, $3, 'open', 'EUR', 1000, 0, 1000,
-                     clock_timestamp(), clock_timestamp() + interval '1 month', clock_timestamp())",
-        )
-        .bind(&invoice_id)
-        .bind(user_id)
-        .bind(customer_id)
-        .execute(&mut *billing_connection)
-        .await?;
-        drop(billing_connection);
-
-        let invoice_source = Uuid::new_v4().hyphenated().to_string();
-        let invoice_reference = invoice_id.clone();
-        let invoice_intent = NotificationIntent::BillingPaymentFailed { invoice_id };
-        database
-            .transaction(|connection| {
-                Box::pin(async move {
-                    enqueue_notification(connection, user_id, &invoice_source, &invoice_intent)
-                        .await
-                })
-            })
-            .await?;
         let mut query_connection = database.acquire().await?;
-        let billing_counts: (i64, i64, i64) = sqlx::query_as(
-            "SELECT
-               (SELECT count(*) FROM notification WHERE user_id = $1),
-               (SELECT count(*) FROM notification_push_delivery delivery
-                JOIN notification notification ON notification.id = delivery.notification_id
-                WHERE notification.user_id = $1),
-               (SELECT count(*) FROM outbox_event outbox
-                JOIN notification_push_delivery delivery ON delivery.id = outbox.id
-                JOIN notification notification ON notification.id = delivery.notification_id
-                WHERE notification.user_id = $1)",
-        )
-        .bind(user_id)
-        .fetch_one(&mut *query_connection)
-        .await?;
-        assert_eq!(billing_counts, (3, 6, 6));
-
-        let invoice_job: Uuid = sqlx::query_scalar(
-            "SELECT delivery.id FROM notification_push_delivery delivery
-             JOIN notification n ON n.id = delivery.notification_id
-             WHERE n.user_id = $1 AND n.type = 'billing_payment_failed'
-             ORDER BY delivery.id LIMIT 1",
-        )
-        .bind(user_id)
-        .fetch_one(&mut *query_connection)
-        .await?;
-        assert_eq!(delivery_repository.find_deliverable(invoice_job).await?.expect("pending").language, histae_api_rust::localization::Language::Fr);
-        sqlx::query("UPDATE user_account SET preferred_language='es' WHERE user_id=$1").bind(user_id).execute(&mut *query_connection).await?;
-        assert_eq!(delivery_repository.find_deliverable(invoice_job).await?.expect("pending").language, histae_api_rust::localization::Language::Es);
-        sqlx::query("UPDATE device_token SET language='it' WHERE user_id=$1").bind(user_id).execute(&mut *query_connection).await?;
-        assert_eq!(delivery_repository.find_deliverable(invoice_job).await?.expect("pending").language, histae_api_rust::localization::Language::It);
-        sqlx::query("UPDATE billing_invoice SET status = 'paid', amount_remaining = 0 WHERE stripe_invoice_id = $1")
-            .bind(&invoice_reference)
-            .execute(&mut *query_connection)
-            .await?;
-        assert!(delivery_repository.find_deliverable(invoice_job).await?.is_none());
-
         created_outbox_ids = sqlx::query_scalar(
             "SELECT outbox.id FROM outbox_event outbox
              JOIN notification_push_delivery delivery ON delivery.id = outbox.id
@@ -422,7 +337,7 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
         .bind(user_id)
         .fetch_all(&mut *query_connection)
         .await?;
-        assert_eq!(created_outbox_ids.len(), 6);
+        assert_eq!(created_outbox_ids.len(), 4);
         drop(query_connection);
 
         assert!(repository.remove(user_id, first.id).await?);
@@ -435,13 +350,13 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
         .bind(user_id)
         .fetch_one(&mut *query_connection)
         .await?;
-        assert_eq!(remaining_deliveries, 3);
+        assert_eq!(remaining_deliveries, 2);
         let remaining_outbox: i64 =
             sqlx::query_scalar("SELECT count(*) FROM outbox_event WHERE id = ANY($1::uuid[])")
                 .bind(&created_outbox_ids)
                 .fetch_one(&mut *query_connection)
                 .await?;
-        assert_eq!(remaining_outbox, 6);
+        assert_eq!(remaining_outbox, 4);
         Ok(())
     }
     .await;

@@ -112,7 +112,8 @@ REDIS_ADDR=127.0.0.1:6379
 REDIS_PASSWORD=
 REDIS_TLS=false
 SMS_PROVIDER=disabled
-BILLING_PROVIDER=disabled
+APP_STORE_ENABLED=false
+GOOGLE_PLAY_ENABLED=false
 PUSH_PROVIDER=disabled
 OBJECT_STORAGE_ENDPOINT=http://storage.histae.localhost:8333
 OBJECT_STORAGE_ACCESS_KEY=histae-load
@@ -167,7 +168,7 @@ sudo bash scripts/seed-dev-load.sh 5000
 
 Cette étape peut durer plusieurs minutes. Elle crée les comptes fictifs dans PostgreSQL puis utilise
 les routes existantes pour les swipes, conversations, continuations et signalements. Elle ne demande pas
-d’OTP et ne livre aucun SMS. Les fournisseurs SMS, Stripe et push sont désactivés dans cette pile.
+d’OTP et ne livre aucun SMS. Les fournisseurs SMS, achats natifs et push sont désactivés dans cette pile.
 
 Le succès doit se terminer par `API load seed complete: 5000 users, 5000 matches.`
 Une relance reprend les données existantes. Le script réessaie certaines erreurs pendant le peuplement :

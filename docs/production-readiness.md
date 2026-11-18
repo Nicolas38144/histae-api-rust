@@ -29,12 +29,9 @@ Les validations locales avec doubles de test ne remplacent pas les essais suivan
 
 - Sweego : acceptation et livraison d’un OTP, erreurs/issue incertaine, webhook signé sur les octets bruts,
   suivi sans réactiver un code consommé ou expiré.
-- Stripe sur le site : UUID/téléphone/OTP, session cookie, refus de rejeu et cohérence produit/prix et redirections, signatures de webhook, rejeux, états d’abonnement,
-  réconciliation et effacement avec un compte fournisseur réel. Tester d’abord en développement/sandbox ;
-  `ENV=production` exige ensuite une clé live.
 - Apple/Google si activés : achats et restauration sur appareils, liaison au compte, prix du SDK,
   notifications authentifiées, renouvellement/grâce/hold/remboursement, acquittement et réconciliation.
-  Vérifier la séparation test/live et le service privé ; voir [Achats multicanaux](store-billing.md).
+  Vérifier la séparation test/live et le service privé ; voir [Achats natifs](store-billing.md).
 - FCM si activé : credentials, enregistrement/révocation d’appareil, notification durable et résultat push.
 - WebAuthn : enrôlement, connexion, passkey supplémentaire, révocation et expiration sur les navigateurs et
   authentificateurs effectivement utilisés, depuis le domaine HTTPS retenu.

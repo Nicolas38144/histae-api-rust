@@ -56,11 +56,6 @@ pub enum PushProvider {
     Fcm,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BillingProvider {
-    Disabled,
-    Stripe,
-}
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RateLimitStore {
     Memory,
     Redis,
@@ -170,25 +165,6 @@ pub struct PushConfig {
 }
 
 #[derive(Clone, Debug)]
-pub struct BillingConfig {
-    pub provider: BillingProvider,
-    pub stripe_secret_key: SecretString,
-    pub stripe_webhook_secret: SecretString,
-    pub premium_monthly_price_id: String,
-    pub premium_annual_price_id: String,
-    pub checkout_success_url: Option<String>,
-    pub checkout_cancel_url: Option<String>,
-    pub portal_return_url: Option<String>,
-    pub automatic_tax: bool,
-    pub allow_promotion_codes: bool,
-    pub timeout: Duration,
-    pub max_network_retries: u8,
-    pub reconciliation_interval: Duration,
-    pub reconciliation_freshness: Duration,
-    pub reconciliation_batch_size: u16,
-}
-
-#[derive(Clone, Debug)]
 pub struct StoreBillingConfig {
     pub apple_enabled: bool,
     pub google_enabled: bool,
@@ -203,8 +179,7 @@ pub struct StoreBillingConfig {
 }
 
 #[derive(Clone, Debug)]
-pub struct WebBillingConfig {
-    pub enabled: bool,
+pub struct WebAccountConfig {
     pub origin: String,
     pub secure_cookie: bool,
 }
@@ -318,9 +293,8 @@ pub struct AppConfig {
     pub sms: SmsConfig,
     pub redis: RedisConfig,
     pub push: PushConfig,
-    pub billing: BillingConfig,
     pub store_billing: StoreBillingConfig,
-    pub web_billing: WebBillingConfig,
+    pub web_account: WebAccountConfig,
     pub advertising: AdvertisingConfig,
     pub object_storage: ObjectStorageConfig,
     pub admin_auth: AdminAuthConfig,

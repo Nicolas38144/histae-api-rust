@@ -72,7 +72,7 @@ inactives, sans observation ni décision active, après 180 jours sans modificat
 
 Le rôle `histae_phone_sync` ne peut pas lire les comptes, modifier les décisions manuelles, supprimer
 les politiques ou créer des objets SQL. Le conteneur reçoit uniquement sa connexion PostgreSQL et la
-clé HMAC : aucun identifiant Sweego, Stripe, JWT ou clé de chiffrement des téléphones. PostgreSQL utilise
+clé HMAC : aucun identifiant Sweego, JWT ou clé de chiffrement des téléphones. PostgreSQL utilise
 `verify-full` avec la CA en production. Le job ne publie aucun port.
 
 Une empreinte de contrôle lie les imports et l’API à la même clé HMAC. Une clé différente produit

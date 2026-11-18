@@ -18,7 +18,6 @@ use crate::operations::logging::{self, SafeLogValue};
 
 use super::rate_limit::RateLimiter;
 
-const STRIPE_WEBHOOK: &str = "/api/billing/stripe/webhook";
 const ADMOB_WEBHOOK: &str = "/api/auth/admob/webhook";
 const SWEEGO_WEBHOOK: &str = "/api/auth/sweego/webhook";
 
@@ -209,8 +208,7 @@ pub async fn middleware(
         .insert(RequestId(request_id.clone()));
     request.extensions_mut().insert(ClientIp(client_ip));
 
-    let mut response = if path == STRIPE_WEBHOOK || path == SWEEGO_WEBHOOK || path == ADMOB_WEBHOOK
-    {
+    let mut response = if path == SWEEGO_WEBHOOK || path == ADMOB_WEBHOOK {
         next.run(request).await
     } else {
         match state

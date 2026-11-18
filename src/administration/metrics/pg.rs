@@ -124,15 +124,13 @@ fn revenue_from_row(row: &PgRow, period: RevenuePeriod) -> Result<AdminRevenue, 
         premium_subscriptions: row
             .try_get("premium_subscriptions")
             .map_err(map_sqlx_error)?,
-        paid_invoices: row.try_get("paid_invoices").map_err(map_sqlx_error)?,
-        estimated_revenue_cents: row
-            .try_get("estimated_revenue_cents")
-            .map_err(map_sqlx_error)?,
+        financial_rows: row.try_get("financial_rows").map_err(map_sqlx_error)?,
+        gross_revenue_cents: row.try_get("gross_revenue_cents").map_err(map_sqlx_error)?,
         currency: row.try_get("currency").map_err(map_sqlx_error)?,
-        excluded_currency_invoices: row
-            .try_get("excluded_currency_invoices")
+        excluded_currency_rows: row
+            .try_get("excluded_currency_rows")
             .map_err(map_sqlx_error)?,
-        basis: "stripe_paid_invoices",
+        basis: "store_financial_reports",
     })
 }
 
@@ -154,18 +152,19 @@ WITH anchor AS MATERIALIZED (
   FROM anchor
 ), revenue AS (
   SELECT bounds.period_start, bounds.period_end,
-    count(DISTINCT invoice.stripe_subscription_id) FILTER (WHERE invoice.currency = COALESCE(plan.currency, 'EUR'))::bigint AS premium_subscriptions,
-    count(invoice.stripe_invoice_id) FILTER (WHERE invoice.currency = COALESCE(plan.currency, 'EUR'))::bigint AS paid_invoices,
-    COALESCE(sum(invoice.amount_paid) FILTER (WHERE invoice.currency = COALESCE(plan.currency, 'EUR')), 0)::bigint AS estimated_revenue_cents,
-    COALESCE(plan.currency, 'EUR')::text AS currency,
-    count(invoice.stripe_invoice_id) FILTER (WHERE invoice.currency <> COALESCE(plan.currency, 'EUR'))::bigint AS excluded_currency_invoices
+    (SELECT count(*) FROM billing_store_subscription s
+     WHERE s.user_id IS NOT NULL AND NOT s.superseded
+       AND s.starts_at<=bounds.period_end AND s.expires_at>bounds.period_end
+       AND (s.status IN ('active','grace_period') OR (s.provider='google_play' AND s.status='canceled'))) AS premium_subscriptions,
+    count(finance.row_id) FILTER (WHERE finance.currency=COALESCE(plan.currency,'EUR'))::bigint AS financial_rows,
+    COALESCE(sum(finance.gross_cents) FILTER (WHERE finance.currency=COALESCE(plan.currency,'EUR')),0)::bigint AS gross_revenue_cents,
+    COALESCE(plan.currency,'EUR')::text AS currency,
+    count(finance.row_id) FILTER (WHERE finance.currency<>COALESCE(plan.currency,'EUR'))::bigint AS excluded_currency_rows
   FROM bounds
-  LEFT JOIN subscription_plan plan ON plan.code = 'premium'
-  LEFT JOIN billing_invoice invoice ON invoice.status = 'paid' AND invoice.amount_paid > 0
-    AND invoice.stripe_subscription_id IS NOT NULL
-    AND (bounds.period_start IS NULL OR invoice.paid_at >= bounds.period_start)
-    AND invoice.paid_at < bounds.period_end
-  GROUP BY bounds.period_start, bounds.period_end, plan.currency
+  LEFT JOIN subscription_plan plan ON plan.code='premium'
+  LEFT JOIN billing_store_finance finance
+    ON (bounds.period_start IS NULL OR finance.paid_at>=bounds.period_start) AND finance.paid_at<bounds.period_end
+  GROUP BY bounds.period_start,bounds.period_end,plan.currency
 )
 "#;
 

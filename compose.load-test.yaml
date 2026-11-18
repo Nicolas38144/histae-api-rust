@@ -24,7 +24,8 @@ services:
       REDIS_PASSWORD: ""
       REDIS_TLS: "false"
       SMS_PROVIDER: disabled
-      BILLING_PROVIDER: disabled
+      APP_STORE_ENABLED: "false"
+      GOOGLE_PLAY_ENABLED: "false"
       PUSH_PROVIDER: disabled
     depends_on: !override
       load-redis: { condition: service_healthy }

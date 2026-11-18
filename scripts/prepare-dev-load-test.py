@@ -121,9 +121,12 @@ def create_sessions(database_user, count, expires):
 def prepare(database_user, count, output):
     if output.exists():
         raise RuntimeError('Fixture already exists: run --cleanup before preparing a new one')
-    for name in ('SMS_PROVIDER', 'BILLING_PROVIDER', 'PUSH_PROVIDER'):
+    for name in ('SMS_PROVIDER', 'PUSH_PROVIDER'):
         if optional_env(name, 'disabled') != 'disabled':
             raise RuntimeError(f'{name} must be disabled on the load-test instance')
+    for name in ('APP_STORE_ENABLED', 'GOOGLE_PLAY_ENABLED'):
+        if optional_env(name, 'false') != 'false':
+            raise RuntimeError('Native purchases must be disabled on the load-test instance')
     secret = seed.docker('exec', '-T', API_SERVICE, 'printenv', 'JWT_SECRET').encode()
     if len(secret) < 32:
         raise RuntimeError('Missing or invalid development JWT_SECRET')

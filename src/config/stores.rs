@@ -1,13 +1,13 @@
 use super::{
     ConfigError, Environment, EnvironmentSource, SecretString, StoreBillingConfig,
-    WebBillingConfig, validation::boolean,
+    WebAccountConfig, validation::boolean,
 };
 use url::Url;
 
 pub(super) fn load(
     source: &EnvironmentSource,
     environment: Environment,
-) -> Result<(StoreBillingConfig, WebBillingConfig), ConfigError> {
+) -> Result<(StoreBillingConfig, WebAccountConfig), ConfigError> {
     let flag = |name| boolean(source.value(name)?.as_deref(), false, name);
     let apple_enabled = flag("APP_STORE_ENABLED")?;
     let google_enabled = flag("GOOGLE_PLAY_ENABLED")?;
@@ -46,21 +46,20 @@ pub(super) fn load(
     {
         return Err(ConfigError::invalid("STORE_VERIFIER_URL"));
     }
-    let enabled = flag("WEB_BILLING_ENABLED")?;
     let origin = source.or(
-        "WEB_BILLING_ORIGIN",
+        "WEB_ACCOUNT_ORIGIN",
         if environment == Environment::Production {
             "https://www.histae.com"
         } else {
             "http://localhost:3000"
         },
     )?;
-    let origin_url = Url::parse(&origin).map_err(|_| ConfigError::invalid("WEB_BILLING_ORIGIN"))?;
+    let origin_url = Url::parse(&origin).map_err(|_| ConfigError::invalid("WEB_ACCOUNT_ORIGIN"))?;
     if origin_url.origin().ascii_serialization() != origin
         || (environment == Environment::Production && origin_url.scheme() != "https")
         || !matches!(origin_url.scheme(), "http" | "https")
     {
-        return Err(ConfigError::invalid("WEB_BILLING_ORIGIN"));
+        return Err(ConfigError::invalid("WEB_ACCOUNT_ORIGIN"));
     }
     Ok((
         StoreBillingConfig {
@@ -75,8 +74,7 @@ pub(super) fn load(
             verifier_token: SecretString::new(token),
             production: environment == Environment::Production,
         },
-        WebBillingConfig {
-            enabled,
+        WebAccountConfig {
             origin,
             secure_cookie: origin_url.scheme() == "https",
         },

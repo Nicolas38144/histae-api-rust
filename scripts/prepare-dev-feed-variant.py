@@ -45,9 +45,12 @@ def main():
     prepare.API_SERVICE = 'load-api'
     seed.COMPOSE.extend(['-f', str(args.compose_file.resolve())])
     database_user = prepare.guard()
-    for name in ('SMS_PROVIDER', 'BILLING_PROVIDER', 'PUSH_PROVIDER'):
+    for name in ('SMS_PROVIDER', 'PUSH_PROVIDER'):
         if prepare.optional_env(name, 'invalid') != 'disabled':
             raise RuntimeError('External providers must be disabled')
+    for name in ('APP_STORE_ENABLED', 'GOOGLE_PLAY_ENABLED'):
+        if prepare.optional_env(name, 'false') != 'false':
+            raise RuntimeError('Native purchases must be disabled on the load-test instance')
     api = json.loads(subprocess.check_output(['docker', 'inspect', seed.docker('ps', '-q', 'load-api')], text=True))[0]
     if api['NetworkSettings']['Ports']['8080/tcp'] != [{'HostIp': '127.0.0.1', 'HostPort': '18081'}]:
         raise RuntimeError('Expected the temporary loopback API on port 18081')

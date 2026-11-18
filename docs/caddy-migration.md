@@ -14,7 +14,7 @@ figée par digest. L’API Rust reste servie par Axum. Les routes et contrats JS
 | Reverse proxy | `../histae-reverse-proxy/Caddyfile` | Domaines publics, confiance du connecteur et routage Docker |
 | Passerelle S3 production | `docker/storage-gateway/Caddyfile` | TLS interne et transmission des requêtes S3 signées |
 
-Le site, le dashboard et le proxy ont chacun une copie identique de `caddy-common.caddy` parce que
+Le site, le dashboard et le proxy ont chacun une copie de `caddy-common.caddy` parce que
 leurs contextes de build Docker sont indépendants. Le test vérifie cette égalité. Ces snippets centralisent
 dans chaque image la politique de logs et la limite de corps HTTP. Les anciennes configurations Nginx sont supprimées.
 

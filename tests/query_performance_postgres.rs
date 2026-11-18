@@ -225,10 +225,6 @@ async fn operational_queues_equal_independent_counts() -> Result<(), Box<dyn std
             "event_type = 'notification.push'",
             snapshot.notification_push,
         ),
-        (
-            "event_type LIKE 'billing.%'",
-            snapshot.billing_reconciliation,
-        ),
     ] {
         type Counts = (i64, i64, i64, i64, i64, Option<chrono::DateTime<Utc>>);
         let query = format!(

@@ -5,14 +5,14 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **148 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **137 couples méthode/chemin**.
 
 ## Sommaire
 
 - [Conventions communes](#conventions-communes)
 - [Routes publiques et intégrations](#routes-publiques-et-integrations)
   - [OTP et catalogue](#connexion-mobile-et-catalogue)
-  - [Webhooks Stripe](#webhook-stripe) et [Sweego](#webhook-sweego)
+  - [Webhook Sweego](#webhook-sweego)
 - [Client mobile](#client-mobile)
   - [Sessions](#session-et-deconnexion), [consentements](#consentements), [profil](#profil-et-preferences)
   - [Photo](#photo-unique), [traits et questions](#traits-et-questions-de-profil)
@@ -90,7 +90,7 @@ Le client doit interpréter `error.code`, pas le texte de `message`. Aucune stac
 | 429 | Limite de débit dépassée ; respecter `Retry-After` lorsqu’il est fourni. |
 | 503 | Dépendance ou protection temporairement indisponible. |
 
-Une limite globale par IP s’ajoute aux limites dédiées indiquées ci-dessous ; leurs valeurs sont les valeurs par défaut configurables. Dépassement global : `rate_limit_exceeded` ; protection Redis indisponible : `rate_limit_unavailable`, sans laisser passer la requête. Les webhooks Stripe, Sweego et AdMob ont chacun leur propre limite à la place de la limite globale.
+Une limite globale par IP s’ajoute aux limites dédiées indiquées ci-dessous ; leurs valeurs sont les valeurs par défaut configurables. Dépassement global : `rate_limit_exceeded` ; protection Redis indisponible : `rate_limit_unavailable`, sans laisser passer la requête. Les webhooks Apple, Google Play, Sweego et AdMob ont chacun leur propre limite à la place de la limite globale.
 
 ### Pagination
 
@@ -108,7 +108,7 @@ Il n’existe pas de mécanisme de retry universel.
 
 | Opération | Comportement attendu du client |
 | --- | --- |
-| Envoi OTP, photo, message, Checkout | Fournir `Idempotency-Key: <UUID v4>` et conserver la même clé et le même contenu pour la même intention. Les fenêtres et conflits sont propres au parcours. |
+| Envoi OTP, photo, message | Fournir `Idempotency-Key: <UUID v4>` et conserver la même clé et le même contenu pour la même intention. Les fenêtres et conflits sont propres au parcours. |
 | Refresh mobile | Un seul appel à la fois. **Pas de retry aveugle** après perte de réponse ; voir le parcours ci-dessous. |
 | Consentements, attribution/retrait de trait | Rejouer un état identique ne doit pas dupliquer l’effet. |
 | Swipe | Rejouer le même choix conservé est accepté si la cible reste éligible. Un like retrouve le même match encore ouvert ; un match terminé ou expiré n’est pas rouvert. |
@@ -170,26 +170,9 @@ quotas viennent du plan référencé par `plan_code`. Une offre n'est pas publi�
 ou inactif. Le contrat exige `plans` et `offers` ; les réponses ne contenant que `plans` sont rejetées
 par les clients. Le champ `trial_days` est supprimé des plans et des offres ; aucun essai n'est proposé.
 
-Le client affiche une carte par offre. Checkout reçoit uniquement `billing_period: monthly` ou `annual`,
-avec sa clé d'idempotence ; ni `premium_monthly` ni `premium_annual` ne deviennent un niveau de droits.
-Les deux abonnements donnent les droits `premium` selon la projection serveur. Le catalogue ne prouve
-pas la disponibilité des paiements, et aucun identifiant ou prix Stripe n'est choisi par le client.
-
-### Webhook Stripe
-
-| Méthode | Route | Entrée → résultat |
-| --- | --- | --- |
-| POST | `/api/billing/stripe/webhook` | Corps JSON brut + `Stripe-Signature` → `200 { received: true }`. |
-
-La signature est obligatoire, ainsi que la cohérence test/live. Les Event IDs sont dédupliqués ; les événements non pris en charge mais valides sont acquittés sans effet. Limite dédiée : 300/min/IP.
-
-Les nouveaux abonnements Premium sont reconnus par les prix `price_…` configurés dans
-`STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID`. Un abonnement traité doit contenir
-un seul article portant un prix autorisé ; aucun identifiant produit n'est configuré.
-
-Les périodes historiques au niveau de l’abonnement et les références historiques de facture `subscription` sont aussi acceptées. Les anciens prix restent reconnus uniquement pour l’abonnement et le client déjà liés à ce prix en base, après rotation des prix des nouvelles ventes. Un événement dépassé par un état plus récent est acquitté sans annoncer un changement d’état obsolète.
-
-Événements traités : `checkout.session.completed`, `checkout.session.expired`, `customer.subscription.created|updated|deleted|paused|resumed`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.finalization_failed`, `customer.deleted`. Les événements de facture/abonnement plus anciens que l’état connu sont ignorés. Erreurs : `invalid_stripe_signature`, `stripe_mode_mismatch`, `invalid_stripe_event`, `billing_webhook_rate_limit_exceeded`.
+Les offres décrivent les droits et les prix indicatifs du catalogue. Les achats sont réalisés
+uniquement dans les applications Android/iOS ; le prix proposé au paiement vient du SDK du store.
+Aucune URL de paiement web ni identifiant de prix externe n’est fourni par le client.
 
 ### Protection des envois SMS
 
@@ -468,15 +451,13 @@ ne sont pas remis en file après sa levée. Le mode discret utilise le texte gé
 
 SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created, match.updated, matches.invalidated, message.created, message.read, subscription.updated`. Le flux ferme à expiration du JWT ou après échec/révocation détecté lors du contrôle de session toutes les 25 secondes. Le client SSE doit pouvoir envoyer le Bearer.
 
-**Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les alertes de paiement devenues obsolètes ne sont pas envoyées. Les types push pris en charge sont `new_match`, `new_message`, `match_expiring`, `billing_payment_failed`, `continuation_requested`, `conversation_continued`, `photos_revealed`, `first_period_ending`, `data_request_replied` et `new_session`. Les alertes liées à un match affichent le prénom actuel de l’autre personne dans le texte visible ; ce prénom ne figure pas dans les données de routage. Les réponses aux démarches routent vers leur historique, les connexions vers les sessions. Voir les [notifications push](push-notifications.md) pour les déclencheurs, le rappel unique deux heures avant l’échéance, les filtres d’obsolescence et la migration. Les données de routage du push d’inactivité ne contiennent que les identifiants techniques ; il est abandonné si un nouveau message a repoussé l’échéance ou si le match est devenu inaccessible. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation.
+**Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les types push pris en charge sont `new_match`, `new_message`, `match_expiring`, `continuation_requested`, `conversation_continued`, `photos_revealed`, `first_period_ending`, `data_request_replied` et `new_session`. Les alertes liées à un match affichent le prénom actuel de l’autre personne dans le texte visible ; ce prénom ne figure pas dans les données de routage. Les réponses aux démarches routent vers leur historique, les connexions vers les sessions. Voir les [notifications push](push-notifications.md) pour les déclencheurs, le rappel unique deux heures avant l’échéance, les filtres d’obsolescence et la migration. Les données de routage du push d’inactivité ne contiennent que les identifiants techniques ; il est abandonné si un nouveau message a repoussé l’échéance ou si le match est devenu inaccessible. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation.
 
 ### Abonnement
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
-| GET | `/api/users/me/subscription` | `200` état effectif commun Stripe / Apple / Google. |
-| POST | `/api/users/me/subscription/checkout` | Route retirée : `410 billing_web_only` après authentification mobile. |
-| POST | `/api/users/me/subscription/portal` | Route retirée : `410 billing_web_only` après authentification mobile. |
+| GET | `/api/users/me/subscription` | `200` état effectif Apple / Google, cadeaux Histae et compte de revue. |
 | GET | `/api/billing/store-products` | Query `provider=app_store|google_play` → `200 { provider, offers: [{ billing_period, product_id, base_plan_id }] }` ; public, aucun prix natif. |
 | POST | `/api/users/me/subscription/purchase-intents` | `{ provider: app_store|google_play }` → `200 { provider, account_binding, offers }`, compte onboardé. |
 | POST | `/api/users/me/subscription/apple/verify` | `{ reference: transactionId }` → `204` après preuve serveur ; relire l’abonnement. |
@@ -485,11 +466,11 @@ SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created
 | POST | `/api/billing/google-play/webhook` | Enveloppe Pub/Sub + `Authorization: Bearer <JWT OIDC>` → `200 { received: true }`. |
 
 État : `plan, provider, status, access_granted, billing_period`, dates de période/essai/annulation,
-`cancel_at_period_end, customer_portal_available, management_url`. `provider` : `stripe|app_store|google_play|null`.
+`cancel_at_period_end, customer_portal_available, management_url`. Les champs de compatibilité `customer_portal_available` et `trial_ends_at` valent toujours `false` et `null`. `provider` : `app_store|google_play|null`.
 `management_url` : lien officiel du store ou `null`. `plan` vaut Free si aucun droit courant, même si un historique
 Premium existe. Ne jamais déduire les droits du SDK, d’un webhook reçu, d’un redirect ou de `status` seul.
 États natifs : `pending, active, grace_period, past_due, on_hold, paused, canceled, expired, revoked`.
-Les états Stripe historiques sont conservés. Les protections de consentement et la limite 10/min/compte s’appliquent.
+Les protections de consentement et la limite 10/min/compte s’appliquent.
 Un compte de revue Google Play actif dispose de Premium offert sans expiration : `access_granted: true`,
 `provider: null` et `current_period_ends_at: null`, sauf si un abonnement fournisseur actif est prioritaire.
 Ce droit est réservé au marqueur serveur de revue ; aucune route utilisateur ne peut le définir.
@@ -497,47 +478,18 @@ Un achat possède un compte immuable ; un reçu d’un autre compte renvoie `409
 Autres erreurs : `503 store_unavailable`, `422 invalid_store_purchase`, `409 subscription_already_active`.
 Voir [achats stores](store-billing.md) pour les états, acquittements, restauration et notifications.
 
-### Paiement du site
-
-Session distincte des JWT mobiles et du cookie administrateur. Origin exact obligatoire sur toutes les mutations.
-Cookie HttpOnly host-only, Secure en HTTPS, SameSite Strict ; session trente minutes. Réponses `no-store`.
-
-| Méthode | Route | Entrée → résultat |
-| --- | --- | --- |
-| POST | `/api/web/billing/otp/send` | `{ user_id: UUIDv4, phone_number }` + `Idempotency-Key: UUIDv4` → `202 { challenge_id, expires_at, message }` générique ; SMS seulement si les deux correspondent à un compte actif. |
-| POST | `/api/web/billing/otp/verify` | `{ challenge_id, phone_number, otp: six chiffres }` → `204` + cookie ; cinq essais maximum, code lié au challenge. |
-| GET | `/api/web/billing/session` | Cookie web → `200 { user_id, onboarding_complete, subscription }` ; sinon `401 web_authentication_failed`. |
-| DELETE | `/api/web/billing/session` | Cookie web + Origin → `204` et cookie expiré. |
-| GET | `/api/web/billing/plans` | Catalogue public du site, localisé, même forme que `/api/plans`. |
-| POST | `/api/web/billing/checkout` | Cookie web, Origin, clé UUIDv4, `{ billing_period: monthly|annual }` → `201 { session_id, url, expires_at }`. |
-| POST | `/api/web/billing/portal` | Cookie web + Origin → `201 { url }` du portail Stripe. |
-
-Aucun compte créé par ce parcours. Limites OTP par IP et téléphone partagées avec le mobile et les protections
-Sweego. Les réponses d’envoi restent génériques même en cas d’envoi non confirmé. Le code ne donne pas de JWT mobile.
-Avant paiement : compte actif, non banni et consentements courants ; `403 onboarding_incomplete` sinon.
-`403 invalid_web_request_origin` si Origin incorrect. `503 web_billing_unavailable` bloque Checkout
-et le portail si le paiement du site est désactivé ; la connexion et la gestion des données restent disponibles.
-Une réponse Checkout perdue se reprend avec la même clé et la même période. Expiration à 35 minutes à la préparation ;
-respecter `expires_at`. Clé consommée : relire les droits avant de préparer une autre intention.
-Les états non terminés connus d’un fournisseur bloquent un second achat, même sans accès Premium.
-Changer de périodicité remplace uniquement une session Checkout ouverte et connue : l’API confirme
-son expiration chez Stripe avant de créer la nouvelle. Les sessions terminées, les créations en
-cours et les tentatives incertaines restent protégées. La clé de la formule remplacée devient
-consommée ; après relecture des droits, le site peut utiliser une nouvelle clé pour cette formule.
-Les erreurs et procédures Stripe existantes restent décrites dans [le guide Stripe](billing.md).
-
 ### Gestion des données depuis le site
 
 La page publique `/{fr,en,es,it}/account/data/`, liée au footer, présente les conséquences de chaque
 suppression et une adresse d’assistance pour les personnes sans accès à l’app. Les actions automatiques
 réutilisent le cookie web de trente minutes ; aucun JWT mobile n’est émis. La session peut être partagée
-avec « Mon abonnement ». Origin exact `WEB_BILLING_ORIGIN` obligatoire sur toutes les mutations,
-y compris si `WEB_BILLING_ENABLED=false`. Toutes les réponses sont `no-store` et `no-referrer`.
+avec les démarches du compte. Origin exact `WEB_ACCOUNT_ORIGIN` obligatoire sur toutes les mutations,
+Toutes les réponses sont `no-store` et `no-referrer`.
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
-| POST | `/api/web/account/otp/send` | Même UUID/téléphone, clé d’idempotence et réponse générique que le parcours de connexion du paiement. |
-| POST | `/api/web/account/otp/verify` | Même challenge/code SMS → `204` et cookie HttpOnly. |
+| POST | `/api/web/account/otp/send` | `{ user_id: UUIDv4, phone_number }` + clé d’idempotence UUIDv4 → `202 { challenge_id, expires_at, message }` générique ; SMS uniquement pour un compte actif correspondant. |
+| POST | `/api/web/account/otp/verify` | `{ challenge_id, phone_number, otp }` → `204` et cookie HttpOnly. |
 | GET | `/api/web/account/session` | Cookie valide → `{ user_id, onboarding_complete }`, sans charger la facturation. |
 | DELETE | `/api/web/account/session` | Déconnexion du navigateur et expiration du cookie → `204`. |
 | DELETE | `/api/web/privacy/data` | `{ category: photo|location|sensitive_profile }` → `204` ; le compte et les autres catégories sont conservés. |
@@ -555,7 +507,7 @@ absent, ambigu, expiré ou compte inactif : `401 web_authentication_failed` ; bu
 `429 privacy_rate_limit_exceeded` avec `Retry-After`. Un corps invalide après ces contrôles reçoit
 `400 invalid_request_body`. Un jeton de confirmation bien formé mais expiré ou lié à un autre compte
 reçoit `401 invalid_or_expired_deletion_token`.
-Pour les appels sans corps (jeton d'effacement, déconnexion, portail), omettre `Content-Type`
+Pour les appels sans corps (jeton d'effacement, déconnexion), omettre `Content-Type`
 ou envoyer `{}` avec `application/json`. Déclarer du JSON avec un corps vide donne `400`,
 conformément au parseur HTTP commun.
 
@@ -577,7 +529,7 @@ automatiquement par le site. Aucune table, migration ou remise à zéro n’est 
 Rapports normalisés, au plus 1 000 lignes, IDs stables 1–128 caractères alphanumériques/`_.:-`, dates avec fuseau non
 futures, monnaie en majuscules, montants signés entiers bornés à 10¹² centièmes par ligne. Net inconnu : `null`.
 Un rejeu identique est idempotent ; même clé avec d’autres valeurs → `409 finance_report_conflict`, rollback global.
-Aucune estimation à partir des abonnés ; devises séparées ; Stripe conserve ses factures payées séparément.
+Les rapports financiers des stores sont importés séparément par devise ; aucune estimation à partir des abonnés.
 
 <a id="droits-effacement-et-surete"></a>
 
@@ -697,7 +649,7 @@ Le rôle `superadmin` ne peut pas être attribué par l’API et un index Postgr
 
 Pour une demande RGPD, la mutation accepte `in_progress | completed | rejected`. Sur un effacement en cours, demander `completed` **programme** le workflow et répond `200 { "message": "account erasure scheduled" }` ; la demande reste `in_progress` jusqu’à réussite réelle. Le rejeu ne duplique pas le travail. Rejet d’un effacement commencé : `409 invalid_data_request_transition`. Autres transitions : `200 { "message": "data subject request updated" }`.
 
-`erasure` peut être nul ; sinon il expose `step, updated_at, event_id, status, attempts, last_error_code`. Les étapes sont `stripe | photos | swipes | postgres | completed`. Après purge d’un événement résolu, `event_id/status` peuvent être nuls. Aucun payload, identifiant Stripe, clé objet ou URL.
+`erasure` peut être nul ; sinon il expose `step, updated_at, event_id, status, attempts, last_error_code`. Les étapes sont `photos | swipes | postgres | completed`. Après purge d’un événement résolu, `event_id/status` peuvent être nuls. Aucun payload, identifiant de paiement, clé objet ou URL.
 
 <a id="catalogue-et-moderation"></a>
 
@@ -735,7 +687,6 @@ La décision est `approved | rejected`, avec la `version` lue au préalable. Auc
 | GET | `/api/admin/revenue` | `revenue_period?` → estimation de chiffre d’affaires. |
 | GET | `/api/admin/photo-reconciliation` | `status?, limit, cursor` (offset déprécié) → traitements photo à réconcilier. |
 | POST | `/api/admin/photo-reconciliation/:id/retry` | UUID photo + `{ reason? }` → `202`. |
-| GET | `/api/admin/billing-reconciliation` | `kind?, limit, cursor` → dead letters Stripe `200 { events, next_cursor }`. |
 | GET | `/api/admin/outbox/dead-letters` | `limit, cursor` → `200 { events, next_cursor }`. |
 | POST | `/api/admin/outbox/:id/retry` | **Récente** ; `{ reason? }` → `202`, relance auditée. |
 | POST | `/api/admin/outbox/:id/discard` | **Récente** ; `{ reason? }` → `204`, abandon audité lorsque permis. |
@@ -746,29 +697,20 @@ La décision est `approved | rejected`, avec la `version` lue au préalable. Auc
 `subscription_offers: [{ offer, users }]` avec quatre compteurs, toujours présents :
 `free`, `premium_monthly`, `premium_annual`, `premium_unspecified`. Ce dernier regroupe les
 accès Premium sans périodicité enregistrée ; il ne représente pas une quatrième offre vendue.
-La ventilation suit `user_subscription.billing_period` et les mêmes règles d'accès effectif que
-`subscriptions` : Stripe `trialing`, `active` ou `past_due` avec fin de période future, ou accès
-manuel non expiré. Un abonnement expiré ou Stripe résilié compte comme Free. Les comptes supprimés
-sont exclus ; les comptes bannis restent inclus comme dans les totaux existants. Les compteurs
-représentent les accès actuels, indépendamment de `revenue_period`, et ne modifient aucun abonnement.
+La ventilation suit les droits effectifs : achats natifs encore valables et accès internes non expirés.
+Les cadeaux et accès de revue sans périodicité sont `premium_unspecified`. Les compteurs représentent
+les accès actuels, indépendamment de `revenue_period`.
 
-`revenue` expose `period, period_start, period_end, premium_subscriptions, paid_invoices,
-estimated_revenue_cents, currency, excluded_currency_invoices, basis`. La base est
-`stripe_paid_invoices` : somme de `billing_invoice.amount_paid` pour les factures d’abonnement
-`paid`, de montant positif, dont `paid_at` appartient à la période et dont la devise correspond
-au catalogue Premium. `paid_invoices` compte ces factures ; `premium_subscriptions` compte leurs
-abonnements Stripe distincts, pas les comptes Premium actuels. `price_per_subscription_cents`
-a été supprimé : aucun tarif unique ne permet de calculer ce revenu.
-
-Achats annuels, remises et renouvellements utilisent leurs montants historiques ; les essais à 0,
-factures impayées, dates de paiement absentes et factures sans abonnement sont exclus. Les factures
-d’une autre devise ne sont jamais additionnées : `excluded_currency_invoices` permet de les signaler.
-Une annulation ou un effacement ultérieurs ne retirent pas les factures historiques enregistrées.
-Ce total brut inclut les taxes facturées, sans déduire frais et remboursements ; des webhooks manquants
-peuvent laisser des factures absentes. **Ce n’est ni un MRR, ni un bénéfice, ni un versement bancaire.**
+`revenue` expose `period, period_start, period_end, premium_subscriptions, financial_rows,
+gross_revenue_cents, currency, excluded_currency_rows, basis`. La base `store_financial_reports`
+somme les montants bruts des lignes importées depuis les rapports Apple/Google, selon leur date et
+la devise du catalogue. Les autres devises ne sont pas additionnées ; leur nombre de lignes est
+`excluded_currency_rows`. `premium_subscriptions` compte les abonnements natifs actifs à la fin de
+la période. Sans rapport importé, le montant est nul : aucun prix catalogue ni nombre d’abonnés ne
+sert à inventer un revenu. Ce montant brut ne constitue pas un bénéfice ou un versement bancaire.
 Voir [Abonnements et revenus](billing.md).
 
-`operations` expose latences/compteurs HTTP et `401/403/429/5xx`, mémoire/uptime du processus Rust, résultats des dépendances, pool, outbox et maintenances. Les mesures du processus repartent à zéro au redémarrage ; les états outbox/maintenance sont persistants. Chaque maintenance fournit notamment `processed_count, batch_count, duration_ms, work_remaining` ; ce dernier signale qu’une passe a consommé son budget borné et doit être reprise. `operations.outbox.notification_push` détaille `pending, processing, completed, dead_letter, discarded, oldest_pending_at` ; `operations.outbox.billing_reconciliation` fournit les mêmes états utiles sans `discarded`. `completed` signifie tâche acquittée encore conservée, pas réception par un terminal ni validation d’un paiement. Voir [Exploitation](operations.md) et [bornes de configuration](configuration.md#groupes-de-variables).
+`operations` expose latences/compteurs HTTP et `401/403/429/5xx`, mémoire/uptime du processus Rust, résultats des dépendances, pool, outbox et maintenances. Les mesures du processus repartent à zéro au redémarrage ; les états outbox/maintenance sont persistants. Chaque maintenance fournit notamment `processed_count, batch_count, duration_ms, work_remaining` ; ce dernier signale qu’une passe a consommé son budget borné et doit être reprise. `operations.outbox.notification_push` détaille `pending, processing, completed, dead_letter, discarded, oldest_pending_at` ; `completed` signifie tâche acquittée encore conservée, pas réception par un terminal ni validation d’un paiement. Voir [Exploitation](operations.md) et [bornes de configuration](configuration.md#groupes-de-variables).
 
 L’export Prometheus n’est pas une route de ce contrat : lorsqu’il est activé, il écoute sur un serveur privé
 distinct, authentifié par bearer token. Voir [supervision et runbooks](observability.md).
@@ -780,8 +722,6 @@ distinct, authentifié par bearer token. Voir [supervision et runbooks](observab
 portent sur les OTP non expirés, pas sur un historique complet ; les compteurs de callbacks sont locaux au processus.
 
 Réconciliation photo : filtre `all | stale_processing | deleting | dead_letter` (défaut `all`). UUID photo/utilisateur, métadonnées techniques, diagnostics et état outbox uniquement ; aucune image ni clé objet. Une photo prête ou un traitement récent refuse la relance : `409 photo_reconciliation_not_allowed` ; worker actif : `409 photo_reconciliation_in_progress` ; photo absente : `404 photo_not_found`.
-
-Réconciliation Stripe : la liste ne contient que les dead letters qui exigent une action humaine ; la file normale reste agrégée dans `operations`. `kind = all | subscription | customer_creation`. Elle expose UUID d’événement/utilisateur, type, tentatives, code d’erreur normalisé et dates ; jamais payload, identifiant fournisseur ou moyen de paiement. Une dead letter peut être relancée par la route outbox commune, après authentification récente et avec audit. La relance effectue une nouvelle lecture et n’ordonne aucun paiement.
 
 Les dead letters exposent type, tentatives et code normalisé, jamais payload/agrégat/clé objet. Une décision devenue obsolète renvoie `409 outbox_event_not_dead_letter`. L’abandon de `account.erase` et des événements `billing.*` est toujours interdit ; celui de `photo.delete` est interdit tant que sa trace existe : `409 outbox_discard_not_allowed`. `notification.push` peut être abandonné sans effacer la notification. Un `202` de reprise ne garantit pas que la dépendance sera disponible lors du prochain essai.
 

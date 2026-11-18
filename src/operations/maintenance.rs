@@ -28,7 +28,6 @@ pub enum MaintenanceJobName {
     Photos,
     Privacy,
     Outbox,
-    Billing,
 }
 
 impl MaintenanceJobName {
@@ -38,7 +37,6 @@ impl MaintenanceJobName {
             Self::Photos => "photos",
             Self::Privacy => "privacy",
             Self::Outbox => "outbox",
-            Self::Billing => "billing",
         }
     }
 
@@ -48,7 +46,6 @@ impl MaintenanceJobName {
             "photos" => Some(Self::Photos),
             "privacy" => Some(Self::Privacy),
             "outbox" => Some(Self::Outbox),
-            "billing" => Some(Self::Billing),
             _ => None,
         }
     }

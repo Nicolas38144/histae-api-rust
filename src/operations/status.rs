@@ -38,7 +38,6 @@ pub struct PersistentSnapshot {
     pub postgres_pool: PoolStats,
     pub outbox: QueueSnapshot,
     pub notification_push: QueueSnapshot,
-    pub billing_reconciliation: QueueSnapshot,
     pub store_billing: StoreBillingSnapshot,
     pub otp: OtpDeliverySnapshot,
     pub sms_safety: SmsSafetySnapshot,
@@ -94,7 +93,6 @@ impl PersistentStatus for PgOperationalStatus {
             .map_err(map_sqlx_error)?;
             let mut all = QueueSnapshot::default();
             let mut push = QueueSnapshot::default();
-            let mut billing = QueueSnapshot::default();
             let mut stores = StoreBillingSnapshot::default();
             for (event_type, status, count, oldest_pending) in rows {
                 accumulate_queue(&mut all, &status, count, oldest_pending);
@@ -103,9 +101,6 @@ impl PersistentStatus for PgOperationalStatus {
                 }
                 if event_type.starts_with("billing.store.") {
                     accumulate_queue(&mut stores.queue, &status, count, oldest_pending);
-                }
-                if event_type.starts_with("billing.") && !event_type.starts_with("billing.store.") {
-                    accumulate_queue(&mut billing, &status, count, oldest_pending);
                 }
             }
             let (unacknowledged, stale): (i64, i64) = sqlx::query_as("SELECT count(*) FILTER(WHERE NOT acknowledged),count(*) FILTER(WHERE verified_at<clock_timestamp()-interval '12 hours' AND expires_at>clock_timestamp()) FROM billing_store_subscription WHERE user_id IS NOT NULL AND NOT superseded")
@@ -116,7 +111,6 @@ impl PersistentStatus for PgOperationalStatus {
                 postgres_pool: self.database.pool_stats(),
                 outbox: all,
                 notification_push: push,
-                billing_reconciliation: billing,
                 store_billing: stores,
                 otp: self.otp.snapshot().await?,
                 sms_safety: self.sms_safety.snapshot().await?,
@@ -132,7 +126,6 @@ impl PersistentStatus for PgOperationalStatus {
 pub struct DependencyConfiguration {
     pub redis: bool,
     pub sweego: bool,
-    pub stripe: bool,
 }
 
 #[derive(Clone)]
@@ -140,7 +133,6 @@ pub struct OperationalStatusView {
     metrics: Arc<OperationalMetrics>,
     persistent: Arc<dyn PersistentStatus>,
     dependencies: DependencyConfiguration,
-    billing_interval: Duration,
 }
 
 impl OperationalStatusView {
@@ -148,13 +140,11 @@ impl OperationalStatusView {
         metrics: Arc<OperationalMetrics>,
         persistent: Arc<dyn PersistentStatus>,
         dependencies: DependencyConfiguration,
-        billing_interval: Duration,
     ) -> Self {
         Self {
             metrics,
             persistent,
             dependencies,
-            billing_interval,
         }
     }
 
@@ -205,7 +195,6 @@ impl OperationalStatusView {
                 let enabled = match *name {
                     "redis" => self.dependencies.redis,
                     "sweego" => self.dependencies.sweego,
-                    "stripe" => self.dependencies.stripe,
                     _ => true,
                 };
                 let status = if !enabled {
@@ -233,9 +222,9 @@ impl OperationalStatusView {
             })
             .collect::<serde_json::Map<_, _>>();
 
-        let maintenance = ["matches", "photos", "privacy", "outbox", "billing"]
+        let maintenance = ["matches", "photos", "privacy", "outbox"]
             .into_iter()
-            .map(|name| maintenance_view(name, &persistent.maintenance, now, self.billing_interval))
+            .map(|name| maintenance_view(name, &persistent.maintenance, now))
             .collect::<Vec<_>>();
 
         Ok(json!({
@@ -268,7 +257,6 @@ impl OperationalStatusView {
                 "discarded": persistent.outbox.discarded,
                 "oldest_pending_at": persistent.outbox.oldest_pending_at.map(date_time),
                 "notification_push": queue_value(&persistent.notification_push),
-                "billing_reconciliation": queue_value(&persistent.billing_reconciliation),
             },
             "store_billing": {
                 "queue": queue_value(&persistent.store_billing.queue),
@@ -341,19 +329,13 @@ fn queue_value(queue: &QueueSnapshot) -> Value {
     })
 }
 
-fn maintenance_view(
-    name: &str,
-    snapshots: &[MaintenanceSnapshot],
-    now: DateTime<Utc>,
-    billing_interval: Duration,
-) -> Value {
+fn maintenance_view(name: &str, snapshots: &[MaintenanceSnapshot], now: DateTime<Utc>) -> Value {
     let snapshot = snapshots
         .iter()
         .find(|entry| entry.job_name.as_str() == name);
     let expected = match name {
         "privacy" => Duration::from_secs(86_400),
         "outbox" => Duration::from_secs(60),
-        "billing" => billing_interval,
         _ => Duration::from_secs(3_600),
     };
     let Some(snapshot) = snapshot else {
@@ -483,7 +465,6 @@ mod tests {
                 },
                 outbox: empty_queue(),
                 notification_push: empty_queue(),
-                billing_reconciliation: empty_queue(),
                 store_billing: StoreBillingSnapshot::default(),
                 otp: OtpDeliverySnapshot {
                     states: OtpDeliveryStates {
@@ -513,9 +494,7 @@ mod tests {
             DependencyConfiguration {
                 redis: false,
                 sweego: false,
-                stripe: false,
             },
-            Duration::from_secs(300),
         );
 
         let snapshot = view.snapshot().await.expect("snapshot");
@@ -531,7 +510,7 @@ mod tests {
         assert_eq!(snapshot["http"]["routes"][0]["p95_duration_ms"], 50.0);
         assert_eq!(snapshot["dependencies"]["redis"]["status"], "disabled");
         assert_eq!(snapshot["postgres_pool"]["waiting"], 1);
-        assert_eq!(snapshot["maintenance"].as_array().map(Vec::len), Some(5));
+        assert_eq!(snapshot["maintenance"].as_array().map(Vec::len), Some(4));
         assert_eq!(snapshot["maintenance"][0]["missing"], true);
     }
 }

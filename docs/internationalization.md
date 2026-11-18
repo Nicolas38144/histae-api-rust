@@ -41,7 +41,6 @@ Content-Type: application/json
 | `GET`, `PUT /api/users/me/consents` | URL et langue réelle du document proposé, langue historique du consentement. |
 | `POST /api/auth/otp/send` | Texte SMS dans la langue négociée ; numéros français `+33` uniquement, comme auparavant. |
 | `POST`, `GET /api/users/me/devices` | Préférence facultative `language` par appareil. |
-| `POST /api/users/me/subscription/checkout`, `POST /api/users/me/subscription/portal` | Paramètre Stripe `locale` et pages de retour Histae localisées. |
 | `GET /api/users/me/data-export` | Le fichier exporté conserve ses clés techniques et inclut la langue du compte, les preuves de consentement et les métadonnées d’appareil (sans jeton push). |
 
 Les notifications push sont localisées à la livraison ; le flux SSE reste un protocole technique sans traduction.
@@ -52,7 +51,7 @@ Les notifications push sont localisées à la livraison ; le flux SSE reste un p
 
 Sans préférence locale enregistrée, le mobile peut reprendre la langue du compte après vérification de son identité. Un choix explicite connecté appelle `PATCH /api/users/me/language` ; la restauration ne réécrit pas silencieusement cette préférence. Les notifications déjà autorisées utilisent une exception de langue par appareil, actualisée par réenregistrement du même jeton.
 
-Les reprises techniques OTP gardent le numéro, la clé et la langue de l’intention d’origine. Les nouvelles tentatives Checkout sauvegardent aussi leur langue avant le premier POST. Le mobile compare version, URL et langue du document présenté avant un PUT de consentements et conserve la distinction entre langue disponible et langue historique d’acceptation.
+Les reprises techniques OTP gardent le numéro, la clé et la langue de l’intention d’origine. Le mobile compare version, URL et langue du document présenté avant un PUT de consentements et conserve la distinction entre langue disponible et langue historique d’acceptation.
 
 Les révisions de traduction sont distinctes des révisions de confidentialité : elles rechargent les lectures sans supprimer les brouillons ni les intentions. Les gardes de session et de consentement continuent à s’appliquer. Voir le [guide mobile des langues API](../../histae-app/docs/api-languages.md), notamment les commandes de validation sur une machine avec Flutter. Cette adaptation mobile a été préparée sans SDK Flutter/Dart local ; ses tests et sa compilation restent à exécuter.
 
@@ -99,12 +98,10 @@ LOCATION_CONSENT_URL_EN=https://example.org/en/location
 
 Les suffixes `_ES` et `_IT` sont aussi disponibles. Ces douze variables sont facultatives, validées au démarrage (HTTPS requis en production, sans identifiants dans l’URL). Le document effectivement présenté est enregistré à chaque nouvelle décision. Répéter une même décision/version conserve la preuve initiale, y compris sa langue. Les anciennes décisions sont migrées en français. Les traductions juridiques doivent rester cohérentes avec la version validée ; la préférence linguistique ne vaut pas consentement.
 
-## OTP, push et facturation
+## OTP et push
 
 - La langue OTP fait partie de la tentative persistée. Réutiliser une clé d’idempotence avec une autre langue produit un conflit, sans nouvel appel au fournisseur. Utiliser une nouvelle clé pour une nouvelle tentative volontaire.
 - L’enregistrement d’appareil accepte `language: "es"`. Une valeur absente ou `null` suit la préférence du compte au moment de la livraison. Réenregistrer un appareil peut donc définir ou enlever son exception. Les textes push restent génériques et n’incluent ni message privé ni prénom.
-- Une nouvelle demande Stripe reçoit la langue négociée. Le payload Checkout complet est persisté avant l’appel : une reprise réutilise **sa langue et ses URL d’origine**, même si le compte ou l’en-tête change. Les anciennes tentatives sans `locale` continuent à omettre ce paramètre auprès de Stripe.
-- Seules les URL de retour des chemins de facturation connus sur les domaines Histae sont adaptées ; une URL personnalisée reste inchangée. Le placeholder `{CHECKOUT_SESSION_ID}` est préservé.
 
 ## Modération et responsabilités
 
@@ -130,7 +127,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 python3 scripts/verify-continuation-postgres.py --api-image histae-api-rust:local
 ```
 
-Les tests utilisent des fournisseurs simulés et une base jetable ; ils ne déclenchent aucun envoi SMS ni paiement réel. Importer l’une des deux collections Postman puis définir `language` (`fr` par défaut). Désactiver l’en-tête pour vérifier le repli sur la préférence du compte. Tester aussi une traduction supprimée (`null`), un compte sans onboarding, une session révoquée, le changement de langue après consentement et la reprise d’une tentative Checkout.
+Les tests utilisent des fournisseurs simulés et une base jetable ; ils ne déclenchent aucun envoi SMS ni paiement réel. Importer l’une des deux collections Postman puis définir `language` (`fr` par défaut). Désactiver l’en-tête pour vérifier le repli sur la préférence du compte. Tester aussi une traduction supprimée (`null`), un compte sans onboarding, une session révoquée, le changement de langue après consentement.
 
 ### Vérifications locales du 20 octobre 2026
 
@@ -145,6 +142,6 @@ Les tests utilisent des fournisseurs simulés et une base jetable ; ils ne décl
 | Contrat et Postman | 113 routes cohérentes avec les deux collections JSON |
 
 PostgreSQL a tourné dans un conteneur jetable avec le migrateur natif compilé depuis ces sources.
-Les fournisseurs SMS, Stripe et FCM ont été simulés. Aucun SMS ni paiement réel n’a été déclenché.
-Le site possède déjà les quatre variantes de ses documents et retours Stripe ; les chemins de l’API
+Les fournisseurs SMS et FCM ont été simulés. Aucun SMS ni paiement réel n’a été déclenché.
+Le site possède déjà les quatre variantes de ses documents ; les chemins de l’API
 utilisent ces routes existantes. Le raccordement mobile a été ajouté ensuite ; ses contrôles à lancer avec Flutter sont décrits dans son guide dédié.

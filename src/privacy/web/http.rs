@@ -9,17 +9,17 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
-    billing::web::{
-        WebBillingError, WebBillingService,
-        http::{error as auth_error, no_store, security},
-    },
-    config::{LimitPolicy, WebBillingConfig},
+    config::{LimitPolicy, WebAccountConfig},
     http::{
         error::ApiError,
         extract::{ApiDto, ValidatedJson},
         lifecycle::ClientIp,
         rate_limit::RateLimiter,
         router::HttpState,
+    },
+    identity::web::{
+        WebAccountError, WebAccountService,
+        http::{error as auth_error, no_store, security},
     },
     localization::http::Locale,
     media::http::photo_error,
@@ -33,8 +33,8 @@ use super::service::{DataCategory, DataDeletionError, WebDataDeletionService};
 
 #[derive(Clone)]
 pub struct WebPrivacyState {
-    pub auth: WebBillingService,
-    pub config: WebBillingConfig,
+    pub auth: WebAccountService,
+    pub config: WebAccountConfig,
     pub limiter: RateLimiter,
     pub policy: LimitPolicy,
     pub deletion: AccountDeletionService,
@@ -63,7 +63,7 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedWeb {
             .map_err(|_| ApiError::internal())?;
         security::validate_website_origin(&web.config, &parts.headers)?;
         let token = security::token(&parts.headers, &web.config)
-            .ok_or_else(|| auth_error(WebBillingError::Authentication))?;
+            .ok_or_else(|| auth_error(WebAccountError::Authentication))?;
         let identity = web.auth.identity(&token).await.map_err(auth_error)?;
         web.limiter
             .enforce(

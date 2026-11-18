@@ -31,13 +31,12 @@ ou une recette sur le serveur de production.
 | OTP et sessions mobiles | Payload Sweego, signatures, délais, états de livraison, rotation/rejeu des refresh, révocation et guards HTTP | Livraison SMS et webhook Sweego réels à travers le tunnel |
 | Administration et WebAuthn | Rôles, superadmin unique, bootstrap, sessions/cookies, protection Origin, permissions et invalidation de l’interface | Passkeys des appareils réels et procédure de récupération sur le domaine déployé |
 | Consentements et profils | Retraits concurrents, effacement immédiat de la présence/données sensibles, profils, préférences et réponses modérées | Versions et validation juridique réelles |
-| Catalogues et plans | Traits/questions, contrats mobile/admin, prix et projections Free/Premium | Correspondance des Prices et réglages du compte Stripe déployé |
+| Catalogues et plans | Traits/questions, contrats mobile/admin, prix et projections Free/Premium | Produits et prix des stores configurés |
 | Feed et swipes | Réciprocité des filtres, consentements, exclusions, pagination, présence fraîche, likes immuables et rejeu après match | Nouvelle campagne de débit sur la livraison réelle si sa capacité doit être certifiée |
 | Matchs et messages | Participants seuls, révélation mutuelle, idempotence, accusés, pause, clôture, blocage concurrent et absence de réouverture | Recette mobile et reconnexion réseau |
 | Continuations et crédits | Fenêtres fixes, choix privés, réservations, débit unique des deux participants Free, plafonds, changements de semaine et d’abonnement | Présentation mobile du coût et des décisions |
 | Récompenses publicitaires | Signature P-256, cache borné, altération/rejeu, liaison intention/compte/unité, annulation, concurrence et effacement | AdMob réel, SDK mobile, UMP et textes validés ; fournisseur désactivé par défaut |
 | Photos et modération | Codec réel, formats/métadonnées, idempotence, stockage S3, décisions versionnées, visibilité et réconciliation | Fournisseur de modération et URL signées via `storage.histae.com` sur le serveur |
-| Stripe et revenus | Checkout/portail avec fournisseur contrôlé, signatures, déduplication, ordre des événements, réconciliation et estimations SQL | Checkout/paiement, webhook et renouvellement réels ; aucune opération Stripe effectuée pendant cette revue |
 | Signalements, modération et droits | Transitions, audit d’accès, exports propriétaires, effacement et tâches durables sur PostgreSQL | Recette opérateur, sauvegarde/restauration complète et validation RGPD organisationnelle |
 | Notifications, SSE et outbox | Déduplication, éligibilité, claim exclusif, reprise, Redis réel, diffusion entre instances et absence de rejeu SSE | FCM et notifications mobiles réelles |
 | Exploitation et schéma | Installation neuve, migration répétée, upgrade des crédits, rôles limités, verrous et traitements bornés | Timer, alertes, certificats et reprise sur le serveur cible |
@@ -103,11 +102,11 @@ réels ou la conformité juridique. Ces étapes restent dans la [feuille de rout
 ## Complément — achats multicanaux, 22 octobre 2026
 
 Ce complément couvre aussi `histae-app`, contrairement au périmètre historique du 15 octobre ci-dessus.
-Le parcours courant est décrit dans [Achats Apple/Google et site](store-billing.md) : stores natifs dans
-l’app, Stripe sur le site après UUID/téléphone/OTP, droits serveur communs au compte et rapports
-financiers distincts dans le dashboard. Le contrat et Postman FR/EN comptent désormais 130 routes.
+Le parcours courant est décrit dans [Achats Apple/Google](store-billing.md) : stores natifs dans
+l’app, droits serveur communs au compte et rapports
+financiers distincts dans le dashboard. Le contrat et Postman FR/EN comptent désormais 137 routes.
 
-Les contrôles ont corrigé les risques de projection Stripe écrasant des droits natifs, de réattribution
+Les contrôles ont corrigé les risques de réattribution
 à un autre compte, de rejeu d’un token remplacé, de validation hors environnement et de dates de
 période non respectées. Les sessions du site ne sont pas des JWT mobiles ; les OTP sont liés à leur
 challenge et les tentatives consommées atomiquement. Les imports contradictoires sont entièrement
@@ -116,7 +115,7 @@ annulés dans la transaction, avec relecture du rôle superadmin.
 Les responsabilités sont séparées entre services/ports Rust, adaptateurs PostgreSQL/HTTP,
 vérificateur privé officiel et SDK natifs Flutter. Les résultats datés, scénarios et limites sont dans
 [Tests](../tests/README.md#achats-multicanaux). Les essais sur appareils et fournisseurs, la publication
-juridique et le déploiement final restent ouverts dans [la feuille de route](../roadmap-production.md#prod-08--achats-natifs-et-stripe-sur-le-site).
+juridique et le déploiement final restent ouverts dans [la feuille de route](../roadmap-production.md#prod-08--achats-natifs-et-droits-premium).
 
 ## 28 octobre 2026 — inactivité des conversations confirmées
 
@@ -198,7 +197,7 @@ Le numéro et le code privés du `.env` ne sont pas modifiés.
 
 La projection centrale `effective_subscription_at` accorde Premium sans expiration aux comptes
 de revue actifs de rôle `user`, y compris ceux déjà inscrits. Aucun achat, facture ou projection
-fournisseur n’est créé ; un historique Stripe/store existant est conservé. Les continuations et
+fournisseur n’est créé ; un historique de store existant est conservé. Les continuations et
 le dashboard lisent les mêmes droits. Les consentements et protections d’authentification restent
 appliqués. Aucune variable supplémentaire ni modification Flutter n’est nécessaire.
 
@@ -237,7 +236,7 @@ avant la validation des champs JSON. Le parseur global conserve ses contrôles d
 taille. Les retraits partiels sont orchestrés dans `privacy/web/service.rs`, sans SQL ni règles de
 consentement dupliquées dans le transport. L'effacement reprend le service et la file existants.
 Le client HTTP partagé du site omet `Content-Type` en l'absence de corps ; il n'envoie donc plus du
-JSON vide pour demander un jeton, se déconnecter ou ouvrir le portail.
+JSON vide pour demander un jeton, se déconnecter.
 
 | Vérification locale | Résultat |
 | --- | --- |
@@ -251,7 +250,7 @@ JSON vide pour demander un jeton, se déconnecter ou ouvrir le portail.
 Les tests couvrent les cookies expirés et ambigus, les comptes bannis/supprimés, les tentatives visant
 un autre compte, les budgets partagés, les retraits idempotents et leur audit, les jetons de confirmation
 et l'invalidation des sessions. La connexion reste disponible sans facturation ni onboarding terminé ;
-Checkout et portail restent désactivés lorsque le paiement web est coupé. Aucun fournisseur réel ni pile
+Les anciennes routes de paiement web sont retirées. Aucun fournisseur réel ni pile
 déployée n'a été utilisé. Le parcours navigateur sur le serveur cible reste à vérifier après livraison
 conjointe de l'API, du site et du routage proxy. Aucun changement de `.env` ou de schéma n'est nécessaire.
 

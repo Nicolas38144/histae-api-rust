@@ -1,10 +1,8 @@
 mod dto;
 pub(crate) mod security;
-use super::{ChallengeView, WebBillingError, WebBillingService, WebSessionView};
+use super::{ChallengeView, WebAccountError, WebAccountService};
 use crate::{
-    billing::domain::CheckoutSessionView,
-    catalog::{domain::PlanCatalog, service::CatalogService},
-    config::{LimitPolicy, WebBillingConfig},
+    config::{LimitPolicy, WebAccountConfig},
     http::{
         error::ApiError, extract::ValidatedJson, lifecycle::ClientIp, rate_limit::RateLimiter,
         router::HttpState,
@@ -18,34 +16,25 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use dto::{CheckoutBody, SendBody, VerifyBody};
-use security::{set_cookie, token, validate_origin, validate_website_origin};
-use serde_json::{Value, json};
+use dto::{SendBody, VerifyBody};
+use security::{set_cookie, token, validate_website_origin};
 use uuid::Uuid;
 
 #[derive(Clone)]
-pub struct WebBillingState {
-    pub service: WebBillingService,
-    pub catalog: CatalogService,
-    pub config: WebBillingConfig,
+pub struct WebAccountState {
+    pub service: WebAccountService,
+    pub config: WebAccountConfig,
     pub limiter: RateLimiter,
     pub otp_policy: LimitPolicy,
-    pub billing_policy: LimitPolicy,
 }
-pub fn routes(state: WebBillingState) -> Router<HttpState> {
+pub fn routes(state: WebAccountState) -> Router<HttpState> {
     Router::new()
-        .route("/api/web/billing/otp/send", post(send))
-        .route("/api/web/billing/otp/verify", post(verify))
-        .route("/api/web/billing/session", get(session).delete(logout))
         .route("/api/web/account/otp/send", post(send))
         .route("/api/web/account/otp/verify", post(verify))
         .route(
             "/api/web/account/session",
             get(account_session).delete(logout),
         )
-        .route("/api/web/billing/plans", get(plans))
-        .route("/api/web/billing/checkout", post(checkout))
-        .route("/api/web/billing/portal", post(portal))
         .layer(axum::middleware::from_fn(no_store))
         .layer(Extension(state))
 }
@@ -63,42 +52,36 @@ pub(crate) async fn no_store(
     );
     response
 }
-pub(crate) fn error(error: WebBillingError) -> ApiError {
+pub(crate) fn error(error: WebAccountError) -> ApiError {
     let (status, code, message) = match error {
-        WebBillingError::InvalidRequest => return ApiError::invalid_body(),
-        WebBillingError::Authentication => (
+        WebAccountError::InvalidRequest => return ApiError::invalid_body(),
+        WebAccountError::Authentication => (
             StatusCode::UNAUTHORIZED,
             "web_authentication_failed",
             "The account or verification code is invalid or expired.",
         ),
-        WebBillingError::IdempotencyConflict => (
+        WebAccountError::IdempotencyConflict => (
             StatusCode::CONFLICT,
             "idempotency_key_conflict",
             "Use the original parameters for this request.",
         ),
-        WebBillingError::OnboardingIncomplete => (
-            StatusCode::FORBIDDEN,
-            "onboarding_incomplete",
-            "Complete onboarding in the application before purchasing.",
-        ),
-        WebBillingError::Internal => return ApiError::internal(),
-        WebBillingError::Database(error) => return error.into(),
-        WebBillingError::Billing(error) => return crate::billing::http::billing_error(error),
+        WebAccountError::Internal => return ApiError::internal(),
+        WebAccountError::Database(error) => return error.into(),
     };
     ApiError::new(status, code, message)
 }
-fn session_token(state: &WebBillingState, headers: &HeaderMap) -> Result<String, ApiError> {
-    token(headers, &state.config).ok_or_else(|| error(WebBillingError::Authentication))
+fn session_token(state: &WebAccountState, headers: &HeaderMap) -> Result<String, ApiError> {
+    token(headers, &state.config).ok_or_else(|| error(WebAccountError::Authentication))
 }
 async fn limit_otp(
-    state: &WebBillingState,
+    state: &WebAccountState,
     phone: &str,
     ip: std::net::IpAddr,
     verify: bool,
 ) -> Result<(), ApiError> {
     let hash = state.service.phone_key(phone).map_err(|e| {
         if verify {
-            error(WebBillingError::Authentication)
+            error(WebAccountError::Authentication)
         } else {
             error(e)
         }
@@ -128,7 +111,7 @@ async fn limit_otp(
         .await
 }
 async fn send(
-    Extension(state): Extension<WebBillingState>,
+    Extension(state): Extension<WebAccountState>,
     Extension(ClientIp(ip)): Extension<ClientIp>,
     headers: HeaderMap,
     locale: Locale,
@@ -155,7 +138,7 @@ async fn send(
         .map_err(error)
 }
 async fn verify(
-    Extension(state): Extension<WebBillingState>,
+    Extension(state): Extension<WebAccountState>,
     Extension(ClientIp(ip)): Extension<ClientIp>,
     headers: HeaderMap,
     ValidatedJson(body): ValidatedJson<VerifyBody>,
@@ -174,19 +157,8 @@ async fn verify(
     );
     Ok(response)
 }
-async fn session(
-    Extension(state): Extension<WebBillingState>,
-    headers: HeaderMap,
-) -> Result<Json<WebSessionView>, ApiError> {
-    state
-        .service
-        .session(&session_token(&state, &headers)?)
-        .await
-        .map(Json)
-        .map_err(error)
-}
 async fn account_session(
-    Extension(state): Extension<WebBillingState>,
+    Extension(state): Extension<WebAccountState>,
     headers: HeaderMap,
 ) -> Result<Json<super::WebIdentity>, ApiError> {
     state
@@ -197,7 +169,7 @@ async fn account_session(
         .map_err(error)
 }
 async fn logout(
-    Extension(state): Extension<WebBillingState>,
+    Extension(state): Extension<WebAccountState>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     validate_website_origin(&state.config, &headers)?;
@@ -209,60 +181,4 @@ async fn logout(
         .headers_mut()
         .insert(header::SET_COOKIE, set_cookie(&state.config, "", 0)?);
     Ok(response)
-}
-async fn plans(
-    Extension(state): Extension<WebBillingState>,
-    locale: Locale,
-) -> Result<Json<PlanCatalog>, ApiError> {
-    crate::catalog::http::localized_plans(&state.catalog, locale)
-        .await
-        .map(Json)
-}
-async fn payer(state: &WebBillingState, headers: &HeaderMap) -> Result<Uuid, ApiError> {
-    validate_origin(&state.config, headers)?;
-    let user = state
-        .service
-        .payer(&session_token(state, headers)?)
-        .await
-        .map_err(error)?;
-    state
-        .limiter
-        .enforce(
-            "billing",
-            &user.to_string(),
-            &state.billing_policy,
-            "billing_rate_limit_exceeded",
-        )
-        .await?;
-    Ok(user)
-}
-async fn checkout(
-    Extension(state): Extension<WebBillingState>,
-    headers: HeaderMap,
-    locale: Locale,
-    ValidatedJson(body): ValidatedJson<CheckoutBody>,
-) -> Result<(StatusCode, Json<CheckoutSessionView>), ApiError> {
-    let user = payer(&state, &headers).await?;
-    let key = headers
-        .get("idempotency-key")
-        .and_then(|value| value.to_str().ok());
-    state
-        .service
-        .checkout(user, body.billing_period, key, locale.anonymous().language)
-        .await
-        .map(|view| (StatusCode::CREATED, Json(view)))
-        .map_err(error)
-}
-async fn portal(
-    Extension(state): Extension<WebBillingState>,
-    headers: HeaderMap,
-    locale: Locale,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
-    let user = payer(&state, &headers).await?;
-    state
-        .service
-        .portal(user, locale.anonymous().language)
-        .await
-        .map(|url| (StatusCode::CREATED, Json(json!({"url": url}))))
-        .map_err(error)
 }

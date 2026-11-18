@@ -68,7 +68,7 @@ ni `chmod -R 777` ; cela casserait respectivement l'accès aux dossiers ou la pr
 
 Parcours : [S3](#1-clés-s3-et-identité-seaweedfs), [supervision](#2-token-des-métriques-et-mot-de-passe-initial-grafana),
 [TLS interne](#3-ca-interne-et-certificats-postgresqlredis), [HTTPS S3 / Cloudflare](#4-certificat-https-du-stockage-s3),
-[Stripe](#5-valeurs-qui-viennent-de-stripe), [contrôles](#6-références-dimages-et-reprise-du-préparateur),
+[Achats natifs](#5-achats-natifs), [contrôles](#6-références-dimages-et-reprise-du-préparateur),
 [lancement](#7-lancer-la-pile-de-production-et-comprendre-docker-nuke).
 
 ## 1. Clés S3 et identité SeaweedFS
@@ -640,49 +640,17 @@ L'automatisation de la copie/recharge S3 et le renouvellement du TLS interne res
 et à confirmer sur la cible. Vérifier le certificat de l'origine : le certificat présenté par
 Cloudflare au navigateur ne suffit pas à prouver le renouvellement de celui de la passerelle.
 
-## 5. Valeurs qui viennent de Stripe
+## 5. Achats natifs
 
-Stripe a été volontairement reporté à la suite de la préparation. Les secrets S3, la supervision,
-les permissions et les certificats peuvent être préparés dès maintenant. En revanche, l'API actuelle
-ne propose pas de mode production sans Stripe : ce report laisse un blocage de démarrage ouvert.
+Le préparateur du dépôt `histae-scripts`, inchangé dans cette intervention limitée à l’API et au reverse proxy,
+exige encore Stripe. Ses vérifications de paiement doivent être adaptées séparément ; un refus
+sur les anciennes variables ne signifie pas que l’API native exige ces secrets.
 
-Ces quatre valeurs ne se génèrent pas avec OpenSSL :
-
-| Variable | Origine |
-| --- | --- |
-| `STRIPE_SECRET_KEY` | Clé API secrète live `sk_live_…` du compte Stripe |
-| `STRIPE_WEBHOOK_SECRET` | Secret de signature `whsec_…` du webhook `/api/billing/stripe/webhook` |
-| `STRIPE_PREMIUM_MONTHLY_PRICE_ID` | Price récurrent mensuel réel `price_…` |
-| `STRIPE_PREMIUM_ANNUAL_PRICE_ID` | Price récurrent annuel réel `price_…` distinct |
-
-Les exemples `sk_live_…`, `whsec_…` et `price_…` ne donnent aucun accès. L'API exige des
-identifiants live en production ; garder les essais Stripe dans l'environnement de développement.
-Références : [clés API](https://docs.stripe.com/keys),
-[secrets des endpoints webhook](https://docs.stripe.com/api/webhook_endpoints).
-
-Configurer les quatre valeurs **dans le même environnement live** : les prix mensuel et annuel
-doivent être récurrents, actifs et distincts. Le secret du webhook doit
-être celui de l'endpoint réel du serveur, pas un secret d'écoute locale. Conserver aussi les
-URL de retour Stripe HTTPS : les entrées retenues sont `/billing/success`, `/billing/cancel`
-et `/billing/return` sur `https://www.histae.com`, sans langue imposée. Le navigateur rejoint ensuite
-la première langue prise en charge parmi ses préférences ; le français sert de secours.
-`STRIPE_CHECKOUT_SUCCESS_URL` conserve son
-paramètre `?session_id={CHECKOUT_SESSION_ID}`. Publier le site avant le changement des URL sur le
-serveur, puis mettre à jour les trois variables de son `.env` et recréer l'API. Les `.env` locaux
-ne sont pas transférés par une mise à jour du code. Voir les
-[valeurs exactes et le parcours de retour dans l'app](billing.md#retours-stripe-sur-le-site-vitrine).
-
-Les variables `STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID` contiennent des
-identifiants de **prix** `price_…`. Elles ne contiennent
-pas les identifiants `sub_…` des abonnements clients. Aucun identifiant produit n'est nécessaire
-dans le `.env` : les webhooks et la réconciliation reconnaissent Premium par les deux prix autorisés.
-Chez Stripe, le produit Histae Premium reste associé à ses tarifs mensuel et annuel.
-
-`BILLING_PROVIDER=stripe` est requis par la configuration Rust en production. Si une ancienne
-valeur de développement le désactive explicitement, la corriger. Ajouter des chaînes fictives
-qui ont seulement le bon préfixe ne raccorde pas Stripe : la validation locale de syntaxe ne
-prouve pas l'existence du produit, l'accord des prix ou la réception effective des webhooks.
-Ces parcours restent suivis dans [PROD-08](../roadmap-production.md#prod-08--stripe-et-premium).
+Les paiements passent exclusivement par Apple/Google. Configurer les secrets privés et les produits
+suivant le [guide des stores](store-billing.md). Aucun secret de paiement web n’est requis au démarrage.
+Le `.env` reste propre à chaque serveur ; ne pas recopier les valeurs locales en production.
+Les anciennes variables à retirer et le renommage `WEB_ACCOUNT_ORIGIN` sont détaillés dans
+[la migration des paiements](billing.md#retrait-de-lancien-paiement-web).
 
 ## 6. Références d'images et reprise du préparateur
 
@@ -725,9 +693,6 @@ sudo docker pull redis:7.4.2-alpine
 ```
 
 Puis relancer `sudo bash prepare-production.sh --check` depuis `histae-scripts`.
-Les identifiants Stripe peuvent être renseignés après cette préparation ; ils resteront signalés
-une seule fois par variable manquante. Le validateur Rust exige toujours Stripe live au démarrage
-de l'API avec `ENV=production`.
 
 Si les identités ont déjà été vérifiées dans les images exactes de cette livraison, le contrôle
 accepte aussi les valeurs explicites. Avec celles de ton compte rendu :
@@ -761,24 +726,9 @@ lancer les conteneurs éphémères nécessaires pour lire les identités des ima
 La marge de validité des certificats est de 30 jours par défaut ; un certificat reconnu mais trop
 proche de l'expiration reste à renouveler.
 
-### État confirmé par le dernier compte rendu partagé
-
-- Les manifests production sont acceptés.
-- Le JSON S3, le token des métriques et le mot de passe initial Grafana sont cohérents.
-- Les trois paires certificat/clé et leurs contrôles de chaîne / nom DNS sont indiqués `OK`.
-- **Quatre erreurs de permissions** subsistent : deux pour PostgreSQL, deux pour Redis.
-- Le bilan partagé avant la simplification Stripe comportait **cinq valeurs Stripe** manquantes,
-  soit **neuf points** avec les erreurs de permissions.
-
-Les commandes de correction des permissions ont été fournies, mais aucun nouveau bilan ne
-confirme encore leur résolution. La configuration actuelle ne demande plus l'identifiant produit :
-elle attend les quatre valeurs Stripe décrites en section 5. Conserver les deux entrées de prix dans
-le `.env` du serveur avec leurs valeurs `price_…`, puis relancer le contrôle pour obtenir le bilan
-actuel. Les sorties précédentes ne constituent pas un audit indépendant du serveur ni des fournisseurs.
-
 ## 7. Lancer la pile de production et comprendre `docker-nuke`
 
-### 7.1. Procédure normale après configuration de Stripe
+### 7.1. Procédure normale
 
 Depuis le dépôt des scripts, dans les chemins utilisés sur le serveur :
 
@@ -828,7 +778,7 @@ présentes ; ce n'est pas la commande à imposer avant leur première constructi
 ### 7.2. Utiliser `docker-nuke.sh` pour repartir des seules données dev
 
 Le nom « reset » du script de démarrage ne signifie pas effacer la base. Il reconstruit et relance
-la pile en gardant les données. **Configurer Stripe ne nécessite aucune suppression de volumes.**
+la pile en gardant les données.
 
 Le script `docker-nuke.sh`, lui, demande de saisir `NUKE`, puis supprime sur le moteur Docker ciblé :
 
@@ -853,7 +803,7 @@ Tu as précisé que le futur serveur production ne contient actuellement que les
 données de développement, et que leur effacement est accepté. **Dans ce cas, tu peux utiliser le
 nuke pour repartir de zéro**, puis lancer toute la pile production avec le reset centralisé.
 
-Après avoir renseigné Stripe et corrigé les permissions, la séquence complète est :
+Après avoir configuré les fournisseurs et corrigé les permissions, la séquence complète est :
 
 ```bash
 cd ~/Projects/Histae/histae-scripts &&
@@ -898,11 +848,10 @@ dashboard, avec ton authentificateur ; le script ne peut pas créer cette clé �
 Conserver le jeton privé et ajouter ensuite une deuxième passkey pour la récupération.
 Voir le [guide du bootstrap](../../histae-scripts/README.md#initialisation-du-superadmin).
 
-### 7.4. Ce que Stripe configuré permet, et ce qui reste à confirmer
+### 7.4. Vérifications sur le serveur
 
 **Oui, le reset avec `--production` est prévu pour lancer l'ensemble de la pile**, lorsque les
-fichiers, permissions, images, réseaux et autres valeurs exigées sont corrects. Stripe configuré
-lève le blocage Stripe ; il ne garantit pas à lui seul le succès du lancement ou l'ouverture publique.
+fichiers, permissions, images, réseaux et autres valeurs exigées sont corrects. La configuration ne garantit pas à elle seule le succès du lancement ou l’ouverture publique.
 
 Un contrôle local du `.env` ne prouve pas que les comptes fournisseurs sont actifs. Les binaires
 Rust valident aussi leur configuration de production, notamment Sweego, WebAuthn, les secrets
@@ -913,7 +862,7 @@ Avant d'accueillir des utilisateurs, conserver dans la roadmap la confirmation d
 
 - la connectivité TLS depuis les images clientes vers PostgreSQL, Redis et S3 ;
 - les domaines publics et les routes tunnel, notamment les photos par URL signée ;
-- l'envoi des OTP Sweego et ses callbacks, ainsi que les paiements et webhooks Stripe ;
+- l'envoi des OTP Sweego et ses callbacks, ainsi que les achats et notifications Apple/Google ;
 - l'administration production et les passkeys, la modération et les traitements outbox ;
 - la maintenance planifiée et les alertes effectivement reçues ;
 - les sauvegardes hors machine et une restauration PostgreSQL + stockage cohérente ;

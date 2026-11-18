@@ -243,26 +243,6 @@ impl ErasureStore for PgErasureRepository {
                                 .execute(&mut *connection)
                                 .await
                                 .map_err(map_sqlx_error)?;
-                            sqlx::query(
-                                "DELETE FROM outbox_event
-                                 WHERE event_type = 'billing.subscription.reconcile'
-                                   AND aggregate_id = $1",
-                            )
-                            .bind(current.user_id)
-                            .execute(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
-                            sqlx::query(
-                                "DELETE FROM outbox_event
-                                 WHERE event_type = 'billing.customer.reconcile'
-                                   AND aggregate_id IN (
-                                     SELECT id FROM billing_checkout_session WHERE user_id = $1
-                                   )",
-                            )
-                            .bind(current.user_id)
-                            .execute(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
                             sqlx::query("SELECT fct_anonymize_user($1)")
                                 .bind(current.user_id)
                                 .execute(&mut *connection)

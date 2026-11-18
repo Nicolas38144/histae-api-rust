@@ -44,8 +44,6 @@ pub struct OutboxEventDispatcher {
     photo_delete: Arc<dyn OutboxHandler>,
     notification_push: Arc<dyn OutboxHandler>,
     account_erase: Arc<dyn OutboxHandler>,
-    billing_subscription: Arc<dyn OutboxHandler>,
-    billing_customer: Arc<dyn OutboxHandler>,
     store_billing: Option<Arc<dyn OutboxHandler>>,
     mobile_otp: Option<Arc<dyn OutboxHandler>>,
 }
@@ -55,15 +53,11 @@ impl OutboxEventDispatcher {
         photo_delete: Arc<dyn OutboxHandler>,
         notification_push: Arc<dyn OutboxHandler>,
         account_erase: Arc<dyn OutboxHandler>,
-        billing_subscription: Arc<dyn OutboxHandler>,
-        billing_customer: Arc<dyn OutboxHandler>,
     ) -> Self {
         Self {
             photo_delete,
             notification_push,
             account_erase,
-            billing_subscription,
-            billing_customer,
             store_billing: None,
             mobile_otp: None,
         }
@@ -92,12 +86,6 @@ impl OutboxDispatcher for OutboxEventDispatcher {
             OutboxEventType::PhotoDelete => self.photo_delete.handle(event, worker_id),
             OutboxEventType::NotificationPush => self.notification_push.handle(event, worker_id),
             OutboxEventType::AccountErase => self.account_erase.handle(event, worker_id),
-            OutboxEventType::BillingSubscriptionReconcile => {
-                self.billing_subscription.handle(event, worker_id)
-            }
-            OutboxEventType::BillingCustomerReconcile => {
-                self.billing_customer.handle(event, worker_id)
-            }
             OutboxEventType::StoreNotification
             | OutboxEventType::StoreReconcile
             | OutboxEventType::StoreAcknowledge => match &self.store_billing {
@@ -705,15 +693,10 @@ mod tests {
         let erasure = Arc::new(CountingHandler::default());
         let subscription = Arc::new(CountingHandler::default());
         let customer = Arc::new(CountingHandler::default());
-        let dispatcher = OutboxEventDispatcher::new(
-            photo.clone(),
-            push.clone(),
-            erasure.clone(),
-            subscription.clone(),
-            customer.clone(),
-        );
+        let dispatcher = OutboxEventDispatcher::new(photo.clone(), push.clone(), erasure.clone())
+            .with_store_billing(customer.clone());
         let mut known = event();
-        known.event_type = OutboxEventType::BillingCustomerReconcile;
+        known.event_type = OutboxEventType::StoreReconcile;
         assert_eq!(
             dispatcher.dispatch(&known, Uuid::new_v4()).await,
             Ok(DispatchOutcome::Completed)
@@ -735,13 +718,8 @@ mod tests {
     #[tokio::test]
     async fn mobile_otp_requires_an_explicit_handler() {
         let handler = Arc::new(CountingHandler::default());
-        let dispatcher = OutboxEventDispatcher::new(
-            handler.clone(),
-            handler.clone(),
-            handler.clone(),
-            handler.clone(),
-            handler.clone(),
-        );
+        let dispatcher =
+            OutboxEventDispatcher::new(handler.clone(), handler.clone(), handler.clone());
         let mut request = event();
         request.event_type = OutboxEventType::MobileOtpSend;
         assert_eq!(

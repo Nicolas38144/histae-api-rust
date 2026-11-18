@@ -1,4 +1,4 @@
-use crate::{billing::domain::BillingPeriod, http::extract::ApiDto};
+use crate::http::extract::ApiDto;
 use serde::Deserialize;
 use uuid::Uuid;
 #[derive(Deserialize)]
@@ -26,9 +26,3 @@ impl ApiDto for VerifyBody {
             && self.otp.bytes().all(|b| b.is_ascii_digit())
     }
 }
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct CheckoutBody {
-    pub billing_period: BillingPeriod,
-}
-impl ApiDto for CheckoutBody {}

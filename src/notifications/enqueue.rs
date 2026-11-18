@@ -6,10 +6,7 @@ use sqlx::types::Json;
 use uuid::Uuid;
 
 use super::domain::NotificationIntent;
-use super::eligibility::{
-    ACCOUNT_NOTIFICATION_ELIGIBLE_SQL, BILLING_NOTIFICATION_ELIGIBLE_SQL,
-    PUSH_PREFERENCES_ELIGIBLE_SQL,
-};
+use super::eligibility::{ACCOUNT_NOTIFICATION_ELIGIBLE_SQL, PUSH_PREFERENCES_ELIGIBLE_SQL};
 use crate::infra::postgres::{DatabaseError, map_sqlx_error};
 
 static ENQUEUE_NOTIFICATION_SQL: OnceLock<String> = OnceLock::new();
@@ -29,7 +26,6 @@ pub async fn enqueue_notification(
         .bind(intent.notification_type())
         .bind(Json(intent.payload()))
         .bind(prepared.deduplication_key)
-        .bind(intent.billing_reference())
         .bind(intent.expires_at())
         .bind(intent.excluded_session_id())
         .bind(intent.kind().retention_seconds())
@@ -69,19 +65,17 @@ fn enqueue_sql() -> &'static str {
               FOR SHARE
             ), candidate AS (
               SELECT $1::uuid AS id, user_id, $3::text AS type, $4::jsonb AS payload,
-                $5::text AS deduplication_key, $6::text AS billing_reference
+                $5::text AS deduplication_key
               FROM account
             ), created_notification AS (
               INSERT INTO notification
-                (id, user_id, type, payload, deduplication_key, billing_reference, expires_at)
+                (id, user_id, type, payload, deduplication_key, expires_at)
               SELECT id, user_id, type, payload, deduplication_key,
-                     billing_reference, COALESCE($7::timestamptz,
-                       clock_timestamp() + $9::bigint * INTERVAL '1 second')
+                     COALESCE($6::timestamptz,
+                       clock_timestamp() + $8::bigint * INTERVAL '1 second')
               FROM candidate n
               WHERE n.type IN ('new_match', 'new_message', 'match_expiring', 'continuation_requested', 'conversation_continued', 'photos_revealed', 'first_period_ending') OR (
             "#,
-            BILLING_NOTIFICATION_ELIGIBLE_SQL,
-            ") OR (",
             ACCOUNT_NOTIFICATION_ELIGIBLE_SQL,
             r#"
               )
@@ -98,7 +92,7 @@ fn enqueue_sql() -> &'static str {
               LEFT JOIN refresh_token_family session ON session.id = d.session_id
               WHERE (d.session_id IS NULL
                  OR (session.revoked_at IS NULL AND session.expires_at > clock_timestamp()))
-                AND ($8::uuid IS NULL OR d.session_id IS DISTINCT FROM $8::uuid)
+                AND ($7::uuid IS NULL OR d.session_id IS DISTINCT FROM $7::uuid)
                 AND (
             "#,
             PUSH_PREFERENCES_ELIGIBLE_SQL,

@@ -17,22 +17,14 @@ CREATE TEMP TABLE purge_users ON COMMIT DROP AS
 SELECT user_id, phone_number_hash FROM user_account WHERE role <> 'superadmin';
 CREATE UNIQUE INDEX ON purge_users (user_id);
 
--- SQL alone cannot remove S3 objects or Stripe customers. Abort atomically.
+-- SQL alone cannot remove S3 objects. Abort atomically.
 DO $$
 BEGIN
+  IF EXISTS (SELECT 1 FROM billing_store_subscription WHERE user_id IN (SELECT user_id FROM purge_users)) THEN
+    RAISE EXCEPTION 'A target account owns a store purchase; use account erasure to preserve purchase ownership';
+  END IF;
   IF EXISTS (SELECT 1 FROM user_photo WHERE user_id IN (SELECT user_id FROM purge_users)) THEN
     RAISE EXCEPTION 'A target account owns photos in object storage; nothing deleted';
-  END IF;
-  IF EXISTS (SELECT 1 FROM billing_customer
-             WHERE user_id IN (SELECT user_id FROM purge_users)
-               AND stripe_customer_deleted_at IS NULL)
-     OR EXISTS (SELECT 1 FROM user_subscription
-                WHERE user_id IN (SELECT user_id FROM purge_users)
-                  AND provider_subscription_id IS NOT NULL)
-     OR EXISTS (SELECT 1 FROM billing_checkout_session
-                WHERE user_id IN (SELECT user_id FROM purge_users)
-                  AND stripe_session_id IS NOT NULL) THEN
-    RAISE EXCEPTION 'A target account has Stripe data; nothing deleted';
   END IF;
 END;
 $$;
@@ -52,8 +44,6 @@ CREATE TEMP TABLE purge_outbox ON COMMIT DROP AS
 SELECT event.id FROM outbox_event AS event
 WHERE event.aggregate_id IN (SELECT user_id FROM purge_users)
    OR event.aggregate_id IN (SELECT id FROM purge_matches)
-   OR event.aggregate_id IN (SELECT id FROM billing_checkout_session
-                             WHERE user_id IN (SELECT user_id FROM purge_users))
    OR event.aggregate_id IN (SELECT id FROM data_subject_request
                              WHERE user_id IN (SELECT user_id FROM purge_users))
    OR event.aggregate_id IN (SELECT id FROM notification_push_delivery
@@ -67,10 +57,6 @@ DELETE FROM notification WHERE id IN (SELECT id FROM purge_notifications);
 DELETE FROM data_access_log
 WHERE accessed_user_id IN (SELECT user_id FROM purge_users)
    OR accessor_id IN (SELECT user_id FROM purge_users);
-DELETE FROM billing_invoice
-WHERE user_id IN (SELECT user_id FROM purge_users)
-   OR stripe_customer_id IN (SELECT stripe_customer_id FROM billing_customer
-                             WHERE user_id IN (SELECT user_id FROM purge_users));
 DELETE FROM account_tombstone
 WHERE phone_number_hash IN (SELECT phone_number_hash FROM purge_users);
 

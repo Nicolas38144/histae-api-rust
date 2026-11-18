@@ -58,7 +58,7 @@ pas continuer à créer des notifications sous l’ancien contrat pendant la mis
 | Continuations confirmées | 5 maximum par personne et par semaine UTC | Illimitées |
 | Coût d’une continuation | 1 crédit **pour chaque participant Free** | 0 |
 
-Le prix Premium reste **5 € par mois ou 48 € par an, sans période d'essai**. Les Prices Stripe réels restent distincts du catalogue ; voir [Configuration](configuration.md#tarifs-du-catalogue-et-stripe).
+Le prix Premium reste **5 € par mois ou 48 € par an, sans période d'essai**. Les prix réellement facturés viennent des stores ; voir [Configuration](configuration.md#tarifs-du-catalogue-et-achats-natifs).
 
 ### Réserver, confirmer et libérer
 

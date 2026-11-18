@@ -12,19 +12,9 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use histae_api_rust::{
-    billing::{
-        pg::PgBillingRepository,
-        service::BillingService,
-        stripe::StripeClient,
-        web::{
-            WebBillingRepository, WebBillingService,
-            http::{WebBillingState, routes as billing_routes},
-        },
-    },
-    catalog::{pg::PgCatalogRepository, service::CatalogService},
     config::{
-        BillingConfig, BillingProvider, Environment, LegalConfig, LimitPolicy, PostgresConfig,
-        SecretString, TrustProxy, WebBillingConfig,
+        Environment, LegalConfig, LimitPolicy, PostgresConfig, SecretString, TrustProxy,
+        WebAccountConfig,
     },
     http::{
         health::{DependencyProbe, ProbeFuture, Readiness},
@@ -34,6 +24,10 @@ use histae_api_rust::{
     identity::mobile::{
         otp::{OtpRepository, OtpService},
         sweego::{SmsDelivery, SmsDeliveryFuture, SmsDeliveryReceipt, SmsMessage},
+    },
+    identity::web::{
+        WebAccountRepository, WebAccountService,
+        http::{WebAccountState, routes as account_routes},
     },
     infra::{crypto::sha256_hex, postgres::Database, postgres_locks::AccountActivityPool},
     media::{
@@ -115,26 +109,6 @@ fn legal() -> LegalConfig {
         sensitive_data_consent_url: Url::parse("https://www.histae.test/legal/sensitive").unwrap(),
         location_consent_url: Url::parse("https://www.histae.test/legal/location").unwrap(),
         review_reference: "test".into(),
-    }
-}
-
-fn billing_config() -> BillingConfig {
-    BillingConfig {
-        provider: BillingProvider::Disabled,
-        stripe_secret_key: SecretString::new(String::new()),
-        stripe_webhook_secret: SecretString::new(String::new()),
-        premium_monthly_price_id: String::new(),
-        premium_annual_price_id: String::new(),
-        checkout_success_url: None,
-        checkout_cancel_url: None,
-        portal_return_url: None,
-        automatic_tax: false,
-        allow_promotion_codes: false,
-        timeout: Duration::from_secs(1),
-        max_network_retries: 0,
-        reconciliation_interval: Duration::from_secs(300),
-        reconciliation_freshness: Duration::from_secs(3600),
-        reconciliation_batch_size: 25,
     }
 }
 
@@ -224,19 +198,7 @@ impl Fixture {
             Duration::from_secs(1),
             Duration::from_secs(300),
         );
-        let billing_config = billing_config();
-        let billing = Arc::new(BillingService::new(
-            Arc::new(PgBillingRepository::new(db.clone())),
-            Arc::new(StripeClient::with_endpoint(
-                billing_config.clone(),
-                Url::parse("http://127.0.0.1:9/")?,
-            )?),
-            billing_config,
-            activity.clone(),
-            clock.clone(),
-        ));
-        let auth =
-            WebBillingService::new(WebBillingRepository::new(db.clone(), legal()), otp, billing);
+        let auth = WebAccountService::new(WebAccountRepository::new(db.clone(), legal()), otp);
         let phone_hash = auth
             .phone_key(PHONE)
             .map_err(|_| FixtureError("phone hash"))?;
@@ -257,8 +219,7 @@ impl Fixture {
             clock.clone(),
             Arc::new(photos.clone()),
         );
-        let web_config = WebBillingConfig {
-            enabled: false,
+        let web_config = WebAccountConfig {
             origin: ORIGIN.into(),
             secure_cookie: true,
         };
@@ -274,13 +235,11 @@ impl Fixture {
             ),
             data: WebDataDeletionService::new(photos, profiles),
         };
-        let web = WebBillingState {
+        let web = WebAccountState {
             service: auth,
-            catalog: CatalogService::new(Arc::new(PgCatalogRepository::new(db.clone()))),
             config: web_config,
             limiter: limiter.clone(),
             otp_policy: policy(otp_max),
-            billing_policy: policy(100),
         };
         let http = HttpState::new(
             Readiness::new(Arc::new(Probe), Arc::new(Probe), Arc::new(Probe)),
@@ -291,7 +250,7 @@ impl Fixture {
             policy(1000),
         )
         .unwrap();
-        let app = build_router(routes(privacy).merge(billing_routes(web)), http);
+        let app = build_router(routes(privacy).merge(account_routes(web)), http);
         let user = Uuid::new_v4();
         let other = Uuid::new_v4();
         let mut cookies = Vec::new();
@@ -299,12 +258,12 @@ impl Fixture {
             sqlx::query("INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES($1,$2,''::bytea)")
                 .bind(id).bind(if id == user { phone_hash.clone() } else { format!("web-privacy-{id}") }).execute(&mut *db.acquire().await?).await?;
             let token = URL_SAFE_NO_PAD.encode(Uuid::new_v4().as_bytes().repeat(2));
-            sqlx::query("INSERT INTO web_billing_session(user_id,token_hash) VALUES($1,$2)")
+            sqlx::query("INSERT INTO web_account_session(user_id,token_hash) VALUES($1,$2)")
                 .bind(id)
                 .bind(sha256_hex(token.as_bytes()))
                 .execute(&mut *db.acquire().await?)
                 .await?;
-            cookies.push(format!("__Host-histae_billing={token}"));
+            cookies.push(format!("__Host-histae_account={token}"));
         }
         Ok(Self {
             db,
@@ -363,7 +322,7 @@ impl Fixture {
             .bind(users.as_slice())
             .execute(&mut *self.db.acquire().await?)
             .await?;
-        sqlx::query("DELETE FROM web_billing_challenge WHERE requested_user_id=ANY($1::uuid[])")
+        sqlx::query("DELETE FROM web_account_challenge WHERE requested_user_id=ANY($1::uuid[])")
             .bind(users.as_slice())
             .execute(&mut *self.db.acquire().await?)
             .await?;

@@ -1,7 +1,7 @@
 # Histae API — feuille de route de production
 
 Dernière mise à jour : **5 novembre 2026**, après ajout des achats natifs Apple/Google,
-du paiement Stripe sur le site par UUID/téléphone/OTP et du suivi financier des stores,
+du suivi financier des stores et de la gestion des données du site,
 correction du redéploiement avec maintenance et de la lecture des demandes RGPD avec effacement,
 ajout du parcours web de suppression du compte et de certaines données, et restriction des lectures
 administratives aux conversations signalées, puis validation de la reprise des refresh mobiles
@@ -39,7 +39,7 @@ Les validations locales documentées restent utiles, mais ne clôturent pas une 
 | PROD-05 | Modération automatique et revue humaine utilisables | Démarrage / ouverture | PROD-04, PROD-09 |
 | PROD-06 | Domaines, tunnel et confiance proxy corrects | Ouverture | PROD-01 |
 | PROD-07 | OTP Sweego et callbacks réels | Démarrage / ouverture | PROD-06 |
-| PROD-08 | Stripe web, achats natifs et droits Premium | Démarrage / ouverture | PROD-06, PROD-10 |
+| PROD-08 | Achats natifs et droits Premium | Démarrage / ouverture | PROD-06, PROD-10 |
 | PROD-09 | Administration WebAuthn et récupération | Ouverture | PROD-02, PROD-06, PROD-07 |
 | PROD-10 | Outbox permanente et maintenance planifiée | Ouverture | PROD-02, PROD-03, PROD-04 |
 | PROD-11 | Supervision production et alertes reçues | Ouverture | PROD-06, PROD-09, PROD-10 |
@@ -114,7 +114,7 @@ Références : [Scripts et vérifications](../histae-scripts/README.md),
   Bash/Python vérifiée. Le test de création réelle d'un lien symbolique est ignoré sur cet hôte Windows ;
   le refus est aussi vérifié par simulation. La validation Linux et fournisseurs reste à effectuer.
 - [ ] Préparer l'environnement de production avec `ENV=production`, des valeurs adaptées à la cible
-  et des secrets distincts pour JWT, téléphone, Redis, S3, SMS, Stripe et supervision.
+  et des secrets distincts pour JWT, téléphone, Redis, S3, SMS et supervision.
 - [ ] Préserver les clés téléphone si des comptes existants sont repris ; documenter toute migration
   de clés et la rotation JWT avec les anciens `kid` nécessaires.
 - [ ] Utiliser `compose.yaml` et `compose.production.yaml`, avec le même fichier d'environnement pour
@@ -255,18 +255,18 @@ sans téléphone ni OTP dans les traces conservées.
 Références : [Configuration OTP](docs/configuration.md#groupes-de-variables),
 [Webhook Sweego](docs/http-contract.md#webhook-sweego).
 
-## PROD-08 — Achats natifs et Stripe sur le site
+## PROD-08 — Achats natifs et droits Premium
 
-Stripe reste obligatoire dans la configuration de production actuelle pour le site. Apple et Google
-sont désactivés par défaut ; leur activation nécessite les étapes suivantes. Aucun essai gratuit
+Les achats passent uniquement par Apple et Google. Les fournisseurs natifs sont désactivés par défaut ;
+leur activation nécessite les étapes suivantes. Aucun essai gratuit
 n’est proposé.
 
 - [x] Implémenter les vérifications serveur Apple/Google, la liaison immuable au compte Histae,
-  les droits indépendants de Stripe, la restauration et l’acquittement Google durable.
-- [x] Ajouter le parcours site UUID + téléphone correspondant → OTP → session cookie → Stripe.
-  Les anciennes routes mobiles Checkout/portail refusent désormais avec `410 billing_web_only`.
+  les droits indépendants des attributions offertes, la restauration et l’acquittement Google durable.
+- [x] Conserver UUID + téléphone → OTP → session cookie pour les données personnelles du site.
+  Retirer les paiements web, leurs anciennes routes et leurs données de test.
 - [x] Afficher les prix du SDK dans Flutter, ajouter achats/restauration/gestion native et conserver
-  les catalogues de fonctionnalités traduits. Les prix Stripe ne sont pas des prix de store.
+  les catalogues de fonctionnalités traduits. Les prix proviennent des SDK natifs.
 - [x] Ajouter le suivi des stores et les rapports financiers normalisés dans le dashboard,
   avec import réservé au superadmin et totaux séparés par fournisseur/devise.
 - [x] Exécuter les validations locales avec doubles fournisseur, PostgreSQL jetable et navigateurs.
@@ -276,27 +276,25 @@ n’est proposé.
   sans essais/offres promotionnelles pour le parcours implémenté. Vérifier les prix des stores.
 - [ ] Renseigner les identifiants et credentials serveur Apple/Google, les accès Play Developer API,
   les notifications Apple V2 et le push RTDN/PubSub avec OIDC ; aucun secret dans Flutter.
-- [ ] Configurer les deux Prices Stripe du site (5 EUR/mois et 48 EUR/an), le portail client,
-  les retours HTTPS et le webhook `/api/billing/stripe/webhook` avec sa signature.
 - [ ] Déployer migrateur, API, worker, maintenance et vérificateur privé, puis site/proxy/dashboard.
-  Vérifier `/api/web/billing/*` sur la même origine que le site, sans cache Cloudflare ni journalisation
+  Vérifier `/api/web/account/*` et `/api/web/privacy/*` sur la même origine que le site, sans cache Cloudflare ni journalisation
   du corps/cookie ; les callbacks fournisseur doivent passer sans challenge navigateur.
 - [ ] Tester UUID/téléphone incorrects sans SMS, OTP invalide/rejoué, expiration/logout global,
-  reprise après réponse perdue et achat/gestion Stripe en environnement test.
+  reprise après réponse perdue et accès aux données personnelles.
 - [ ] Tester sur appareils Sandbox/Play test/TestFlight : achat, restauration, renouvellement,
   grâce, hold, annulation, remboursement, webhook retardé, app fermée et panne réseau.
   Vérifier refus de réattribution, rejeu d’un token remplacé et absence de double facturation.
 - [ ] Activer `BILLING_ENABLED` dans la compilation Flutter seulement après ces essais ;
   séparer strictement les comptes, secrets et environnements test/live.
 - [ ] Vérifier les alertes d’acquittement/réconciliation, un import de rapport réellement normalisé,
-  les remboursements et la séparation des devises/revenus Stripe.
+  les remboursements et la séparation des devises.
 - [ ] Faire valider les textes de vente/confidentialité actualisés, les rétentions des preuves
   et rapports ainsi que les procédures de résiliation et d’effacement, puis publier les versions approuvées.
 
 **Clôture :** les achats et événements réels sont validés sur chaque canal activé ; les droits sont
 confirmés par le serveur, les incidents repris et la gestion/résiliation expliquée aux utilisateurs.
 
-Références : [Guide des achats](docs/store-billing.md), [Stripe](docs/billing.md),
+Références : [Guide des achats](docs/store-billing.md), [Droits Premium](docs/billing.md),
 [Contrat](docs/http-contract.md#abonnement), [Livraison](docs/production-readiness.md).
 
 ## PROD-09 — Administration WebAuthn
@@ -335,7 +333,7 @@ Référence : [Administration](docs/administration.md).
   production. Adapter `/etc/histae/maintenance.env`, tester le service puis activer le timer ;
   l'installateur n'active pas automatiquement les unités. L'intervalle initial est de cinq minutes.
 - [ ] Vérifier la progression des échéances de matchs, nettoyages photo, rétentions et programmation
-  des réconciliations Stripe, y compris après redémarrage du serveur.
+  des relectures Apple/Google, y compris après redémarrage du serveur.
 - [ ] Vérifier leases, retries, dead letters et reprises administratives sur des données de validation.
 - [ ] Dimensionner les lots et traiter `work_remaining` ; raccorder les retards et échecs à la supervision.
 
@@ -401,7 +399,7 @@ Référence : [Sauvegarde et restauration](docs/database.md#sauvegarde-et-restau
 - [ ] Vérifier que le client présente séparément les documents et consentements correspondants et
   gère refus, retrait et nouvelle version ; confirmer la correspondance des versions dans chaque langue.
 - [ ] Tester export, demande de droits, suppression du compte, effacement des photos et traitement
-  Stripe ; prévoir les contacts, responsables et procédures de suivi/recours annoncés.
+  Apple/Google ; prévoir les contacts, responsables et procédures de suivi/recours annoncés.
 - [x] Ajouter le parcours web de suppression du compte et de certaines données, dans les quatre
   langues du site, avec lien au footer, session UUID/téléphone/OTP et confirmation distincte.
   Les routes réutilisent les services d’effacement, de consentement et de photo existants.
@@ -500,7 +498,7 @@ Références : [Continuations et récompenses](docs/continuation-and-rewards.md)
 
 1. Fixer le périmètre et les décisions fournisseurs/textes ; préparer PROD-01 et PROD-13.
 2. Préparer réseaux, certificats, PostgreSQL, Redis et S3 ; terminer PROD-02 à PROD-06.
-3. Raccorder Sweego et Stripe, puis finaliser les accès administratifs ; terminer PROD-07 à PROD-09.
+3. Raccorder Sweego et les stores, puis finaliser les accès administratifs ; terminer PROD-07 à PROD-09.
 4. Installer traitements réguliers, supervision et reprise ; terminer PROD-10 à PROD-12.
 5. Terminer les fonctions conditionnelles activées, puis rejouer PROD-14 sur la livraison finale.
 

@@ -27,9 +27,9 @@ impl LegalTranslations {
     }
 }
 
-/// Only Histae's known localized legal and billing routes are rewritten.
-/// Arbitrary configured provider/return URLs keep their original path.
-pub fn localized_histae_url(value: &str, language: Language) -> Option<String> {
+/// Only Histae's localized legal routes are rewritten.
+/// Custom document hosts keep their configured URL.
+fn localized_histae_url(value: &str, language: Language) -> Option<String> {
     let mut url = Url::parse(value).ok()?;
     if !matches!(url.host_str(), Some("www.histae.com" | "histae.com")) {
         return None;
@@ -42,27 +42,24 @@ pub fn localized_histae_url(value: &str, language: Language) -> Option<String> {
     } else {
         original.trim_start_matches('/')
     };
-    if !rest.starts_with("legal/") && !rest.starts_with("billing/") {
+    if !rest.starts_with("legal/") {
         return None;
     }
     url.set_path(&format!("/{}/{rest}", language.as_str()));
-    Some(
-        url.to_string()
-            .replace("%7BCHECKOUT_SESSION_ID%7D", "{CHECKOUT_SESSION_ID}"),
-    )
+    Some(url.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn rewrites_only_known_routes_and_keeps_the_checkout_placeholder() {
-        let url = "https://www.histae.com/billing/success?session_id={CHECKOUT_SESSION_ID}";
+    fn rewrites_only_histae_legal_routes() {
+        let url = "https://www.histae.com/legal/privacy?version=2";
         assert_eq!(
             localized_histae_url(url, Language::It).as_deref(),
-            Some("https://www.histae.com/it/billing/success?session_id={CHECKOUT_SESSION_ID}")
+            Some("https://www.histae.com/it/legal/privacy?version=2")
         );
-        assert!(localized_histae_url("https://other.test/billing/success", Language::En).is_none());
+        assert!(localized_histae_url("https://other.test/legal/privacy", Language::En).is_none());
         let documents = LegalTranslations::default();
         let kind = ConsentType::LocationConsent;
         assert_eq!(

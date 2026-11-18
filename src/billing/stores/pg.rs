@@ -21,12 +21,7 @@ CONFLICT(user_id) DO UPDATE SET user_id=EXCLUDED.user_id RETURNING id, google_ac
 const PURCHASE_BUSY_SQL: &str = r#"
 SELECT EXISTS(SELECT 1 FROM effective_user_subscription WHERE user_id=$1 AND
 access_granted) OR EXISTS(SELECT 1 FROM billing_store_subscription WHERE user_id=$1 AND
-status IN ('pending', 'active', 'grace_period', 'past_due', 'on_hold', 'paused')) OR
-EXISTS(SELECT 1 FROM user_subscription WHERE user_id=$1 AND provider='stripe' AND status
-IN ('incomplete', 'trialing', 'active', 'past_due', 'unpaid', 'paused')) OR EXISTS(SELECT
-1 FROM billing_checkout_session WHERE user_id=$1 AND expires_at>clock_timestamp() AND
-(status IN ('creating', 'open') OR (status='failed' AND stripe_checkout_request IS NOT
-NULL)))
+status IN ('pending', 'active', 'grace_period', 'past_due', 'on_hold', 'paused'))
 "#;
 
 const OWNER_SQL: &str = r#"

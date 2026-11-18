@@ -234,7 +234,7 @@ n’a été utilisé pour simuler une autorisation ou une alerte.
 | Pool PostgreSQL | attente pendant 2 min ou occupation supérieure à 80 % pendant 5 min | avertissement |
 | OTP Sweego non résolu | plus de 80 % de sa durée de vie pendant 2 min | avertissement |
 | Dead letter | au moins une pendant 1 min | critique |
-| Plus ancien événement outbox | 30 min ; push 2 min ; réconciliation Stripe 15 min | critique ou avertissement |
+| Plus ancien événement outbox | 30 min ; push 2 min | critique ou avertissement |
 | Maintenance | absente 10 min, en retard/bloquée 5 min, travail restant 15 min | critique ou avertissement |
 
 Une alerte indique un symptôme, pas nécessairement sa cause. Ne pas augmenter un seuil ou une taille de pool avant
@@ -311,8 +311,7 @@ mesurer le budget, pas de supprimer immédiatement la limite.
 
 ## Dépendance indisponible ou instable
 
-Le label `dependency` appartient à la liste fermée `postgres`, `redis`, `object_storage`, `sweego`,
-`stripe`. Vérifier son healthcheck, réseau, TLS, credentials et quotas sans imprimer de secret. Pour S3 et Stripe,
+Le label `dependency` appartient à la liste fermée `postgres`, `redis`, `object_storage`, `sweego`. Vérifier son healthcheck, réseau, TLS, credentials et quotas sans imprimer de secret. Pour S3 et les achats natifs,
 préserver les traces PostgreSQL et laisser l’outbox/réconciliation reprendre ; ne pas relancer un POST dont l’issue
 est incertaine. Pour Redis, vérifier les mécanismes de reconnexion avant tout redémarrage partagé.
 
@@ -338,8 +337,7 @@ callback ou une nouvelle demande utilisateur selon les règles OTP doit résoudr
 
 Ouvrir la liste protégée `GET /api/admin/outbox/dead-letters`, sans chercher de payload dans les logs. Corriger la
 cause puis utiliser la reprise avec authentification récente et audit ; motif requis pour un admin, facultatif
-pour le superadmin. L’abandon de `account.erase` et des
-événements Stripe est interdit ; `photo.delete` reste non abandonnable tant que la photo existe. Une dead letter
+pour le superadmin. L’abandon de `account.erase` est interdit ; `photo.delete` reste non abandonnable tant que la photo existe. Une dead letter
 push peut être abandonnée selon le contrat. Confirmer ensuite consommation et résultat métier.
 
 <a id="outbox-delay"></a>
@@ -350,22 +348,13 @@ Vérifier qu’un worker est actif, ses claims/renouvellements, la dépendance v
 worker outbox si aucun ne tourne ; ne jamais modifier directement le statut ni exécuter l’effet externe
 hors du dispatcher idempotent. Voir [Exploitation](operations.md#outbox-et-reprises-operateur).
 
-<a id="billing-reconciliation"></a>
-
-## Réconciliation Stripe en retard
-
-Vérifier maintenance `billing`, worker outbox et erreurs Stripe. Pour une création Customer incertaine, rejouer la
-même clé uniquement dans la fenêtre autorisée ; après 23 heures effectuer uniquement les recherches documentées.
-Toute ambiguïté reste une dead letter soumise à décision humaine.
-
 <a id="maintenance"></a>
 
 ## Maintenance absente, bloquée ou bornée
 
 Vérifier `MAINTENANCE_MODE`, le planificateur et l’état persistant du job. `work_remaining=1` signifie que la passe
 a atteint son budget : relancer de façon contrôlée et mesurer avant d’augmenter les lots. Un job `running` ancien
-peut être repris par les règles existantes ; ne pas supprimer son état à la main. Vérifier aussi si Stripe est
-désactivé : son job ne s’exécute alors pas. Voir [ordonnancement et statut](operations.md#maintenance-reguliere).
+peut être repris par les règles existantes ; ne pas supprimer son état à la main. Les relectures natives sont planifiées par la passe de maintenance. Voir [ordonnancement et statut](operations.md#maintenance-reguliere).
 
 ## Test contrôlé des alertes
 
@@ -379,7 +368,7 @@ le nom de l’alerte et les horodatages, sans capture contenant une configuratio
 
 ## Instrumentation des adaptateurs Rust
 
-Les compteurs sont branchés sur les clients utilisés par l’API : requêtes Stripe, envois Sweego,
+Les compteurs sont branchés sur les clients utilisés par l’API : envois Sweego,
 opérations S3, commandes Redis, acquisition des connexions PostgreSQL, sondes SQL et commandes de transaction (BEGIN/COMMIT/ROLLBACK).
 Les durées incluent les reprises internes du client. PostgreSQL compte des opérations d’accès et
 commandes de transaction, pas chaque instruction SQL individuelle. Les refus métier ne sont pas comptés comme des pannes de stockage.

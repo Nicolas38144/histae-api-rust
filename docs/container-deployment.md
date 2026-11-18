@@ -195,7 +195,7 @@ Choisir une étiquette propre à la livraison. Définir explicitement `HISTAE_AP
 services applicatifs et `storage-init` utilisent la même image pour une livraison identifiée. Les valeurs de repli des processus applicatifs sont également alignées.
 Le serveur exécute Docker ; Rust, Node et pnpm ne sont pas nécessaires sur son hôte.
 
-La configuration impose TLS PostgreSQL/Redis, authentification Redis, S3 HTTPS, Sweego, Stripe live,
+La configuration impose TLS PostgreSQL/Redis, authentification Redis, S3 HTTPS, Sweego,
 origine WebAuthn HTTPS, documents juridiques versionnés et référence de revue réelle. Compléter ces valeurs
 avant de lancer les conteneurs : une configuration dev ne doit pas être présentée comme une production.
 

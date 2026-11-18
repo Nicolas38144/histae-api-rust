@@ -13,17 +13,9 @@ use crate::administration::pg::PgAdministrationStore;
 use crate::administration::photos::http::{AdminPhotoHttpState, routes as admin_photo_routes};
 use crate::administration::photos::{AdminPhotoService, PgAdminPhotoRepository};
 use crate::administration::service::AdministrationService;
-use crate::billing::http::{
-    BillingHttpState, StripeWebhookHttpState, routes as billing_routes, stripe_webhook_routes,
-};
+use crate::billing::http::{BillingHttpState, routes as billing_routes};
 use crate::billing::pg::PgBillingRepository;
-use crate::billing::reconcile::{
-    BillingReconciliationHttpState, BillingReconciliationService, PgBillingReconciliationStore,
-    routes as billing_reconciliation_routes,
-};
 use crate::billing::service::BillingService;
-use crate::billing::stripe::StripeClient;
-use crate::billing::webhook::{PgStripeWebhookStore, StripeWebhookService};
 use crate::catalog::http::{CatalogHttpState, routes as catalog_routes};
 use crate::catalog::pg::PgCatalogRepository;
 use crate::catalog::service::CatalogService;
@@ -216,16 +208,8 @@ impl ApiResources {
                 .map_err(|_| "discovery_invalid_cursor_configuration")?,
         );
 
-        let stripe = Arc::new(
-            StripeClient::new(config.billing.clone())
-                .map_err(|_| "stripe_invalid_configuration")?
-                .with_metrics(Arc::clone(&self.metrics)),
-        );
         let billing = Arc::new(BillingService::new(
             Arc::new(PgBillingRepository::new(self.database.clone())),
-            stripe.clone(),
-            config.billing.clone(),
-            self.activity.clone(),
             Arc::clone(&clock),
         ));
         let native_billing = crate::billing::stores::StoreBillingService::new(
@@ -246,37 +230,18 @@ impl ApiResources {
             policy: config.rate_limit.billing.clone(),
             webhook_policy: config.rate_limit.billing_webhook.clone(),
         };
-        let web_state = crate::billing::web::http::WebBillingState {
-            service: crate::billing::web::WebBillingService::new(
-                crate::billing::web::WebBillingRepository::new(
+        let web_state = crate::identity::web::http::WebAccountState {
+            service: crate::identity::web::WebAccountService::new(
+                crate::identity::web::WebAccountRepository::new(
                     self.database.clone(),
                     config.legal.clone(),
                 ),
                 otp.clone(),
-                billing.clone(),
             ),
-            catalog: catalog.clone(),
-            config: config.web_billing.clone(),
+            config: config.web_account.clone(),
             limiter: limiter.clone(),
             otp_policy: config.rate_limit.otp.clone(),
-            billing_policy: config.rate_limit.billing.clone(),
         };
-        let reconciliation = BillingReconciliationService::new(
-            Arc::new(PgBillingReconciliationStore::new(self.database.clone())),
-            stripe.clone(),
-            delivery.clone(),
-            Arc::new(self.activity.clone()),
-            Arc::clone(&clock),
-            config.billing.clone(),
-        );
-        let stripe_webhook = StripeWebhookService::new(
-            Arc::new(PgStripeWebhookStore::new(self.database.clone())),
-            stripe.clone(),
-            delivery.clone(),
-            Arc::clone(&clock),
-            config.billing.clone(),
-        );
-
         let privacy_events: Arc<dyn PrivacyEventPublisher> = delivery.clone();
         let privacy = PrivacyService::new(
             Arc::new(PgPrivacyStore::new(self.database.clone())),
@@ -300,7 +265,7 @@ impl ApiResources {
         );
         let web_privacy = crate::privacy::web::WebPrivacyState {
             auth: web_state.service.clone(),
-            config: config.web_billing.clone(),
+            config: config.web_account.clone(),
             limiter: limiter.clone(),
             policy: config.rate_limit.photo.clone(),
             deletion: deletion.clone(),
@@ -326,9 +291,7 @@ impl ApiResources {
             DependencyConfiguration {
                 redis: self.redis.enabled(),
                 sweego: config.sms.provider == SmsProvider::Sweego,
-                stripe: config.billing.provider == crate::config::BillingProvider::Stripe,
             },
-            config.billing.reconciliation_interval,
         ));
         let admin_metrics = AdminMetricsService::new(
             Arc::new(PgAdminMetricsRepository::new(
@@ -377,7 +340,7 @@ impl ApiResources {
                 mobile_auth.clone(),
             ))
             .merge(crate::billing::stores::http::webhook_routes(store_state))
-            .merge(crate::billing::web::http::routes(web_state))
+            .merge(crate::identity::web::http::routes(web_state))
             .merge(crate::privacy::web::routes(web_privacy))
             .merge(crate::localization::http::routes(
                 crate::localization::http::LanguageHttpState {
@@ -467,11 +430,6 @@ impl ApiResources {
                 BillingHttpState::new(billing),
                 mobile_auth.clone(),
             ))
-            .merge(stripe_webhook_routes(StripeWebhookHttpState::new(
-                stripe_webhook,
-                limiter.clone(),
-                config.rate_limit.billing_webhook.clone(),
-            )))
             .merge(privacy_routes(
                 PrivacyHttpState::new(privacy),
                 mobile_auth.clone(),
@@ -531,10 +489,6 @@ impl ApiResources {
                     PgOutboxAdminRepository::new(self.database.clone()),
                 ))),
                 admin_auth.clone(),
-            ))
-            .merge(billing_reconciliation_routes(
-                BillingReconciliationHttpState::new(Arc::new(reconciliation)),
-                admin_auth,
             ));
 
         let postgres_probe: Arc<dyn DependencyProbe> = Arc::new(self.database.clone());

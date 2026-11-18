@@ -358,10 +358,7 @@ async fn redis_failure_fails_closed_and_webhook_paths_skip_only_the_global_limit
         100,
         observer,
     );
-    for path in [
-        "/api/billing/stripe/webhook?signature=private",
-        "/api/auth/sweego/webhook",
-    ] {
+    for path in ["/api/auth/sweego/webhook"] {
         let response = failed
             .clone()
             .oneshot(

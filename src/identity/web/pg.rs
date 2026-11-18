@@ -1,4 +1,4 @@
-use super::{WebBillingFuture, WebBillingStore, WebChallenge, WebIdentity};
+use super::{WebAccountFuture, WebAccountStore, WebChallenge, WebIdentity};
 use crate::{
     config::LegalConfig,
     infra::{
@@ -10,7 +10,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 const CREATE_CHALLENGE_SQL: &str = r#"
-INSERT INTO web_billing_challenge(id, idempotency_key, requested_user_id, user_id,
+INSERT INTO web_account_challenge(id, idempotency_key, requested_user_id, user_id,
 phone_hash, language) VALUES($1, $2, $3, (SELECT user_id FROM user_account WHERE
 user_id=$3 AND phone_number_hash=$4 AND deleted_at IS NULL AND NOT is_banned), $4, $5) ON
 CONFLICT(idempotency_key) DO NOTHING RETURNING id, expires_at, user_id IS NOT NULL AS
@@ -18,23 +18,23 @@ matched
 "#;
 
 const EXISTING_CHALLENGE_SQL: &str = r#"
-SELECT id, expires_at, user_id IS NOT NULL AS matched FROM web_billing_challenge WHERE
+SELECT id, expires_at, user_id IS NOT NULL AS matched FROM web_account_challenge WHERE
 idempotency_key=$1 AND requested_user_id=$2 AND phone_hash=$3 AND language=$4
 "#;
 
 const BEGIN_VERIFY_SQL: &str = r#"
-UPDATE web_billing_challenge SET attempts=attempts+1 WHERE id=$1 AND phone_hash=$2 AND NOT
+UPDATE web_account_challenge SET attempts=attempts+1 WHERE id=$1 AND phone_hash=$2 AND NOT
 consumed AND attempts<5 AND expires_at>clock_timestamp() RETURNING user_id
 "#;
 
 const CONSUME_CHALLENGE_SQL: &str = r#"
-UPDATE web_billing_challenge SET consumed=true WHERE id=$1 AND user_id=$2 AND NOT consumed
+UPDATE web_account_challenge SET consumed=true WHERE id=$1 AND user_id=$2 AND NOT consumed
 AND expires_at>clock_timestamp() AND EXISTS(SELECT 1 FROM user_account WHERE user_id=$2
 AND deleted_at IS NULL AND NOT is_banned)
 "#;
 
 const OPEN_SESSION_SQL: &str = r#"
-INSERT INTO web_billing_session(token_hash,user_id) VALUES($1,$2)
+INSERT INTO web_account_session(token_hash,user_id) VALUES($1,$2)
 "#;
 
 const IDENTITY_SQL: &str = r#"
@@ -43,21 +43,21 @@ user_id=account.user_id AND consent_type='terms_of_service_acceptance' AND grant
 withdrawn_at IS NULL AND document_version=$2) AND EXISTS(SELECT 1 FROM user_consent WHERE
 user_id=account.user_id AND consent_type='privacy_notice_acknowledgement' AND granted AND
 withdrawn_at IS NULL AND document_version=$3))) AS onboarding_complete FROM
-web_billing_session session JOIN user_account account ON account.user_id=session.user_id
+web_account_session session JOIN user_account account ON account.user_id=session.user_id
 WHERE session.token_hash=$1 AND session.expires_at>clock_timestamp() AND
 account.deleted_at IS NULL AND NOT account.is_banned
 "#;
 
 const LOGOUT_SQL: &str = r#"
-DELETE FROM web_billing_session WHERE token_hash=$1
+DELETE FROM web_account_session WHERE token_hash=$1
 "#;
 
 #[derive(Clone)]
-pub struct WebBillingRepository {
+pub struct WebAccountRepository {
     database: Database,
     legal: LegalConfig,
 }
-impl WebBillingRepository {
+impl WebAccountRepository {
     pub fn new(database: Database, legal: LegalConfig) -> Self {
         Self { database, legal }
     }
@@ -174,15 +174,15 @@ impl WebBillingRepository {
     }
 }
 
-impl WebBillingStore for WebBillingRepository {
+impl WebAccountStore for WebAccountRepository {
     fn challenge<'a>(
         &'a self,
         key: Uuid,
         user: Uuid,
         phone_hash: &'a str,
         language: &'a str,
-    ) -> WebBillingFuture<'a, Option<WebChallenge>> {
-        Box::pin(WebBillingRepository::challenge(
+    ) -> WebAccountFuture<'a, Option<WebChallenge>> {
+        Box::pin(WebAccountRepository::challenge(
             self, key, user, phone_hash, language,
         ))
     }
@@ -190,23 +190,23 @@ impl WebBillingStore for WebBillingRepository {
         &'a self,
         id: Uuid,
         phone_hash: &'a str,
-    ) -> WebBillingFuture<'a, Option<Uuid>> {
-        Box::pin(WebBillingRepository::begin_verify(self, id, phone_hash))
+    ) -> WebAccountFuture<'a, Option<Uuid>> {
+        Box::pin(WebAccountRepository::begin_verify(self, id, phone_hash))
     }
     fn open_session<'a>(
         &'a self,
         challenge: Uuid,
         user: Uuid,
         token: &'a str,
-    ) -> WebBillingFuture<'a, bool> {
-        Box::pin(WebBillingRepository::open_session(
+    ) -> WebAccountFuture<'a, bool> {
+        Box::pin(WebAccountRepository::open_session(
             self, challenge, user, token,
         ))
     }
-    fn identity<'a>(&'a self, token: &'a str) -> WebBillingFuture<'a, Option<WebIdentity>> {
-        Box::pin(WebBillingRepository::identity(self, token))
+    fn identity<'a>(&'a self, token: &'a str) -> WebAccountFuture<'a, Option<WebIdentity>> {
+        Box::pin(WebAccountRepository::identity(self, token))
     }
-    fn logout<'a>(&'a self, token: &'a str) -> WebBillingFuture<'a, ()> {
-        Box::pin(WebBillingRepository::logout(self, token))
+    fn logout<'a>(&'a self, token: &'a str) -> WebAccountFuture<'a, ()> {
+        Box::pin(WebAccountRepository::logout(self, token))
     }
 }

@@ -77,7 +77,6 @@ REDIS_ADDR=127.0.0.1:6379
 REDIS_PASSWORD=
 REDIS_TLS=false
 SMS_PROVIDER=disabled
-BILLING_PROVIDER=disabled
 PUSH_PROVIDER=disabled
 OBJECT_STORAGE_ENDPOINT=http://storage.histae.localhost:8333
 OBJECT_STORAGE_ACCESS_KEY=histae-dev
@@ -113,10 +112,6 @@ URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
 | S3 | `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_REGION`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY`, `OBJECT_STORAGE_SECRET_KEY`, `OBJECT_STORAGE_FORCE_PATH_STYLE` | HTTPS et clés explicites en production ; nom accessible aux serveurs et clients pour les URLs signées. |
 | OTP | `SMS_PROVIDER`, `SWEEGO_API_KEY`, `SWEEGO_SMS_SENDER_ID`, `SWEEGO_SMS_REGION`, `SWEEGO_API_URL`, `SWEEGO_TIMEOUT`, `OTP_TTL`, `OTP_RESEND_COOLDOWN`, `SWEEGO_WEBHOOK_SECRET` | Sweego obligatoire en production ; région `FR`. Renvoi : 60 s par défaut, entre 60 et 300 s et au plus `OTP_TTL`. Le worker outbox nécessite les mêmes clés téléphone/Sweego que l’API. Secret de webhook fourni par Sweego, distinct de la clé API. |
 | Revue Google Play | `GOOGLE_PLAY_REVIEW_ENABLED`, `GOOGLE_PLAY_REVIEW_PHONE_NUMBER`, `GOOGLE_PLAY_REVIEW_OTP` | Désactivée par défaut. Compte mobile distinct, numéro fictif `+3363998XXXX`, code secret de six chiffres. [Préparation et sécurité](google-play-review.md). Aucun SMS ni accès administrateur. |
-| Stripe | `BILLING_PROVIDER`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PREMIUM_MONTHLY_PRICE_ID`, `STRIPE_PREMIUM_ANNUAL_PRICE_ID` | Clés `sk_test_…` en développement, `sk_live_…` en production ; deux identifiants de prix `price_…` distincts. |
-| Redirections Stripe | `STRIPE_CHECKOUT_SUCCESS_URL`, `STRIPE_CHECKOUT_CANCEL_URL`, `STRIPE_PORTAL_RETURN_URL` | HTTPS ; succès contient `{CHECKOUT_SESSION_ID}`. Entrées `/billing/{success,cancel,return}` sur `www.histae.com`, puis langue du navigateur : [configuration et retour dans l'app](billing.md#retours-stripe-sur-le-site-vitrine). |
-| Réconciliation Stripe | `STRIPE_RECONCILIATION_INTERVAL`, `STRIPE_RECONCILIATION_FRESHNESS`, `STRIPE_RECONCILIATION_BATCH_SIZE`, `STRIPE_TIMEOUT` | Défauts : `5m`, `1h`, 25 éléments, `10s` ; maintenance pour programmer, outbox pour exécuter. |
-| Options Stripe | `STRIPE_AUTOMATIC_TAX`, `STRIPE_ALLOW_PROMOTION_CODES`, `STRIPE_MAX_NETWORK_RETRIES` | Défauts : `false`, `false`, `2` ; respecter les fenêtres d’idempotence du contrat. |
 | AdMob | `ADVERTISING_PROVIDER`, `ADMOB_ANDROID_REWARDED_AD_UNIT`, `ADMOB_IOS_REWARDED_AD_UNIT`, `ADMOB_REWARD_ITEM` | `disabled` par défaut ou `admob` ; deux unités rewarded obligatoires si activé, unités Google de test refusées en production ; récompense 1 crédit, libellé `continuation_credit` par défaut. [Guide](continuation-and-rewards.md). |
 | Push | `PUSH_PROVIDER`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `FIREBASE_TOKEN_URI`, `PUSH_TIMEOUT` | `disabled` ou `fcm` ; compte de service complet pour FCM. |
 | Protection SMS | `SMS_MAX_GLOBAL_HOUR`, `SMS_MAX_GLOBAL_DAY`, `SMS_MAX_PER_PHONE_HOUR`, `SMS_MAX_PER_PHONE_DAY`, `SMS_ALERT_SPIKE_5M`, `SMS_SENDING_SUSPENDED` | Défauts : 100/heure et 500/24 h au total, 5/heure et 10/24 h par numéro, pic à 20 tentatives/5 min, arrêt `false`. Comptabilité PostgreSQL partagée et durable ; [guide](sms-safety.md). |
@@ -130,7 +125,7 @@ Les limites dédiées `RATE_LIMIT_*` possèdent une variable de fenêtre suffix�
 Le [contrat HTTP](http-contract.md#erreurs-et-limites-de-debit) décrit les quotas et codes publics.
 Les durées utilisent une unité, par exemple `5s`, `1m` ou `8h`.
 
-### Tarifs du catalogue et Stripe
+### Tarifs du catalogue et achats natifs
 
 Le catalogue initial propose Premium à **5 EUR par mois** ou **48 EUR par an**, sans période d'essai.
 
@@ -146,10 +141,8 @@ Le [catalogue SQL](../db/002_insert_postgres.sql) initialise une base neuve. Sur
 migrateur remplace l'ancien prix annuel Premium de 3 000 centimes EUR par 4 800 centimes, sans écraser un
 autre tarif personnalisé. Un second passage ne modifie ni le prix ni sa date de mise à jour.
 
-Le montant réellement facturé dépend du Price Stripe référencé par `STRIPE_PREMIUM_ANNUAL_PRICE_ID`.
-Créer un Price récurrent annuel à 48 EUR avant d'activer cette offre, puis renseigner son identifiant dans
-le `.env` du serveur. Modifier le catalogue ne modifie pas les Prices Stripe ni les abonnements existants.
-Aligner également le catalogue statique du site (`histae-site/config/site.json`) et le reconstruire.
+Le montant réellement facturé provient des produits et base plans configurés dans les stores.
+Les SDK natifs affichent leur prix localisé ; modifier le catalogue SQL ne change pas ce prix.
 L'app et le dashboard lisent les trois offres via `GET /api/plans` : `offers` contient Free,
 Premium Mensuel et Premium Annuel, avec un prix, une devise et une périodicité par carte.
 Les fonctionnalités et quotas sont rattachés aux deux niveaux `plans` par `plan_code`.
@@ -159,27 +152,15 @@ Le contrat impose `plans` et `offers` ; l'app et le dashboard rejettent une rép
 sans reconstruire de cartes depuis les prix de `plans`. Une liste `offers` explicitement vide
 reste vide ; aucune donnée invalide n'est remplacée par un tarif local.
 Le dashboard exige aussi les quatre compteurs `subscription_offers` des métriques d'administration.
-Déployer l'API, le dashboard et la nouvelle compilation mobile avec le même contrat. Aucun nouvel
-identifiant produit Stripe ni troisième niveau de droits n'est nécessaire.
+Déployer les clients et l’API avec le même contrat de catalogue. Aucun troisième niveau de droits n’est nécessaire.
 
 Une réponse `/api/plans` qui n'a toujours pas `offers` après déploiement indique une ancienne
 version de l'API en service. Vérifier les sources présentes sous `HISTAE_ROOT`, puis reconstruire
 et recréer l'API et le dashboard avec `reset-api.sh --production --full` et
 `reset-dashboard.sh --production --full`. Les scripts conservent les volumes. Le schéma initial et le seed n’ont plus de colonne `subscription_plan.trial_days`. Sur une base
 existante, le migrateur retire cette colonne si elle est présente, avec sa contrainte locale, sans
-modifier les abonnements ni leurs échéances. Le champ `trial_days` est aussi retiré du catalogue HTTP. Les nouvelles créations Checkout
-sont sans essai ; les sessions Stripe déjà créées avant la mise à jour conservent leurs conditions
-jusqu'à expiration. Pour retirer immédiatement une ancienne session ouverte, l'expirer dans Stripe. Effacer la base
-n'ajoute pas ce champ : les trois offres sont calculées par le code à partir des deux plans.
-
-`STRIPE_PREMIUM_MONTHLY_PRICE_ID` et `STRIPE_PREMIUM_ANNUAL_PRICE_ID` contiennent les identifiants des **prix**
-Stripe (`price_…`), pas les identifiants des abonnements clients (`sub_…`). Aucun identifiant de
-produit n'est demandé dans le `.env`. Les webhooks et la réconciliation reconnaissent Premium
-à partir de ces deux prix autorisés pour les nouvelles ventes.
-Les contrôles de signature, de mode test/live et d'unicité de l'abonnement restent appliqués.
-Après rotation de ces prix, un ancien prix peut encore renouveler son abonnement déjà connu : son
-association exacte au client et à l'abonnement est contrôlée en base. Il ne devient pas un prix
-supplémentaire autorisé pour les nouveaux achats. Voir le [parcours Stripe](billing.md).
+modifier les abonnements ni leurs échéances. Le champ `trial_days` est aussi retiré du catalogue HTTP. Aucun nouvel essai n’est proposé.
+Les offres sont calculées par le code à partir des deux plans. Voir [Achats natifs](store-billing.md).
 
 ### Documents juridiques
 
@@ -273,10 +254,13 @@ l’URL française est conservée et `document_language` vaut `fr`.
 Les versions et `LEGAL_REVIEW_REFERENCE` gardent leurs exigences existantes.
 Voir [Internationalisation](internationalization.md) pour la préférence du compte, les appareils et les consentements.
 
-## Achats natifs et session de paiement web
+## Achats natifs et session du site
 
 Voir [la liste des nouvelles variables, leurs valeurs par défaut et leur activation](store-billing.md#configuration-et-activation).
-Les secrets Apple/Google sont réservés au service privé ; Stripe reste nécessaire au site.
+Les secrets Apple/Google sont réservés au service privé. Les paiements web sont retirés.
+`WEB_ACCOUNT_ORIGIN` contrôle uniquement la session du site pour les données personnelles.
+Supprimer les anciennes variables `STRIPE_*`, `BILLING_PROVIDER` et `WEB_BILLING_ENABLED` ;
+renommer `WEB_BILLING_ORIGIN` en `WEB_ACCOUNT_ORIGIN`. Voir [Migration](billing.md#retrait-de-lancien-paiement-web).
 
 ### Retrait du vérificateur photo
 

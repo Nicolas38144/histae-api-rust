@@ -126,7 +126,7 @@ impl FakeBilling {
 }
 impl BillingUseCases for FakeBilling {
     fn subscription(&self, _user_id: Uuid) -> BillingHttpFuture<'_, SubscriptionView> {
-        Box::pin(async { Ok(SubscriptionView::free(false)) })
+        Box::pin(async { Ok(SubscriptionView::free()) })
     }
 }
 
@@ -200,7 +200,7 @@ async fn requires_mobile_authentication() {
 }
 
 #[tokio::test]
-async fn exposes_effective_subscription_but_retires_mobile_stripe_mutations() {
+async fn exposes_effective_subscription_but_removes_website_purchase_mutations() {
     let billing = FakeBilling::successful();
     let (app, token) = app(Arc::new(billing));
     let response = app
@@ -219,6 +219,8 @@ async fn exposes_effective_subscription_but_retires_mobile_stripe_mutations() {
     assert_eq!(body["plan"], "free");
     assert_eq!(body["access_granted"], false);
     assert!(body["management_url"].is_null());
+    assert_eq!(body["customer_portal_available"], false);
+    assert_eq!(body.get("trial_ends_at"), Some(&Value::Null));
     for path in [
         "/api/users/me/subscription/checkout",
         "/api/users/me/subscription/portal",
@@ -234,10 +236,10 @@ async fn exposes_effective_subscription_but_retires_mobile_stripe_mutations() {
             ))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::GONE);
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
         assert_eq!(
             json_response(response).await["error"]["code"],
-            "billing_web_only"
+            "route_not_found"
         );
     }
 }

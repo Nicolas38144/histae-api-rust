@@ -1,5 +1,5 @@
 -- Run only through seed-dev-load.sh against the local histae-dev database.
--- All generated identifiers are deterministic. No OTP, SMS, Stripe or storage API is called.
+-- All generated identifiers are deterministic. No OTP, SMS, purchase or storage API is called.
 BEGIN;
 SET LOCAL search_path = pg_temp, public;
 

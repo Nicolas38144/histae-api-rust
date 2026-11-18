@@ -36,10 +36,10 @@ pub struct AdminRevenue {
     pub period_start: Option<DateTime<Utc>>,
     pub period_end: DateTime<Utc>,
     pub premium_subscriptions: i64,
-    pub paid_invoices: i64,
-    pub estimated_revenue_cents: i64,
+    pub financial_rows: i64,
+    pub gross_revenue_cents: i64,
     pub currency: String,
-    pub excluded_currency_invoices: i64,
+    pub excluded_currency_rows: i64,
     pub basis: &'static str,
 }
 

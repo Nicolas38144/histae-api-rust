@@ -1,11 +1,13 @@
-//! Complimentary billing rights are verified independently of OTP authentication.
+#[path = "../support/store_subscription.rs"]
+mod paid_store;
+// Complimentary billing rights are verified independently of OTP authentication.
 
-use chrono::{TimeDelta, Utc};
+use chrono::Utc;
 use histae_api_rust::{
     billing::{
-        domain::{BeginCheckoutResult, BillingPeriod, SubscriptionProvider, SubscriptionView},
+        domain::{SubscriptionProvider, SubscriptionView},
         pg::PgBillingRepository,
-        store::{BeginCheckoutInput, BillingStore},
+        store::BillingStore,
         stores::pg::StoreRepository,
     },
     config::SecretString,
@@ -40,7 +42,6 @@ fn assert_complimentary_premium(subscription: &SubscriptionView) {
     assert_eq!(subscription.status, None);
     assert_eq!(subscription.billing_period, None);
     assert_eq!(subscription.current_period_ends_at, None);
-    assert!(!subscription.customer_portal_available);
     assert_eq!(subscription.management_url, None);
 }
 
@@ -48,27 +49,10 @@ async fn assert_no_purchase(database: &Database, user_id: Uuid) -> TestResult {
     let stores = StoreRepository::new(database.clone(), SecretString::new("01".repeat(32)));
     assert!(!stores.purchase_allowed(user_id).await?);
 
-    let now = Utc::now();
-    let checkout = PgBillingRepository::new(database.clone())
-        .begin_checkout(BeginCheckoutInput {
-            user_id,
-            idempotency_key: Uuid::new_v4(),
-            billing_period: BillingPeriod::Monthly,
-            attempt_id: Uuid::new_v4(),
-            now,
-            expires_at: now + TimeDelta::minutes(35),
-            stale_before: now - TimeDelta::seconds(60),
-        })
-        .await?;
-    assert_eq!(checkout, BeginCheckoutResult::AlreadySubscribed);
-
     let no_billing: bool = sqlx::query_scalar(
         "SELECT NOT EXISTS (SELECT 1 FROM user_subscription WHERE user_id=$1)
          AND NOT EXISTS (SELECT 1 FROM billing_store_account WHERE user_id=$1)
-         AND NOT EXISTS (SELECT 1 FROM billing_store_subscription WHERE user_id=$1)
-         AND NOT EXISTS (SELECT 1 FROM billing_checkout_session WHERE user_id=$1)
-         AND NOT EXISTS (SELECT 1 FROM billing_customer WHERE user_id=$1)
-         AND NOT EXISTS (SELECT 1 FROM billing_invoice WHERE user_id=$1)",
+         AND NOT EXISTS (SELECT 1 FROM billing_store_subscription WHERE user_id=$1)",
     )
     .bind(user_id)
     .fetch_one(database.acquire().await?.as_mut())
@@ -163,25 +147,17 @@ async fn complimentary_review_access_preserves_real_provider_subscription_histor
     let result: TestResult = async {
         let user_id = register_review_account(&database, &tokens, &account).await?;
         let provider_id = format!("sub_{}", Uuid::new_v4().simple());
-        sqlx::query(
-            "INSERT INTO user_subscription
-             (user_id,plan,provider,provider_subscription_id,status,current_period_ends_at)
-             VALUES($1,'premium','stripe',$2,'active',clock_timestamp()+INTERVAL '30 days')",
-        )
-        .bind(user_id)
-        .bind(&provider_id)
-        .execute(database.acquire().await?.as_mut())
-        .await?;
+        paid_store::grant(&database, user_id, &provider_id).await?;
         let paid = billing
             .effective_subscription_for_user(user_id, Utc::now())
             .await?
             .expect("paid subscription");
         assert!(paid.access_granted);
-        assert_eq!(paid.provider, Some(SubscriptionProvider::Stripe));
+        assert_eq!(paid.provider, Some(SubscriptionProvider::AppStore));
 
         sqlx::query(
-            "UPDATE user_subscription
-             SET status='canceled',current_period_ends_at=clock_timestamp()-INTERVAL '1 day'
+            "UPDATE billing_store_subscription
+             SET status='expired',expires_at=clock_timestamp()-INTERVAL '1 day'
              WHERE user_id=$1",
         )
         .bind(user_id)
@@ -194,8 +170,8 @@ async fn complimentary_review_access_preserves_real_provider_subscription_histor
         assert_complimentary_premium(&complimentary);
 
         let retained: bool = sqlx::query_scalar(
-            "SELECT provider='stripe' AND provider_subscription_id=$2 AND status='canceled'
-             AND current_period_ends_at<clock_timestamp() FROM user_subscription WHERE user_id=$1",
+            "SELECT provider='app_store' AND original_id=$2 AND status='expired'
+             AND expires_at<clock_timestamp() FROM billing_store_subscription WHERE user_id=$1",
         )
         .bind(user_id)
         .bind(provider_id)
