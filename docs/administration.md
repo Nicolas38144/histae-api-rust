@@ -137,12 +137,7 @@ correction administrative, dans `profiles/identity.rs`. Le DTO et le handler de 
 isolés dans `administration/http/identity.rs` ; les écritures et l’audit restent dans
 `administration/pg/identity.rs`, dans une seule transaction avec verrouillage des comptes.
 
-Validation locale du **8 novembre 2026** : **392 tests Rust** et **48 tests PostgreSQL** réussis,
-avec formatage et Clippy sans avertissement. Les tests d’identité couvrent la création concurrente,
-les modifications mobiles refusées sans écriture partielle, la conservation de la bio, les droits
-admin/superadmin et les acteurs bannis, ainsi qu’une révocation de rôle ou de consentement pendant
-l’attente du verrou. Une suppression explicite du sexe reste possible sans consentement sensible.
-La migration conserve les anciens journaux d’accès lors des passages répétés.
+La suppression explicite du champ `sex` reste possible sans consentement aux données sensibles.
 
 ## Promouvoir ou retirer un administrateur
 

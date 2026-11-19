@@ -128,20 +128,3 @@ python3 scripts/verify-continuation-postgres.py --api-image histae-api-rust:loca
 ```
 
 Les tests utilisent des fournisseurs simulés et une base jetable ; ils ne déclenchent aucun envoi SMS ni paiement réel. Importer l’une des deux collections Postman puis définir `language` (`fr` par défaut). Désactiver l’en-tête pour vérifier le repli sur la préférence du compte. Tester aussi une traduction supprimée (`null`), un compte sans onboarding, une session révoquée, le changement de langue après consentement.
-
-### Vérifications locales du 20 octobre 2026
-
-| Contrôle | Résultat |
-| --- | --- |
-| Suite Rust par défaut | 328 tests réussis |
-| Régressions PostgreSQL avec rôles limités | 45 tests réussis ; reprise ciblée des 2 scénarios multilingues après intégration de la langue dans le contrôle de session |
-| Migrations | Base neuve, ancien schéma, couverture des traductions, question déjà personnalisée, modification et suppression de traduction préservées après réexécution |
-| Compilation Rust | Tous les binaires compilés ; contrôle sans features par défaut réussi ; formatage et Clippy sur toutes les cibles/features réussis |
-| Dashboard | Typage, lint et build réussis ; résultats de l’interface multilingue dans le [guide des tests dashboard](../../histae-dashboard/test.md#résultats-actuels) |
-| Mobile Flutter | Adaptation des appels et tests de régression préparés ; analyse, tests Flutter et compilation non exécutés sur cette machine dépourvue du SDK |
-| Contrat et Postman | 113 routes cohérentes avec les deux collections JSON |
-
-PostgreSQL a tourné dans un conteneur jetable avec le migrateur natif compilé depuis ces sources.
-Les fournisseurs SMS et FCM ont été simulés. Aucun SMS ni paiement réel n’a été déclenché.
-Le site possède déjà les quatre variantes de ses documents ; les chemins de l’API
-utilisent ces routes existantes. Le raccordement mobile a été ajouté ensuite ; ses contrôles à lancer avec Flutter sont décrits dans son guide dédié.

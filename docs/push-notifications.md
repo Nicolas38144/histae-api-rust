@@ -133,12 +133,6 @@ replays and recipients, reminder deduplication, request replies without private 
 exclusion. The upgrade test preserves existing notifications, match deadlines and photo-grant
 generations. Never point these fixture tests at production.
 
-Local validation on **7 November 2026**: **388 Rust tests passed** with
-`cargo test --locked --all-targets` and **41 PostgreSQL tests passed** across the eight suites above,
-including repeated schema upgrades. Formatting and Clippy with all targets/features and warnings
-denied passed. The disposable database, fixtures and generated credentials were removed after
-the run. Provider calls were disabled; this does not validate device reception.
-
 On devices, verify background/cold-start delivery, four languages, the actual current first name,
 mutual choices, withdrawn grants, resolved alerts, first-period timing, new-session exclusion and
 both privacy destinations. A successful FCM request does not prove OS presentation.

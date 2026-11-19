@@ -87,7 +87,6 @@ L’[index des guides](docs/README.md) permet de choisir une procédure par usag
 | Importer les collections française ou anglaise | [Postman](postman/README.md) |
 | Diagnostiquer les alertes et les requêtes lentes | [Supervision](docs/observability.md), [SQL](docs/sql-performance.md) |
 | Tester la charge et le tunnel Cloudflare | [Test de charge](docs/load-testing.md) |
-| Suivre les blocages avant le lancement | [Feuille de route production](roadmap-production.md) |
 | Valider une livraison | [Tests](tests/README.md), [Mise en production](docs/production-readiness.md) |
 | Comprendre les modules et leurs responsabilités | [Architecture](docs/architecture.md) |
 
@@ -106,7 +105,7 @@ pas les essais des fournisseurs, de WebAuthn dans le navigateur, de charge et de
 
 ## Continuations et récompenses
 
-Le [guide des crédits](docs/continuation-and-rewards.md) décrit la pause de la messagerie, les décisions privées, les réservations des deux participants et la vérification serveur AdMob. Le fournisseur publicitaire est désactivé par défaut ; les interfaces mobiles et les callbacks réels doivent être validés avant son activation. [Résultats des tests](docs/feature-audit.md).
+Le [guide des crédits](docs/continuation-and-rewards.md) décrit la pause de la messagerie, les décisions privées, les réservations des deux participants et la vérification serveur AdMob. Le fournisseur publicitaire est désactivé par défaut ; les interfaces mobiles et les callbacks réels doivent être validés avant son activation. Voir [Tests](tests/README.md) pour les commandes de validation.
 
 ## Source access and licensing
 

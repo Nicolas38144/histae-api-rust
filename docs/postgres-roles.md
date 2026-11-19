@@ -120,6 +120,8 @@ Les fixtures des tests d'intégration existants créent des schémas ou bases te
 des identifiants administrateur de **développement**, distincts de ceux de l'API. Ne pas élargir les droits
 de `histae_app` pour les faire passer. Le test dédié ci-dessous vérifie directement le rôle applicatif.
 
+<a id="verifier-la-separation"></a>
+
 ## Vérifier la séparation
 
 Avec les images PostgreSQL et API compilées localement :
@@ -150,22 +152,6 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec -T 
 En production, sélectionner ses manifests/env et remplacer `histae-dev` par la base configurée.
 La rotation des mots de passe nécessite des commandes SQL coordonnées puis la recréation des clients ;
 le préparateur de `.env` conserve les mots de passe existants et ne réalise pas une rotation SQL.
-
-## Validation locale du 13 octobre 2026
-
-- PostgreSQL 18.6 / PostGIS 3.6.4 : bootstrap neuf, migrateur réel limité, second passage et reset de schéma réussis.
-- Compte applicatif : DML, séquences, consentements, PostGIS, swipes, match, message et effacement vérifiés ;
-  les neuf tentatives de DDL/changement de rôle/écriture fichier serveur sont refusées.
-- Conversion d'une ancienne base fictive isolée : client connecté refusé, rollback sans création de rôles,
-  données conservées après conversion, permissions existantes/futures vérifiées, nouvelle conversion refusée.
-- Modèles Compose dev/production : absence des mots de passe privilégiés dans les environnements applicatifs ;
-  préparateur idempotent, refus des valeurs invalides/doublons, fichiers `0600` et liens documentaires vérifiés.
-
-Ces vérifications utilisent des instances jetables. Elles ne convertissent pas la base dev en service et
-ne remplacent pas les validations TLS, HTTP et fournisseurs de production.
-
-Références : [permissions PostgreSQL](https://www.postgresql.org/docs/18/ddl-priv.html),
-[privilèges futurs](https://www.postgresql.org/docs/18/sql-alterdefaultprivileges.html).
 
 ## Réparer le rôle d’import des numéros publics
 

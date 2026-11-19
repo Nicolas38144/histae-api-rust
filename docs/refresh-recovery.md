@@ -60,11 +60,6 @@ interprète un enum distinguant les résultats ordinaires d'une reprise contenan
 il ne peut pas substituer un candidat inutilisé au token effectivement récupéré. Le module
 `refresh_recovery.rs` encapsule le chiffrement et expose ses métadonnées en lecture seule.
 
-Validation locale du **4 novembre 2026** : **375 tests** sans les features d'intégration et
-**20 tests PostgreSQL** ciblés réussis, ainsi que formatage, Clippy avec toutes les features et
-upgrade répété du schéma. La base PostgreSQL, ses fixtures et ses identifiants temporaires ont été
-supprimés après la campagne. Aucun fournisseur réel, serveur distant ou client mobile n'a été testé.
-
 Depuis la racine de l'API, avec les prérequis habituels :
 
 ```bash

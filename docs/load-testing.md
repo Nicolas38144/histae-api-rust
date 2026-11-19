@@ -6,8 +6,6 @@ Ce tutoriel prépare une pile de test, 5 000 comptes fictifs et des sessions tem
 Il mesure d’abord l’API par une connexion privée, puis le parcours Cloudflare → tunnel → Caddy → API.
 Les commandes sont à exécuter manuellement ; aucune charge n’est lancée en lisant ce guide.
 
-Une première mesure sur l’ordinateur de développement est disponible dans
-[Résultats du test local](load-testing-results.md), avec les limites et le diagnostic observés.
 La [validation approfondie](load-testing-validation.md) décrit les répétitions à débit constant,
 les paliers conditionnels, les contrôles de sécurité sous charge et les variantes du feed.
 

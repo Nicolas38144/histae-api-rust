@@ -169,6 +169,68 @@ Le tunnel cible `http://reverse-proxy:80` pour les domaines site, dashboard et A
 pas approuver arbitrairement toutes les IP ou toute la plage Docker. Si l’IPAM change, adapter ensemble
 le proxy, l’override et les listes de confiance. Voir [Administration](administration.md) pour WebAuthn.
 
+## Caddy et le tunnel Cloudflare
+
+| Service | Configuration | Fonction |
+| --- | --- | --- |
+| Site | `../histae-site/Caddyfile` | Export statique, langues et redirections juridiques |
+| Dashboard | `../histae-dashboard/Caddyfile` | SPA React, proxy `/api/*`, protections navigateur |
+| Reverse proxy | `../histae-reverse-proxy/Caddyfile` | Domaines publics et routage Docker |
+| Passerelle S3 production | `docker/storage-gateway/Caddyfile` | TLS interne et transmission des requêtes S3 signées |
+
+L’API Rust est servie par Axum. Le tunnel cible `http://reverse-proxy:80` ; Cloudflare termine le
+HTTPS public. Le Caddy edge écoute sur `:80`, sans HTTPS automatique ni API d’administration.
+Le proxy approuve le connecteur `172.30.0.5/32`, et le dashboard approuve le proxy `172.30.0.4/32`.
+Le dashboard conserve `Origin` et les cookies ; l’API utilise la liste précise `TRUST_PROXY`
+décrite dans la section précédente. Adapter toute la chaîne si l’IPAM change.
+
+Chaque image statique possède son `caddy-common.caddy`. Conserver les politiques de masquage
+cohérentes : les logs excluent IP, cookies, en-têtes, URL signées, paramètres et identifiants métier.
+Les champs autorisés comprennent la méthode normalisée, une catégorie fixe de route et le
+`X-Request-ID` UUID v4 validé. Les logs Docker sont bornés ; les healthchecks sont exclus des logs d’accès.
+
+Les serveurs statiques utilisent UID/GID 1000, une racine en lecture seule et un `/tmp` éphémère.
+La passerelle S3 utilise UID/GID 101 ; les permissions de ses certificats doivent correspondre.
+
+Les routes API gardent leurs statuts et leur corps, sans repli vers une page HTML. Le dashboard
+impose `Cache-Control: no-store`, refuse sources et fichiers cachés, et laisse les SSE sans compression.
+La limite de corps HTTP est de 1 Mio, en complément des contrôles applicatifs.
+
+En production, le tunnel envoie aussi `storage.histae.com` au proxy HTTP. Celui-ci relaie vers
+`https://storage-gateway:443`, vérifie le certificat avec `tls_server_name storage.histae.com`
+et conserve le Host public avec `header_up Host {hostport}`. Chemin encodé, paramètres et corps
+restent intacts pour SigV4. Le certificat et sa clé viennent de `.secrets/storage-gateway/`, montés
+sur `/etc/caddy/tls` et lisibles par UID/GID 101. Voir [Secrets S3](production-secrets.md#4-certificat-https-du-stockage-s3).
+La passerelle n’active pas de log d’accès ni de log d’erreur contenant une URL signée.
+
+<a id="verifier-caddy-et-le-tunnel"></a>
+
+### Vérifier Caddy et le tunnel
+
+Après construction des images, valider les trois serveurs statiques sans les démarrer :
+
+```bash
+sudo docker run --rm --network none histae-site:production \
+  caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo docker run --rm --network none histae-dashboard:production \
+  caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo docker run --rm --network none histae-reverse-proxy:production \
+  caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+Depuis l’API, avec les certificats et l’image de la passerelle préparés :
+
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml \
+  run --rm --no-deps storage-gateway validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo docker exec reverse-proxy-container \
+  sh -c 'wget -T 10 -qO- "$HISTAE_API_UPSTREAM/health/ready"'
+```
+
+La dernière commande doit retourner `{"status":"ready"}`. Vérifier aussi le domaine réel du dashboard,
+la connexion passkey, les refus 401 sans session, les événements SSE et l’affichage des photos signées.
+Les scripts de [déploiement](../../histae-scripts/README.md) valident les configurations avant redémarrage.
+
 ## Production
 
 Pour une installation neuve, préparer `.env` selon [Configuration](configuration.md), compléter

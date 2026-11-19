@@ -1,6 +1,6 @@
 # Préparer les secrets et certificats de production
 
-[Index](README.md) · [Déploiement](container-deployment.md#certificats-et-stockage) · [Roadmap](../roadmap-production.md)
+[Index](README.md) · [Déploiement](container-deployment.md#certificats-et-stockage) · [Mise en production](production-readiness.md)
 
 Dernière mise à jour : **15 octobre 2026**. Ce guide rassemble la préparation des secrets,
 les choix de domaines Cloudflare, les certificats, leur renouvellement et la procédure de lancement.
@@ -642,9 +642,8 @@ Cloudflare au navigateur ne suffit pas à prouver le renouvellement de celui de 
 
 ## 5. Achats natifs
 
-Le préparateur du dépôt `histae-scripts`, inchangé dans cette intervention limitée à l’API et au reverse proxy,
-exige encore Stripe. Ses vérifications de paiement doivent être adaptées séparément ; un refus
-sur les anciennes variables ne signifie pas que l’API native exige ces secrets.
+Le préparateur du dépôt `histae-scripts` vérifie encore des variables Stripe obsolètes. Si cette
+vérification bloque, corriger le préparateur pour les achats natifs ; l’API n’exige pas ces secrets.
 
 Les paiements passent exclusivement par Apple/Google. Configurer les secrets privés et les produits
 suivant le [guide des stores](store-billing.md). Aucun secret de paiement web n’est requis au démarrage.
@@ -858,7 +857,7 @@ Rust valident aussi leur configuration de production, notamment Sweego, WebAuthn
 distincts et les documents / consentements versionnés. Une valeur de démonstration ou un raccordement
 manquant peut encore arrêter un service ou empêcher un parcours réel après le démarrage.
 
-Avant d'accueillir des utilisateurs, conserver dans la roadmap la confirmation de :
+Avant d'accueillir des utilisateurs, vérifier :
 
 - la connectivité TLS depuis les images clientes vers PostgreSQL, Redis et S3 ;
 - les domaines publics et les routes tunnel, notamment les photos par URL signée ;
@@ -870,8 +869,4 @@ Avant d'accueillir des utilisateurs, conserver dans la roadmap la confirmation d
 
 Le reset exécute une passe de maintenance ; il n'installe ni n'active le timer systemd permanent.
 Il ne configure pas les fournisseurs, les routes Cloudflare, les sauvegardes ou le hook Certbot.
-Les tâches détaillées restent dans la [roadmap production](../roadmap-production.md).
-
-Ce document a été rapproché des scripts et manifests du projet et des sorties que tu as partagées.
-Il ne constitue pas une preuve de déploiement ou de renouvellement réussi sur ton serveur.
-Les vérifications sur la cible restent à consigner dans la roadmap, sans secrets ni données personnelles.
+Les vérifications de livraison sont décrites dans [Mise en production](production-readiness.md).

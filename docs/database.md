@@ -91,6 +91,8 @@ rajeunir les observations. La sauvegarde/restauration doit conserver ces tables 
 `PHONE_HASH_KEY` ; une autre clé empêche le démarrage de l’API et l’import. Le rôle dédié n’a aucun
 accès aux comptes et ne modifie pas les exceptions. Voir [politique et rétention](phone-blocklist.md).
 
+<a id="postgis-et-mise-a-jour-dune-installation"></a>
+
 ### PostGIS et mise à jour d’une installation
 
 Les piles dev et production construisent [l’image PostgreSQL](../docker/postgres/Dockerfile) à partir

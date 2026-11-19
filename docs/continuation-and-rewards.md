@@ -229,7 +229,7 @@ Les exports incluent le wallet et sa semaine, l’usage, les réservations et le
 
 Les textes juridiques du site sont des **brouillons** actualisés. Avant l’activation des publicités, finaliser/valider les prestataires, données SDK, bases juridiques, transferts et choix UMP ; publier les nouvelles versions puis mettre à jour les versions/URL API et une référence de validation juridique réelle. Cette intervention ne fabrique pas de `LEGAL_REVIEW_REFERENCE` ni d’approbation juridique.
 
-Voir [Tests](../tests/README.md) pour les commandes et [Résultats de validation](feature-audit.md) pour les preuves locales et leurs limites.
+Voir [Tests](../tests/README.md) pour les commandes et [Mise en production](production-readiness.md) pour les vérifications sur appareils et fournisseurs.
 
 ### Mise à jour de la formule hebdomadaire
 

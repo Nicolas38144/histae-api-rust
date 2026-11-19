@@ -1,6 +1,6 @@
 # Validation approfondie de la charge
 
-[Guide initial](load-testing.md) · [Résultats](load-testing-results.md) · [Contrat HTTP](http-contract.md)
+[Guide initial](load-testing.md) · [Contrat HTTP](http-contract.md)
 
 Ce protocole complète le mélange de lectures authentifiées avec des répétitions, des refus
 d’autorisation et des données géographiques différentes. Il n’annonce pas de capacité production.

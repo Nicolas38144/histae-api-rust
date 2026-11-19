@@ -268,16 +268,6 @@ renommer `WEB_BILLING_ORIGIN` en `WEB_ACCOUNT_ORIGIN`. Voir [Migration](billing.
 Retirer aussi les anciens exemples de clés Stripe commentés. Les limites `RATE_LIMIT_BILLING*`
 restent utilisées par les achats et callbacks natifs et doivent être conservées.
 
-### Retrait du vérificateur photo
-
-Le service d’analyse photo a été supprimé. Retirer des `.env` :
-`PHOTO_MODERATION_PROVIDER`, `PHOTO_MODERATION_ENDPOINT`, `PHOTO_MODERATION_TOKEN`,
-`PHOTO_MODERATION_TIMEOUT`, `PHOTO_MODERATION_MIN_SHARPNESS`,
-`PHOTO_MODERATION_NSFW_REVIEW_THRESHOLD`, `HISTAE_PHOTO_MODERATION_IMAGE`.
-Aucune variable dashboard ne le remplace. Les photos sont immédiatement disponibles après upload ;
-leur contenu peut être modéré manuellement. La conversion WebP et le stockage privé restent utilisés.
-Le reset API utilise `--remove-orphans` pour retirer l’ancien conteneur. Pour un démarrage Compose manuel, ajouter cette option.
-
 ## Synchronisation des numéros SMS publics
 
 `POSTGRES_PHONE_SYNC_PASSWORD` est le quatrième mot de passe PostgreSQL, indépendant des autres

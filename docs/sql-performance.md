@@ -60,17 +60,14 @@ d’erreur antérieures ; elle ajoute une lecture uniquement sur ce chemin d’�
 La validation d’un swipe garde sa requête ciblée et ses règles de replay des décisions.
 La formule de distance et le curseur chiffré restent compatibles avec les pages existantes.
 
-Sur PostgreSQL 18, le plan mesuré propage l’ordre du CTE géographique au parcours de page et arrête
-les jointures détaillées après une page complète. Dans une zone peu éligible, le rayon peut atteindre
+Dans le plan PostgreSQL, vérifier la propagation de l’ordre du CTE géographique au parcours de page
+et l’arrêt des jointures détaillées après une page complète. Dans une zone peu éligible, le rayon peut atteindre
 la fenêtre entière ; vérifier ce cas et le plan sur les données réellement déployées.
-Voir les [mesures locales](load-testing-results.md) et les régressions de `discovery_postgres`.
+Utiliser les régressions de `discovery_postgres` pour vérifier les résultats fonctionnels.
 La régression polaire vérifie aussi l’exclusion immédiate après bannissement, ancienne version du
 consentement sensible ou retrait du consentement de localisation, pour le feed et le swipe ciblé.
-Les confirmations suivantes valident trois maintiens à 300 RPS, avec un p95 variable de 82 à 195 ms ;
-350 RPS échoue avec une file d’attente SQL importante. La
-[validation approfondie](load-testing-validation.md) couvre aussi les contrôles d’autorisation sous
-charge et les variantes géographiques/pagination. Un gain ponctuel ne constitue pas un percentile
-garanti sur un hôte partagé.
+La [validation approfondie](load-testing-validation.md) décrit les contrôles d’autorisation sous
+charge et les variantes géographiques/pagination. Mesurer les percentiles sur la topologie utilisée.
 
 ## Index et mise à niveau
 

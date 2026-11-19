@@ -15,9 +15,11 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 
 ## Références par sujet
 
+- [Protection des SMS Sweego](sms-safety.md) : plafonds par numéro, arrêt global et alertes.
+- [Reprise des sessions mobiles](refresh-recovery.md) : rotation récupérable, expiration et révocation.
 - [Numéros SMS publics](phone-blocklist.md) : listes locales, exceptions administratives, import quotidien et alertes.
 - [Configuration](configuration.md) : chargement, priorité des variables, contraintes et secrets.
-- [Déploiement](container-deployment.md) : topologies, réseaux, TLS, démarrage et mise à jour.
+- [Déploiement](container-deployment.md) : topologies, Caddy, tunnel Cloudflare, réseaux, TLS et mises à jour.
 - [Secrets de production](production-secrets.md) : génération S3, CA PostgreSQL/Redis, certificat public S3 et secrets des fournisseurs natifs.
 - [Scripts serveur](../../histae-scripts/README.md) : procédures dev/production, vérifications et timer de maintenance.
 - [Base de données](database.md) : schéma, migrateur, sauvegarde, restauration et suppression.
@@ -28,7 +30,6 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Achats Apple / Google](store-billing.md) : configuration, OTP du site, restaurations, rapports et exploitation.
 - [Abonnements](billing.md) : droits Premium, revenus issus des rapports et retrait du paiement web.
 - [Continuations et récompenses](continuation-and-rewards.md) : fenêtres, crédits, confidentialité des choix et activation AdMob.
-- [Audit fonctionnel](feature-audit.md) : corrections, contrôles actuels et validations fournisseur restantes.
 - [Confidentialité et capacité photo](privacy-and-photo-security.md) : localisation approximative, migration, limites du convertisseur et expiration des liens photo.
 - [Internationalisation](internationalization.md) : langues, traductions des catalogues, documents, notifications et préférences.
 - [Notifications push](push-notifications.md) : événements, prénoms, destinations, expiration et validation de livraison.
@@ -38,19 +39,12 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Performance SQL](sql-performance.md) : index, plans et protocole de mesure.
 - [Test de charge](load-testing.md) : comptes fictifs, sessions sans OTP, k6, Cloudflare et nettoyage.
 - [Validation approfondie de la charge](load-testing-validation.md) : répétitions, p99, sécurité concurrente et variantes du feed.
-- [Résultats de charge locaux](load-testing-results.md) : mesures du 11–12 octobre 2026 et diagnostic du feed.
 - [Architecture](architecture.md) : responsabilités du code et cycles de vie.
 - [Tests](../tests/README.md) : commandes, infrastructure et limites des preuves.
-- [Migration Caddy](caddy-migration.md) : serveurs statiques, tunnel, passerelle S3 et validation.
 - [Mise en production](production-readiness.md) : validations sur la livraison réelle.
-- [Feuille de route production](../roadmap-production.md) : blocages, dépendances et critères de clôture avant ouverture.
-
 - [Accès de revue Google Play](google-play-review.md) : compte dédié, connexion sans SMS, sécurité et instructions de publication.
 
 ## Conventions et entretien
-
-La [reprise des sessions mobiles](refresh-recovery.md) décrit le protocole de renouvellement
-récupérable, la rétention des résultats chiffrés, l'ordre de livraison et les commandes de validation.
 
 Les exemples utilisent Bash depuis la racine de `histae-api-rust`. Les commandes Docker utilisent `sudo` ;
 il peut être omis avec un accès Docker déjà administré. Les valeurs entre `<…>` ou `REPLACE_…` doivent être
@@ -69,5 +63,3 @@ Avec chaque modification, mettre à jour le guide qui possède le sujet, puis se
 Les tableaux du contrat restent compatibles avec `tests/route_inventory.rs`. Les ancres explicites
 des runbooks sont utilisées par les règles Prometheus et doivent rester stables. Les guides décrivent
 les commandes à rejouer pour valider la livraison actuelle.
-
-- [Protection des SMS Sweego](sms-safety.md) : plafonds par numéro, arrêt global et alertes.

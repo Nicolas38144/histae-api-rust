@@ -56,8 +56,7 @@ disponibilité ; tester la reprise et éviter builds ou grosses sauvegardes pend
 
 Publier les quatre documents requis, leurs versions et URLs HTTPS ; renseigner la référence réelle de revue
 juridique/DPO. Valider les durées de conservation, sous-traitants, consentements et parcours de droits pour
-l’usage prévu. Les brouillons du site ont été actualisés pour les achats multicanaux ; leurs versions
-publiées et `LEGAL_REVIEW_REFERENCE` ne sont pas changées automatiquement. La validation technique de ces variables ne valide pas leur contenu juridique.
+l’usage prévu. Les versions publiées et `LEGAL_REVIEW_REFERENCE` doivent correspondre aux documents en service. La validation technique de ces variables ne valide pas leur contenu juridique.
 Voir [Configuration juridique](configuration.md#documents-juridiques).
 
 Une revue indépendante de sécurité/modération et les décisions opérationnelles d’astreinte restent des

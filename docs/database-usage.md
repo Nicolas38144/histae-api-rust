@@ -2,12 +2,10 @@
 
 [Index](README.md) · [Schéma et migrations](database.md)
 
-Audit du code du 19 novembre 2026 : les **64 tables applicatives déclarées dans
-`db/001_schema_postgres.sql` ont chacune un accès SQL dans le code exécuté**. Les points
-ci-dessous excluent les tests, les migrations et les simples références de clés étrangères.
-Aucune table applicative sans usage n’a été identifiée.
+Les **64 tables applicatives** de `db/001_schema_postgres.sql` sont regroupées ci-dessous
+avec leur rôle et un point d’accès SQL dans le code.
 
-Cet inventaire décrit les chemins du code ; il ne mesure pas leur fréquence en production.
+Ce guide décrit les chemins du code ; il ne mesure pas leur fréquence en production.
 Une table peut rester vide tant que la fonctionnalité correspondante n’est pas utilisée.
 Les jobs de rétention, les projections SQL et les triggers apportent des usages supplémentaires.
 
@@ -87,5 +85,4 @@ PostGIS ajoute sa table d’extension `spatial_ref_sys`, utilisée pour les réf
 Elle porte le total à **65 tables dans `public`** sur une installation standard ; elle ne fait pas
 partie des 64 tables applicatives et doit rester gérée par PostGIS.
 
-Les tables Stripe et le ledger `schema_migrations` ont été retirés du schéma applicatif.
 Les index et colonnes demandent leur propre analyse d’usage ; cet inventaire concerne les tables.

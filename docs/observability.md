@@ -203,23 +203,6 @@ Cette pile autonome n’est pas raccordée aux routes `/monitoring/*` du dashboa
 administratif authentifié et un canal de notification avant son usage en production. Éviter de lancer une
 seconde collecte autonome sur l’API dev si les trois services intégrés répondent déjà au besoin.
 
-## Validation locale du 13 octobre 2026
-
-- Configurations Compose dev, dev avec proxy, production, supervision autonome et reverse proxy valides.
-- API reconstruite ; API et trois outils sains, aucun port de supervision publié ; cible `histae-api` à `UP`.
-- 304 tests Rust, Clippy avec avertissements interdits et formatage : réussis.
-- Dashboard : typecheck, lint, build et 53 tests unitaires réussis.
-- Caddy : refus `401`/`403`, remplacement d’une identité forgée, retrait du cookie Histae, corps POST
-  conservé et contrôle d’origine vérifiés dans des conteneurs isolés avec une autorisation fictive.
-- Grafana réel dans cette isolation : identité fournie par le proxy, rôle d’organisation `Admin` et accès
-  anonyme/identité forgée refusés. L’API réelle rejette aussi l’accès anonyme au nouvel endpoint.
-- Tests `promtool` des règles d’alerte : réussis. Préparation des secrets : valeurs vides/commentaires,
-  relance, permissions et refus de l’interpolation ou des liens symboliques vérifiés.
-
-Le reset complet, le tunnel du serveur et la connexion avec une vraie passkey sur le domaine public
-restent à vérifier après copie et démarrage sur le serveur. Aucun compte réel ni panne de dépendance
-n’a été utilisé pour simuler une autorisation ou une alerte.
-
 ## Seuils initiaux
 
 | Signal | Fenêtre et seuil | Sévérité |
@@ -356,6 +339,8 @@ Vérifier `MAINTENANCE_MODE`, le planificateur et l’état persistant du job. `
 a atteint son budget : relancer de façon contrôlée et mesurer avant d’augmenter les lots. Un job `running` ancien
 peut être repris par les règles existantes ; ne pas supprimer son état à la main. Les relectures natives sont planifiées par la passe de maintenance. Voir [ordonnancement et statut](operations.md#maintenance-reguliere).
 
+<a id="test-controle-des-alertes"></a>
+
 ## Test contrôlé des alertes
 
 `alerts.test.yml` injecte trois séries synthétiques et vérifie le délai, les labels et le runbook des alertes cible
@@ -392,4 +377,4 @@ Voir le [guide complet](sms-safety.md) pour le mode secours et les limites de pr
 
 ## Achats natifs
 
-File outbox `store_billing`, acquittements Google et relectures en retard : [runbook](store-billing.md#operations).
+File outbox `store_billing`, acquittements Google et relectures en retard : [runbook](store-billing.md#exploitation).
