@@ -1,6 +1,6 @@
 # Développement
 
-[Index](README.md) · [Configuration](configuration.md) · [Tests](../tests/README.md)
+[Index](../README.md) · [Configuration](configuration.md) · [Tests](../../tests/README.md)
 
 ## Prérequis Debian 13
 
@@ -22,7 +22,7 @@ La préparation des secrets et le chargement de données exigent aussi Python 3.
 sudo apt-get install python3
 ```
 
-Le fichier [rust-toolchain.toml](../rust-toolchain.toml) fixe aussi `rustfmt`, Clippy, `rust-src` et
+Le fichier [rust-toolchain.toml](../../rust-toolchain.toml) fixe aussi `rustfmt`, Clippy, `rust-src` et
 `rust-analyzer`. Dans VS Code, utiliser ce toolchain puis redémarrer rust-analyzer après installation des
 composants. Aucun `rust-analyzer.cargo.features` spécifique n’est requis : WebAuthn est activé par défaut.
 
@@ -40,7 +40,7 @@ si nécessaire et les deux secrets fichier de supervision, sans afficher leurs v
 le mot de passe Grafana existant. Ne pas committer `.env` ni `.secrets`.
 Le fichier `.env` est ignoré par Git. L’API Rust sur l’hôte le charge automatiquement ; les variables déjà présentes
 dans le terminal ont priorité. Compose applique ses propres overrides aux processus conteneurisés.
-Les [quatre rôles PostgreSQL](postgres-roles.md) sont initialisés automatiquement sur un volume neuf ;
+Les [quatre rôles PostgreSQL](../database/postgres-roles.md) sont initialisés automatiquement sur un volume neuf ;
 modifier le `.env` ne convertit pas une ancienne base ni ne change ses mots de passe.
 
 Les dépendances utilisent des ports hôte liés à loopback. `POSTGRES_PORT=5433` évite de concurrencer un
@@ -57,9 +57,9 @@ bash scripts/smoke-api.sh
 ```
 
 Le code est compilé dans l’image, sans montage des sources ni rechargement automatique.
-Après une modification Rust, suivre la [procédure de mise à jour](container-deployment.md#mise-a-jour).
+Après une modification Rust, suivre la [procédure de mise à jour](../deployment/container-deployment.md#mise-a-jour).
 Prometheus, Grafana et Alertmanager démarrent aussi, avec des volumes persistants et aucun port hôte publié.
-Leur accès depuis le dashboard exige la [pile reverse proxy](observability.md#supervision-integree-au-developpement).
+Leur accès depuis le dashboard exige la [pile reverse proxy](../operations/observability.md#supervision-integree-au-developpement).
 
 ### Rust sur l’hôte, dépendances dans Docker
 
@@ -90,7 +90,7 @@ MAINTENANCE_MODE=worker cargo run --locked --bin outbox
 MAINTENANCE_MODE=worker cargo run --locked --bin maintenance
 ```
 
-Le rôle de chaque processus est décrit dans [Exploitation](operations.md). Pour le dashboard voisin,
+Le rôle de chaque processus est décrit dans [Exploitation](../operations/operations.md). Pour le dashboard voisin,
 installer ses dépendances et démarrer son serveur depuis `../histae-dashboard` :
 
 ```bash
@@ -100,16 +100,16 @@ pnpm run dev
 ```
 
 Ouvrir `http://localhost:5173` pour conserver l’origine WebAuthn locale. Le proxy Vite `/api` utilise
-`VITE_API_PROXY_TARGET`, par défaut `http://localhost:8080`. Voir [Administration](administration.md).
+`VITE_API_PROXY_TARGET`, par défaut `http://localhost:8080`. Voir [Administration](../features/administration.md).
 
 ## Tester les routes
 
-- [Postman](../postman/README.md) : collections JSON française et anglaise, 113 requêtes chacune.
-- [Accès LAN](container-deployment.md#acces-lan) : publier uniquement le port API nécessaire.
-- [Tests automatisés](../tests/README.md) : choisir les suites selon les dépendances disponibles.
-- [Smoke](../scripts/smoke-api.sh) : santé, guards, validation et route inexistante ; URL loopback uniquement.
-- [Test de charge](load-testing.md) : pile dédiée et scénarios k6, avec ou sans tunnel Cloudflare.
-- [Validation approfondie](load-testing-validation.md) : maintiens répétés, contrôles de sécurité sous charge et fixtures géographiques restaurables.
+- [Postman](../../postman/README.md) : collections JSON française et anglaise, 113 requêtes chacune.
+- [Accès LAN](../deployment/container-deployment.md#acces-lan) : publier uniquement le port API nécessaire.
+- [Tests automatisés](../../tests/README.md) : choisir les suites selon les dépendances disponibles.
+- [Smoke](../../scripts/smoke-api.sh) : santé, guards, validation et route inexistante ; URL loopback uniquement.
+- [Test de charge](../testing/load-testing.md) : pile dédiée et scénarios k6, avec ou sans tunnel Cloudflare.
+- [Validation approfondie](../testing/load-testing-validation.md) : maintiens répétés, contrôles de sécurité sous charge et fixtures géographiques restaurables.
 
 <a id="charger-des-donnees-fictives"></a>
 
@@ -151,7 +151,7 @@ sudo bash scripts/purge-dev-users.sh
 Cette commande supprime **tous les comptes autres que le superadmin**, y compris les admins, et leurs données
 PostgreSQL associées dans `histae-dev`. Elle refuse la suppression si les comptes ciblés ont encore des photos
 dans le stockage objet. Sauvegarder avant exécution si ces données doivent être récupérables.
-Voir [Base de données](database.md) pour la sauvegarde et le test de restauration.
+Voir [Base de données](../database/database.md) pour la sauvegarde et le test de restauration.
 
 ## Espace de compilation
 
@@ -206,7 +206,7 @@ python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/d
 Le lanceur crée une base PostgreSQL jetable, vérifie aussi l’upgrade depuis les demandes
 sans messages et sa répétition, puis supprime ses conteneurs et identifiants temporaires.
 Il vérifie la clôture concurrente, les refus sans réponse, les catégories historiques et
-l’absence de notes internes dans l’export. Voir [Validation locale](../tests/README.md).
+l’absence de notes internes dans l’export. Voir [Validation locale](../../tests/README.md).
 
 ## Suppression des données depuis le site
 

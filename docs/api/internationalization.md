@@ -1,6 +1,6 @@
 # Internationalisation de l’API
 
-[Index](README.md) · [Contrat HTTP](http-contract.md) · [Configuration](configuration.md)
+[Index](../README.md) · [Contrat HTTP](http-contract.md) · [Configuration](../development/configuration.md)
 
 ## Sélection de langue
 
@@ -53,7 +53,7 @@ Sans préférence locale enregistrée, le mobile peut reprendre la langue du com
 
 Les reprises techniques OTP gardent le numéro, la clé et la langue de l’intention d’origine. Le mobile compare version, URL et langue du document présenté avant un PUT de consentements et conserve la distinction entre langue disponible et langue historique d’acceptation.
 
-Les révisions de traduction sont distinctes des révisions de confidentialité : elles rechargent les lectures sans supprimer les brouillons ni les intentions. Les gardes de session et de consentement continuent à s’appliquer. Voir le [guide mobile des langues API](../../histae-app/docs/api-languages.md), notamment les commandes de validation sur une machine avec Flutter. Cette adaptation mobile a été préparée sans SDK Flutter/Dart local ; ses tests et sa compilation restent à exécuter.
+Les révisions de traduction sont distinctes des révisions de confidentialité : elles rechargent les lectures sans supprimer les brouillons ni les intentions. Les gardes de session et de consentement continuent à s’appliquer. Voir le [guide mobile des langues API](../../../histae-app/docs/api-languages.md), notamment les commandes de validation sur une machine avec Flutter. Cette adaptation mobile a été préparée sans SDK Flutter/Dart local ; ses tests et sa compilation restent à exécuter.
 
 ## Catalogues et dashboard
 
@@ -61,7 +61,7 @@ Le français reste la source canonique de `name` / `prompt`. Les réponses admin
 
 Les listes affichent la projection localisée. Les champs d’édition français continuent de modifier la source canonique, indépendamment de la langue d’interface ; les trois autres champs éditent les traductions et les indicateurs EN/ES/IT montrent leur couverture. Changer de langue recharge les lectures et reprend la pagination à sa première page sans effacer les saisies en cours. Les motifs d’audit, noms et messages des utilisateurs conservent leur contenu original.
 
-Les libellés, erreurs et textes accessibles du dashboard sont centralisés dans ses quatre fichiers `src/i18n/messages/*.json`. Les dates, nombres, devises et pluriels suivent la langue choisie. Le [guide du dashboard](../../histae-dashboard/README.md#langue-de-linterface) décrit l’ajout d’un texte et les contrôles contre les libellés écrits directement dans le code.
+Les libellés, erreurs et textes accessibles du dashboard sont centralisés dans ses quatre fichiers `src/i18n/messages/*.json`. Les dates, nombres, devises et pluriels suivent la langue choisie. Le [guide du dashboard](../../../histae-dashboard/README.md#langue-de-linterface) décrit l’ajout d’un texte et les contrôles contre les libellés écrits directement dans le code.
 
 ```json
 {

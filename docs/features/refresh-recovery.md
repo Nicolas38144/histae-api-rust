@@ -1,6 +1,6 @@
 # Reprise d'un renouvellement de session mobile
 
-[Documentation](README.md) · [Contrat HTTP](http-contract.md)
+[Documentation](../README.md) · [Contrat HTTP](../api/http-contract.md)
 
 ## Contrat et sécurité
 

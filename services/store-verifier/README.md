@@ -2,7 +2,7 @@
 
 Cryptographic and HTTP adapters for the official Apple App Store Server Library
 and Google Play Developer API. Entitlements, ownership, persistence and retries
-remain in the Rust API. See [deployment and configuration](../../docs/store-billing.md).
+remain in the Rust API. See [deployment and configuration](../../docs/features/store-billing.md).
 
 The service has no database access or published host port. The backend-only
 operations require `STORE_VERIFIER_TOKEN`; `/health/live` is not an assertion that

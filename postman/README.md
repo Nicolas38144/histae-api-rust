@@ -1,6 +1,6 @@
 # Tester l’API avec Postman
 
-[Documentation](../docs/README.md) · [Contrat HTTP](../docs/http-contract.md) · [Administration](../docs/administration.md)
+[Documentation](../docs/README.md) · [Contrat HTTP](../docs/api/http-contract.md) · [Administration](../docs/features/administration.md)
 
 ## Import
 
@@ -65,11 +65,11 @@ retry incertain. Pour un vrai renvoi, attendre le délai puis créer une nouvell
 
 Après `logout-all`, refaire une connexion avec un nouvel OTP ; le logout n’interdit pas un nouvel envoi.
 Le refresh consomme le dernier token et le remplace : ne pas exécuter deux refresh concurrents ni rejouer
-aveuglément une réponse perdue. Voir [Idempotence](../docs/http-contract.md#idempotence-et-reponses-perdues).
+aveuglément une réponse perdue. Voir [Idempotence](../docs/api/http-contract.md#idempotence-et-reponses-perdues).
 
 ## Parcours administrateur
 
-Enrôler puis connecter la passkey dans le navigateur selon [Administration](../docs/administration.md).
+Enrôler puis connecter la passkey dans le navigateur selon [Administration](../docs/features/administration.md).
 Pour les requêtes Postman, renseigner localement le cookie de cette session et `adminOrigin` ; le nom du
 cookie est `__Host-histae_admin_session` en HTTPS et `histae_admin_session` en HTTP local.
 Les actions sensibles peuvent demander une connexion WebAuthn récente.
@@ -81,9 +81,9 @@ Une réponse `401` sur les traits admin doit être diagnostiquée avec le cookie
 ## Photos, webhooks et effets réels
 
 - Photo : sélectionner un vrai fichier dans le corps multipart ; conserver sa clé pour rejouer la même intention.
-- URL S3 signée : l’endpoint doit être joignable depuis la machine cliente ; voir [Accès LAN](../docs/container-deployment.md#acces-lan).
+- URL S3 signée : l’endpoint doit être joignable depuis la machine cliente ; voir [Accès LAN](../docs/deployment/container-deployment.md#acces-lan).
 - Sweego et Apple/Google : une signature valide porte sur les octets exacts du corps. Les placeholders de collection
-  ne constituent pas un test d’acceptation signé. Voir le [contrat des intégrations](../docs/http-contract.md#routes-publiques-et-integrations).
+  ne constituent pas un test d’acceptation signé. Voir le [contrat des intégrations](../docs/api/http-contract.md#routes-publiques-et-integrations).
 - Effacement, suppression de catalogue, retrait de rôle et abandon outbox : relire la description et la cible
   avant l’envoi ; réserver ces essais aux données de test.
 
@@ -94,11 +94,11 @@ Les codes API doivent être interprétés par `error.code`, pas par le texte du 
 
 Lire le quota, puis utiliser `PATCH /api/matches/:id/continue` avec le coût explicite configuré. Deux comptes Free consomment chacun un crédit après leurs deux accords ; la première acceptation réserve sans débit. Les messages sont suspendus dans la seconde fenêtre de 24 heures, avec historique accessible. Un refus ou une expiration libère les réservations. Le stock publicitaire est limité à trois et revient à zéro chaque lundi à 00:00 UTC, quand les deux crédits gratuits sont renouvelés. Free confirme au plus cinq continuations par semaine UTC.
 
-Le dossier de récompenses prépare, lit et annule une intention propriétaire. La requête webhook nécessite une vraie preuve AdMob ; les collections ne génèrent aucune signature. Le fournisseur désactivé renvoie `503 advertising_disabled`, comme le `.env` local par défaut. Voir [Activation et tests](../docs/continuation-and-rewards.md).
+Le dossier de récompenses prépare, lit et annule une intention propriétaire. La requête webhook nécessite une vraie preuve AdMob ; les collections ne génèrent aucune signature. Le fournisseur désactivé renvoie `503 advertising_disabled`, comme le `.env` local par défaut. Voir [Activation et tests](../docs/features/continuation-and-rewards.md).
 
 ## Parcours multilingue
 
-Voir [Internationalisation](../docs/internationalization.md). Vérifier les quatre langues du catalogue,
+Voir [Internationalisation](../docs/api/internationalization.md). Vérifier les quatre langues du catalogue,
 les champs `translations` des traits/questions admin, les URL documentaires et la langue acceptée,
 l’exception `language` des appareils, puis les prix localisés du store. Les prix, UUID, catégories, réponses personnelles
 et curseurs ne changent pas. Un changement de langue avec une même clé OTP est un conflit.
@@ -111,4 +111,4 @@ Les placeholders ne donnent jamais Premium. Ne pas exporter les purchaseTokens n
 Pour le site, configurer `webAccountOrigin` exact, une clé UUIDv4 `webAccountOtpKey`, puis `webAccountCookie` (ou le gestionnaire de cookies Postman). Le challenge
 est mémorisé après 202. Le cookie web est distinct du cookie admin et du Bearer mobile.
 Les anciennes routes de paiement web ont été retirées (404). Le template financier du JSON est synthétique : ne pas
-l’importer comme chiffre réel. Voir [le guide](../docs/store-billing.md).
+l’importer comme chiffre réel. Voir [le guide](../docs/features/store-billing.md).

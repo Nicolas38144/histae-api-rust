@@ -19,7 +19,7 @@ tests:
           - exp_labels: { alertname: HistaePhoneBlocklistUnavailable, severity: critical, component: sweego }
             exp_annotations:
               summary: Public-number policy has no fresh successful import
-              runbook_url: docs/phone-blocklist.md#exploitation
+              runbook_url: docs/features/phone-blocklist.md#exploitation
       - eval_time: 13m
         alertname: HistaePhoneBlocklistUnavailable
         exp_alerts: []
@@ -39,7 +39,7 @@ tests:
           - exp_labels: { alertname: HistaePhoneBlocklistSourceFailed, severity: warning, component: sweego }
             exp_annotations:
               summary: A public-number source import failed
-              runbook_url: docs/phone-blocklist.md#exploitation
+              runbook_url: docs/features/phone-blocklist.md#exploitation
       - eval_time: 18m
         alertname: HistaePhoneBlocklistSourceFailed
         exp_alerts: []
@@ -60,7 +60,7 @@ tests:
               job: histae-api
             exp_annotations:
               summary: Histae metrics endpoint is unavailable
-              runbook_url: docs/observability.md#metrics-unavailable
+              runbook_url: docs/operations/observability.md#metrics-unavailable
 
   - name: a persistent collection failure reaches the critical alert
     interval: 1m
@@ -77,7 +77,7 @@ tests:
               severity: critical
             exp_annotations:
               summary: Histae cannot collect persistent operational state
-              runbook_url: docs/observability.md#collection-failed
+              runbook_url: docs/operations/observability.md#collection-failed
 
   - name: one dead letter reaches the critical alert
     interval: 1m
@@ -95,7 +95,7 @@ tests:
               status: dead_letter
             exp_annotations:
               summary: The Histae outbox contains dead letters
-              runbook_url: docs/observability.md#dead-letters
+              runbook_url: docs/operations/observability.md#dead-letters
 
   - name: a SMS traffic spike alerts immediately and resolves after recovery
     interval: 1m
@@ -109,7 +109,7 @@ tests:
           - exp_labels: { alertname: HistaeSweegoTrafficSpike, severity: warning, component: sweego }
             exp_annotations:
               summary: Sweego send attempts exceed the traffic spike threshold
-              runbook_url: docs/observability.md#sms-safety
+              runbook_url: docs/operations/observability.md#sms-safety
       - eval_time: 3m
         alertname: HistaeSweegoTrafficSpike
         exp_alerts: []
@@ -126,7 +126,7 @@ tests:
           - exp_labels: { alertname: HistaeSweegoSendingSuspended, severity: warning, component: sweego }
             exp_annotations:
               summary: Sweego SMS sending is suspended
-              runbook_url: docs/observability.md#sms-safety
+              runbook_url: docs/operations/observability.md#sms-safety
       - eval_time: 2m
         alertname: HistaeSweegoSendingSuspended
         exp_alerts: []
@@ -149,7 +149,7 @@ tests:
               severity: critical
             exp_annotations:
               summary: Google Play purchases still await acknowledgment
-              runbook_url: docs/store-billing.md#exploitation
+              runbook_url: docs/features/store-billing.md#exploitation
       - eval_time: 20m
         alertname: HistaeStorePurchasesUnacknowledged
         exp_alerts: []
@@ -172,7 +172,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: Store subscriptions have not been verified for twelve hours
-              runbook_url: docs/store-billing.md#exploitation
+              runbook_url: docs/features/store-billing.md#exploitation
       - eval_time: 35m
         alertname: HistaeStoreReconciliationStale
         exp_alerts: []
@@ -197,7 +197,7 @@ tests:
               status: dead_letter
             exp_annotations:
               summary: Store billing verification contains failed jobs
-              runbook_url: docs/store-billing.md#exploitation
+              runbook_url: docs/features/store-billing.md#exploitation
       - eval_time: 4m
         alertname: HistaeStoreBillingDeadLetters
         exp_alerts: []

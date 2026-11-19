@@ -1,6 +1,6 @@
 # Performance SQL
 
-[Index](README.md) · [Base de données](database.md) · [Supervision](observability.md#postgres-pool)
+[Index](../README.md) · [Base de données](database.md) · [Supervision](../operations/observability.md#postgres-pool)
 
 Ce guide décrit les optimisations présentes et une méthode de mesure reproductible. Il ne fournit pas
 de capacité RPS garantie : la topologie, les données, le trafic, les verrous et les fournisseurs doivent être mesurés.
@@ -18,7 +18,7 @@ de capacité RPS garantie : la topologie, les données, le trafic, les verrous e
 | OTP opérationnels | Instant SQL stable pour les agrégats d’expiration, compatible avec l’index |
 | Claim outbox | Prédicat explicite d’état actif et index ordonné, avec `SKIP LOCKED`, ownership et retries conservés |
 
-Le SQL appartient aux modules `pg.rs` ou `pg/` du domaine concerné ; [Architecture](architecture.md)
+Le SQL appartient aux modules `pg.rs` ou `pg/` du domaine concerné ; [Architecture](../development/architecture.md)
 décrit les responsabilités. Une réduction du nombre de requêtes n’autorise pas à retirer l’audit,
 une borne de pagination, un consentement, un verrou ou une règle d’idempotence.
 
@@ -66,19 +66,19 @@ la fenêtre entière ; vérifier ce cas et le plan sur les données réellement 
 Utiliser les régressions de `discovery_postgres` pour vérifier les résultats fonctionnels.
 La régression polaire vérifie aussi l’exclusion immédiate après bannissement, ancienne version du
 consentement sensible ou retrait du consentement de localisation, pour le feed et le swipe ciblé.
-La [validation approfondie](load-testing-validation.md) décrit les contrôles d’autorisation sous
+La [validation approfondie](../testing/load-testing-validation.md) décrit les contrôles d’autorisation sous
 charge et les variantes géographiques/pagination. Mesurer les percentiles sur la topologie utilisée.
 
 ## Index et mise à niveau
 
-Les 19 index ciblés sont définis dans [query_indexes.rs](../src/infra/query_indexes.rs), avec leurs
-équivalents dans le [schéma neuf](../db/001_schema_postgres.sql). Ils couvrent notamment claim outbox,
+Les 19 index ciblés sont définis dans [query_indexes.rs](../../src/infra/query_indexes.rs), avec leurs
+équivalents dans le [schéma neuf](../../db/001_schema_postgres.sql). Ils couvrent notamment claim outbox,
 tri/filtre des comptes et références utilisées pour les jointures, audits ou suppressions.
 
 Sur une base existante, lancer le migrateur de l’image à jour. Il construit les index manquants avec
 `CONCURRENTLY`, répare ceux qui sont invalides et conserve ceux qui sont valides. Le `lock_timeout` de
 cette connexion est de cinq secondes ; son `statement_timeout` est désactivé pour permettre une construction
-longue. Prévoir le coût CPU, I/O et disque d’un build, même concurrent. Voir [Déploiement](container-deployment.md#mise-a-jour).
+longue. Prévoir le coût CPU, I/O et disque d’un build, même concurrent. Voir [Déploiement](../deployment/container-deployment.md#mise-a-jour).
 
 ### Contrôles SQL en lecture
 
@@ -121,7 +121,7 @@ ORDER BY xact_start NULLS LAST;
 ### Statistiques d’exécution avec `pg_stat_statements`
 
 Les manifests Docker préchargent le module. Les nouvelles bases installent l’extension depuis
-[000_bootstrap_postgres.sql](../db/000_bootstrap_postgres.sql). Les commandes utilitaires ne sont
+[000_bootstrap_postgres.sql](../../db/000_bootstrap_postgres.sql). Les commandes utilitaires ne sont
 pas suivies (`track_utility=off`) et le suivi de planification conserve son défaut désactivé.
 Le préchargement nécessite un redémarrage PostgreSQL, selon la
 [documentation PostgreSQL](https://www.postgresql.org/docs/18/pgstatstatements.html).
@@ -141,7 +141,7 @@ COMPOSE=(sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml
 
 Ajouter `-f compose.proxy.yaml` si utilisé. En production, sélectionner `.env` et
 `compose.production.yaml`. Préparer la nouvelle image applicative avant d’arrêter les services,
-selon le [guide de déploiement](container-deployment.md#mise-a-jour).
+selon le [guide de déploiement](../deployment/container-deployment.md#mise-a-jour).
 
 Vérifier dans `psql` :
 
@@ -186,7 +186,7 @@ avant partage : la normalisation ne garantit pas la suppression de toutes les va
 ne neutralise pas nécessairement tous les effets, notamment les séquences ou des effets externes.
 Ne pas utiliser un générateur OTP/SMS pour un benchmark SQL.
 
-Le [chargement dev](development.md#charger-des-donnees-fictives) exerce de vrais parcours métier avec des
+Le [chargement dev](../development/development.md#charger-des-donnees-fictives) exerce de vrais parcours métier avec des
 comptes fictifs ; il ne constitue pas à lui seul un test de charge simultanée ni une prévision de RPS production.
 Un sequential scan peut être adapté à un petit catalogue ; ne pas forcer systématiquement un index.
 
@@ -195,8 +195,8 @@ Un sequential scan peut être adapté à un petit catalogue ; ne pas forcer syst
 Les suites PostgreSQL vérifient filtres, compteurs, pages, curseurs, données optionnelles, audit et claims.
 Les tests du migrateur couvrent base neuve/peuplée, idempotence et réparation d’index invalide.
 `query_performance_postgres` est une suite fonctionnelle de régression des requêtes ; elle n’impose pas de
-seuil chronométrique dépendant du matériel. Voir [Tests](../tests/README.md).
+seuil chronométrique dépendant du matériel. Voir [Tests](../../tests/README.md).
 
-Pour un incident réel, suivre [Latence HTTP](observability.md#http-latency) et
-[Pool PostgreSQL](observability.md#postgres-pool). Augmenter le pool ou les timeouts sans identifier
+Pour un incident réel, suivre [Latence HTTP](../operations/observability.md#http-latency) et
+[Pool PostgreSQL](../operations/observability.md#postgres-pool). Augmenter le pool ou les timeouts sans identifier
 attentes, plans et ressources peut aggraver la saturation.

@@ -1,6 +1,6 @@
 # Préparer les secrets et certificats de production
 
-[Index](README.md) · [Déploiement](container-deployment.md#certificats-et-stockage) · [Mise en production](production-readiness.md)
+[Index](../README.md) · [Déploiement](container-deployment.md#certificats-et-stockage) · [Mise en production](production-readiness.md)
 
 Dernière mise à jour : **15 octobre 2026**. Ce guide rassemble la préparation des secrets,
 les choix de domaines Cloudflare, les certificats, leur renouvellement et la procédure de lancement.
@@ -646,10 +646,10 @@ Le préparateur du dépôt `histae-scripts` vérifie encore des variables Stripe
 vérification bloque, corriger le préparateur pour les achats natifs ; l’API n’exige pas ces secrets.
 
 Les paiements passent exclusivement par Apple/Google. Configurer les secrets privés et les produits
-suivant le [guide des stores](store-billing.md). Aucun secret de paiement web n’est requis au démarrage.
+suivant le [guide des stores](../features/store-billing.md). Aucun secret de paiement web n’est requis au démarrage.
 Le `.env` reste propre à chaque serveur ; ne pas recopier les valeurs locales en production.
 Les anciennes variables à retirer et le renommage `WEB_ACCOUNT_ORIGIN` sont détaillés dans
-[la migration des paiements](billing.md#retrait-de-lancien-paiement-web).
+[la migration des paiements](../features/billing.md#retrait-de-lancien-paiement-web).
 
 ## 6. Références d'images et reprise du préparateur
 
@@ -845,7 +845,7 @@ Il exige exactement un compte non supprimé admissible, lui attribue le rôle `s
 affiche un jeton temporaire. L'enregistrement de la passkey se termine dans le navigateur du
 dashboard, avec ton authentificateur ; le script ne peut pas créer cette clé à sa place.
 Conserver le jeton privé et ajouter ensuite une deuxième passkey pour la récupération.
-Voir le [guide du bootstrap](../../histae-scripts/README.md#initialisation-du-superadmin).
+Voir le [guide du bootstrap](../../../histae-scripts/README.md#initialisation-du-superadmin).
 
 ### 7.4. Vérifications sur le serveur
 

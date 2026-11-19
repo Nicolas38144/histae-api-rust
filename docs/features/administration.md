@@ -1,6 +1,6 @@
 # Administration et passkeys
 
-[Index](README.md) · [Contrat HTTP](http-contract.md#administration) · [Postman](../postman/README.md)
+[Index](../README.md) · [Contrat HTTP](../api/http-contract.md#administration) · [Postman](../../postman/README.md)
 
 Le dashboard admin s’authentifie exclusivement avec WebAuthn. Une session mobile, même pour un compte
 superadmin, ne donne pas accès aux routes d’administration. Les sessions admin utilisent un cookie opaque,
@@ -36,7 +36,7 @@ bash bootstrap-superadmin.sh --dev
 bash bootstrap-superadmin.sh --production
 ```
 
-Le [script](../../histae-scripts/bootstrap-superadmin.sh) exige un seul compte non supprimé,
+Le [script](../../../histae-scripts/bootstrap-superadmin.sh) exige un seul compte non supprimé,
 non banni et aucun autre superadmin. Il vérifie d’abord la configuration de l’API démarrée,
 attribue le rôle dans une transaction verrouillée, puis affiche le jeton et l’origine du dashboard.
 L’enregistrement de la passkey nécessite ensuite le navigateur et l’authentificateur.
@@ -184,7 +184,7 @@ empêche le renvoi des messages. Les règles de justification habituelles s'appl
 | Dialogue attendant une clé | Authentificateur disponible et vérification utilisateur, pas l’état de la session mobile |
 
 Dans Postman, utiliser le cookie complet `nom=valeur` et `adminOrigin`. Postman ne produit pas une preuve
-WebAuthn à la place du navigateur ; voir [les instructions d’import](../postman/README.md).
+WebAuthn à la place du navigateur ; voir [les instructions d’import](../../postman/README.md).
 
 ## Crédits de continuation
 
@@ -195,4 +195,4 @@ La fiche utilisateur conserve la consultation auditée et affiche `continuation_
 Les écrans Traits et Questions de profil permettent de gérer l’anglais, l’espagnol et l’italien.
 Le champ principal reste français ; les indicateurs EN/ES/IT signalent les traductions disponibles.
 Vider une traduction la supprime et rétablit le repli français. Les droits et protections d’origine restent
-identiques à ceux des modifications du catalogue. Voir [Internationalisation](internationalization.md).
+identiques à ceux des modifications du catalogue. Voir [Internationalisation](../api/internationalization.md).

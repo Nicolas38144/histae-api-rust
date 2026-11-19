@@ -1,18 +1,18 @@
 # Base de données PostgreSQL
 
-[Index](README.md) · [Déploiement](container-deployment.md) · [Performance SQL](sql-performance.md)
+[Index](../README.md) · [Déploiement](../deployment/container-deployment.md) · [Performance SQL](sql-performance.md)
 
 ## Fichiers et responsabilité du migrateur
 
 | Fichier | Usage |
 | --- | --- |
-| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma initial : 64 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
-| [002_insert_postgres.sql](../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
-| [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
-| [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
-| [table_upgrades.sql](../src/infra/migrations/table_upgrades.sql) | `ALTER TABLE` idempotents réservés aux bases existantes : identifiants, compte de revue, notifications et achats natifs |
-| [query_indexes.rs](../src/infra/query_indexes.rs) | Installation concurrente des index de performance, dont le GiST géographique et la purge des reprises de session, sur une base existante |
-| [000_bootstrap_postgres.sql](../db/000_bootstrap_postgres.sql) | Bootstrap administrateur : rôles, extensions, permissions, conversion dev et rétablissement après reset |
+| [001_schema_postgres.sql](../../db/001_schema_postgres.sql) | Schéma initial : 64 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
+| [002_insert_postgres.sql](../../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
+| [drop_postgres.sql](../../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
+| [migrations.rs](../../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
+| [table_upgrades.sql](../../src/infra/migrations/table_upgrades.sql) | `ALTER TABLE` idempotents réservés aux bases existantes : identifiants, compte de revue, notifications et achats natifs |
+| [query_indexes.rs](../../src/infra/query_indexes.rs) | Installation concurrente des index de performance, dont le GiST géographique et la purge des reprises de session, sur une base existante |
+| [000_bootstrap_postgres.sql](../../db/000_bootstrap_postgres.sql) | Bootstrap administrateur : rôles, extensions, permissions, conversion dev et rétablissement après reset |
 
 Les colonnes, valeurs par défaut et contraintes du schéma initial sont directement définies dans
 les `CREATE TABLE`. `001_schema_postgres.sql` ne contient plus d’`ALTER TABLE` de mise à niveau.
@@ -45,7 +45,7 @@ Reprise de session mobile (4 novembre 2026) : `refresh_tokens.rotation_request_h
 les ajoute aux bases existantes ; le démarrage de la nouvelle API exige ces colonnes. L'index
 partiel `idx_refresh_recovery_expiry` sur `(rotated_at, id)` borne la purge des résultats après
 sept jours ; il est installé concurremment sur une base existante. La migration ne renouvelle
-aucune session. Voir [Reprise des sessions](refresh-recovery.md) pour les garanties et la livraison.
+aucune session. Voir [Reprise des sessions](../features/refresh-recovery.md) pour les garanties et la livraison.
 
 Mode pause (19 octobre 2026) : `user_account.discovery_paused boolean NOT NULL DEFAULT false` est créé par le schéma neuf et ajouté de manière idempotente aux bases existantes par `db-migrate`. La vérification de démarrage exige cette colonne booléenne non nullable ; exécuter le migrateur avant la nouvelle API. Les migrations sont vérifiées sur une instance PostgreSQL jetable ; aucune modification de production n’est effectuée par ces tests. Le réglage conserve les matchs, les données et l’abonnement, figure dans l’export propriétaire et est remis à `false` lors de l’anonymisation du compte. Les contrôles de concurrence du swipe et de la création du match utilisent les verrous partagés sur les comptes, compatibles avec la mise à jour du réglage.
 
@@ -60,7 +60,7 @@ ensuite le schéma applicatif et le catalogue avec `histae_migrate`.
 
 Le migrateur vérifie les objets attendus, ajoute les évolutions prises en charge et retire le ledger obsolète.
 Il met aussi à jour l'ancien tarif annuel Premium de 30 EUR à 48 EUR dans le catalogue, sans modifier
-les autres tarifs personnalisés ni les achats existants ; voir [Configuration](configuration.md#tarifs-du-catalogue-et-achats-natifs).
+les autres tarifs personnalisés ni les achats existants ; voir [Configuration](../development/configuration.md#tarifs-du-catalogue-et-achats-natifs).
 
 Le catalogue n'a plus de colonne `subscription_plan.trial_days` ni de contrainte associée dans le
 schéma initial ; le seed et les requêtes sont alignés. Le migrateur retire aussi cette colonne si
@@ -89,13 +89,13 @@ section `phone blocklist` de `001_schema_postgres.sql`. Sur une base existante, 
 et rejoue cette section idempotente, sans réexécuter le schéma complet, écraser les décisions ou
 rajeunir les observations. La sauvegarde/restauration doit conserver ces tables et la même
 `PHONE_HASH_KEY` ; une autre clé empêche le démarrage de l’API et l’import. Le rôle dédié n’a aucun
-accès aux comptes et ne modifie pas les exceptions. Voir [politique et rétention](phone-blocklist.md).
+accès aux comptes et ne modifie pas les exceptions. Voir [politique et rétention](../features/phone-blocklist.md).
 
 <a id="postgis-et-mise-a-jour-dune-installation"></a>
 
 ### PostGIS et mise à jour d’une installation
 
-Les piles dev et production construisent [l’image PostgreSQL](../docker/postgres/Dockerfile) à partir
+Les piles dev et production construisent [l’image PostgreSQL](../../docker/postgres/Dockerfile) à partir
 de PostgreSQL **18.7 / Debian bookworm**, avec PostGIS **3.7.0**. Le volume, `PGDATA`, la version majeure
 et la base Debian sont conservés. `HISTAE_POSTGRES_IMAGE` permet de fournir cette image déjà construite.
 
@@ -170,7 +170,7 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml run --rm
 
 Ajouter `-f compose.proxy.yaml` si utilisé. En production, sélectionner `.env` et
 `compose.production.yaml`. Le conteneur utilise le SQL **embarqué dans son image** : reconstruire ou
-charger l’image de livraison avant la migration. Voir la [procédure de mise à jour](container-deployment.md#mise-a-jour).
+charger l’image de livraison avant la migration. Voir la [procédure de mise à jour](../deployment/container-deployment.md#mise-a-jour).
 
 ## Connexions et droits
 
@@ -242,7 +242,7 @@ prévoir l’archivage WAL/PITR. Tester une montée de version majeure avant de 
 
 ## Supprimer les données
 
-Pour les comptes fictifs, préférer [la purge dev](development.md#supprimer-les-comptes-de-test), qui conserve
+Pour les comptes fictifs, préférer [la purge dev](../development/development.md#supprimer-les-comptes-de-test), qui conserve
 le superadmin et possède des gardes d’environnement.
 
 `db/drop_postgres.sql` exécute `DROP SCHEMA public CASCADE`, recrée `public` et ses permissions de base.
@@ -274,7 +274,7 @@ Ne pas relancer un ordonnanceur de maintenance avant la fin de la réinstallatio
 
 ## Wallet et continuation
 
-Le [guide des crédits](continuation-and-rewards.md) définit les invariants et l’upgrade. `continuation_wallet` conserve le stock publicitaire et sa semaine UTC dans `week_start` ; un solde d’une semaine précédente n’est plus utilisable. `continuation_reservation` lie chaque accord à sa source et sa semaine ; `advertising_reward_intent` conserve une intention opaque et une empreinte de transaction unique. `continuation_usage` distingue le total confirmé et les crédits gratuits consommés. Le schéma et les upgrades réutilisent les sections marquées du SQL consolidé, y compris les guards et la fonction d’anonymisation. Les nouvelles tables reçoivent les privilèges applicatifs par les default privileges du rôle migrateur. Aucune table de suivi des migrations n’est réintroduite.
+Le [guide des crédits](../features/continuation-and-rewards.md) définit les invariants et l’upgrade. `continuation_wallet` conserve le stock publicitaire et sa semaine UTC dans `week_start` ; un solde d’une semaine précédente n’est plus utilisable. `continuation_reservation` lie chaque accord à sa source et sa semaine ; `advertising_reward_intent` conserve une intention opaque et une empreinte de transaction unique. `continuation_usage` distingue le total confirmé et les crédits gratuits consommés. Le schéma et les upgrades réutilisent les sections marquées du SQL consolidé, y compris les guards et la fonction d’anonymisation. Les nouvelles tables reçoivent les privilèges applicatifs par les default privileges du rôle migrateur. Aucune table de suivi des migrations n’est réintroduite.
 
 Les proofs/intents et compteurs hebdomadaires sont purgés au-delà de 90 jours lors de la maintenance bornée ; les réservations périmées sont libérées et purgées. Un stock publicitaire acquis reste conservé pendant la vie du compte. Export et effacement couvrent ces données, avec libération des réservations du partenaire sur les matchs clôturés.
 
@@ -285,7 +285,7 @@ et `document_language` sur les décisions de consentement. Quatre tables de trad
 clés étrangères en cascade aux traits, questions, plans et fonctionnalités. Le migrateur les ajoute aux
 installations existantes et insère les traductions initiales sans remplacer les textes déjà présents.
 L’effacement réinitialise la langue du compte ; l’export inclut les préférences et la langue documentaire.
-Voir [Internationalisation](internationalization.md).
+Voir [Internationalisation](../api/internationalization.md).
 
 ## Projections de paiement et sessions du site
 
@@ -296,7 +296,7 @@ sources sans permettre à une projection de supprimer les droits valides d’une
 `web_account_challenge` et `web_account_session` ne créent aucun compte. Le migrateur introduit ces objets
 sur les bases existantes sans réinitialisation. Les mots de passe des rôles PostgreSQL restent inchangés.
 Les nouveaux objets suivent les grants par défaut du migrateur ; le runtime ne possède pas le schéma.
-Voir [rétention et effacement](store-billing.md#donnees-personnelles).
+Voir [rétention et effacement](../features/store-billing.md#donnees-personnelles).
 
 ### Horloge des conversations confirmées
 
@@ -322,7 +322,7 @@ internes, stores et de revue partagent ensuite une sélection unique avec un ord
 Ce droit couvre aussi les comptes de revue déjà inscrits, sans insérer de
 projection de store ni de facture et sans écraser l’historique fournisseur. Il disparaît du calcul
 si le marqueur est retiré, le compte banni ou supprimé. Voir les champs publics dans le contrat HTTP.
-Voir [l’accès Google Play](google-play-review.md).
+Voir [l’accès Google Play](../features/google-play-review.md).
 
 ### Premium offert par le superadmin
 

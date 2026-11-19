@@ -1,6 +1,6 @@
 # Confidentialité de la localisation et capacité photo
 
-[Index](README.md) · [Contrat HTTP](http-contract.md) · [Tests](../tests/README.md)
+[Index](../README.md) · [Contrat HTTP](../api/http-contract.md) · [Tests](../../tests/README.md)
 
 ## Localisation
 

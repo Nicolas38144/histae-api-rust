@@ -1,6 +1,6 @@
 # Histae API — contrat HTTP
 
-[Index](README.md) · [Postman](../postman/README.md) · [Configuration](configuration.md)
+[Index](../README.md) · [Postman](../../postman/README.md) · [Configuration](../development/configuration.md)
 
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
@@ -142,7 +142,7 @@ public n’expose aucune preuve de consentement ni date utilisateur.
 
 **OTP.** Seuls les téléphones français E.164 `+33…` sont acceptés. La vérification consomme le code une seule fois et crée un compte utilisateur si nécessaire après une demande d’inscription. Envoi et vérification : 5/h par IP et numéro pseudonymisé. La validité du code suit `OTP_TTL`.
 
-Exception mobile explicite : le [compte de revue Google Play](google-play-review.md), désactivé par défaut, utilise un code réutilisable pour un seul numéro fictif configuré. Son `/send` conserve le délai de renvoi et enregistre une intention sans téléphone chiffré ni SMS/outbox. La première création exige `registration: true` dans la dernière intention encore valide ; une simple connexion ne crée aucun compte. Les quotas et validations restent actifs ; cette exception n’authentifie ni un compte réel existant ni un administrateur.
+Exception mobile explicite : le [compte de revue Google Play](../features/google-play-review.md), désactivé par défaut, utilise un code réutilisable pour un seul numéro fictif configuré. Son `/send` conserve le délai de renvoi et enregistre une intention sans téléphone chiffré ni SMS/outbox. La première création exige `registration: true` dans la dernière intention encore valide ; une simple connexion ne crée aucun compte. Les quotas et validations restent actifs ; cette exception n’authentifie ni un compte réel existant ni un administrateur.
 
 Pour une inscription, le client envoie `registration: true`. Les deux parcours répondent de manière générique : un numéro déjà enregistré en inscription, ou inconnu en connexion, ouvre le même écran de code, mais ne reçoit aucun SMS. Aucun renseignement sur l’existence du compte ni sur la livraison n’est exposé par cette route.
 
@@ -150,11 +150,11 @@ L’envoi répond `202 { "message": "Verification code request accepted.", "rese
 
 Un nouvel UUID pour le même téléphone avant `OTP_RESEND_COOLDOWN` reçoit `429 otp_resend_too_soon` avec `Retry-After`. Ce délai est partagé entre instances et parcours. Un rejeu du même UUID conserve le délai initial sans nouvel envoi et renvoie le nombre de secondes restant. Un autre téléphone, parcours ou langage avec le même UUID renvoie `409 idempotency_key_conflict`. Les quotas IP/téléphone s’appliquent également aux demandes supprimées et aux rejeux. Le mobile distingue cette attente de renvoi des limites de vérification : saisir le code reçu reste possible pendant le compte à rebours.
 
-Le worker conserve les états de livraison et ne répète jamais un appel fournisseur incertain avec la même intention. Un callback signé peut confirmer le code initial, jamais réactiver un code consommé, expiré ou remplacé. Une réponse HTTP perdue se reprend avec le même UUID et les mêmes paramètres ; un nouvel envoi exige une action explicite après le délai. Configuration : [variables OTP](configuration.md#groupes-de-variables) ; diagnostic : [Exploitation](operations.md#diagnostic-de-demarrage).
+Le worker conserve les états de livraison et ne répète jamais un appel fournisseur incertain avec la même intention. Un callback signé peut confirmer le code initial, jamais réactiver un code consommé, expiré ou remplacé. Une réponse HTTP perdue se reprend avec le même UUID et les mêmes paramètres ; un nouvel envoi exige une action explicite après le délai. Configuration : [variables OTP](../development/configuration.md#groupes-de-variables) ; diagnostic : [Exploitation](../operations/operations.md#diagnostic-de-demarrage).
 
-**Refresh.** Envoyer le dernier refresh sous la forme opaque reçue `jti:secret`, puis enregistrer atomiquement la nouvelle paire. Pour une rotation récupérable, persister d'abord ce refresh et une clé UUIDv4 puis envoyer cette clé dans `Idempotency-Key` et `recovery_id`. Une reprise doit conserver exactement ces deux éléments. Pendant sept jours après la première rotation, la même tentative restitue le refresh de remplacement encore actif et un access token, sans nouveau descendant ni prolongation des échéances. Le résultat stocké est chiffré et lié au secret original et à la clé. Les sessions révoquées, les remplacements déjà renouvelés et les reprises hors délai ne sont pas récupérables. Une ancienne tentative reconnue mais expirée ne révoque pas son descendant plus récent. Un ancien refresh authentique non expiré présenté avec une autre clé, ou sans clé, révoque toujours sa famille (`401 invalid_or_expired_refresh_token`). Sans clé, la rotation historique reste stricte. Le mode de reprise exige `recovery_id` et la même clé unique dans l'en-tête ; un seul des deux est refusé avant rotation. Un en-tête invalide, multiple ou différent du champ donne `400 invalid_idempotency_key` ; un corps mal formé donne `400 invalid_request_body`. Limite inchangée : 30/15 min/IP, reprises comprises. Voir [Reprise des sessions](refresh-recovery.md).
+**Refresh.** Envoyer le dernier refresh sous la forme opaque reçue `jti:secret`, puis enregistrer atomiquement la nouvelle paire. Pour une rotation récupérable, persister d'abord ce refresh et une clé UUIDv4 puis envoyer cette clé dans `Idempotency-Key` et `recovery_id`. Une reprise doit conserver exactement ces deux éléments. Pendant sept jours après la première rotation, la même tentative restitue le refresh de remplacement encore actif et un access token, sans nouveau descendant ni prolongation des échéances. Le résultat stocké est chiffré et lié au secret original et à la clé. Les sessions révoquées, les remplacements déjà renouvelés et les reprises hors délai ne sont pas récupérables. Une ancienne tentative reconnue mais expirée ne révoque pas son descendant plus récent. Un ancien refresh authentique non expiré présenté avec une autre clé, ou sans clé, révoque toujours sa famille (`401 invalid_or_expired_refresh_token`). Sans clé, la rotation historique reste stricte. Le mode de reprise exige `recovery_id` et la même clé unique dans l'en-tête ; un seul des deux est refusé avant rotation. Un en-tête invalide, multiple ou différent du champ donne `400 invalid_idempotency_key` ; un corps mal formé donne `400 invalid_request_body`. Limite inchangée : 30/15 min/IP, reprises comprises. Voir [Reprise des sessions](../features/refresh-recovery.md).
 
-Erreurs utiles : `authentication_required`, `invalid_or_expired_access_token`, `invalid_or_expired_refresh_token`, `invalid_idempotency_key`, `idempotency_key_conflict`, `otp_resend_too_soon`, `otp_rate_limit_exceeded`, `refresh_rate_limit_exceeded`. Les durées et clés sont décrites dans [Configuration](configuration.md#groupes-de-variables).
+Erreurs utiles : `authentication_required`, `invalid_or_expired_access_token`, `invalid_or_expired_refresh_token`, `invalid_idempotency_key`, `idempotency_key_conflict`, `otp_resend_too_soon`, `otp_rate_limit_exceeded`, `refresh_rate_limit_exceeded`. Les durées et clés sont décrites dans [Configuration](../development/configuration.md#groupes-de-variables).
 
 **Plans et offres.** `plans` expose les niveaux de droits `free` et `premium`, avec prix du catalogue
 mensuel/annuel, devise, fonctionnalités et quotas (`weekly_included_credits`,
@@ -195,7 +195,7 @@ La reprise conserve les compteurs. `SMS_SENDING_SUSPENDED=true` impose l’arrê
 manuelle est levée. Les autorisations déjà accordées peuvent encore aboutir. Après une réponse de
 mutation perdue, relire le GET avant toute nouvelle décision ; ne pas rejouer automatiquement la mutation.
 Les métriques et le dashboard ne sont pas nécessaires à l’application des protections.
-Voir [configuration et exploitation](sms-safety.md) et [numéros publics et exceptions](phone-blocklist.md).
+Voir [configuration et exploitation](../features/sms-safety.md) et [numéros publics et exceptions](../features/phone-blocklist.md).
 
 ### Webhook Sweego
 
@@ -216,7 +216,7 @@ et demandes déjà purgées sont acquittés sans effet. La corrélation utilise 
 
 Erreurs : `401 invalid_sweego_signature`, `400 invalid_sweego_event`, `409 sweego_delivery_conflict`,
 `429 sms_webhook_rate_limit_exceeded`, `503 sweego_webhook_unavailable` (configuration absente ou stockage indisponible).
-Configuration : [variables OTP](configuration.md#groupes-de-variables).
+Configuration : [variables OTP](../development/configuration.md#groupes-de-variables).
 
 ### Santé
 
@@ -362,11 +362,11 @@ L’attribution d’un trait existant est idempotente. Une question expose `id, 
 
 **Découverte.** Demandeur et candidats doivent être actifs, avec sexe, préférences, consentements sensible/localisation courants et position de moins d’une heure. Les actions de préparation possibles sont `profile, sex, preferences, sensitive_data_consent, location_consent, fresh_presence, resume_discovery`. Les critères âge/sexe/distance s’appliquent dans les deux sens. Blocages, matchs existants et profils déjà swipés sont exclus. Le feed expose `user_id`, prénom, âge, sexe, distance approximative par paliers de 5 km (minimum 5), traits, bio et réponses approuvées. Limites : feed 60/min/utilisateur ; swipe 120/min/utilisateur.
 
-Les coordonnées reçues sont réduites à un centre de zone d’environ 5 km avant stockage. Filtres et tri utilisent ces centres ; `max_distance_km` est donc approximatif aux frontières des zones. Les coordonnées exactes de l’appareil ne sont pas conservées. Le curseur reste chiffré, lié au lecteur, et utilise la distance interne entre centres : deux profils dans le même palier public restent paginés correctement. Le changement de zone est limité à un toutes les cinq minutes, sous verrou transactionnel ; une actualisation dans la même zone reste possible et ne repousse pas cette échéance. Un changement trop rapide renvoie `429 presence_update_limited`, `Retry-After: 300`, sans modifier la présence. Le serveur ne peut pas attester qu’une position déclarée correspond au GPS réel. Voir [Confidentialité et capacité photo](privacy-and-photo-security.md).
+Les coordonnées reçues sont réduites à un centre de zone d’environ 5 km avant stockage. Filtres et tri utilisent ces centres ; `max_distance_km` est donc approximatif aux frontières des zones. Les coordonnées exactes de l’appareil ne sont pas conservées. Le curseur reste chiffré, lié au lecteur, et utilise la distance interne entre centres : deux profils dans le même palier public restent paginés correctement. Le changement de zone est limité à un toutes les cinq minutes, sous verrou transactionnel ; une actualisation dans la même zone reste possible et ne repousse pas cette échéance. Un changement trop rapide renvoie `429 presence_update_limited`, `Retry-After: 300`, sans modifier la présence. Le serveur ne peut pas attester qu’une position déclarée correspond au GPS réel. Voir [Confidentialité et capacité photo](../features/privacy-and-photo-security.md).
 
 **Mode pause.** `paused` vaut `false` à la création du compte et persiste entre sessions/appareils. Avec `true`, le profil est exclu des nouvelles lectures du feed et ne peut plus envoyer ni recevoir de nouveaux swipes ou créer de nouveaux matchs. Les écritures de swipe et de création du match recontrôlent la pause sous verrou de ligne ; une carte chargée avant la pause ne suffit pas à autoriser un nouveau like. Une lecture déjà reçue ne peut pas être effacée à distance. Le diagnostic ajoute `resume_discovery` aux actions requises ; `ready` devient faux. La reprise réévalue les autres prérequis, notamment la fraîcheur de la position. Matchs, conversations, consentements, photo et abonnement existants sont conservés. Le réglage apparaît dans l’export propriétaire sous `account.discovery_paused`.
 
-Les deux routes de réglage exigent le compte mobile avec onboarding terminé, utilisent le même budget dédié de 60 requêtes/min/utilisateur et n’acceptent aucun identifiant de compte en entrée. Le PATCH est une affectation idempotente, sans rejeu réseau automatique. Erreurs : `400 invalid_discovery_settings`, `429 discovery_settings_rate_limit_exceeded`, erreurs communes de session/base. Le schéma et le migrateur doivent être mis à jour avant de déployer cette API. Les collections Postman FR/EN couvrent ces routes. Les vérifications de compilation, de concurrence et de migration sont décrites dans le [guide de tests](../tests/README.md#mode-pause).
+Les deux routes de réglage exigent le compte mobile avec onboarding terminé, utilisent le même budget dédié de 60 requêtes/min/utilisateur et n’acceptent aucun identifiant de compte en entrée. Le PATCH est une affectation idempotente, sans rejeu réseau automatique. Erreurs : `400 invalid_discovery_settings`, `429 discovery_settings_rate_limit_exceeded`, erreurs communes de session/base. Le schéma et le migrateur doivent être mis à jour avant de déployer cette API. Les collections Postman FR/EN couvrent ces routes. Les vérifications de compilation, de concurrence et de migration sont décrites dans le [guide de tests](../../tests/README.md#mode-pause).
 
 Les likes et les profils passés restent valides **30 jours à partir du choix initial**. Une décision de swipe est immuable pendant cette période ; un rejeu ne renouvelle pas son échéance. Après expiration, elle n’exclut plus le profil du feed et un ancien like ne peut plus créer de match. Les autres critères restent appliqués, notamment l’exclusion des matchs déjà enregistrés. Deux likes réciproques valides créent un seul match ; aucun endpoint ne permet de fabriquer directement un match. Erreurs : `409 discovery_not_ready`, `404 discovery_candidate_not_found`, `409 swipe_already_recorded`, `400 invalid_cursor`, `429 swipe_rate_limit_exceeded`, `429 feed_rate_limit_exceeded`, `503 discovery_unavailable`.
 
@@ -391,7 +391,7 @@ et les accès sont refusés même avant le passage du job. Même règle Free/Pre
 
 Chaque personne Free réserve son propre crédit après acceptation explicite du coût `credit_cost: 1`. Les débits sont atomiques après deux accords ; Premium annonce `credit_cost: 0` et ne consomme aucun crédit. Deux crédits gratuits sont renouvelés chaque lundi à 00:00 UTC, sans cumul. Le stock publicitaire est limité à trois et revient à zéro au même instant ; les crédits doivent être regagnés par vidéo. Free est limité à cinq continuations confirmées par semaine. `remaining` tient compte du stock, des réservations et du plafond ; `weekly_limit` et `remaining` sont omis pour Premium.
 
-Le premier accord reste privé et ne publie aucun événement au partenaire. Seul `my_continued` expose le choix du demandeur. Refus, expiration ou clôture libèrent les réservations ; l’événement terminal ne nomme pas l’auteur. Un rejeu d’un match déjà confirmé renvoie `match_confirmed: true` sans nouveau débit ni événement. Erreurs : `400 invalid_continuation_request`, `404 match_not_found`, `409 continuation_not_available_yet`, `409 continuation_plan_changed`, `409 invalid_match_state`, `409 messaging_not_available`, `410 match_expired`, `403 continuation_quota_reached`. Le client doit relire le quota avant de représenter le coût après un changement de plan. Voir [Parcours et crédits](continuation-and-rewards.md) pour les changements de semaine et la migration.
+Le premier accord reste privé et ne publie aucun événement au partenaire. Seul `my_continued` expose le choix du demandeur. Refus, expiration ou clôture libèrent les réservations ; l’événement terminal ne nomme pas l’auteur. Un rejeu d’un match déjà confirmé renvoie `match_confirmed: true` sans nouveau débit ni événement. Erreurs : `400 invalid_continuation_request`, `404 match_not_found`, `409 continuation_not_available_yet`, `409 continuation_plan_changed`, `409 invalid_match_state`, `409 messaging_not_available`, `410 match_expired`, `403 continuation_quota_reached`. Le client doit relire le quota avant de représenter le coût après un changement de plan. Voir [Parcours et crédits](../features/continuation-and-rewards.md) pour les changements de semaine et la migration.
 
 **Mettre fin à un match.** Chaque participant peut clôturer son match, y compris un match expiré, sans accord de l’autre et sans créer de blocage. Le compte doit être authentifié, actif et avoir terminé son onboarding. Un UUID inconnu, un match d’autrui ou un participant supprimé renvoie `404 match_not_found`. Un second appel renvoie le même `200` sans repousser la purge ni répéter l’événement temps réel.
 
@@ -425,7 +425,7 @@ Pour **valider l’URL dans la console AdMob**, renseigner `custom_data=histae-s
 
 Erreurs : `400 invalid_reward_request`, `400 invalid_reward_id`, `400 invalid_admob_signature`, `400 invalid_admob_reward`, `404 reward_not_found`, `409 advertising_stock_full`, `409 advertising_not_eligible`, `429 advertising_rate_limit_exceeded`, `429 admob_webhook_rate_limit_exceeded`, `503 advertising_disabled`, `503 admob_verification_unavailable`. Les créations reprennent `RATE_LIMIT_BILLING`, les callbacks `RATE_LIMIT_BILLING_WEBHOOK` ; espaces de clés distincts. Comme les autres webhooks de fournisseur, AdMob est exclu de la limite globale IP et dispose de sa limite dédiée. Tant que le fournisseur est désactivé, le webhook renvoie `503 advertising_disabled` avant toute récupération de clés.
 
-[Configuration et vérification AdMob](continuation-and-rewards.md#4-configuration-admob-et-tunnel-cloudflare).
+[Configuration et vérification AdMob](../features/continuation-and-rewards.md#4-configuration-admob-et-tunnel-cloudflare).
 
 <a id="appareils-et-temps-reel"></a>
 
@@ -454,7 +454,7 @@ ne sont pas remis en file après sa levée. Le mode discret utilise le texte gé
 
 SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created, match.updated, matches.invalidated, message.created, message.read, subscription.updated`. Le flux ferme à expiration du JWT ou après échec/révocation détecté lors du contrôle de session toutes les 25 secondes. Le client SSE doit pouvoir envoyer le Bearer.
 
-**Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les types push pris en charge sont `new_match`, `new_message`, `match_expiring`, `continuation_requested`, `conversation_continued`, `photos_revealed`, `first_period_ending`, `data_request_replied` et `new_session`. Les alertes liées à un match affichent le prénom actuel de l’autre personne dans le texte visible ; ce prénom ne figure pas dans les données de routage. Les réponses aux démarches routent vers leur historique, les connexions vers les sessions. Voir les [notifications push](push-notifications.md) pour les déclencheurs, le rappel unique deux heures avant l’échéance, les filtres d’obsolescence et la migration. Les données de routage du push d’inactivité ne contiennent que les identifiants techniques ; il est abandonné si un nouveau message a repoussé l’échéance ou si le match est devenu inaccessible. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation.
+**Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les types push pris en charge sont `new_match`, `new_message`, `match_expiring`, `continuation_requested`, `conversation_continued`, `photos_revealed`, `first_period_ending`, `data_request_replied` et `new_session`. Les alertes liées à un match affichent le prénom actuel de l’autre personne dans le texte visible ; ce prénom ne figure pas dans les données de routage. Les réponses aux démarches routent vers leur historique, les connexions vers les sessions. Voir les [notifications push](../features/push-notifications.md) pour les déclencheurs, le rappel unique deux heures avant l’échéance, les filtres d’obsolescence et la migration. Les données de routage du push d’inactivité ne contiennent que les identifiants techniques ; il est abandonné si un nouveau message a repoussé l’échéance ou si le match est devenu inaccessible. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation.
 
 ### Abonnement
 
@@ -479,7 +479,7 @@ Un compte de revue Google Play actif dispose de Premium offert sans expiration :
 Ce droit est réservé au marqueur serveur de revue ; aucune route utilisateur ne peut le définir.
 Un achat possède un compte immuable ; un reçu d’un autre compte renvoie `409 store_purchase_account_conflict`.
 Autres erreurs : `503 store_unavailable`, `422 invalid_store_purchase`, `409 subscription_already_active`.
-Voir [achats stores](store-billing.md) pour les états, acquittements, restauration et notifications.
+Voir [achats stores](../features/store-billing.md) pour les états, acquittements, restauration et notifications.
 
 ### Gestion des données depuis le site
 
@@ -563,7 +563,7 @@ Les champs `details` (message utilisateur) et `response` (réponse visible par l
 }
 ```
 
-Le `202` désactive immédiatement le compte ; fermer la session mobile. **Ne pas afficher que toutes les données ont déjà été supprimées.** Le nettoyage continue en arrière-plan malgré une panne externe. Jeton invalide/expiré : `401 invalid_or_expired_deletion_token`. Si la réponse est perdue après acceptation, le Bearer devient invalide : un retry n’est pas une route publique de suivi et ne rend pas forcément le même `202`. Voir [suivi et reprises](operations.md#outbox-et-reprises-operateur).
+Le `202` désactive immédiatement le compte ; fermer la session mobile. **Ne pas afficher que toutes les données ont déjà été supprimées.** Le nettoyage continue en arrière-plan malgré une panne externe. Jeton invalide/expiré : `401 invalid_or_expired_deletion_token`. Si la réponse est perdue après acceptation, le Bearer devient invalide : un retry n’est pas une route publique de suivi et ne rend pas forcément le même `202`. Voir [suivi et reprises](../operations/operations.md#outbox-et-reprises-operateur).
 
 **Droits.** Types de nouvelle demande : `access | erasure | portability | rectification` ; une seule demande ouverte par type/utilisateur. L’export contient profil/réponses, messages et réponses des demandes de données (sans les notes admin), abonnement/factures liés, métadonnées des sessions sans secrets et uniquement les décisions de swipe sortantes. Il n’expose jamais les décisions entrantes d’autrui. Le JSON est préparé par pages dans un fichier temporaire privé, transmis comme flux puis supprimé. Toutes ses données PostgreSQL, swipes compris, partagent un instantané `REPEATABLE READ`. Limite 5/h/utilisateur : `429 data_export_rate_limit_exceeded` ; export au-delà de la borne configurée : `413 data_export_too_large` ; toutes les places de préparation occupées : `503 data_export_busy` avec `Retry-After` ; source indisponible avant envoi : `503 data_export_unavailable`. L’accès réussi est journalisé.
 
@@ -588,7 +588,7 @@ Ces quatre routes d’entrée ne demandent pas de session existante. La preuve W
 
 En développement, ouvrir **`http://localhost:5173`**, RP ID `localhost`, via le proxy même-origine `/api` du dashboard ; pas `127.0.0.1`. En production : origine HTTPS exacte, cookie `Secure` préfixé `__Host-`. Le RP ID doit correspondre au domaine configuré.
 
-Transmettre les options à l’API WebAuthn du navigateur et renvoyer le credential sérialisé. Passkey découvrable et vérification utilisateur obligatoires. Challenge valable cinq minutes, à usage unique. La session publique expose `user_id, role, authenticated_at, expires_at`, jamais son secret. Bootstrap, créé hors bande, expire après quinze minutes par défaut. Procédure d’enrôlement : [Administration](administration.md#enregistrer-la-premiere-passkey).
+Transmettre les options à l’API WebAuthn du navigateur et renvoyer le credential sérialisé. Passkey découvrable et vérification utilisateur obligatoires. Challenge valable cinq minutes, à usage unique. La session publique expose `user_id, role, authenticated_at, expires_at`, jamais son secret. Bootstrap, créé hors bande, expire après quinze minutes par défaut. Procédure d’enrôlement : [Administration](../features/administration.md#enregistrer-la-premiere-passkey).
 
 ### Sessions et passkeys
 
@@ -711,12 +711,12 @@ la devise du catalogue. Les autres devises ne sont pas additionnées ; leur nomb
 `excluded_currency_rows`. `premium_subscriptions` compte les abonnements natifs actifs à la fin de
 la période. Sans rapport importé, le montant est nul : aucun prix catalogue ni nombre d’abonnés ne
 sert à inventer un revenu. Ce montant brut ne constitue pas un bénéfice ou un versement bancaire.
-Voir [Abonnements et revenus](billing.md).
+Voir [Abonnements et revenus](../features/billing.md).
 
-`operations` expose latences/compteurs HTTP et `401/403/429/5xx`, mémoire/uptime du processus Rust, résultats des dépendances, pool, outbox et maintenances. Les mesures du processus repartent à zéro au redémarrage ; les états outbox/maintenance sont persistants. Chaque maintenance fournit notamment `processed_count, batch_count, duration_ms, work_remaining` ; ce dernier signale qu’une passe a consommé son budget borné et doit être reprise. `operations.outbox.notification_push` détaille `pending, processing, completed, dead_letter, discarded, oldest_pending_at` ; `completed` signifie tâche acquittée encore conservée, pas réception par un terminal ni validation d’un paiement. Voir [Exploitation](operations.md) et [bornes de configuration](configuration.md#groupes-de-variables).
+`operations` expose latences/compteurs HTTP et `401/403/429/5xx`, mémoire/uptime du processus Rust, résultats des dépendances, pool, outbox et maintenances. Les mesures du processus repartent à zéro au redémarrage ; les états outbox/maintenance sont persistants. Chaque maintenance fournit notamment `processed_count, batch_count, duration_ms, work_remaining` ; ce dernier signale qu’une passe a consommé son budget borné et doit être reprise. `operations.outbox.notification_push` détaille `pending, processing, completed, dead_letter, discarded, oldest_pending_at` ; `completed` signifie tâche acquittée encore conservée, pas réception par un terminal ni validation d’un paiement. Voir [Exploitation](../operations/operations.md) et [bornes de configuration](../development/configuration.md#groupes-de-variables).
 
 L’export Prometheus n’est pas une route de ce contrat : lorsqu’il est activé, il écoute sur un serveur privé
-distinct, authentifié par bearer token. Voir [supervision et runbooks](observability.md).
+distinct, authentifié par bearer token. Voir [supervision et runbooks](../operations/observability.md).
 
 `operations.sms_delivery` expose `states` (`pending, accepted, sent, failed, unknown`), `awaiting_callback`,
 `oldest_unresolved_age_seconds`, `average_acceptance_ms`, `average_sent_callback_ms`, `average_failure_ms`,
@@ -753,7 +753,7 @@ Modifier ce guide avec toute évolution de route, DTO, réponse, autorisation ou
 
 Le test `tests/route_inventory.rs` compare ces lignes aux déclarations de routes présentes dans les sources Axum. Il détecte les couples méthode/chemin absents ou non documentés ; il ne vérifie pas le montage du routeur final ni les doublons éliminés par son ensemble de comparaison. Les alias HEAD automatiques et le preflight CORS généré ne font pas partie de cet inventaire applicatif.
 
-Ce contrôle ne prouve ni les schémas JSON, ni les droits, ni les garanties métier : les autres tests de contrat et intégrations restent nécessaires. Voir [guide de validation](../tests/README.md), [responsabilités internes](architecture.md) et [validations de livraison](production-readiness.md).
+Ce contrôle ne prouve ni les schémas JSON, ni les droits, ni les garanties métier : les autres tests de contrat et intégrations restent nécessaires. Voir [guide de validation](../../tests/README.md), [responsabilités internes](../development/architecture.md) et [validations de livraison](../deployment/production-readiness.md).
 
 ### Données de crédits dans la fiche administrateur
 

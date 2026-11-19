@@ -1,6 +1,6 @@
 # Rôles PostgreSQL
 
-[Index](README.md) · [Configuration](configuration.md) · [Déploiement](container-deployment.md)
+[Index](../README.md) · [Configuration](../development/configuration.md) · [Déploiement](../deployment/container-deployment.md)
 
 Les piles Docker dev et production utilisent la même séparation. Les rôles PostgreSQL sont indépendants
 des rôles métier `user`, `admin` et `superadmin` de Histae.
@@ -53,15 +53,15 @@ le `.env` complet : l'isolation des variables décrite ici concerne les conteneu
 
 ## Installation neuve
 
-L'entrypoint PostgreSQL exécute [init-roles.sh](../docker/postgres/init-roles.sh) uniquement sur un volume
-vide. Il applique [000_bootstrap_postgres.sql](../db/000_bootstrap_postgres.sql) comme administrateur.
+L'entrypoint PostgreSQL exécute [init-roles.sh](../../docker/postgres/init-roles.sh) uniquement sur un volume
+vide. Il applique [000_bootstrap_postgres.sql](../../db/000_bootstrap_postgres.sql) comme administrateur.
 Ce fichier regroupe la création des rôles, les extensions, les permissions et la conversion dev. Ses
 modes `install`, `access` et `convert-dev` utilisent les mêmes règles d'accès. Le mode `access` rétablit
 les permissions après un `DROP SCHEMA`. Pour un cluster existant, le reset peut aussi créer le rôle
 `histae_phone_sync` et configurer son mot de passe explicitement fourni ; il ne change pas ceux des
 autres rôles. Le bootstrap refuse un rôle de synchronisation privilégié ou membre d’un autre rôle.
 
-Le schéma [001_schema_postgres.sql](../db/001_schema_postgres.sql) est ensuite exécuté par le migrateur
+Le schéma [001_schema_postgres.sql](../../db/001_schema_postgres.sql) est ensuite exécuté par le migrateur
 limité. Fusionner ces deux étapes imposerait au migrateur les droits d'administration du cluster ;
 les commandes psql du bootstrap ne sont pas compatibles avec l'exécution SQLx du schéma.
 Les mots de passe sont lus par psql via son environnement, jamais ses arguments ; les diagnostics SQL
@@ -71,7 +71,7 @@ l'API et de l'outbox. Aucun compte fictif n'est créé.
 
 ### Développement
 
-Créer `.env` selon [Configuration](configuration.md) s'il est absent, puis :
+Créer `.env` selon [Configuration](../development/configuration.md) s'il est absent, puis :
 
 ```bash
 python3 scripts/prepare-postgres-roles-env.py .env
@@ -95,7 +95,7 @@ python3 scripts/prepare-postgres-roles-env.py .env
 ```
 
 Utiliser `.env` sur le serveur de production et compléter les autres secrets, les versions/URLs juridiques réellement publiées, l'étiquette de livraison,
-les fournisseurs, certificats et réseaux selon [Déploiement](container-deployment.md#production).
+les fournisseurs, certificats et réseaux selon [Déploiement](../deployment/container-deployment.md#production).
 Depuis une installation neuve :
 
 ```bash

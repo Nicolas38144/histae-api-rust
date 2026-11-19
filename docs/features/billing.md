@@ -1,6 +1,6 @@
 # Abonnements et droits Premium
 
-[Index](README.md) · [Achats Apple/Google](store-billing.md) · [Contrat HTTP](http-contract.md#abonnement)
+[Index](../README.md) · [Achats Apple/Google](store-billing.md) · [Contrat HTTP](../api/http-contract.md#abonnement)
 
 ## Paiements pris en charge
 
@@ -47,7 +47,7 @@ Il sert uniquement à l’accès aux données personnelles et à l’effacement,
 `WEB_ACCOUNT_ORIGIN` contrôle l’origine exacte des mutations. Le cookie HTTPS est
 `__Host-histae_account` (`histae_account` en HTTP de développement), HttpOnly et SameSite=Strict.
 Les quotas OTP, la protection Sweego, l’expiration de session, le contrôle d’origine et la révocation
-du compte restent appliqués. Voir [Contrat HTTP](http-contract.md) et [Achats natifs](store-billing.md).
+du compte restent appliqués. Voir [Contrat HTTP](../api/http-contract.md) et [Achats natifs](store-billing.md).
 
 ## Retrait de l’ancien paiement web
 

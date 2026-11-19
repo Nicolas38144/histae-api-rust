@@ -1,6 +1,6 @@
 # Test de charge de l’API avec k6 et Cloudflare
 
-[Index](README.md) · [Développement](development.md) · [Supervision](observability.md) · [SQL](sql-performance.md)
+[Index](../README.md) · [Développement](../development/development.md) · [Supervision](../operations/observability.md) · [SQL](../database/sql-performance.md)
 
 Ce tutoriel prépare une pile de test, 5 000 comptes fictifs et des sessions temporaires sans OTP.
 Il mesure d’abord l’API par une connexion privée, puis le parcours Cloudflare → tunnel → Caddy → API.
@@ -155,7 +155,7 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml \
   logs --tail=100 migrate api outbox-worker
 ```
 
-Ne pas supprimer de volumes pour résoudre un incident. Le [guide de déploiement](container-deployment.md)
+Ne pas supprimer de volumes pour résoudre un incident. Le [guide de déploiement](../deployment/container-deployment.md)
 explique les dépendances, les ports et les diagnostics de démarrage.
 
 ## 6. Créer les comptes, matchs et messages — A
@@ -294,7 +294,7 @@ fetch("http://127.0.0.1:9091/metrics", {
 ```
 
 Rejouer avec `metrics-after.prom` comme nom après le test. Le secret reste dans le conteneur.
-Pour des courbes continues de latence, pool SQL et outbox, suivre le [guide de supervision](observability.md)
+Pour des courbes continues de latence, pool SQL et outbox, suivre le [guide de supervision](../operations/observability.md)
 avec le réseau backend **`histae-load-backend`** et le secret de cette pile.
 
 Pour un diagnostic SQL pendant un palier :
@@ -626,7 +626,7 @@ d’environ 333 RPS moyens par IP. Dimensionner la limite avec une marge, sans l
 
 Vérifier également la limite `nofile` effective : le service API commun la fixe à 16 384 pour les limites
 souple et dure. Une configuration modifiée demande une recréation du conteneur, selon le
-[guide Docker](container-deployment.md#developpement-local). Les sockets des utilisateurs virtuels
+[guide Docker](../deployment/container-deployment.md#developpement-local). Les sockets des utilisateurs virtuels
 et les connexions aux dépendances partagent ce budget. Relever leur pic pendant la charge et leur
 libération à la déconnexion ; le nombre de clients connectés constitue une dimension distincte du RPS.
 

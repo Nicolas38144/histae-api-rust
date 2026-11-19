@@ -1,6 +1,6 @@
 # À combiner uniquement avec compose.yaml. Image compilée, sans montage des sources.
 # Pile initiale sur un serveur de 16 Gio : PostgreSQL à 7 Gio, Redis et S3.
-# Certificat serveur et CA à préparer selon docs/container-deployment.md.
+# Certificat serveur et CA à préparer selon docs/deployment/container-deployment.md.
 name: histae-api-production
 
 x-production-database-environment: &production-database-environment

@@ -1,6 +1,6 @@
 # Validation approfondie de la charge
 
-[Guide initial](load-testing.md) · [Contrat HTTP](http-contract.md)
+[Guide initial](load-testing.md) · [Contrat HTTP](../api/http-contract.md)
 
 Ce protocole complète le mélange de lectures authentifiées avec des répétitions, des refus
 d’autorisation et des données géographiques différentes. Il n’annonce pas de capacité production.
@@ -38,7 +38,7 @@ Depuis la racine, avec une pile dev saine et les données fictives déjà créé
 install -d -m 700 .load-test
 ```
 
-[compose.load-test.yaml](../compose.load-test.yaml) ajoute `load-api` et `load-redis` au projet dev.
+[compose.load-test.yaml](../../compose.load-test.yaml) ajoute `load-api` et `load-redis` au projet dev.
 L’API est publiée uniquement sur `127.0.0.1:18081`, ses métriques authentifiées sur
 `127.0.0.1:19091`. Elle hérite du durcissement, des limites CPU/RAM et de `nofile` de l’API principale,
 avec un pool de 30. Le Redis, la clé JWT et le jeton de métriques sont distincts.

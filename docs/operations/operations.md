@@ -1,6 +1,6 @@
 # Exploitation
 
-[Index](README.md) · [Déploiement](container-deployment.md) · [Supervision](observability.md)
+[Index](../README.md) · [Déploiement](../deployment/container-deployment.md) · [Supervision](observability.md)
 
 ## Processus et commandes
 
@@ -12,7 +12,7 @@
 | `db-migrate` / `migrate` | Installation et mise à niveau PostgreSQL | Une exécution puis sortie |
 | `storage-init` | Vérification/création du bucket privé de production | Une exécution puis sortie |
 | `admin-bootstrap` | Émission d’un jeton d’enrôlement administratif | Une exécution avec UUID puis sortie |
-| `contract-compare` | Comparaison explicite de deux API isolées | Outil de validation ; voir [Tests](../tests/README.md#comparaison-de-deux-api) |
+| `contract-compare` | Comparaison explicite de deux API isolées | Outil de validation ; voir [Tests](../../tests/README.md#comparaison-de-deux-api) |
 
 `MAINTENANCE_MODE=worker` est exigé par les binaires outbox et maintenance. La valeur historique `api`
 reste acceptée par la configuration, mais ne lance pas de scheduler dans l’API Rust actuelle. Lancer les
@@ -26,7 +26,7 @@ Les processus partagent PostgreSQL mais gardent leurs propres pools et métrique
 Le déploiement ciblé de l’API se fait avec `bash ../histae-scripts/reset-api.sh --production`.
 Il conserve les dépendances et la supervision de cette pile, sans redémarrer le site, le dashboard
 ou le reverse proxy. Les scripts de déploiement, maintenance et superadmin de `histae-scripts` exigent un mode explicite ; voir
-[les commandes par projet](../../histae-scripts/README.md#reconstruire-et-démarrer-un-projet).
+[les commandes par projet](../../../histae-scripts/README.md#reconstruire-et-démarrer-un-projet).
 
 Sélectionner la pile ; exemple dev derrière le proxy :
 
@@ -60,7 +60,7 @@ Vérifier `status`, `last_error_code`, progression et travail restant après une
 ### Timer systemd sur Debian
 
 Les unités et leur installateur sont fournis dans le
-[dépôt des scripts](../../histae-scripts/README.md#maintenance-planifiee).
+[dépôt des scripts](../../../histae-scripts/README.md#maintenance-planifiee).
 Depuis `histae-scripts` :
 
 ```bash
@@ -105,7 +105,7 @@ supprime pas l’intention PostgreSQL ; une reprise ne doit pas contourner cette
 Corriger la dépendance puis utiliser les routes protégées du dashboard pour reprendre une dead letter.
 Ces actions exigent une authentification récente et un audit ; le motif est facultatif pour le superadmin.
 L’abandon des événements d’effacement de compte est interdit ; une suppression photo encore
-nécessaire ne peut pas non plus être abandonnée. Le [contrat](http-contract.md#exploitation-et-reprises)
+nécessaire ne peut pas non plus être abandonnée. Le [contrat](../api/http-contract.md#exploitation-et-reprises)
 décrit les réponses et conflits. Un acquittement push ne prouve pas la réception sur le terminal.
 
 ## Santé et supervision
@@ -157,4 +157,4 @@ sudo docker exec reverse-proxy-container sh -c 'wget -qO- "$HISTAE_API_UPSTREAM/
 
 Une réponse OTP mobile `202` confirme la mise en file durable, pas l’acceptation fournisseur ni la livraison. Le worker outbox est obligatoire pour l’envoi mobile ; il doit disposer des mêmes clés téléphone, paramètres Sweego et plafonds SMS que l’API. En cas d’absence de SMS, vérifier son état et les événements `identity.otp.send`, puis les budgets et la suspension SMS. Ne jamais afficher ni journaliser les téléphones ou codes.
 
-Pour cette évolution, appliquer le migrateur puis redémarrer l’API **et** le worker avec la même version. Un ancien worker ne sait pas traiter les demandes OTP. Le téléphone en attente est chiffré et effacé après traitement ; une demande expirée est supprimée sans envoi. Voir le [parcours OTP](http-contract.md#connexion-mobile-et-catalogue) pour le rejeu après une réponse perdue.
+Pour cette évolution, appliquer le migrateur puis redémarrer l’API **et** le worker avec la même version. Un ancien worker ne sait pas traiter les demandes OTP. Le téléphone en attente est chiffré et effacé après traitement ; une demande expirée est supprimée sans envoi. Voir le [parcours OTP](../api/http-contract.md#connexion-mobile-et-catalogue) pour le rejeu après une réponse perdue.

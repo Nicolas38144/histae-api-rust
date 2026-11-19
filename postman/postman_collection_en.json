@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection based on docs/http-contract.md (137 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/http-contract.md.",
+    "description": "Collection based on docs/api/http-contract.md (137 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/api/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -47,7 +47,7 @@
                     }
                   }
                 },
-                "description": "Both registration and sign-in return generic 202 {message, resend_after_seconds}. A known number in registration, or an unknown number in sign-in, receives no SMS. HTTP queues the encrypted request without looking up accounts or calling Sweego; the outbox worker is required. A new UUID before the shared 60-second cooldown returns 429 otp_resend_too_soon with Retry-After. Replay the same UUID, phone, language and registration flag after a lost response; no duplicate SMS and no deadline extension. Explicit resend requires a new UUID. Phone/IP quotas apply to every request; provider and membership outcomes are never exposed.\n\nOptional Google Play review: only the configured dedicated fictional phone accepts the server-side reusable code. First sign-up requires registration=true on the latest unexpired intent; sign-in cannot create an account. Send stores a phone-free intent without an SMS/outbox job and keeps cooldown, idempotency and IP/phone limits. No real credentials belong in this collection. See docs/google-play-review.md."
+                "description": "Both registration and sign-in return generic 202 {message, resend_after_seconds}. A known number in registration, or an unknown number in sign-in, receives no SMS. HTTP queues the encrypted request without looking up accounts or calling Sweego; the outbox worker is required. A new UUID before the shared 60-second cooldown returns 429 otp_resend_too_soon with Retry-After. Replay the same UUID, phone, language and registration flag after a lost response; no duplicate SMS and no deadline extension. Explicit resend requires a new UUID. Phone/IP quotas apply to every request; provider and membership outcomes are never exposed.\n\nOptional Google Play review: only the configured dedicated fictional phone accepts the server-side reusable code. First sign-up requires registration=true on the latest unexpired intent; sign-in cannot create an account. Send stores a phone-free intent without an SMS/outbox job and keeps cooldown, idempotency and IP/phone limits. No real credentials belong in this collection. See docs/features/google-play-review.md."
               },
               "response": []
             },
@@ -78,7 +78,7 @@
                     }
                   }
                 },
-                "description": "{ phone_number, otp } → 200 { access_token, refresh_token }.\n\nOptional Google Play review: only the configured dedicated fictional phone accepts the server-side reusable code. First sign-up requires registration=true on the latest unexpired intent; sign-in cannot create an account. Send stores a phone-free intent without an SMS/outbox job and keeps cooldown, idempotency and IP/phone limits. No real credentials belong in this collection. See docs/google-play-review.md."
+                "description": "{ phone_number, otp } → 200 { access_token, refresh_token }.\n\nOptional Google Play review: only the configured dedicated fictional phone accepts the server-side reusable code. First sign-up requires registration=true on the latest unexpired intent; sign-in cannot create an account. Send stores a phone-free intent without an SMS/outbox job and keeps cooldown, idempotency and IP/phone limits. No real credentials belong in this collection. See docs/features/google-play-review.md."
               },
               "response": [],
               "event": [
@@ -124,7 +124,7 @@
                     }
                   }
                 },
-                "description": "{ refresh_token, recovery_id? } → 200 { access_token, refresh_token }. Persist a UUIDv4 attempt before sending; recovery requires both recovery_id and a single matching Idempotency-Key header. Either alone is rejected before rotation. Retry only with the same original token and key. The active replacement can be recovered for seven days without extending its expiry. A different-key replay of an authentic unexpired parent still revokes the family. Revocation or banning purges recovery data. This legacy sample omits recovery; see docs/refresh-recovery.md."
+                "description": "{ refresh_token, recovery_id? } → 200 { access_token, refresh_token }. Persist a UUIDv4 attempt before sending; recovery requires both recovery_id and a single matching Idempotency-Key header. Either alone is rejected before rotation. Retry only with the same original token and key. The active replacement can be recovered for seven days without extending its expiry. A different-key replay of an authentic unexpired parent still revokes the family. Revocation or banning purges recovery data. This legacy sample omits recovery; see docs/features/refresh-recovery.md."
               },
               "response": [],
               "event": [

@@ -117,7 +117,7 @@ cargo test --locked --all-targets
 
 For integration checks, prefer the disposable PostgreSQL launcher. It uses local PostgreSQL/PostGIS,
 generated credentials and loopback, verifies repeated upgrades, then removes its container and
-fixtures. It requires Docker access and the local PostgreSQL image described in [Tests](../tests/README.md).
+fixtures. It requires Docker access and the local PostgreSQL image described in [Tests](../../tests/README.md).
 
 ```bash
 cargo build --locked --bin db-migrate

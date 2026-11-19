@@ -1,6 +1,6 @@
 # Achats App Store et Google Play
 
-[Index](README.md) · [Contrat HTTP](http-contract.md#abonnement) · [Droits Premium](billing.md)
+[Index](../README.md) · [Contrat HTTP](../api/http-contract.md#abonnement) · [Droits Premium](billing.md)
 
 ## Répartition
 
@@ -48,7 +48,7 @@ Les routes `/api/web/account/*` conservent l’authentification UUID/téléphone
 `__Host-histae_account; Secure; HttpOnly; SameSite=Strict; Path=/`, sans Domain ; en HTTP local :
 `histae_account`. Les mutations exigent `WEB_ACCOUNT_ORIGIN` exact et les réponses sont `no-store`.
 La session dure trente minutes. Quotas, anti-rejeu, correspondance au compte, ban et révocation restent
-vérifiés. Voir [Abonnements et migration](billing.md) et [Contrat HTTP](http-contract.md).
+vérifiés. Voir [Abonnements et migration](billing.md) et [Contrat HTTP](../api/http-contract.md).
 
 ## Configuration et activation
 
@@ -154,7 +154,7 @@ utilisateurs ; définir leur durée de conservation comptable avec la validation
 ## Vérifications et limites
 
 Tests locaux : normalisation et refus fournisseur simulés ; bridge privé HTTP ; migrations PostgreSQL fraîches
-et répétées ; ownership, concurrence, acquittement durable ; parcours OTP et cookie ; rapports administratifs et parcours des données personnelles du site. Voir [tests](../tests/README.md) pour les résultats à jour.
+et répétées ; ownership, concurrence, acquittement durable ; parcours OTP et cookie ; rapports administratifs et parcours des données personnelles du site. Voir [tests](../../tests/README.md) pour les résultats à jour.
 Aucun SMS réel ni paiement réel n’est nécessaire à ces tests. Ils ne remplacent pas les essais Sandbox,
 Play test et TestFlight après configuration des consoles et des appareils ; aucune validation fournisseur
 ni publication sur les stores n’est revendiquée.

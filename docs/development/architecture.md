@@ -1,6 +1,6 @@
 # Architecture et conventions Rust
 
-[Index](README.md) · [Contrat HTTP](http-contract.md) · [Tests](../tests/README.md)
+[Index](../README.md) · [Contrat HTTP](../api/http-contract.md) · [Tests](../../tests/README.md)
 
 ## Organisation par domaine
 
@@ -43,7 +43,7 @@ transaction. `infra/` fournit les mécanismes communs, pas un repository génér
 
 `tests/` contient contrats et intégrations ; `db/` le schéma ; `docker/` et `services/` les dépendances
 conteneurisées ; `tools/photo-codec/` le processus Node/Sharp autonome. Les procédures de compilation et
-les binaires sont décrits dans [Développement](development.md) et [Exploitation](operations.md).
+les binaires sont décrits dans [Développement](development.md) et [Exploitation](../operations/operations.md).
 
 ## Assemblage et ressources
 
@@ -107,7 +107,7 @@ Les plafonds applicatifs sont définis dans le domaine et les valeurs SQL variab
 ## Compatibilité et sécurité
 
 Les changements internes doivent respecter les routes, DTO, autorisations, invariants et règles de rejeu
-du [contrat HTTP](http-contract.md). Toute évolution observable doit mettre à jour contrat, collections et tests.
+du [contrat HTTP](../api/http-contract.md). Toute évolution observable doit mettre à jour contrat, collections et tests.
 Les effets réseau gardent les intentions durables et checkpoints existants ; aucune abstraction de repository
 ne doit les déplacer avant le commit métier.
 
@@ -133,15 +133,15 @@ Le cycle de vie est couvert par les tests de drain, de sessions SSE bloquées et
 
 ## Documentation et tests
 
-L’[index documentaire](README.md) regroupe les guides courants.
+L’[index documentaire](../README.md) regroupe les guides courants.
 Les suites de tests sont nommées par domaine, sans numéros de migration. Les tests unitaires restent proches
 des règles ; les contrats HTTP et les intégrations réelles résident dans `tests/`.
 
-Les règles d’exécution et les limites de preuve sont décrites dans [tests/README.md](../tests/README.md).
+Les règles d’exécution et les limites de preuve sont décrites dans [tests/README.md](../../tests/README.md).
 
 ## Confirmation et récompenses
 
-Les règles sont centralisées dans le [guide des continuations](continuation-and-rewards.md). Le match est verrouillé avant les comptes/consentements, abonnements et wallets ordonnés. Une décision Free réserve un crédit ; les deux débits et la confirmation forment une seule transaction. Le trigger d’abonnement partage les verrous du wallet pour sérialiser les changements Premium. Une récompense publicitaire vérifiée suit l’ordre compte → wallet → intention. Les projections et exports ne publient pas le choix individuel de l’autre personne.
+Les règles sont centralisées dans le [guide des continuations](../features/continuation-and-rewards.md). Le match est verrouillé avant les comptes/consentements, abonnements et wallets ordonnés. Une décision Free réserve un crédit ; les deux débits et la confirmation forment une seule transaction. Le trigger d’abonnement partage les verrous du wallet pour sérialiser les changements Premium. Une récompense publicitaire vérifiée suit l’ordre compte → wallet → intention. Les projections et exports ne publient pas le choix individuel de l’autre personne.
 
 La création d’un match et le blocage partagent un verrou transactionnel sur la même paire d’UUID triés,
 avant les verrous de ligne. Un blocage attend ainsi le commit d’un match en cours de création avant de le
@@ -154,7 +154,7 @@ Le module `localization` sépare les codes et projections sans I/O, le contrat d
 le dépôt PostgreSQL, le service de cache et l’adaptation HTTP. Les handlers résolvent la langue après
 l’authentification ; les services de chaque domaine gardent leurs invariants et les dépôts leurs transactions.
 Les traductions des catalogues n’affectent ni les règles d’éligibilité ni les curseurs. Voir
-[Internationalisation](internationalization.md) pour les responsabilités détaillées et la stratégie de repli.
+[Internationalisation](../api/internationalization.md) pour les responsabilités détaillées et la stratégie de repli.
 
 ## Droits Premium multicanal
 
@@ -168,5 +168,5 @@ La persistance refuse réattribution et observation dépassée, exclut les token
 l’acquittement Google dans l’outbox après enregistrement des droits. Les callbacks authentifiés
 provoquent une relecture fournisseur ; ils ne dictent pas directement les droits.
 
-Le [guide des achats](store-billing.md) décrit les états, secrets, sessions web, rétentions,
+Le [guide des achats](../features/store-billing.md) décrit les états, secrets, sessions web, rétentions,
 rapports financiers et validations réelles restantes.

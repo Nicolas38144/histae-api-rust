@@ -1,6 +1,6 @@
 # Protection des SMS Sweego
 
-[Index](README.md) · [Contrat](http-contract.md#protection-des-envois-sms) · [Supervision](observability.md#sms-safety)
+[Index](../README.md) · [Contrat](../api/http-contract.md#protection-des-envois-sms) · [Supervision](../operations/observability.md#sms-safety)
 
 ## Limites et comptabilité
 
@@ -99,5 +99,5 @@ python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/d
 Le lanceur initialise un PostgreSQL jetable et injecte ses identifiants temporaires. `otp_delivery`
 s’exécute avec `histae_app`. La fixture `sms_safety_postgres`, qui crée puis supprime sa propre base,
 s’exécute séparément avec l’administrateur de ce cluster temporaire ; les rôles des services déployés
-restent ceux du [guide PostgreSQL](postgres-roles.md). Ajouter `--sudo-docker` après `sudo -v` si nécessaire.
+restent ceux du [guide PostgreSQL](../database/postgres-roles.md). Ajouter `--sudo-docker` après `sudo -v` si nécessaire.
 Les tests et Cargo restent exécutés par l’utilisateur courant. Ne pas utiliser une base de production.

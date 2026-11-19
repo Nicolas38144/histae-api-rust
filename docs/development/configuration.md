@@ -1,9 +1,9 @@
 # Configuration
 
-[Index](README.md) · [Développement](development.md) · [Déploiement](container-deployment.md)
+[Index](../README.md) · [Développement](development.md) · [Déploiement](../deployment/container-deployment.md)
 
-La référence exécutée est [AppConfig](../src/config/loader.rs), complétée par les
-[validateurs](../src/config/validation.rs). Une valeur invalide empêche le démarrage avec un code normalisé ;
+La référence exécutée est [AppConfig](../../src/config/loader.rs), complétée par les
+[validateurs](../../src/config/validation.rs). Une valeur invalide empêche le démarrage avec un code normalisé ;
 les valeurs et secrets ne sont pas recopiés dans les logs.
 
 ## Chargement et priorité
@@ -36,7 +36,7 @@ propres fichiers d'environnement. Utiliser `--env-file .env` dans toutes les com
 Les fichiers `.env`, `.env.*` et `.secrets/` sont ignorés par Git. Les garder en `0600`.
 Les overrides dev/production sélectionnent le rôle PostgreSQL
 et retirent les mots de passe des autres rôles de l'environnement applicatif.
-Voir [Rôles PostgreSQL](postgres-roles.md).
+Voir [Rôles PostgreSQL](../database/postgres-roles.md).
 
 Après une modification, recréer les conteneurs concernés : `restart` ne recharge pas leur environnement.
 Valider sans afficher les secrets avec `docker compose … config --quiet`.
@@ -93,7 +93,7 @@ METRICS_ENABLED=false
 
 `SMS_PROVIDER=disabled` ne livre aucun SMS. Pour une connexion OTP réelle, configurer Sweego.
 `python3 scripts/prepare-postgres-roles-env.py .env` prépare les quatre mots de passe sans les afficher.
-Une base dev existante doit être convertie avant recréation selon [Rôles PostgreSQL](postgres-roles.md).
+Une base dev existante doit être convertie avant recréation selon [Rôles PostgreSQL](../database/postgres-roles.md).
 Les documents juridiques omis en développement reçoivent une version `development-unversioned` et des
 URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
 
@@ -111,18 +111,18 @@ URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
 | Redis | `RATE_LIMIT_STORE`, `REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB`, `REDIS_TLS`, `REDIS_CONNECT_TIMEOUT`, `REDIS_COMMAND_TIMEOUT` | Production : store Redis, TLS et mot de passe. Adresse `hôte:port`, sans schéma. |
 | S3 | `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_REGION`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY`, `OBJECT_STORAGE_SECRET_KEY`, `OBJECT_STORAGE_FORCE_PATH_STYLE` | HTTPS et clés explicites en production ; nom accessible aux serveurs et clients pour les URLs signées. |
 | OTP | `SMS_PROVIDER`, `SWEEGO_API_KEY`, `SWEEGO_SMS_SENDER_ID`, `SWEEGO_SMS_REGION`, `SWEEGO_API_URL`, `SWEEGO_TIMEOUT`, `OTP_TTL`, `OTP_RESEND_COOLDOWN`, `SWEEGO_WEBHOOK_SECRET` | Sweego obligatoire en production ; région `FR`. Renvoi : 60 s par défaut, entre 60 et 300 s et au plus `OTP_TTL`. Le worker outbox nécessite les mêmes clés téléphone/Sweego que l’API. Secret de webhook fourni par Sweego, distinct de la clé API. |
-| Revue Google Play | `GOOGLE_PLAY_REVIEW_ENABLED`, `GOOGLE_PLAY_REVIEW_PHONE_NUMBER`, `GOOGLE_PLAY_REVIEW_OTP` | Désactivée par défaut. Compte mobile distinct, numéro fictif `+3363998XXXX`, code secret de six chiffres. [Préparation et sécurité](google-play-review.md). Aucun SMS ni accès administrateur. |
-| AdMob | `ADVERTISING_PROVIDER`, `ADMOB_ANDROID_REWARDED_AD_UNIT`, `ADMOB_IOS_REWARDED_AD_UNIT`, `ADMOB_REWARD_ITEM` | `disabled` par défaut ou `admob` ; deux unités rewarded obligatoires si activé, unités Google de test refusées en production ; récompense 1 crédit, libellé `continuation_credit` par défaut. [Guide](continuation-and-rewards.md). |
+| Revue Google Play | `GOOGLE_PLAY_REVIEW_ENABLED`, `GOOGLE_PLAY_REVIEW_PHONE_NUMBER`, `GOOGLE_PLAY_REVIEW_OTP` | Désactivée par défaut. Compte mobile distinct, numéro fictif `+3363998XXXX`, code secret de six chiffres. [Préparation et sécurité](../features/google-play-review.md). Aucun SMS ni accès administrateur. |
+| AdMob | `ADVERTISING_PROVIDER`, `ADMOB_ANDROID_REWARDED_AD_UNIT`, `ADMOB_IOS_REWARDED_AD_UNIT`, `ADMOB_REWARD_ITEM` | `disabled` par défaut ou `admob` ; deux unités rewarded obligatoires si activé, unités Google de test refusées en production ; récompense 1 crédit, libellé `continuation_credit` par défaut. [Guide](../features/continuation-and-rewards.md). |
 | Push | `PUSH_PROVIDER`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `FIREBASE_TOKEN_URI`, `PUSH_TIMEOUT` | `disabled` ou `fcm` ; compte de service complet pour FCM. |
-| Protection SMS | `SMS_MAX_GLOBAL_HOUR`, `SMS_MAX_GLOBAL_DAY`, `SMS_MAX_PER_PHONE_HOUR`, `SMS_MAX_PER_PHONE_DAY`, `SMS_ALERT_SPIKE_5M`, `SMS_SENDING_SUSPENDED` | Défauts : 100/heure et 500/24 h au total, 5/heure et 10/24 h par numéro, pic à 20 tentatives/5 min, arrêt `false`. Comptabilité PostgreSQL partagée et durable ; [guide](sms-safety.md). |
-| Admin | `ADMIN_WEBAUTHN_ORIGIN`, `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_RP_NAME`, `ADMIN_SESSION_IDLE_TTL`, `ADMIN_SESSION_ABSOLUTE_TTL`, `ADMIN_RECENT_AUTH_TTL` | Voir [Administration](administration.md) ; HTTPS en production. |
+| Protection SMS | `SMS_MAX_GLOBAL_HOUR`, `SMS_MAX_GLOBAL_DAY`, `SMS_MAX_PER_PHONE_HOUR`, `SMS_MAX_PER_PHONE_DAY`, `SMS_ALERT_SPIKE_5M`, `SMS_SENDING_SUSPENDED` | Défauts : 100/heure et 500/24 h au total, 5/heure et 10/24 h par numéro, pic à 20 tentatives/5 min, arrêt `false`. Comptabilité PostgreSQL partagée et durable ; [guide](../features/sms-safety.md). |
+| Admin | `ADMIN_WEBAUTHN_ORIGIN`, `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_RP_NAME`, `ADMIN_SESSION_IDLE_TTL`, `ADMIN_SESSION_ABSOLUTE_TTL`, `ADMIN_RECENT_AUTH_TTL` | Voir [Administration](../features/administration.md) ; HTTPS en production. |
 | Enrôlement | `ADMIN_WEBAUTHN_CHALLENGE_TTL`, `ADMIN_WEBAUTHN_BOOTSTRAP_TTL` | Défauts : `5m` et `15m`, usage unique. |
-| Maintenance/export | `MAINTENANCE_MODE`, `MATCH_MAINTENANCE_BATCH_SIZE`, `MATCH_MAINTENANCE_MAX_BATCHES`, `OUTBOX_PURGE_BATCH_SIZE`, `OUTBOX_PURGE_MAX_BATCHES`, `DATA_EXPORT_PAGE_SIZE`, `DATA_EXPORT_MAX_BYTES`, `DATA_EXPORT_MAX_CONCURRENCY` | Traitements bornés ; voir [Exploitation](operations.md). |
+| Maintenance/export | `MAINTENANCE_MODE`, `MATCH_MAINTENANCE_BATCH_SIZE`, `MATCH_MAINTENANCE_MAX_BATCHES`, `OUTBOX_PURGE_BATCH_SIZE`, `OUTBOX_PURGE_MAX_BATCHES`, `DATA_EXPORT_PAGE_SIZE`, `DATA_EXPORT_MAX_BYTES`, `DATA_EXPORT_MAX_CONCURRENCY` | Traitements bornés ; voir [Exploitation](../operations/operations.md). |
 | Effacement | `ACCOUNT_DELETION_TOKEN_TTL` | Défaut `10m`, jeton à usage unique ; workflow asynchrone. |
 | Métriques | `METRICS_ENABLED`, `METRICS_HOST`, `METRICS_PORT`, `METRICS_TOKEN` | Listener privé, port `9091` ; token distinct d’au moins 32 octets. La pile dev active la collecte ; préparer les secrets avec `bash scripts/prepare-observability-secrets.sh`. |
 
 Les limites dédiées `RATE_LIMIT_*` possèdent une variable de fenêtre suffixée `_WINDOW`.
-Le [contrat HTTP](http-contract.md#erreurs-et-limites-de-debit) décrit les quotas et codes publics.
+Le [contrat HTTP](../api/http-contract.md#erreurs-et-limites-de-debit) décrit les quotas et codes publics.
 Les durées utilisent une unité, par exemple `5s`, `1m` ou `8h`.
 
 ### Tarifs du catalogue et achats natifs
@@ -135,9 +135,9 @@ récompenses lorsqu’elles sont activées. Ce stock expire chaque lundi à 00:0
 **cinq continuations confirmées par personne Free et par semaine UTC** : chaque participant Free réserve
 son propre crédit, débité seulement après les deux accords. Un refus ou une expiration libère la
 réservation. Premium permet des continuations illimitées sans débit de crédit. Voir les
-[règles de continuation et de récompenses](continuation-and-rewards.md) pour le détail des réservations.
+[règles de continuation et de récompenses](../features/continuation-and-rewards.md) pour le détail des réservations.
 
-Le [catalogue SQL](../db/002_insert_postgres.sql) initialise une base neuve. Sur une base existante, le
+Le [catalogue SQL](../../db/002_insert_postgres.sql) initialise une base neuve. Sur une base existante, le
 migrateur remplace l'ancien prix annuel Premium de 3 000 centimes EUR par 4 800 centimes, sans écraser un
 autre tarif personnalisé. Un second passage ne modifie ni le prix ni sa date de mise à jour.
 
@@ -160,7 +160,7 @@ et recréer l'API et le dashboard avec `reset-api.sh --production --full` et
 `reset-dashboard.sh --production --full`. Les scripts conservent les volumes. Le schéma initial et le seed n’ont plus de colonne `subscription_plan.trial_days`. Sur une base
 existante, le migrateur retire cette colonne si elle est présente, avec sa contrainte locale, sans
 modifier les abonnements ni leurs échéances. Le champ `trial_days` est aussi retiré du catalogue HTTP. Aucun nouvel essai n’est proposé.
-Les offres sont calculées par le code à partir des deux plans. Voir [Achats natifs](store-billing.md).
+Les offres sont calculées par le code à partir des deux plans. Voir [Achats natifs](../features/store-billing.md).
 
 ### Documents juridiques
 
@@ -210,7 +210,7 @@ En production Docker, le certificat est monté à `/run/secrets/postgres_ca`.
 
 `HISTAE_API_IMAGE`, `HISTAE_API_POSTGRES_POOL_MAX`, `HISTAE_POSTGRES_IMAGE`, `HISTAE_ENV_FILE`, `HISTAE_API_BIND_IP`,
 `HISTAE_API_HOST_PORT`, `HISTAE_API_DNS_SERVER`, `HISTAE_BACKEND_NETWORK`, `HISTAE_EDGE_NETWORK` et
-`HISTAE_STORAGE_HOST` pilotent l’orchestration. Les overrides sont décrits dans [Déploiement](container-deployment.md).
+`HISTAE_STORAGE_HOST` pilotent l’orchestration. Les overrides sont décrits dans [Déploiement](../deployment/container-deployment.md).
 
 Pour le réglage actuel des pools Docker :
 
@@ -240,7 +240,7 @@ leur ajouter arbitrairement `--check-config`.
 
 ### Crédits Free et publicités
 
-Le fournisseur est laissé désactivé dans le `.env` local. Les identifiants de test Android/iOS y sont présents pour préparer une intégration, avec le libellé `continuation_credit`. Les publicités nécessitent la configuration AdMob SSV, les choix UMP et le parcours mobile décrits dans le [guide](continuation-and-rewards.md). Aucun secret AdMob partagé n’est requis. Les clés ECDSA sont téléchargées uniquement depuis l’URL HTTPS officielle Google, qui n’est pas configurable.
+Le fournisseur est laissé désactivé dans le `.env` local. Les identifiants de test Android/iOS y sont présents pour préparer une intégration, avec le libellé `continuation_credit`. Les publicités nécessitent la configuration AdMob SSV, les choix UMP et le parcours mobile décrits dans le [guide](../features/continuation-and-rewards.md). Aucun secret AdMob partagé n’est requis. Les clés ECDSA sont téléchargées uniquement depuis l’URL HTTPS officielle Google, qui n’est pas configurable.
 
 Le catalogue SQL utilise encore `subscription_plan.weekly_continuation_limit` comme allocation de crédits gratuits (2 pour Free, `NULL` pour Premium). La projection HTTP distingue cette allocation dans `weekly_included_credits` du plafond `weekly_continuation_limit` de 5 continuations Free confirmées. Le wallet et les verrous font autorité pour les réservations et débits. Les paramètres de pool PostgreSQL restent inchangés.
 
@@ -252,11 +252,11 @@ acceptés sur `TERMS_OF_SERVICE_URL`, `PRIVACY_POLICY_URL`, `SENSITIVE_DATA_CONS
 `LOCATION_CONSENT_URL` (douze valeurs facultatives, HTTPS en production). Sans traduction configurée,
 l’URL française est conservée et `document_language` vaut `fr`.
 Les versions et `LEGAL_REVIEW_REFERENCE` gardent leurs exigences existantes.
-Voir [Internationalisation](internationalization.md) pour la préférence du compte, les appareils et les consentements.
+Voir [Internationalisation](../api/internationalization.md) pour la préférence du compte, les appareils et les consentements.
 
 ## Achats natifs et session du site
 
-Voir [la liste des nouvelles variables, leurs valeurs par défaut et leur activation](store-billing.md#configuration-et-activation).
+Voir [la liste des nouvelles variables, leurs valeurs par défaut et leur activation](../features/store-billing.md#configuration-et-activation).
 Les secrets Apple/Google sont réservés au service privé. Les paiements web sont retirés.
 `WEB_ACCOUNT_ORIGIN` contrôle uniquement la session du site pour les données personnelles.
 Cette configuration est indépendante de l’activation des achats natifs : elle reste utilisée quand
@@ -264,7 +264,7 @@ Cette configuration est indépendante de l’activation des achats natifs : elle
 pour accéder au parcours RGPD du site. L’origine doit être exacte (schéma, hôte et port éventuel,
 sans chemin, identifiants, query ni fragment) ; HTTPS est obligatoire en production.
 Supprimer les anciennes variables `STRIPE_*`, `BILLING_PROVIDER` et `WEB_BILLING_ENABLED` ;
-renommer `WEB_BILLING_ORIGIN` en `WEB_ACCOUNT_ORIGIN`. Voir [Migration](billing.md#retrait-de-lancien-paiement-web).
+renommer `WEB_BILLING_ORIGIN` en `WEB_ACCOUNT_ORIGIN`. Voir [Migration](../features/billing.md#retrait-de-lancien-paiement-web).
 Retirer aussi les anciens exemples de clés Stripe commentés. Les limites `RATE_LIMIT_BILLING*`
 restent utilisées par les achats et callbacks natifs et doivent être conservées.
 
@@ -272,7 +272,7 @@ restent utilisées par les achats et callbacks natifs et doivent être conservé
 
 `POSTGRES_PHONE_SYNC_PASSWORD` est le quatrième mot de passe PostgreSQL, indépendant des autres
 (64 caractères hexadécimaux aléatoires). Il sert uniquement au rôle `histae_phone_sync`.
-Le [préparateur des rôles](postgres-roles.md) le génère sans modifier les secrets existants.
+Le [préparateur des rôles](../database/postgres-roles.md) le génère sans modifier les secrets existants.
 Le job `phone-blocklist-sync` reçoit ce secret et `PHONE_HASH_KEY`, sans charger le `.env` complet.
 La clé HMAC doit être identique à celle de l’API et stable entre les déploiements.
-Voir le [guide des listes et exceptions](phone-blocklist.md) pour le premier import et le timer.
+Voir le [guide des listes et exceptions](../features/phone-blocklist.md) pour le premier import et le timer.

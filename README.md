@@ -7,9 +7,9 @@ outbox et les maintenances sont exécutés séparément.
 Le dépôt contient son schéma PostgreSQL, ses binaires, son image Docker et ses services locaux.
 Le codec photo utilise un processus Node/Sharp autonome, livré dans l’image API. Le service privé
 `store-verifier` vérifie les achats natifs via les bibliothèques officielles Apple/Google.
-Les paiements passent exclusivement par les stores. Voir le [guide de facturation](docs/store-billing.md).
+Les paiements passent exclusivement par les stores. Voir le [guide de facturation](docs/features/store-billing.md).
 
-La [protection des numéros SMS publics](docs/phone-blocklist.md) bloque les numéros connus avant Sweego et permet des exceptions administratives temporaires.
+La [protection des numéros SMS publics](docs/features/phone-blocklist.md) bloque les numéros connus avant Sweego et permet des exceptions administratives temporaires.
 
 ## Organisation
 
@@ -46,13 +46,13 @@ observability/     # Supervision privée
 docs/              # Architecture, contrat HTTP et exploitation
 ```
 
-Les responsabilités et règles de dépendance sont décrites dans [docs/architecture.md](docs/architecture.md). Les tests suivent [tests/README.md](tests/README.md).
+Les responsabilités et règles de dépendance sont décrites dans [docs/development/architecture.md](docs/development/architecture.md). Les tests suivent [tests/README.md](tests/README.md).
 
 ## Démarrer en développement
 
 Toutes les commandes s’exécutent depuis la racine du dépôt, sauf indication contraire.
 Sur Debian 13, installer les prérequis puis préparer `.env` selon le
-[guide de développement](docs/development.md) et la [configuration](docs/configuration.md).
+[guide de développement](docs/development/development.md) et la [configuration](docs/development/configuration.md).
 
 ```bash
 bash scripts/install-debian-13.sh
@@ -67,7 +67,7 @@ bash scripts/smoke-api.sh
 L’API locale écoute par défaut sur `http://127.0.0.1:8080`. Rust 1.88.0 et son rust-analyzer sont
 fixés par [rust-toolchain.toml](rust-toolchain.toml). WebAuthn est activé par défaut dans Cargo.
 La pile dev inclut Prometheus, Grafana et Alertmanager sans publier leurs ports.
-L’accès superadmin depuis le dashboard est décrit dans le [guide de supervision](docs/observability.md).
+L’accès superadmin depuis le dashboard est décrit dans le [guide de supervision](docs/operations/observability.md).
 
 ## Documentation
 
@@ -75,20 +75,20 @@ L’[index des guides](docs/README.md) permet de choisir une procédure par usag
 
 | Besoin | Guide |
 | --- | --- |
-| Développer, compiler, créer des données fictives | [Développement](docs/development.md) |
-| Comprendre `.env`, les secrets et les overrides | [Configuration](docs/configuration.md) |
-| Déployer localement, sur le LAN ou derrière Cloudflare | [Déploiement Docker](docs/container-deployment.md) |
-| Initialiser et sauvegarder PostgreSQL | [Base de données](docs/database.md) |
-| Enrôler une passkey et gérer les administrateurs | [Administration](docs/administration.md) |
-| Exécuter les workers et planifier la maintenance | [Exploitation](docs/operations.md) |
-| Intégrer les 137 routes et leurs autorisations | [Contrat HTTP](docs/http-contract.md) |
-| Intégrer les achats Apple/Google | [Achats natifs](docs/store-billing.md) |
-| Intégrer français, anglais, espagnol et italien | [Internationalisation](docs/internationalization.md) |
+| Développer, compiler, créer des données fictives | [Développement](docs/development/development.md) |
+| Comprendre `.env`, les secrets et les overrides | [Configuration](docs/development/configuration.md) |
+| Déployer localement, sur le LAN ou derrière Cloudflare | [Déploiement Docker](docs/deployment/container-deployment.md) |
+| Initialiser et sauvegarder PostgreSQL | [Base de données](docs/database/database.md) |
+| Enrôler une passkey et gérer les administrateurs | [Administration](docs/features/administration.md) |
+| Exécuter les workers et planifier la maintenance | [Exploitation](docs/operations/operations.md) |
+| Intégrer les 137 routes et leurs autorisations | [Contrat HTTP](docs/api/http-contract.md) |
+| Intégrer les achats Apple/Google | [Achats natifs](docs/features/store-billing.md) |
+| Intégrer français, anglais, espagnol et italien | [Internationalisation](docs/api/internationalization.md) |
 | Importer les collections française ou anglaise | [Postman](postman/README.md) |
-| Diagnostiquer les alertes et les requêtes lentes | [Supervision](docs/observability.md), [SQL](docs/sql-performance.md) |
-| Tester la charge et le tunnel Cloudflare | [Test de charge](docs/load-testing.md) |
-| Valider une livraison | [Tests](tests/README.md), [Mise en production](docs/production-readiness.md) |
-| Comprendre les modules et leurs responsabilités | [Architecture](docs/architecture.md) |
+| Diagnostiquer les alertes et les requêtes lentes | [Supervision](docs/operations/observability.md), [SQL](docs/database/sql-performance.md) |
+| Tester la charge et le tunnel Cloudflare | [Test de charge](docs/testing/load-testing.md) |
+| Valider une livraison | [Tests](tests/README.md), [Mise en production](docs/deployment/production-readiness.md) |
+| Comprendre les modules et leurs responsabilités | [Architecture](docs/development/architecture.md) |
 
 ## Validation rapide
 
@@ -105,7 +105,7 @@ pas les essais des fournisseurs, de WebAuthn dans le navigateur, de charge et de
 
 ## Continuations et récompenses
 
-Le [guide des crédits](docs/continuation-and-rewards.md) décrit la pause de la messagerie, les décisions privées, les réservations des deux participants et la vérification serveur AdMob. Le fournisseur publicitaire est désactivé par défaut ; les interfaces mobiles et les callbacks réels doivent être validés avant son activation. Voir [Tests](tests/README.md) pour les commandes de validation.
+Le [guide des crédits](docs/features/continuation-and-rewards.md) décrit la pause de la messagerie, les décisions privées, les réservations des deux participants et la vérification serveur AdMob. Le fournisseur publicitaire est désactivé par défaut ; les interfaces mobiles et les callbacks réels doivent être validés avant son activation. Voir [Tests](tests/README.md) pour les commandes de validation.
 
 ## Source access and licensing
 

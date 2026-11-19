@@ -1,48 +1,70 @@
 # Documentation Histae API
 
-Cette documentation regroupe les guides nécessaires pour développer, intégrer et exploiter l’API actuelle.
+Les guides sont regroupés par thème. Les commandes s’exécutent depuis la racine du dépôt,
+sauf indication contraire.
 
 ## Parcours de lecture
 
 | Objectif | Ordre conseillé |
 | --- | --- |
-| Premier démarrage local | [Développement](development.md) → [Configuration](configuration.md) → [Docker](container-deployment.md#developpement-local) |
-| Tester le mobile ou le dashboard | [Contrat HTTP](http-contract.md) → [Postman](../postman/README.md) → [Administration](administration.md) |
-| Installer sur un serveur | [Configuration](configuration.md) → [Docker](container-deployment.md) → [Mise en production](production-readiness.md) |
-| Exploiter une installation | [Exploitation](operations.md) → [Supervision](observability.md) → [Base de données](database.md) |
-| Modifier le code | [Architecture](architecture.md) → [Tests](../tests/README.md) → [Performance SQL](sql-performance.md) |
-| Mesurer le débit de l’API et du tunnel | [Test de charge](load-testing.md) → [Supervision](observability.md) → [Performance SQL](sql-performance.md) |
+| Premier démarrage local | [Développement](development/development.md) → [Configuration](development/configuration.md) → [Docker](deployment/container-deployment.md#developpement-local) |
+| Intégrer le mobile ou le dashboard | [Contrat HTTP](api/http-contract.md) → [Postman](../postman/README.md) → [Administration](features/administration.md) |
+| Installer sur un serveur | [Configuration](development/configuration.md) → [Déploiement](deployment/container-deployment.md) → [Mise en production](deployment/production-readiness.md) |
+| Exploiter l’API | [Exploitation](operations/operations.md) → [Supervision](operations/observability.md) → [Base de données](database/database.md) |
+| Modifier le code | [Architecture](development/architecture.md) → [Tests](../tests/README.md) → [Performance SQL](database/sql-performance.md) |
+| Mesurer la capacité | [Test de charge](testing/load-testing.md) → [Supervision](operations/observability.md) → [Performance SQL](database/sql-performance.md) |
 
-## Références par sujet
+## Guides par thème
 
-- [Protection des SMS Sweego](sms-safety.md) : plafonds par numéro, arrêt global et alertes.
-- [Reprise des sessions mobiles](refresh-recovery.md) : rotation récupérable, expiration et révocation.
-- [Numéros SMS publics](phone-blocklist.md) : listes locales, exceptions administratives, import quotidien et alertes.
-- [Configuration](configuration.md) : chargement, priorité des variables, contraintes et secrets.
-- [Déploiement](container-deployment.md) : topologies, Caddy, tunnel Cloudflare, réseaux, TLS et mises à jour.
-- [Secrets de production](production-secrets.md) : génération S3, CA PostgreSQL/Redis, certificat public S3 et secrets des fournisseurs natifs.
-- [Scripts serveur](../../histae-scripts/README.md) : procédures dev/production, vérifications et timer de maintenance.
-- [Base de données](database.md) : schéma, migrateur, sauvegarde, restauration et suppression.
-- [Utilisation des tables](database-usage.md) : inventaire des 64 tables applicatives et points d’accès SQL.
-- [Rôles PostgreSQL](postgres-roles.md) : comptes séparés, mots de passe dans `.env`, installation et conversion dev.
-- [Administration](administration.md) : premier superadmin, enrôlement, sessions et rôles.
-- [Exploitation](operations.md) : processus, passes de maintenance et incidents de démarrage.
-- [Achats Apple / Google](store-billing.md) : configuration, OTP du site, restaurations, rapports et exploitation.
-- [Abonnements](billing.md) : droits Premium, revenus issus des rapports et retrait du paiement web.
-- [Continuations et récompenses](continuation-and-rewards.md) : fenêtres, crédits, confidentialité des choix et activation AdMob.
-- [Confidentialité et capacité photo](privacy-and-photo-security.md) : localisation approximative, migration, limites du convertisseur et expiration des liens photo.
-- [Internationalisation](internationalization.md) : langues, traductions des catalogues, documents, notifications et préférences.
-- [Notifications push](push-notifications.md) : événements, prénoms, destinations, expiration et validation de livraison.
-- [Contrat HTTP](http-contract.md) : routes, entrées, réponses, permissions et idempotence.
-- [Postman](../postman/README.md) : import des JSON et parcours de test.
-- [Supervision](observability.md) : Prometheus, Grafana, alertes et runbooks.
-- [Performance SQL](sql-performance.md) : index, plans et protocole de mesure.
-- [Test de charge](load-testing.md) : comptes fictifs, sessions sans OTP, k6, Cloudflare et nettoyage.
-- [Validation approfondie de la charge](load-testing-validation.md) : répétitions, p99, sécurité concurrente et variantes du feed.
-- [Architecture](architecture.md) : responsabilités du code et cycles de vie.
-- [Tests](../tests/README.md) : commandes, infrastructure et limites des preuves.
-- [Mise en production](production-readiness.md) : validations sur la livraison réelle.
-- [Accès de revue Google Play](google-play-review.md) : compte dédié, connexion sans SMS, sécurité et instructions de publication.
+### Développement — `development/`
+
+- [Démarrage et outils](development/development.md) : compilation, données fictives et parcours locaux.
+- [Configuration](development/configuration.md) : variables, valeurs par défaut, priorités et secrets.
+- [Architecture](development/architecture.md) : domaines, responsabilités et assemblage des processus.
+
+### Contrats et intégration — `api/`
+
+- [Contrat HTTP](api/http-contract.md) : routes, requêtes, réponses, autorisations et idempotence.
+- [Internationalisation](api/internationalization.md) : langues, catalogues, consentements et préférence du compte.
+- [Collections Postman](../postman/README.md) : import et configuration des parcours de test.
+
+### Fonctionnalités — `features/`
+
+- [Administration](features/administration.md) : WebAuthn, sessions, rôles et corrections de profil.
+- [Abonnements](features/billing.md) : droits Premium et revenus administratifs.
+- [Achats Apple / Google](features/store-billing.md) : preuves, webhooks, restauration et rapports financiers.
+- [Continuations et récompenses](features/continuation-and-rewards.md) : décisions privées, crédits et AdMob.
+- [Notifications push](features/push-notifications.md) : préférences, destinataires, livraison et navigation.
+- [Accès de revue Google Play](features/google-play-review.md) : compte dédié et publication dans le store.
+- [Reprise des sessions mobiles](features/refresh-recovery.md) : rotation récupérable, expiration et révocation.
+- [Protection SMS Sweego](features/sms-safety.md) : plafonds, arrêt des envois et alertes.
+- [Numéros SMS publics](features/phone-blocklist.md) : synchronisation des listes et exceptions administratives.
+- [Confidentialité et photos](features/privacy-and-photo-security.md) : localisation minimisée, codec et accès privé.
+
+### Déploiement — `deployment/`
+
+- [Docker, Caddy et Cloudflare](deployment/container-deployment.md) : topologies, réseaux, TLS et mises à jour.
+- [Secrets de production](deployment/production-secrets.md) : certificats, stockage, supervision et fournisseurs.
+- [Mise en production](deployment/production-readiness.md) : vérifications sur la livraison réelle.
+- [Scripts serveur](../../histae-scripts/README.md) : commandes de déploiement et ordonnanceurs.
+
+### Base de données — `database/`
+
+- [Schéma et migrations](database/database.md) : installation, mise à niveau, sauvegarde et restauration.
+- [Utilisation des tables](database/database-usage.md) : rôle des tables et points d’accès SQL.
+- [Rôles PostgreSQL](database/postgres-roles.md) : séparation des accès, mots de passe et conversion dev.
+- [Performance SQL](database/sql-performance.md) : index, plans d’exécution et protocole de mesure.
+
+### Exploitation — `operations/`
+
+- [Processus et maintenance](operations/operations.md) : workers, traitements bornés et incidents de démarrage.
+- [Supervision et runbooks](operations/observability.md) : Prometheus, Grafana, alertes et diagnostic.
+
+### Tests de charge — `testing/`
+
+- [Guide k6 et Cloudflare](testing/load-testing.md) : environnement isolé, sessions fictives et montée en charge.
+- [Validation approfondie](testing/load-testing-validation.md) : répétitions, sécurité concurrente et variantes du feed.
+- [Tests automatisés](../tests/README.md) : suites Rust, PostgreSQL, Redis, S3 et codec.
 
 ## Conventions et entretien
 

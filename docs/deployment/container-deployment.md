@@ -1,6 +1,6 @@
 # Déploiement Docker
 
-[Index](README.md) · [Configuration](configuration.md) · [Exploitation](operations.md)
+[Index](../README.md) · [Configuration](../development/configuration.md) · [Exploitation](../operations/operations.md)
 
 Les commandes partent de la racine de `histae-api-rust`. Les images contiennent le code compilé ;
 aucun mode décrit ici ne monte les sources pour les recharger automatiquement.
@@ -21,7 +21,7 @@ son raccordement au proxy est déjà inclus. L’override production réinitiali
 et impose les deux IP de proxy approuvées (`172.30.0.3/32`, `172.30.0.4/32`). Une valeur locale
 `TRUST_PROXY=false` ne désactive donc pas la séparation des visiteurs derrière le tunnel en production.
 
-Les deux piles séparent les [rôles PostgreSQL](postgres-roles.md), initialisés automatiquement sur un volume
+Les deux piles séparent les [rôles PostgreSQL](../database/postgres-roles.md), initialisés automatiquement sur un volume
 neuf. Modifier les variables d'un volume existant ne crée pas les rôles ni ne change leurs mots de passe.
 Les balises `!override` demandent Docker Compose 2.24.4 ou ultérieur. `healthcheck.start_interval`
 demande Docker Engine 25 ou ultérieur : les contrôles s’exécutent toutes les deux secondes pendant
@@ -31,7 +31,7 @@ la période de démarrage, puis reprennent leur intervalle habituel. Les tests e
 
 ## Développement local
 
-Préparer `.env` selon la [configuration minimale](configuration.md#configuration-locale-minimale), puis :
+Préparer `.env` selon la [configuration minimale](../development/configuration.md#configuration-locale-minimale), puis :
 
 ```bash
 python3 scripts/prepare-postgres-roles-env.py .env
@@ -64,10 +64,10 @@ dépend du nombre de clients connectés et des mesures de ressources, distincts 
 
 PostgreSQL utilise l’image construite depuis `docker/postgres/Dockerfile` : PostgreSQL 18.7 bookworm
 et PostGIS 3.7.0. Le migrateur installe l’extension et l’index spatial avant la nouvelle API.
-Pour la première mise à jour d’un volume existant, suivre la [procédure PostgreSQL/PostGIS](database.md#postgis-et-mise-a-jour-dune-installation).
+Pour la première mise à jour d’un volume existant, suivre la [procédure PostgreSQL/PostGIS](../database/database.md#postgis-et-mise-a-jour-dune-installation).
 
 Les deux piles préchargent aussi `pg_stat_statements`. Sur un volume neuf, son script d’initialisation
-est automatique ; sur un volume existant, suivre la [procédure d’activation SQL](sql-performance.md#pg-stat-statements).
+est automatique ; sur un volume existant, suivre la [procédure d’activation SQL](../database/sql-performance.md#pg-stat-statements).
 
 ### Ports et overrides
 
@@ -88,7 +88,7 @@ les conteneurs. Pour PostgreSQL, `POSTGRES_PORT` règle le port **hôte** publi�
 Le réseau backend vaut `histae-rust-backend` par défaut en dev. Prometheus y joint directement l’API ;
 le réseau interne `observability` relie les trois outils. `compose.dev.yaml` impose `METRICS_ENABLED=true`
 et le port interne `9091`, même si les métriques sont désactivées pour les processus natifs dans `.env`.
-La pile autonome reste disponible pour une API native ; voir [Supervision](observability.md).
+La pile autonome reste disponible pour une API native ; voir [Supervision](../operations/observability.md).
 
 <a id="acces-lan"></a>
 
@@ -126,7 +126,7 @@ utiliser l’origine HTTPS du proxy décrite ci-dessous.
 
 ## Développement derrière Cloudflare et le reverse proxy
 
-La pile voisine [reverse-proxy](../../histae-reverse-proxy/README.md) crée `histae-edge` avec son IPAM.
+La pile voisine [reverse-proxy](../../../histae-reverse-proxy/README.md) crée `histae-edge` avec son IPAM.
 Le sous-réseau prévu est `172.30.0.0/24` ; il doit être libre sur le serveur. Cette pile réserve :
 
 | Service | Adresse edge | Rôle dans la confiance |
@@ -140,7 +140,7 @@ Configurer `../histae-reverse-proxy/.env` avec `HISTAE_API_UPSTREAM=http://hista
 `HISTAE_EDGE_NETWORK`. Démarrer cette pile depuis son dossier avant l’API ; ne pas précréer son réseau edge.
 Elle crée aussi `histae-monitoring`, interne, sur `172.29.0.0/24` : ce second sous-réseau doit être libre.
 `compose.proxy.yaml` y raccorde les trois outils sans ajouter de port publié ni de domaine Cloudflare.
-Le [guide de supervision](observability.md#supervision-integree-au-developpement) décrit la préparation et l’accès superadmin.
+Le [guide de supervision](../operations/observability.md#supervision-integree-au-developpement) décrit la préparation et l’accès superadmin.
 Dans `.env` de l’API, définir l’origine réelle du dashboard, par exemple :
 
 ```dotenv
@@ -167,7 +167,7 @@ notamment lors d’une recréation de l’API, pour conserver son réseau edge.
 Le tunnel cible `http://reverse-proxy:80` pour les domaines site, dashboard et API. Caddy accepte
 `CF-Connecting-IP` uniquement depuis le connecteur attendu et remplace `X-Forwarded-For`. L’API ne doit
 pas approuver arbitrairement toutes les IP ou toute la plage Docker. Si l’IPAM change, adapter ensemble
-le proxy, l’override et les listes de confiance. Voir [Administration](administration.md) pour WebAuthn.
+le proxy, l’override et les listes de confiance. Voir [Administration](../features/administration.md) pour WebAuthn.
 
 ## Caddy et le tunnel Cloudflare
 
@@ -229,18 +229,18 @@ sudo docker exec reverse-proxy-container \
 
 La dernière commande doit retourner `{"status":"ready"}`. Vérifier aussi le domaine réel du dashboard,
 la connexion passkey, les refus 401 sans session, les événements SSE et l’affichage des photos signées.
-Les scripts de [déploiement](../../histae-scripts/README.md) valident les configurations avant redémarrage.
+Les scripts de [déploiement](../../../histae-scripts/README.md) valident les configurations avant redémarrage.
 
 ## Production
 
-Pour une installation neuve, préparer `.env` selon [Configuration](configuration.md), compléter
+Pour une installation neuve, préparer `.env` selon [Configuration](../development/configuration.md), compléter
 les valeurs de production et préparer les quatre mots de passe avec
-`python3 scripts/prepare-postgres-roles-env.py .env`. Les [rôles PostgreSQL](postgres-roles.md)
+`python3 scripts/prepare-postgres-roles-env.py .env`. Les [rôles PostgreSQL](../database/postgres-roles.md)
 sont créés automatiquement sur le volume vide ; aucun identifiant administrateur n'est injecté dans l'API.
 
 ### Environnement et images
 
-Préparer `.env` à partir des groupes de [Configuration](configuration.md). Inclure :
+Préparer `.env` à partir des groupes de [Configuration](../development/configuration.md). Inclure :
 
 ```dotenv
 ENV=production
@@ -274,7 +274,7 @@ bash ../histae-scripts/prepare-production.sh --check
 Le bilan indique les variables et fichiers à corriger sans afficher les secrets. Les certificats
 restent à fournir selon le tableau ci-dessous ; le script vérifie leur correspondance avec les clés,
 les SAN, la CA commune PostgreSQL/Redis et la confiance publique du S3 sur l'hôte.
-Voir [les options et limites du préparateur](../../histae-scripts/README.md#préparer-la-production).
+Voir [les options et limites du préparateur](../../../histae-scripts/README.md#préparer-la-production).
 La confiance TLS depuis les images clientes doit encore être validée sur la cible.
 
 Préparer les fichiers hors Git, avec les permissions nécessaires aux utilisateurs des images :
@@ -324,7 +324,7 @@ PostgreSQL utilise SQLx avec vérification du certificat et du nom serveur. Redi
 montée : le nom historique `NODE_EXTRA_CA_CERTS` est lu par les adaptateurs Rust. Après changement de CA,
 recréer les clients ; après renouvellement du certificat serveur, recharger le service et vérifier une nouvelle connexion.
 Sur un volume PostgreSQL existant, changer `POSTGRES_PASSWORD` ne change pas le mot de passe du rôle :
-effectuer une rotation SQL coordonnée. Voir [Base de données](database.md).
+effectuer une rotation SQL coordonnée. Voir [Base de données](../database/database.md).
 
 ### Réseaux et démarrage
 
@@ -341,7 +341,7 @@ sudo docker exec reverse-proxy-container sh -c 'wget -qO- "$HISTAE_API_UPSTREAM/
 
 Adapter le nom si `HISTAE_BACKEND_NETWORK` est personnalisé. Si dev et production coexistent, leur donner
 chacun un backend distinct. Aucun port hôte API, PostgreSQL, Redis ou S3 brut n’est publié en production.
-Le listener métriques reste privé ; voir [Supervision](observability.md).
+Le listener métriques reste privé ; voir [Supervision](../operations/observability.md).
 
 La procédure centralisée se lance depuis `../histae-scripts` :
 
@@ -353,7 +353,7 @@ Elle sélectionne les manifests production et ajoute `compose.production-observa
 pour les interfaces protégées du dashboard. Elle prépare les secrets de supervision, vérifie les
 montages/réseaux, construit avant redémarrage et contrôle Caddy, Cloudflare, S3, readiness et règles
 Prometheus. `--check` utilise les fichiers et images existants sans redémarrer les services.
-Voir le [guide des scripts](../../histae-scripts/README.md) pour les modes et la maintenance systemd.
+Voir le [guide des scripts](../../../histae-scripts/README.md) pour les modes et la maintenance systemd.
 
 ### Ressources
 
@@ -362,7 +362,7 @@ outbox 768 Mio, Redis 256 Mio, SeaweedFS 1 Gio, passerelle S3 128 Mio.
 La supervision ajoute 1,5 Gio ; maintenance/migration peuvent ajouter 1 Gio chacune et `storage-init` 256 Mio.
 Les plafonds ne réservent pas la RAM : prévoir aussi Linux, Docker, le tunnel, les builds et les sauvegardes.
 
-PostgreSQL production utilise [postgresql.conf](../docker/postgres/postgresql.conf), notamment
+PostgreSQL production utilise [postgresql.conf](../../docker/postgres/postgresql.conf), notamment
 `max_connections=100` et `shared_buffers=1792MB`. Chaque pool applicatif et pool de verrous compte dans ce
 budget ; le recalculer avant réplication ou hausse de `POSTGRES_POOL_MAX`. Le PostgreSQL dev est limité à
 1 Gio avec les réglages de l’image. La modération dev possède un plafond différent : 2 Gio.
@@ -388,7 +388,7 @@ la recréation de l’API ; il installe les index d’une base existante sans re
 
 Une simple modification de `.env` demande la recréation des services concernés, sans build si le code n’a pas
 changé. La recréation interrompt les connexions/SSE ; les données des volumes sont conservées. Après mise à
-jour, vérifier readiness, logs, flux métier et [maintenance](operations.md). Un rollback vers une ancienne image
+jour, vérifier readiness, logs, flux métier et [maintenance](../operations/operations.md). Un rollback vers une ancienne image
 n’est sûr que si elle reste compatible avec le schéma et les états déjà écrits.
 
 ## Arrêt et reprise
@@ -397,7 +397,7 @@ Utiliser les mêmes fichiers et le même environnement que lors du démarrage. `
 `up -d` les reprend. `down` retire les conteneurs/réseaux gérés par la pile mais conserve les volumes nommés
 par défaut. **`down -v` et les scripts de purge Docker détruisent les données persistantes.**
 Après une suppression totale de Docker, restaurer les sauvegardes et reconstruire les piles ; les données ne
-reviennent pas en lançant `up`. Voir [Sauvegarde/restauration](database.md#sauvegarde-et-restauration).
+reviennent pas en lançant `up`. Voir [Sauvegarde/restauration](../database/database.md#sauvegarde-et-restauration).
 
-Les diagnostics de démarrage sont centralisés dans [Exploitation](operations.md#diagnostic-de-demarrage).
+Les diagnostics de démarrage sont centralisés dans [Exploitation](../operations/operations.md#diagnostic-de-demarrage).
 Les validations avant exposition réelle sont dans [Mise en production](production-readiness.md).

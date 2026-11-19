@@ -11,7 +11,7 @@ struct Route {
 #[test]
 fn documented_http_inventory_matches_rust_route_registrations() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let documented = documented_routes(&root.join("docs/http-contract.md"));
+    let documented = documented_routes(&root.join("docs/api/http-contract.md"));
     let registered = registered_routes(&root.join("src"));
 
     let missing = documented
@@ -36,7 +36,7 @@ fn documented_http_inventory_matches_rust_route_registrations() {
 #[test]
 fn postman_collections_cover_the_same_routes_and_keep_admin_cookie_authentication() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let documented = documented_routes(&root.join("docs/http-contract.md"));
+    let documented = documented_routes(&root.join("docs/api/http-contract.md"));
     let expected: BTreeSet<_> = documented
         .into_iter()
         .map(|route| Route {

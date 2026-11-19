@@ -1,6 +1,6 @@
 # Blocage des numéros SMS publics
 
-[Index](README.md) · [Protection SMS](sms-safety.md) · [Rôles PostgreSQL](postgres-roles.md)
+[Index](../README.md) · [Protection SMS](sms-safety.md) · [Rôles PostgreSQL](../database/postgres-roles.md)
 
 ## Fonctionnement
 

@@ -1,6 +1,6 @@
 # Continuations, crédits et récompenses publicitaires
 
-[Documentation](README.md) · [Contrat HTTP](http-contract.md#decouverte-matchs-et-messages) · [Postman](../postman/README.md) · [Configuration](configuration.md)
+[Documentation](../README.md) · [Contrat HTTP](../api/http-contract.md#decouverte-matchs-et-messages) · [Postman](../../postman/README.md) · [Configuration](../development/configuration.md)
 
 Ce guide décrit les règles métier, le parcours des crédits et l’activation AdMob. Le contrat HTTP décrit les routes et codes d’erreur. Les pages du site présentent ces règles dans les quatre langues ; l’app et le dashboard affichent les compteurs transmis par l’API. Les publicités restent désactivées par défaut et nécessitent la configuration du fournisseur.
 
@@ -58,7 +58,7 @@ pas continuer à créer des notifications sous l’ancien contrat pendant la mis
 | Continuations confirmées | 5 maximum par personne et par semaine UTC | Illimitées |
 | Coût d’une continuation | 1 crédit **pour chaque participant Free** | 0 |
 
-Le prix Premium reste **5 € par mois ou 48 € par an, sans période d'essai**. Les prix réellement facturés viennent des stores ; voir [Configuration](configuration.md#tarifs-du-catalogue-et-achats-natifs).
+Le prix Premium reste **5 € par mois ou 48 € par an, sans période d'essai**. Les prix réellement facturés viennent des stores ; voir [Configuration](../development/configuration.md#tarifs-du-catalogue-et-achats-natifs).
 
 ### Réserver, confirmer et libérer
 
@@ -229,7 +229,7 @@ Les exports incluent le wallet et sa semaine, l’usage, les réservations et le
 
 Les textes juridiques du site sont des **brouillons** actualisés. Avant l’activation des publicités, finaliser/valider les prestataires, données SDK, bases juridiques, transferts et choix UMP ; publier les nouvelles versions puis mettre à jour les versions/URL API et une référence de validation juridique réelle. Cette intervention ne fabrique pas de `LEGAL_REVIEW_REFERENCE` ni d’approbation juridique.
 
-Voir [Tests](../tests/README.md) pour les commandes et [Mise en production](production-readiness.md) pour les vérifications sur appareils et fournisseurs.
+Voir [Tests](../../tests/README.md) pour les commandes et [Mise en production](../deployment/production-readiness.md) pour les vérifications sur appareils et fournisseurs.
 
 ### Mise à jour de la formule hebdomadaire
 

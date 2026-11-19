@@ -1,6 +1,6 @@
 # Supervision et runbooks
 
-[Index](README.md) · [Exploitation](operations.md) · [Performance SQL](sql-performance.md)
+[Index](../README.md) · [Exploitation](operations.md) · [Performance SQL](../database/sql-performance.md)
 
 Ce guide couvre l’export Prometheus privé de l’API, la pile locale Prometheus/Alertmanager/Grafana, les seuils
 initiaux et la conduite à tenir. Les seuils sont des points de départ à recalibrer avec des mesures de charge
@@ -270,7 +270,7 @@ de logs contenant corps, query string, téléphone, token ou stack pour diagnost
 ## Latence HTTP
 
 Comparer débit, CPU/mémoire du conteneur, pool PostgreSQL et histogrammes de dépendance. Identifier une route normalisée, puis
-suivre le [guide SQL](sql-performance.md). Ne pas relever les timeouts avant d’avoir vérifié
+suivre le [guide SQL](../database/sql-performance.md). Ne pas relever les timeouts avant d’avoir vérifié
 verrous, plans SQL, saturation CPU/mémoire et taille des lots.
 
 <a id="authentication-failures"></a>
@@ -373,8 +373,8 @@ du dashboard, vérifier le trafic puis suspendre si nécessaire. Les plafonds pa
 par défaut) restent appliqués même sans supervision. Une reprise ne réinitialise aucun compteur.
 Le seuil de pic est configurable via `SMS_ALERT_SPIKE_5M`. Le panneau Grafana complète la lecture
 avec les compteurs globaux ; agréger les copies inter-instances avec `max`, pas `sum`.
-Voir le [guide complet](sms-safety.md) pour le mode secours et les limites de preuve.
+Voir le [guide complet](../features/sms-safety.md) pour le mode secours et les limites de preuve.
 
 ## Achats natifs
 
-File outbox `store_billing`, acquittements Google et relectures en retard : [runbook](store-billing.md#exploitation).
+File outbox `store_billing`, acquittements Google et relectures en retard : [runbook](../features/store-billing.md#exploitation).
