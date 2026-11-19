@@ -84,9 +84,9 @@ resynchronizes authentication, then rereads the authorized destination. Foregrou
 
 No new environment variables. Apply the migration with the migration role, then run matching API,
 outbox and maintenance versions. Stop the old worker before the new API produces these event kinds.
-The `notification events` section of `db/001_schema_postgres.sql` defines the type constraint and
-photo-grant generation once. `db-migrate` reuses that section for existing databases; a fresh
-installation applies it as part of the complete schema.
+The `notification` and `match_init` tables in `db/001_schema_postgres.sql` define the initial type
+constraint and photo-grant generation directly in `CREATE TABLE`. For existing databases,
+`db-migrate` applies the `notification events` section of `src/infra/migrations/table_upgrades.sql`.
 The idempotent `notification preferences` section creates the two preference tables without
 rewriting any existing device registration or opt-out. Run migration **before** starting the new
 API/worker; readiness rejects the old schema. Deploy both server processes before the updated app.

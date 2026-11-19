@@ -6,16 +6,24 @@
 
 | Fichier | Usage |
 | --- | --- |
-| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma consolidé : 66 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
+| [001_schema_postgres.sql](../db/001_schema_postgres.sql) | Schéma initial : 64 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
 | [002_insert_postgres.sql](../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
 | [drop_postgres.sql](../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
 | [migrations.rs](../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
+| [table_upgrades.sql](../src/infra/migrations/table_upgrades.sql) | `ALTER TABLE` idempotents réservés aux bases existantes : identifiants, compte de revue, notifications et achats natifs |
 | [query_indexes.rs](../src/infra/query_indexes.rs) | Installation concurrente des index de performance, dont le GiST géographique et la purge des reprises de session, sur une base existante |
 | [000_bootstrap_postgres.sql](../db/000_bootstrap_postgres.sql) | Bootstrap administrateur : rôles, extensions, permissions, conversion dev et rétablissement après reset |
 
-Les blocs idempotents délimités par `-- BEGIN …` / `-- END …` sont réutilisés par le migrateur
-pour les mises à jour. Les politiques des numéros publics et les événements de notification
-n’ont pas de seconde copie dans un fichier SQL séparé. Une section incomplète est refusée.
+Les colonnes, valeurs par défaut et contraintes du schéma initial sont directement définies dans
+les `CREATE TABLE`. `001_schema_postgres.sql` ne contient plus d’`ALTER TABLE` de mise à niveau.
+Les blocs idempotents délimités par `-- BEGIN …` / `-- END …` restent réutilisés par le migrateur
+pour les objets partagés (fonctions, index, tables de politique, triggers).
+Les évolutions de tables sont conservées dans `table_upgrades.sql` et dans les migrations de données Rust.
+Une section incomplète est refusée. Le test PostgreSQL compare colonnes, types, nullabilité, valeurs
+par défaut, contraintes, index et triggers d’une installation neuve avec ceux d’une ancienne structure
+remise à niveau deux fois. L’ordre physique des colonnes est exclu : `ADD COLUMN` ajoute une colonne à la fin.
+
+L’[inventaire des tables](database-usage.md) décrit un accès SQL réel pour chacune des 64 tables applicatives.
 
 Il n’existe plus de ledger `schema_migrations`. Le migrateur retire cette ancienne table si elle est présente.
 
@@ -25,7 +33,7 @@ Les nouveaux messages (`chat_message.id`), notifications (`notification.id`) et 
 (`outbox_event.id`) utilisent des UUID v7. Les références de livraison push utilisent le même UUID v7
 que leur événement outbox. Rust emploie `Uuid::now_v7()` ; PostgreSQL fournit `uuidv7()` pour les
 valeurs par défaut et les livraisons créées dans une transaction SQL.
-La section canonique `event identifiers` est aussi appliquée aux bases existantes. Elle change uniquement
+La section `event identifiers` de `table_upgrades.sql` est appliquée aux bases existantes. Elle change uniquement
 les valeurs par défaut : aucune clé existante n’est réécrite. Les UUID v4 et v7 coexistent, y compris
 dans une conversation et dans la file outbox. Pagination, rétention et traitement continuent de se baser
 sur les horodatages métier et les identifiants de départage, jamais sur la date extraite de l’UUID.
@@ -61,7 +69,7 @@ catalogue HTTP et des modèles clients. Les dates d'essais historiques des abonn
 
 Les notifications de fin d’essai sont retirées : le migrateur supprime leurs tâches outbox et
 leurs notifications, puis la colonne dédiée `notification.billing_trial_ends_at`. La section
-`notification events` rétablit ensuite la contrainte complète des types actuels ; aucune liste
+`notification events` dans `table_upgrades.sql` rétablit ensuite la contrainte complète des types actuels ; aucune liste
 historique de types ne la remplace. Les contraintes sont alignées sur le schéma neuf ; cette mise à niveau est idempotente et conserve les autres
 notifications et les abonnements.
 Les index de performance sont ensuite construits avec `CONCURRENTLY`, hors de la transaction de schéma.
@@ -137,7 +145,7 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --
 Ajouter l’override proxy s’il est utilisé. En production, employer les fichiers d’environnement et
 Compose de production. La mise à jour de PostgreSQL implique un bref redémarrage ; le migrateur doit
 terminer avant le démarrage de la nouvelle API. Une sauvegarde contenant PostGIS doit être restaurée
-sur un serveur disposant de cette extension. Le schéma actuel comporte 61 tables publiques ; le test de restauration doit retrouver ce nombre.
+sur un serveur disposant de cette extension. Le schéma actuel comporte 65 tables publiques ; le test de restauration doit retrouver ce nombre.
 
 Le migrateur ne transforme pas automatiquement une base arbitraire. Modifier le fichier de schéma ne suffit
 pas à modifier une base existante : toute évolution doit aussi avoir son chemin de mise à niveau et ses tests.
@@ -207,7 +215,7 @@ public et le nombre de tables, puis supprime base temporaire et archive. Le rôl
 Il choisit Docker direct ou `sudo` selon l’accès disponible.
 
 Le message `Development backup/restore verification passed (...)` confirme cette restauration technique.
-Le schéma actuel comporte 66 tables applicatives et la table spatiale de PostGIS, soit 67 tables publiques attendues.
+Le schéma actuel comporte 64 tables applicatives et la table spatiale de PostGIS, soit 65 tables publiques attendues.
 Le script ne conserve pas de sauvegarde, ne compare pas toutes les données et ne teste pas la reprise du S3,
 des certificats ou des fournisseurs.
 

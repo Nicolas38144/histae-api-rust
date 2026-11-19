@@ -519,8 +519,14 @@ a dépassé le délai d’une navigation pendant les compilations ; le passage s
 
 ### Consolidation SQL et protection SMS — 6 novembre 2026
 
-Les sections `phone blocklist` et `notification events` de `db/001_schema_postgres.sql` sont
-partagées par l’installation neuve et les upgrades. Les fichiers SQL séparés ont été retirés.
+Lors de la consolidation du 6 novembre, les sections `phone blocklist` et `notification events`
+de `db/001_schema_postgres.sql` étaient partagées par l’installation neuve et les upgrades.
+Les fichiers SQL séparés avaient été retirés.
+Depuis le nettoyage du schéma initial du 19 novembre, les définitions de colonnes et contraintes sont
+dans les `CREATE TABLE` ; les `ALTER TABLE` d’upgrade sont réservés à
+`src/infra/migrations/table_upgrades.sql`. Les index de notification restent partagés dans la section
+`notification indexes`. `outbox_postgres` compare le catalogue PostgreSQL neuf et celui obtenu après
+deux migrations d’une structure ancienne, puis vérifie la conservation des identifiants et des données.
 Le test du lecteur de sections exige les deux délimiteurs et exclut les instructions voisines.
 Le lanceur PostgreSQL simule aussi des notifications d’essai retirées en présence de notifications
 de continuation : il vérifie leur nettoyage avant la contrainte actuelle, la conservation des autres

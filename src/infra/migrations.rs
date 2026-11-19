@@ -10,6 +10,7 @@ use super::postgres::{
 const MIGRATION_LOCK: i64 = 86_302_003;
 const SCHEMA: &str = include_str!("../../db/001_schema_postgres.sql");
 const SEED: &str = include_str!("../../db/002_insert_postgres.sql");
+const TABLE_UPGRADES: &str = include_str!("migrations/table_upgrades.sql");
 
 pub async fn apply(config: &PostgresConfig) -> Result<u32, DatabaseError> {
     let pool = connect_pool(config, 1, "histae-migrate").await?;
@@ -82,7 +83,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
     retire_stripe(&mut transaction).await?;
-    sqlx::raw_sql(schema_section(SCHEMA, "event identifiers")?)
+    sqlx::raw_sql(schema_section(TABLE_UPGRADES, "event identifiers")?)
         .execute(&mut *transaction)
         .await
         .map_err(map_sqlx_error)?;
@@ -178,8 +179,9 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         (SCHEMA, "sms safety"),
         (SCHEMA, "mobile otp queue"),
         // The common subscription projection reads the review identity marker.
-        (SCHEMA, "play review account"),
+        (TABLE_UPGRADES, "play review account"),
         (SCHEMA, "complimentary premium"),
+        (TABLE_UPGRADES, "store billing columns"),
         (SCHEMA, "store billing"),
         (SCHEMA, "web account"),
         (SCHEMA, "continuation credits"),
@@ -234,7 +236,11 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
         .await
         .map_err(map_sqlx_error)?;
     retire_payment_notifications(&mut transaction).await?;
-    sqlx::raw_sql(schema_section(SCHEMA, "notification events")?)
+    sqlx::raw_sql(schema_section(TABLE_UPGRADES, "notification events")?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
+    sqlx::raw_sql(schema_section(SCHEMA, "notification indexes")?)
         .execute(&mut *transaction)
         .await
         .map_err(map_sqlx_error)?;

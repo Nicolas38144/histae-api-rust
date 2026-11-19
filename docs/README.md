@@ -21,6 +21,7 @@ Cette documentation regroupe les guides nécessaires pour développer, intégrer
 - [Secrets de production](production-secrets.md) : génération S3, CA PostgreSQL/Redis, certificat public S3 et secrets des fournisseurs natifs.
 - [Scripts serveur](../../histae-scripts/README.md) : procédures dev/production, vérifications et timer de maintenance.
 - [Base de données](database.md) : schéma, migrateur, sauvegarde, restauration et suppression.
+- [Utilisation des tables](database-usage.md) : inventaire des 64 tables applicatives et points d’accès SQL.
 - [Rôles PostgreSQL](postgres-roles.md) : comptes séparés, mots de passe dans `.env`, installation et conversion dev.
 - [Administration](administration.md) : premier superadmin, enrôlement, sessions et rôles.
 - [Exploitation](operations.md) : processus, passes de maintenance et incidents de démarrage.

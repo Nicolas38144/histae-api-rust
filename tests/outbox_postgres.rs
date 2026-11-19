@@ -1,5 +1,6 @@
 #![cfg(feature = "postgres-integration")]
 
+use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 use std::panic::AssertUnwindSafe;
@@ -89,6 +90,7 @@ async fn claims_are_exclusive_stale_and_owned() -> Result<(), Box<dyn std::error
         migrations::apply(&config).await?;
         let database = Database::connect(&config).await?;
         let result = AssertUnwindSafe(async {
+            assert_initial_and_upgraded_schema_match(&config, &database).await?;
             assert_event_identifier_upgrade(&config, &database).await?;
             assert_payment_notification_retirement(&config, &database).await?;
             assert_index_upgrade(&config, &database).await?;
@@ -115,6 +117,86 @@ async fn claims_are_exclusive_stale_and_owned() -> Result<(), Box<dyn std::error
         Ok(result) => result,
         Err(panic) => std::panic::resume_unwind(panic),
     }
+}
+
+async fn schema_snapshot(
+    database: &Database,
+) -> Result<BTreeMap<String, String>, Box<dyn std::error::Error>> {
+    let mut connection = database.acquire().await?;
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT relation.relname || '.column.' || attribute.attname,
+                jsonb_build_array(format_type(attribute.atttypid,attribute.atttypmod),
+                  attribute.attnotnull,pg_get_expr(value.adbin,value.adrelid),
+                  attribute.attidentity,attribute.attgenerated)::text
+         FROM pg_class relation
+         JOIN pg_attribute attribute ON attribute.attrelid=relation.oid
+         LEFT JOIN pg_attrdef value ON value.adrelid=relation.oid AND value.adnum=attribute.attnum
+         WHERE relation.relnamespace='public'::regnamespace AND relation.relkind IN ('r','p')
+           AND attribute.attnum>0 AND NOT attribute.attisdropped
+         UNION ALL
+         SELECT relation.relname || '.constraint.' || rule.conname,
+                pg_get_constraintdef(rule.oid,true)
+         FROM pg_constraint rule JOIN pg_class relation ON relation.oid=rule.conrelid
+         WHERE relation.relnamespace='public'::regnamespace
+         UNION ALL
+         SELECT tablename || '.index.' || indexname, indexdef
+         FROM pg_indexes WHERE schemaname='public'
+         UNION ALL
+         SELECT relation.relname || '.trigger.' || trigger.tgname,
+                pg_get_triggerdef(trigger.oid,true)
+         FROM pg_trigger trigger JOIN pg_class relation ON relation.oid=trigger.tgrelid
+         WHERE relation.relnamespace='public'::regnamespace AND NOT trigger.tgisinternal",
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
+async fn assert_initial_and_upgraded_schema_match(
+    config: &PostgresConfig,
+    database: &Database,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let initial = schema_snapshot(database).await?;
+    // Simulate older installations without rewriting any stored identifiers.
+    // Column order is deliberately excluded: ADD COLUMN appends on existing tables.
+    let mut connection = database.acquire().await?;
+    sqlx::raw_sql(
+        "ALTER TABLE user_account DROP COLUMN is_review_account CASCADE;
+         ALTER TABLE match_init DROP COLUMN photo_reveal_version CASCADE;
+         ALTER TABLE billing_store_subscription DROP COLUMN superseded CASCADE;
+         ALTER TABLE notification DROP CONSTRAINT notification_type_check;
+         ALTER TABLE notification ADD CONSTRAINT notification_type_check
+           CHECK (type IN ('new_match','new_message'));
+         ALTER TABLE chat_message ALTER COLUMN id SET DEFAULT uuid_generate_v4();
+         ALTER TABLE notification ALTER COLUMN id SET DEFAULT uuid_generate_v4();
+         ALTER TABLE outbox_event ALTER COLUMN id DROP DEFAULT;",
+    )
+    .execute(&mut *connection)
+    .await?;
+    drop(connection);
+    for _ in 0..2 {
+        migrations::apply(config).await?;
+        let upgraded = schema_snapshot(database).await?;
+        assert_eq!(initial.len(), upgraded.len(), "schema object count changed");
+        for (name, definition) in &initial {
+            assert_eq!(upgraded.get(name), Some(definition), "schema drift: {name}");
+        }
+    }
+    let mut connection = database.acquire().await?;
+    let counts: (i64, i64) = sqlx::query_as(
+        "SELECT count(*),count(*) FILTER (WHERE NOT EXISTS (
+           SELECT 1 FROM pg_depend dependency WHERE dependency.classid='pg_class'::regclass
+             AND dependency.objid=relation.oid AND dependency.deptype='e'))
+         FROM pg_class relation WHERE relation.relnamespace='public'::regnamespace
+           AND relation.relkind IN ('r','p')",
+    )
+    .fetch_one(&mut *connection)
+    .await?;
+    println!(
+        "Initial and upgraded schemas match: {} application tables, {} public tables including extensions.",
+        counts.1, counts.0
+    );
+    Ok(())
 }
 
 async fn assert_event_identifier_upgrade(

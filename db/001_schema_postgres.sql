@@ -19,6 +19,7 @@ CREATE TABLE user_account (
     phone_number_hash text NOT NULL,
     phone_number_encrypted bytea NOT NULL,
     is_banned boolean DEFAULT false NOT NULL,
+    is_review_account boolean NOT NULL DEFAULT false,
     discovery_paused boolean DEFAULT false NOT NULL,
     preferred_language text DEFAULT 'fr' NOT NULL CHECK (preferred_language IN ('fr','en','es','it')),
     banned_at timestamp with time zone,
@@ -28,24 +29,11 @@ CREATE TABLE user_account (
     anonymized_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT user_account_role_check CHECK ((role = ANY (ARRAY['user'::text, 'admin'::text, 'superadmin'::text]))),
+    CONSTRAINT user_account_review_role_check CHECK (NOT is_review_account OR role='user'),
     CONSTRAINT user_account_phone_number_hash_key UNIQUE (phone_number_hash),
     CONSTRAINT user_account_pkey PRIMARY KEY (user_id),
     CONSTRAINT user_account_banned_by_fkey FOREIGN KEY (banned_by) REFERENCES user_account(user_id) ON DELETE SET NULL
 );
-
--- BEGIN play review account
--- Server-created review identities must never obtain an administrative role.
-ALTER TABLE user_account ADD COLUMN IF NOT EXISTS is_review_account boolean NOT NULL DEFAULT false;
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conrelid='user_account'::regclass
-      AND conname='user_account_review_role_check'
-  ) THEN
-    ALTER TABLE user_account ADD CONSTRAINT user_account_review_role_check
-      CHECK (NOT is_review_account OR role='user');
-  END IF;
-END $$;
--- END play review account
 
 CREATE INDEX idx_user_account_active_created ON user_account USING btree (created_at DESC, user_id DESC) WHERE (deleted_at IS NULL);
 
@@ -559,7 +547,6 @@ CREATE TABLE IF NOT EXISTS billing_store_subscription (
     next_check_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     UNIQUE(provider, environment, original_id)
 );
-ALTER TABLE billing_store_subscription ADD COLUMN IF NOT EXISTS superseded boolean NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS idx_store_subscription_user ON billing_store_subscription(user_id, expires_at DESC);
 CREATE INDEX IF NOT EXISTS idx_store_subscription_due ON billing_store_subscription(next_check_at, id) WHERE user_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS billing_store_notification (
@@ -704,6 +691,7 @@ CREATE TABLE match_init (
     continuation_initiator_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     last_message_at timestamp with time zone,
+    photo_reveal_version bigint NOT NULL DEFAULT 0 CHECK (photo_reveal_version >= 0),
     CONSTRAINT match_init_check CHECK ((user1_id < user2_id)),
     CONSTRAINT match_init_status_check CHECK ((status = ANY (ARRAY['awaiting_continuation'::text, 'active'::text, 'confirmed'::text, 'expired'::text, 'ended'::text]))),
     CONSTRAINT match_init_pkey PRIMARY KEY (id),
@@ -769,7 +757,7 @@ CREATE INDEX IF NOT EXISTS idx_match_notification_preference_user ON match_notif
 -- END notification preferences
 
 CREATE TABLE chat_message (
-    id uuid NOT NULL,
+    id uuid DEFAULT uuidv7() NOT NULL,
     match_id uuid NOT NULL,
     sender_id uuid NOT NULL,
     idempotency_key uuid,
@@ -886,7 +874,7 @@ CREATE INDEX idx_user_report_status_created_desc ON user_report USING btree (sta
 -- Notifications, outbox et maintenance
 
 CREATE TABLE notification (
-    id uuid NOT NULL,
+    id uuid DEFAULT uuidv7() NOT NULL,
     user_id uuid NOT NULL,
     type text NOT NULL,
     payload jsonb,
@@ -894,6 +882,7 @@ CREATE TABLE notification (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     expires_at timestamp with time zone DEFAULT (now() + '90 days'::interval) NOT NULL,
     deduplication_key text,
+    CONSTRAINT notification_type_check CHECK ((type = ANY (ARRAY['new_match'::text, 'new_message'::text, 'profile_liked'::text, 'match_expiring'::text, 'continuation_requested'::text, 'conversation_continued'::text, 'photos_revealed'::text, 'first_period_ending'::text, 'data_request_replied'::text, 'new_session'::text]))),
     CONSTRAINT notification_deduplication_key_check CHECK (((deduplication_key IS NULL) OR (deduplication_key ~ '^[0-9a-f]{64}$'::text))),
     CONSTRAINT notification_deduplication_key_key UNIQUE (deduplication_key),
     CONSTRAINT notification_pkey PRIMARY KEY (id),
@@ -906,16 +895,12 @@ CREATE INDEX idx_notification_unread ON notification USING btree (user_id, read_
 
 CREATE INDEX idx_notification_user ON notification USING btree (user_id, created_at DESC);
 
--- BEGIN notification events
--- Idempotent upgrade for personalized lifecycle push notifications.
-ALTER TABLE match_init ADD COLUMN IF NOT EXISTS photo_reveal_version bigint NOT NULL DEFAULT 0 CHECK (photo_reveal_version >= 0);
-ALTER TABLE notification DROP CONSTRAINT IF EXISTS notification_type_check;
-ALTER TABLE notification ADD CONSTRAINT notification_type_check CHECK ((type = ANY (ARRAY['new_match'::text, 'new_message'::text, 'profile_liked'::text, 'match_expiring'::text, 'continuation_requested'::text, 'conversation_continued'::text, 'photos_revealed'::text, 'first_period_ending'::text, 'data_request_replied'::text, 'new_session'::text])));
+-- BEGIN notification indexes
 CREATE INDEX IF NOT EXISTS idx_notification_match_kind ON notification (user_id, type, (payload->>'match_id'), expires_at);
--- END notification events
+-- END notification indexes
 
 CREATE TABLE outbox_event (
-    id uuid NOT NULL,
+    id uuid DEFAULT uuidv7() NOT NULL,
     event_type text NOT NULL,
     aggregate_id uuid NOT NULL,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
@@ -974,13 +959,6 @@ CREATE TABLE notification_push_delivery (
 COMMENT ON TABLE notification_push_delivery IS 'Pending or completed per-device delivery references; expires with the notification, device, or resolved outbox event. No provider token is copied.';
 
 CREATE INDEX idx_notification_push_device ON notification_push_delivery USING btree (device_id);
-
--- BEGIN event identifiers
--- Defaults affect new rows only; existing UUIDs, references and timestamps stay intact.
-ALTER TABLE chat_message ALTER COLUMN id SET DEFAULT uuidv7();
-ALTER TABLE notification ALTER COLUMN id SET DEFAULT uuidv7();
-ALTER TABLE outbox_event ALTER COLUMN id SET DEFAULT uuidv7();
--- END event identifiers
 
 CREATE TABLE outbox_operator_action (
     id uuid DEFAULT uuid_generate_v4() NOT NULL,
