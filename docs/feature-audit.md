@@ -68,7 +68,7 @@ de production, pas sur tous les outils de développement ni sur les images syst�
 
 ### Isolation
 
-Les intégrations utilisent des conteneurs temporaires PostgreSQL 18.6/PostGIS 3.6.4, Redis 7.4.2 et
+Les intégrations utilisent des conteneurs temporaires PostgreSQL 18.7/PostGIS 3.7.0, Redis 7.4.2 et
 SeaweedFS 4.45, des mots de passe aléatoires et des publications sur loopback uniquement. Les données
 PostgreSQL et S3 sont jetables. Les conteneurs, fixtures et secrets temporaires sont supprimés après
 les tests. Aucun OTP n’est envoyé, aucun achat n’est réalisé et la base de développement partagée

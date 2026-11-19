@@ -367,7 +367,7 @@ async fn enqueue(
     sqlx::query(ENQUEUE_SQL)
         .bind(event_type)
         .bind(id)
-        .bind(Uuid::new_v4())
+        .bind(Uuid::now_v7())
         .execute(connection)
         .await
         .map_err(map_sqlx_error)?;

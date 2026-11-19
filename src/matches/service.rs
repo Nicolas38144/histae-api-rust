@@ -392,7 +392,7 @@ impl MatchService {
         let creation = match self
             .messages
             .create_message(
-                Uuid::new_v4(),
+                Uuid::now_v7(),
                 match_id,
                 sender_id,
                 content.to_owned(),

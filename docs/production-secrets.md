@@ -237,7 +237,7 @@ Installer ces cinq fichiers depuis la racine API. Adapter `HISTAE_TLS_SOURCE` et
 (
   set -euo pipefail
   HISTAE_TLS_SOURCE='/chemin/vers/certificats-internes'
-  HISTAE_TLS_PG_IMAGE='histae-postgres:18.6-postgis3.6.4'
+  HISTAE_TLS_PG_IMAGE='histae-postgres:18.7-postgis3.7.0'
 
   # Refuser le remplacement de certificats ou clés déjà installés.
   for HISTAE_TLS_FILE in postgres/ca.crt postgres/server.crt postgres/server.key redis/server.crt redis/server.key; do

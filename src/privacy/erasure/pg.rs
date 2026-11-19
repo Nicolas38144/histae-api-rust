@@ -419,7 +419,7 @@ pub(crate) async fn enqueue_account_erasure(
          VALUES ($1, 'account.erase', $2)
          ON CONFLICT (event_type, aggregate_id) DO NOTHING",
     )
-    .bind(Uuid::new_v4())
+    .bind(Uuid::now_v7())
     .bind(request_id)
     .execute(&mut *connection)
     .await

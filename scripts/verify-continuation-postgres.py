@@ -35,7 +35,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--api-image", default="histae-api-rust:local",
                         help="Locally built API image containing the current migrator")
-    parser.add_argument("--postgres-image", default="histae-postgres:18.6-postgis3.6.4")
+    parser.add_argument("--postgres-image", default="histae-postgres:18.7-postgis3.7.0")
     parser.add_argument("--test", action="append", choices=TESTS + ADMIN_TESTS + tuple(POSTGRES_FILTERS))
     parser.add_argument("--native-migrator", type=Path, help="Use a freshly built local db-migrate binary over the published loopback port")
     parser.add_argument("--native-phone-sync", type=Path, help="Optional live public-feed smoke after isolated tests; never sends SMS")

@@ -769,7 +769,7 @@ CREATE INDEX IF NOT EXISTS idx_match_notification_preference_user ON match_notif
 -- END notification preferences
 
 CREATE TABLE chat_message (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    id uuid NOT NULL,
     match_id uuid NOT NULL,
     sender_id uuid NOT NULL,
     idempotency_key uuid,
@@ -886,7 +886,7 @@ CREATE INDEX idx_user_report_status_created_desc ON user_report USING btree (sta
 -- Notifications, outbox et maintenance
 
 CREATE TABLE notification (
-    id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    id uuid NOT NULL,
     user_id uuid NOT NULL,
     type text NOT NULL,
     payload jsonb,
@@ -974,6 +974,13 @@ CREATE TABLE notification_push_delivery (
 COMMENT ON TABLE notification_push_delivery IS 'Pending or completed per-device delivery references; expires with the notification, device, or resolved outbox event. No provider token is copied.';
 
 CREATE INDEX idx_notification_push_device ON notification_push_delivery USING btree (device_id);
+
+-- BEGIN event identifiers
+-- Defaults affect new rows only; existing UUIDs, references and timestamps stay intact.
+ALTER TABLE chat_message ALTER COLUMN id SET DEFAULT uuidv7();
+ALTER TABLE notification ALTER COLUMN id SET DEFAULT uuidv7();
+ALTER TABLE outbox_event ALTER COLUMN id SET DEFAULT uuidv7();
+-- END event identifiers
 
 CREATE TABLE outbox_operator_action (
     id uuid DEFAULT uuid_generate_v4() NOT NULL,

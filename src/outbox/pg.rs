@@ -31,7 +31,7 @@ impl PgOutboxRepository {
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (event_type, aggregate_id) DO NOTHING",
         )
-        .bind(Uuid::new_v4())
+        .bind(Uuid::now_v7())
         .bind(event.event_type.as_str())
         .bind(event.aggregate_id)
         .bind(Json(Value::Object(event.payload.clone())))
@@ -55,7 +55,7 @@ impl PgOutboxRepository {
                  last_error_code = NULL, processed_at = NULL, dead_lettered_at = NULL,
                  resolved_at = NULL, resolved_by = NULL, resolution_reason = NULL",
         )
-        .bind(Uuid::new_v4())
+        .bind(Uuid::now_v7())
         .bind(event.event_type.as_str())
         .bind(event.aggregate_id)
         .bind(Json(Value::Object(event.payload.clone())))

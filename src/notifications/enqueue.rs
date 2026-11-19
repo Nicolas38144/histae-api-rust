@@ -50,7 +50,7 @@ fn prepare_notification(
     let serialized = serde_json::to_vec(&source).map_err(|_| DatabaseError::QueryFailed)?;
     let deduplication_key = format!("{:x}", Sha256::digest(serialized));
     Ok(PreparedNotification {
-        notification_id: Uuid::new_v4(),
+        notification_id: Uuid::now_v7(),
         deduplication_key,
     })
 }
@@ -82,7 +82,7 @@ fn enqueue_sql() -> &'static str {
               ON CONFLICT (deduplication_key) DO NOTHING
               RETURNING id, user_id, type, payload
             ), targets AS MATERIALIZED (
-              SELECT uuid_generate_v4() AS id, n.id AS notification_id,
+              SELECT uuidv7() AS id, n.id AS notification_id,
                      d.id AS device_id, d.session_id
               FROM created_notification n
               JOIN device_token d ON d.user_id = n.user_id

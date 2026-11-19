@@ -82,6 +82,10 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
     let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
     verify_schema_compatibility_on(&mut transaction).await?;
     retire_stripe(&mut transaction).await?;
+    sqlx::raw_sql(schema_section(SCHEMA, "event identifiers")?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
     sqlx::raw_sql(schema_section(SCHEMA, "notification preferences")?)
         .execute(&mut *transaction)
         .await

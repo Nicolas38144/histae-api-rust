@@ -77,6 +77,13 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public;
+-- Refresh SQL definitions after installing the matching server/extension binaries.
+-- These updates require the administrator, never the runtime or migration roles.
+ALTER EXTENSION pgcrypto UPDATE;
+ALTER EXTENSION "uuid-ossp" UPDATE;
+ALTER EXTENSION pg_trgm UPDATE;
+ALTER EXTENSION postgis UPDATE;
+ALTER EXTENSION pg_stat_statements UPDATE;
 
 SELECT current_database() AS database_name \gset
 REVOKE ALL ON DATABASE :"database_name" FROM PUBLIC;

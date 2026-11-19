@@ -62,8 +62,8 @@ pendant la charge et leur libération lorsque les clients se déconnectent.
 Ce budget initial donne une marge pour plusieurs milliers de connexions ; son dimensionnement définitif
 dépend du nombre de clients connectés et des mesures de ressources, distincts du débit en RPS.
 
-PostgreSQL utilise l’image construite depuis `docker/postgres/Dockerfile` : PostgreSQL 18.6 bookworm
-et PostGIS 3.6.4. Le migrateur installe l’extension et l’index spatial avant la nouvelle API.
+PostgreSQL utilise l’image construite depuis `docker/postgres/Dockerfile` : PostgreSQL 18.7 bookworm
+et PostGIS 3.7.0. Le migrateur installe l’extension et l’index spatial avant la nouvelle API.
 Pour la première mise à jour d’un volume existant, suivre la [procédure PostgreSQL/PostGIS](database.md#postgis-et-mise-a-jour-dune-installation).
 
 Les deux piles préchargent aussi `pg_stat_statements`. Sur un volume neuf, son script d’initialisation
@@ -184,7 +184,7 @@ Préparer `.env` à partir des groupes de [Configuration](configuration.md). Inc
 ENV=production
 HISTAE_ENV_FILE=.env
 HISTAE_API_IMAGE=histae-api:REPLACE_RELEASE_TAG
-HISTAE_POSTGRES_IMAGE=histae-postgres:18.6-postgis3.6.4
+HISTAE_POSTGRES_IMAGE=histae-postgres:18.7-postgis3.7.0
 HISTAE_BACKEND_NETWORK=histae-backend
 HISTAE_EDGE_NETWORK=histae-edge
 HISTAE_STORAGE_HOST=<domaine-public-s3>
@@ -232,7 +232,7 @@ certificat public S3 et installer les fichiers sont dans [Secrets de production]
 Vérifier les UID avant d’attribuer les permissions, par exemple :
 
 ```bash
-sudo docker run --rm --entrypoint id postgres:18.6-bookworm postgres
+sudo docker run --rm --entrypoint id postgres:18.7-bookworm postgres
 sudo docker run --rm --entrypoint id redis:7.4.2-alpine redis
 ```
 

@@ -40,6 +40,9 @@ Les corps sont JSON, sauf l’upload photo multipart. Les champs inconnus sont r
 - Horodatages : ISO 8601 avec fuseau ; traiter les curseurs comme des chaînes opaques.
 - Prix du catalogue : centimes, avec devise explicite. Distances : kilomètres.
 - En-têtes communs : `Cache-Control: no-store`, protections navigateur et `X-Request-ID`. Un UUID v4 fourni dans `X-Request-ID` est conservé ; sinon un identifiant est généré. HSTS est ajouté en production.
+- Les identifiants des messages, notifications et événements outbox peuvent être des UUID v4 historiques
+  ou des UUID v7 nouvellement générés. Leur forme JSON reste une chaîne UUID ; les clients les traitent
+  comme des identifiants opaques. Les clés d’idempotence et les identifiants d’authentification restent en v4.
 
 ### Langues
 

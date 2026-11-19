@@ -89,6 +89,7 @@ async fn claims_are_exclusive_stale_and_owned() -> Result<(), Box<dyn std::error
         migrations::apply(&config).await?;
         let database = Database::connect(&config).await?;
         let result = AssertUnwindSafe(async {
+            assert_event_identifier_upgrade(&config, &database).await?;
             assert_payment_notification_retirement(&config, &database).await?;
             assert_index_upgrade(&config, &database).await?;
             assert_claim_protocol(&database).await
@@ -114,6 +115,74 @@ async fn claims_are_exclusive_stale_and_owned() -> Result<(), Box<dyn std::error
         Ok(result) => result,
         Err(panic) => std::panic::resume_unwind(panic),
     }
+}
+
+async fn assert_event_identifier_upgrade(
+    config: &PostgresConfig,
+    database: &Database,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let legacy_id = Uuid::new_v4();
+    let aggregate = Uuid::new_v4();
+    let mut connection = database.acquire().await?;
+    sqlx::raw_sql(
+        "ALTER TABLE chat_message ALTER COLUMN id SET DEFAULT uuid_generate_v4();
+         ALTER TABLE notification ALTER COLUMN id SET DEFAULT uuid_generate_v4();
+         ALTER TABLE outbox_event ALTER COLUMN id DROP DEFAULT;",
+    )
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query(
+        "INSERT INTO outbox_event(id,event_type,aggregate_id) VALUES($1,'photo.delete',$2)",
+    )
+    .bind(legacy_id)
+    .bind(aggregate)
+    .execute(&mut *connection)
+    .await?;
+    drop(connection);
+    for _ in 0..2 {
+        migrations::apply(config).await?;
+    }
+    let mut connection = database.acquire().await?;
+    let retained: Uuid = sqlx::query_scalar("SELECT id FROM outbox_event WHERE aggregate_id=$1")
+        .bind(aggregate)
+        .fetch_one(&mut *connection)
+        .await?;
+    assert_eq!(retained, legacy_id);
+    let defaults: Vec<String> = sqlx::query_scalar(
+        "SELECT column_default FROM information_schema.columns
+         WHERE table_schema='public' AND column_name='id'
+           AND table_name IN ('chat_message','notification','outbox_event')",
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    assert_eq!(defaults.len(), 3);
+    assert!(defaults.iter().all(|value| value == "uuidv7()"));
+    let generated: Uuid = sqlx::query_scalar(
+        "INSERT INTO outbox_event(event_type,aggregate_id) VALUES('photo.delete',$1) RETURNING id",
+    )
+    .bind(Uuid::new_v4())
+    .fetch_one(&mut *connection)
+    .await?;
+    assert_eq!(generated.get_version_num(), 7);
+    drop(connection);
+    let repository = PgOutboxRepository::new(database.clone());
+    let mut connection = database.acquire().await?;
+    repository
+        .requeue(
+            &mut connection,
+            &NewOutboxEvent::empty(OutboxEventType::PhotoDelete, aggregate),
+        )
+        .await?;
+    let requeued: Uuid = sqlx::query_scalar("SELECT id FROM outbox_event WHERE aggregate_id=$1")
+        .bind(aggregate)
+        .fetch_one(&mut *connection)
+        .await?;
+    assert_eq!(requeued, legacy_id);
+    sqlx::query("DELETE FROM outbox_event WHERE id=ANY($1)")
+        .bind(&[legacy_id, generated][..])
+        .execute(&mut *connection)
+        .await?;
+    Ok(())
 }
 
 async fn assert_payment_notification_retirement(
@@ -310,6 +379,8 @@ async fn assert_claim_protocol(database: &Database) -> Result<(), Box<dyn std::e
     assert_eq!(first.len(), 1);
     assert_eq!(second.len(), 1);
     assert_ne!(first[0].id, second[0].id);
+    assert_eq!(first[0].id.get_version_num(), 7);
+    assert_eq!(second[0].id.get_version_num(), 7);
     assert!(!repository.renew_claim(first[0].id, second_worker).await?);
     assert!(repository.renew_claim(first[0].id, first_worker).await?);
     assert!(

@@ -4,7 +4,7 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use uuid::{Uuid, Variant, Version};
+use uuid::{Uuid, Variant};
 
 use super::admin::{
     DeadLetter, DeadLetterPage, OutboxAdminError, OutboxAdminService, OutboxOperator,
@@ -97,7 +97,7 @@ struct EventPath {
 impl EventPath {
     fn id(&self) -> Option<Uuid> {
         let parsed = Uuid::parse_str(&self.id).ok()?;
-        (parsed.get_version() == Some(Version::Random)
+        (matches!(parsed.get_version_num(), 4 | 7)
             && parsed.get_variant() == Variant::RFC4122
             && self.id.len() == 36
             && parsed
@@ -244,18 +244,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validates_uuid_v4_limits_unknown_fields_and_public_errors() {
-        let id = Uuid::new_v4();
-        let path = EventPath {
-            id: id.hyphenated().to_string(),
-        };
-        assert!(path.is_valid());
-        assert!(
-            !EventPath {
-                id: Uuid::nil().to_string()
+    fn validates_event_identifiers_unknown_fields_and_public_errors() {
+        for id in [Uuid::new_v4(), Uuid::now_v7()] {
+            for value in [id.to_string(), id.to_string().to_ascii_uppercase()] {
+                let path = EventPath { id: value };
+                assert!(path.is_valid());
+                assert_eq!(path.id(), Some(id));
             }
-            .is_valid()
-        );
+            assert!(
+                !EventPath {
+                    id: id.simple().to_string()
+                }
+                .is_valid()
+            );
+        }
+        for value in [
+            Uuid::nil().to_string(),
+            Uuid::max().to_string(),
+            "00000000-0000-5000-8000-000000000001".to_owned(),
+            "00000000-0000-7000-c000-000000000001".to_owned(),
+        ] {
+            assert!(!EventPath { id: value }.is_valid());
+        }
         assert!(serde_json::from_str::<ResolveBody>(r#"{"reason":"Relance"}"#).is_ok());
         assert!(
             serde_json::from_str::<ResolveBody>(r#"{"reason":"Relance","force":true}"#).is_err()

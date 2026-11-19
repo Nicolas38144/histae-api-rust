@@ -19,6 +19,19 @@ n’ont pas de seconde copie dans un fichier SQL séparé. Une section incomplè
 
 Il n’existe plus de ledger `schema_migrations`. Le migrateur retire cette ancienne table si elle est présente.
 
+### Identifiants des événements
+
+Les nouveaux messages (`chat_message.id`), notifications (`notification.id`) et événements outbox
+(`outbox_event.id`) utilisent des UUID v7. Les références de livraison push utilisent le même UUID v7
+que leur événement outbox. Rust emploie `Uuid::now_v7()` ; PostgreSQL fournit `uuidv7()` pour les
+valeurs par défaut et les livraisons créées dans une transaction SQL.
+La section canonique `event identifiers` est aussi appliquée aux bases existantes. Elle change uniquement
+les valeurs par défaut : aucune clé existante n’est réécrite. Les UUID v4 et v7 coexistent, y compris
+dans une conversation et dans la file outbox. Pagination, rétention et traitement continuent de se baser
+sur les horodatages métier et les identifiants de départage, jamais sur la date extraite de l’UUID.
+Les identifiants de comptes, matchs, sessions et challenges restent en v4 ; les clés d’idempotence
+et `X-Request-ID` gardent leur contrat v4, et les identifiants v5 du catalogue restent déterministes.
+
 Reprise de session mobile (4 novembre 2026) : `refresh_tokens.rotation_request_hash text` et
 `rotation_result bytea` contiennent le hash de la tentative et un résultat chiffré. Le migrateur
 les ajoute aux bases existantes ; le démarrage de la nouvelle API exige ces colonnes. L'index
@@ -73,8 +86,38 @@ accès aux comptes et ne modifie pas les exceptions. Voir [politique et rétenti
 ### PostGIS et mise à jour d’une installation
 
 Les piles dev et production construisent [l’image PostgreSQL](../docker/postgres/Dockerfile) à partir
-de PostgreSQL **18.6 / Debian bookworm**, avec PostGIS **3.6.4**. Le volume, `PGDATA`, la version majeure
+de PostgreSQL **18.7 / Debian bookworm**, avec PostGIS **3.7.0**. Le volume, `PGDATA`, la version majeure
 et la base Debian sont conservés. `HISTAE_POSTGRES_IMAGE` permet de fournir cette image déjà construite.
+
+La livraison du [12 novembre 2026](https://www.postgresql.org/docs/release/18.7/) corrige des
+vulnérabilités qui nécessitent aussi des extensions C reconstruites. L’image épingle le paquet
+PostGIS `3.7.0+dfsg-1.pgdg12+2` et vérifie la référence au nouveau symbole PostgreSQL
+`DatumGetHeapTupleHeader` pendant la construction. Ne pas réutiliser la bibliothèque de l’ancienne image.
+Le bootstrap administrateur met aussi à jour les définitions SQL de `postgis`, `pg_trgm`, `pgcrypto`,
+`uuid-ossp` et `pg_stat_statements`. Le migrateur applicatif reste limité à ses objets.
+
+Sur un volume existant, après sauvegarde et avant la migration applicative :
+
+1. Mettre `HISTAE_POSTGRES_IMAGE=histae-postgres:18.7-postgis3.7.0` dans le `.env` du serveur.
+2. Construire la nouvelle image et redémarrer PostgreSQL avec les fichiers Compose de la pile choisie.
+3. Exécuter la mise à jour des extensions avec le rôle administrateur. Le reset standard la fait via
+   le bootstrap d’accès ; pour une mise à jour Compose manuelle, utiliser les commandes ci-dessous.
+
+```bash
+sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml \
+  exec -T postgres sh -ec 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -c "ALTER EXTENSION pgcrypto UPDATE; ALTER EXTENSION \"uuid-ossp\" UPDATE; ALTER EXTENSION pg_trgm UPDATE; ALTER EXTENSION postgis UPDATE; ALTER EXTENSION pg_stat_statements UPDATE;"'
+
+sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml \
+  exec -T postgres sh -ec 'psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -c "SELECT version(), postgis_full_version();"'
+```
+
+Employer `compose.dev.yaml` en développement. PostgreSQL 18.7 ouvre les volumes 18.x sans
+dump/restauration. Les notes de version signalent aussi des corruptions possibles d’index GIN :
+si la base a été concernée, reconstruire `idx_user_profile_firstname_trgm` avec
+`REINDEX INDEX CONCURRENTLY public.idx_user_profile_firstname_trgm` après mise à jour, hors transaction.
+Les résultats de charge historiques restent associés aux versions utilisées lors de leurs mesures.
 
 Sur une base existante, le migrateur active `postgis` dans `public`, puis construit l’index GiST avec
 `CONCURRENTLY`. L’index porte sur l’expression géographique des centres de zones conservés dans les

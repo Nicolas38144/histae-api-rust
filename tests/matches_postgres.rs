@@ -748,7 +748,8 @@ async fn message_pagination_keeps_microseconds_and_read_through_skips_own_messag
             .create(match_record.clone())
             .await
             .map_err(|_| FixtureError("create_page_match"))?;
-        let ids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        // Business timestamps, not UUID generation time/version, define pagination.
+        let ids = [Uuid::now_v7(), Uuid::new_v4(), Uuid::now_v7()];
         sqlx::query(
             "INSERT INTO chat_message (id, match_id, sender_id, content, created_at) VALUES
                ($1, $4, $5, 'newest', '2030-08-16T12:00:00.123900Z'),

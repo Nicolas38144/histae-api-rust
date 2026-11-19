@@ -277,6 +277,22 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
                 .await?;
         assert_eq!(payload, intent.payload());
         assert!(!payload.to_string().contains("content"));
+        let notification_id: Uuid =
+            sqlx::query_scalar("SELECT id FROM notification WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_one(&mut *query_connection)
+                .await?;
+        assert_eq!(notification_id.get_version_num(), 7);
+        let job_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT delivery.id FROM notification_push_delivery delivery
+             JOIN outbox_event job ON job.id = delivery.id
+             WHERE delivery.notification_id = $1",
+        )
+        .bind(notification_id)
+        .fetch_all(&mut *query_connection)
+        .await?;
+        assert!(!job_ids.is_empty());
+        assert!(job_ids.iter().all(|id| id.get_version_num() == 7));
         let targeted_devices: Vec<Uuid> = sqlx::query_scalar(
             "SELECT delivery.device_id
              FROM notification_push_delivery delivery

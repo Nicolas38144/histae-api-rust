@@ -140,6 +140,7 @@ struct MatchState {
     single_read: MatchCommandResult<Option<MessageRead>>,
     through_read: MatchCommandResult<Option<MessageRead>>,
     created_content: Option<String>,
+    created_message_id: Option<Uuid>,
     created_key: Option<Uuid>,
     calls: usize,
 }
@@ -185,6 +186,7 @@ impl FakeMatchStore {
                     read_through_message_id: message.id,
                 })),
                 created_content: None,
+                created_message_id: None,
                 created_key: None,
                 calls: 0,
             })),
@@ -358,7 +360,7 @@ impl MatchMessageStore for FakeMatchStore {
 
     fn create_message(
         &self,
-        _message_id: Uuid,
+        message_id: Uuid,
         _match_id: Uuid,
         _sender_id: Uuid,
         content: String,
@@ -371,6 +373,7 @@ impl MatchMessageStore for FakeMatchStore {
                 .map_err(|_| MatchStoreError::Database(DatabaseError::QueryFailed))?;
             state.calls += 1;
             state.created_content = Some(content);
+            state.created_message_id = Some(message_id);
             state.created_key = Some(idempotency_key);
             Ok(state.message_creation.clone())
         })
@@ -871,6 +874,7 @@ async fn lists_and_sends_messages_with_the_exact_public_contract() {
     );
     let state = store.state.lock().expect("state");
     assert_eq!(state.created_content.as_deref(), Some("Bonjour"));
+    assert_eq!(state.created_message_id.unwrap().get_version_num(), 7);
     assert_eq!(state.created_key, Some(key));
 }
 
