@@ -721,7 +721,24 @@ distinct, authentifié par bearer token. Voir [supervision et runbooks](observab
 (`applied, ignored, conflict, invalid_signature, invalid_event, unavailable, disabled`). Les états et délais
 portent sur les OTP non expirés, pas sur un historique complet ; les compteurs de callbacks sont locaux au processus.
 
-Réconciliation photo : filtre `all | stale_processing | deleting | dead_letter` (défaut `all`). UUID photo/utilisateur, métadonnées techniques, diagnostics et état outbox uniquement ; aucune image ni clé objet. Une photo prête ou un traitement récent refuse la relance : `409 photo_reconciliation_not_allowed` ; worker actif : `409 photo_reconciliation_in_progress` ; photo absente : `404 photo_not_found`.
+Maintenance des photos (routes `photo-reconciliation`) : filtre `all | stale_processing | deleting | dead_letter`
+(défaut `all`). La liste contient les envois `pending`/`processing` incomplets depuis au moins trente minutes
+et les photos `deleting` ; les photos `ready` sont uniquement comptées dans les métriques. UUID photo/utilisateur,
+métadonnées techniques, diagnostics et état outbox uniquement ; aucune image ni clé objet.
+
+`POST /api/admin/photo-reconciliation/:id/retry` place la photo en `deleting` et programme/reprogramme
+`photo.delete`. Il supprime l’éventuel fichier d’un envoi abandonné ou reprend une suppression ; il ne
+relance pas la conversion synchrone. Pour un envoi abandonné, la photo actuelle du profil est conservée
+et l’utilisateur doit renvoyer sa photo depuis l’app. L’action est auditée avec le motif de l’admin ou
+le motif automatique du superadmin. Une photo prête ou un traitement récent refuse la relance :
+`409 photo_reconciliation_not_allowed` ; worker actif : `409 photo_reconciliation_in_progress` ;
+photo absente : `404 photo_not_found`.
+
+Les diagnostics sont `stale_processing`, `deletion_queued`, `deletion_processing`, `deletion_retry_scheduled`,
+`deletion_dead_letter`, `deletion_event_missing`, `deletion_event_completed` et `deletion_event_discarded`.
+La maintenance automatique peut nettoyer directement les objets sans tâche Outbox active : ce dernier
+cas ne constitue pas à lui seul un échec. Le dashboard distingue les envois récents des envois abandonnés,
+présente les reprises comme des suppressions et demande une confirmation avant de les programmer.
 
 Les dead letters exposent type, tentatives et code normalisé, jamais payload/agrégat/clé objet. Une décision devenue obsolète renvoie `409 outbox_event_not_dead_letter`. L’abandon de `account.erase` et des événements `billing.*` est toujours interdit ; celui de `photo.delete` est interdit tant que sa trace existe : `409 outbox_discard_not_allowed`. `notification.push` peut être abandonné sans effacer la notification. Un `202` de reprise ne garantit pas que la dépendance sera disponible lors du prochain essai.
 
