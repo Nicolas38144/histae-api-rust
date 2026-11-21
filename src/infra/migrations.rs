@@ -120,6 +120,10 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
     .execute(&mut *transaction)
     .await
     .map_err(map_sqlx_error)?;
+    sqlx::raw_sql(schema_section(SCHEMA, "customer cases")?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
     let precise_presence: bool = sqlx::query_scalar("SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user_presence' AND column_name = 'location_changed_at')")
         .fetch_one(&mut *transaction).await.map_err(map_sqlx_error)?;
     sqlx::query("ALTER TABLE user_presence ADD COLUMN IF NOT EXISTS location_changed_at timestamptz NOT NULL DEFAULT now()")

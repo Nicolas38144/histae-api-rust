@@ -40,6 +40,9 @@ pub struct PrivacyMaintenanceResult {
     pub expired_reward_intents: u64,
     pub expired_continuation_reservations: u64,
     pub expired_continuation_usage: u64,
+    pub expired_support_cases: u64,
+    pub expired_erasure_receipts: u64,
+    pub expired_assisted_exports: u64,
 }
 
 impl PrivacyMaintenanceResult {
@@ -52,6 +55,9 @@ impl PrivacyMaintenanceResult {
     }
 
     fn merge(&mut self, next: Self) {
+        self.expired_support_cases = self.expired_support_cases.saturating_add(next.expired_support_cases);
+        self.expired_erasure_receipts = self.expired_erasure_receipts.saturating_add(next.expired_erasure_receipts);
+        self.expired_assisted_exports = self.expired_assisted_exports.saturating_add(next.expired_assisted_exports);
         self.expired_phone_observations = self
             .expired_phone_observations
             .saturating_add(next.expired_phone_observations);
@@ -137,7 +143,7 @@ impl PrivacyMaintenanceResult {
             .saturating_add(next.expired_store_accounts);
     }
 
-    fn counts(self) -> [u64; 31] {
+    fn counts(self) -> [u64; 34] {
         [
             self.stale_presences,
             self.expired_presences,
@@ -170,6 +176,9 @@ impl PrivacyMaintenanceResult {
             self.expired_refresh_recoveries,
             self.expired_phone_observations,
             self.expired_phone_policies,
+            self.expired_support_cases,
+            self.expired_erasure_receipts,
+            self.expired_assisted_exports,
         ]
     }
 }
@@ -206,7 +215,7 @@ impl PrivacyMaintenanceRepository {
                         .await
                         .map_err(map_sqlx_error)?;
                     let limit = i64::from(batch_size);
-                    let mut counts = [0_u64; 31];
+                    let mut counts = [0_u64; RETENTION_QUERIES.len()];
                     for (index, statement) in RETENTION_QUERIES.iter().enumerate() {
                         counts[index] = sqlx::query(statement)
                             .bind(now)
@@ -222,6 +231,9 @@ impl PrivacyMaintenanceRepository {
                         expired_swipes: counts[2],
                         expired_phone_observations: counts[29],
                         expired_phone_policies: counts[30],
+                        expired_support_cases: counts[31],
+                        expired_erasure_receipts: counts[32],
+                        expired_assisted_exports: counts[33],
                         expired_otps: counts[3],
                         expired_mobile_otp_requests: counts[27],
                         expired_refresh_tokens: counts[4],
@@ -255,7 +267,7 @@ impl PrivacyMaintenanceRepository {
     }
 }
 
-const RETENTION_QUERIES: [&str; 31] = [
+const RETENTION_QUERIES: [&str; 34] = [
     "WITH stale AS (
        SELECT user_id FROM user_presence
        WHERE is_location_fresh = true AND updated_at <= $1 - INTERVAL '1 hour'
@@ -363,6 +375,12 @@ const RETENTION_QUERIES: [&str; 31] = [
          AND (e.decision_until IS NULL OR e.decision_until<=$1)
          AND NOT EXISTS(SELECT 1 FROM phone_blocklist_observation o WHERE o.entry_id=e.id)
        ORDER BY e.created_at,e.id LIMIT $2 FOR UPDATE SKIP LOCKED)",
+    "DELETE FROM support_case WHERE id IN (
+       SELECT id FROM support_case WHERE expires_at <= $1 ORDER BY expires_at,id LIMIT $2 FOR UPDATE SKIP LOCKED)",
+    "DELETE FROM erasure_receipt WHERE user_id IN (
+       SELECT user_id FROM erasure_receipt WHERE expires_at <= $1 ORDER BY expires_at,user_id LIMIT $2 FOR UPDATE SKIP LOCKED)",
+    "DELETE FROM assisted_data_export WHERE request_id IN (
+       SELECT request_id FROM assisted_data_export WHERE expires_at <= $1 ORDER BY expires_at,request_id LIMIT $2 FOR UPDATE SKIP LOCKED)",
 ];
 
 #[derive(Clone)]
@@ -453,6 +471,6 @@ mod tests {
         };
         assert_eq!(result.processed(), 6);
         assert_eq!(result.maximum(), 3);
-        assert_eq!(RETENTION_QUERIES.len(), 31);
+        assert_eq!(RETENTION_QUERIES.len(), 34);
     }
 }

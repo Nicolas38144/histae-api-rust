@@ -454,6 +454,16 @@ impl ApiResources {
                 DataRightsHttpState::new(rights),
                 admin_auth.clone(),
             ))
+            .merge(crate::casework::routes(
+                crate::casework::Casework::new(
+                    self.database.clone(),
+                    limiter.clone(),
+                    config.rate_limit.report.clone(),
+                    export.clone(),
+                ),
+                mobile_auth.clone(),
+                admin_auth.clone(),
+            ))
             .merge(data_export_routes(
                 DataExportHttpState::new(
                     export,

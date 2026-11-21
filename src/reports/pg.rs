@@ -83,7 +83,7 @@ impl ReportStore for PgReportStore {
         Box::pin(async move {
             let mut query = QueryBuilder::<Postgres>::new(
                 "SELECT id, reporter_id, reported_id, match_id, reason, description,
-                        status, created_at, resolved_at,
+                        status, created_at, resolved_at, public_response,
                         to_char(created_at AT TIME ZONE 'UTC',
                           'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS cursor_at
                  FROM user_report WHERE true",
@@ -127,6 +127,7 @@ impl ReportStore for PgReportStore {
                         let reported_id: Option<Uuid> = sqlx::query_scalar(
                             "UPDATE user_report
                              SET status = $2,
+                                 public_response = CASE WHEN $2 = 'pending' THEN NULL ELSE public_response END,
                                  resolved_at = CASE WHEN $2 = 'pending' THEN NULL
                                    ELSE COALESCE(resolved_at, now()) END
                              WHERE id = $1 RETURNING reported_id",
@@ -175,5 +176,6 @@ fn map_report_row(row: sqlx::postgres::PgRow) -> Result<CursorReportRow, Databas
             resolved_at: row.try_get("resolved_at").map_err(map_sqlx_error)?,
         },
         cursor_at: row.try_get("cursor_at").map_err(map_sqlx_error)?,
+        public_response: row.try_get("public_response").map_err(map_sqlx_error)?,
     })
 }

@@ -160,6 +160,24 @@ impl PgDataExportStore {
                            AND ($2::timestamptz IS NULL OR (requested_at,id)>($2::timestamptz,$3::uuid))
                          ORDER BY requested_at,id LIMIT $4",
                     ).await?;
+                    self.write_uuid_timestamp_pages(&mut transaction, writer, "data_request_messages", user_id, page_size,
+                        "SELECT to_jsonb(m) AS value, m.created_at::text AS cursor_at, m.id AS cursor_id
+                         FROM data_request_message m JOIN data_subject_request r ON r.id=m.request_id
+                         WHERE r.user_id=$1 AND ($2::timestamptz IS NULL OR (m.created_at,m.id)>($2::timestamptz,$3::uuid))
+                         ORDER BY m.created_at,m.id LIMIT $4").await?;
+                    self.write_uuid_timestamp_pages(&mut transaction, writer, "support_cases", user_id, page_size,
+                        "SELECT to_jsonb(s)-'user_id'-'token_hash'-'handled_by' AS value, created_at::text AS cursor_at,id AS cursor_id
+                         FROM support_case s WHERE user_id=$1 AND expires_at>statement_timestamp()
+                           AND ($2::timestamptz IS NULL OR (created_at,id)>($2::timestamptz,$3::uuid))
+                         ORDER BY created_at,id LIMIT $4").await?;
+                    self.write_uuid_timestamp_pages(&mut transaction, writer, "outgoing_reports", user_id, page_size,
+                        "SELECT jsonb_build_object('id',id,'reason',reason,'description',description,
+                                'status',CASE WHEN status='pending' THEN 'pending' ELSE 'closed' END,
+                                'response',public_response,'created_at',created_at,'closed_at',resolved_at) AS value,
+                                created_at::text AS cursor_at,id AS cursor_id
+                         FROM user_report WHERE reporter_id=$1
+                           AND ($2::timestamptz IS NULL OR (created_at,id)>($2::timestamptz,$3::uuid))
+                         ORDER BY created_at,id LIMIT $4").await?;
                     self.write_mobile_sessions(&mut transaction, writer, user_id, page_size)
                         .await?;
                     let discovery_rows = self

@@ -10,7 +10,7 @@ use crate::http::error::ApiError;
 use crate::http::rate_limit::RateLimiter;
 use crate::http::router::HttpState;
 use crate::identity::mobile::http::{AuthenticatedMobile, MobileAuthState};
-use crate::privacy::export::{DataExportError, DataExportService, EXPORT_FILENAME};
+use crate::privacy::export::{DataExportError, DataExportService, EXPORT_FILENAME, PreparedDataExport};
 
 #[derive(Clone)]
 pub struct DataExportHttpState {
@@ -49,11 +49,11 @@ async fn export(
             "data_export_rate_limit_exceeded",
         )
         .await?;
-    let prepared = state
-        .service
-        .prepare(identity.account.user_id)
-        .await
-        .map_err(data_export_error)?;
+    download(state.service.prepare(identity.account.user_id).await)
+}
+
+pub(crate) fn download(prepared: Result<PreparedDataExport, DataExportError>) -> Result<Response, ApiError> {
+    let prepared = prepared.map_err(data_export_error)?;
     let length =
         HeaderValue::from_str(&prepared.bytes().to_string()).map_err(|_| ApiError::internal())?;
     let mut response = Response::new(Body::from_stream(prepared));

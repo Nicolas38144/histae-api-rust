@@ -337,6 +337,14 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
             .ok_or(FixtureError("exported correction"))?;
         assert_eq!(exported_correction["details"], details);
         assert_eq!(exported_correction["response"], response);
+        let exported_replies = document["data_request_messages"].as_array()
+            .ok_or(FixtureError("exported request messages"))?;
+        let exported_reply = exported_replies.iter()
+            .find(|item| item["request_id"] == serde_json::json!(correction.id))
+            .ok_or(FixtureError("exported correction reply"))?;
+        assert_eq!(exported_reply["author"], "team");
+        assert_eq!(exported_reply["body"], response);
+        assert!(exported_reply.get("notes").is_none());
         assert!(exported_requests.iter().all(|row| row.get("notes").is_none()));
         assert!(!String::from_utf8_lossy(&bytes).contains("Internal handling note"));
         let outgoing = document["discovery_actions"]["outgoing"]

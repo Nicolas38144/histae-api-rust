@@ -126,7 +126,10 @@ impl ReportService {
             items: rows
                 .into_iter()
                 .take(limit as usize)
-                .map(|row| PublicReport::from(row.report))
+                .map(|row| PublicReport {
+                    public_response: row.public_response,
+                    ..PublicReport::from(row.report)
+                })
                 .collect(),
             next_cursor,
         })

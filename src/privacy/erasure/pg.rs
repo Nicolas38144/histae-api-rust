@@ -243,6 +243,11 @@ impl ErasureStore for PgErasureRepository {
                                 .execute(&mut *connection)
                                 .await
                                 .map_err(map_sqlx_error)?;
+                            sqlx::query("DELETE FROM support_case WHERE user_id=$1")
+                                .bind(current.user_id)
+                                .execute(&mut *connection)
+                                .await
+                                .map_err(map_sqlx_error)?;
                             sqlx::query("SELECT fct_anonymize_user($1)")
                                 .bind(current.user_id)
                                 .execute(&mut *connection)

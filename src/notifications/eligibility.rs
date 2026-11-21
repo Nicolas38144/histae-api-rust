@@ -4,7 +4,7 @@ pub const ACCOUNT_NOTIFICATION_ELIGIBLE_SQL: &str = r#"
     SELECT 1 FROM data_subject_request request
     WHERE request.id=(n.payload->>'request_id')::uuid AND request.user_id=n.user_id
       AND request.status=(n.payload->>'response_status')
-      AND request.status IN ('in_progress','completed','rejected')
+      AND request.status IN ('pending','in_progress','completed','rejected')
       AND nullif(btrim(request.response),'') IS NOT NULL
   )) OR (n.type = 'new_session' AND EXISTS (
     SELECT 1 FROM refresh_token_family opened_session

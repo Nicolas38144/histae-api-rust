@@ -234,6 +234,16 @@ impl DataExportService {
     }
 
     pub async fn prepare(&self, user_id: Uuid) -> Result<PreparedDataExport, DataExportError> {
+        self.prepare_bounded(user_id, self.max_bytes).await
+    }
+
+    #[cfg(feature = "webauthn-probe")]
+    pub async fn prepare_assisted(&self, user_id: Uuid) -> Result<PreparedDataExport, DataExportError> {
+        let assisted_limit = self.max_bytes.saturating_mul(2).min(1024 * 1024 * 1024);
+        self.prepare_bounded(user_id, self.max_bytes.max(assisted_limit)).await
+    }
+
+    async fn prepare_bounded(&self, user_id: Uuid, max_bytes: u64) -> Result<PreparedDataExport, DataExportError> {
         let permit = Arc::clone(&self.slots)
             .try_acquire_owned()
             .map_err(|error| match error {
@@ -247,7 +257,7 @@ impl DataExportService {
         .await
         .map_err(|_| DataExportError::Unavailable)?
         .map_err(|_| DataExportError::Unavailable)?;
-        self.prepare_in_directory(user_id, directory, file, permit)
+        self.prepare_in_directory(user_id, directory, file, permit, max_bytes)
             .await
     }
 
@@ -257,8 +267,9 @@ impl DataExportService {
         directory: ExportDirectory,
         file: std::fs::File,
         permit: OwnedSemaphorePermit,
+        max_bytes: u64,
     ) -> Result<PreparedDataExport, DataExportError> {
-        let mut writer = JsonExportWriter::new(File::from_std(file), self.max_bytes);
+        let mut writer = JsonExportWriter::new(File::from_std(file), max_bytes);
         writer.start_object(None).await.map_err(map_build_error)?;
 
         let discovery_started_at = Utc::now();

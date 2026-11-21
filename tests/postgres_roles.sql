@@ -10,8 +10,13 @@ BEGIN
     AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)) THEN
     RAISE EXCEPTION 'unexpected privileged role';
   END IF;
-  IF (SELECT count(*) FROM pg_tables WHERE schemaname = 'public'
-    AND tableowner = 'histae_migrate') <> 49 THEN
+  IF EXISTS (
+    SELECT required.name
+    FROM unnest(ARRAY['role_permission_probe', 'user_report', 'data_subject_request',
+                      'data_request_message', 'assisted_data_export', 'erasure_receipt', 'support_case']) required(name)
+    WHERE NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public'
+                      AND tablename = required.name AND tableowner = 'histae_migrate')
+  ) THEN
     RAISE EXCEPTION 'application schema or future table missing';
   END IF;
   IF pg_has_role(current_user, 'histae_migrate', 'MEMBER')

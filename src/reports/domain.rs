@@ -79,6 +79,7 @@ pub struct ReportRecord {
 pub struct CursorReportRow {
     pub report: ReportRecord,
     pub cursor_at: String,
+    pub public_response: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -93,6 +94,8 @@ pub struct PublicReport {
     pub description: Option<String>,
     pub status: ReportStatus,
     pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_response: Option<String>,
 }
 
 impl From<ReportRecord> for PublicReport {
@@ -105,6 +108,7 @@ impl From<ReportRecord> for PublicReport {
             reason: report.reason,
             description: report.description,
             status: report.status,
+            public_response: None,
             created_at: report
                 .created_at
                 .to_rfc3339_opts(SecondsFormat::Millis, true),

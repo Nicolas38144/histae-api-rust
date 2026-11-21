@@ -569,6 +569,49 @@ Le `202` désactive immédiatement le compte ; fermer la session mobile. **Ne pa
 
 **Signalements.** `reason = inappropriate_content | fake_profile | harassment | spam | other` ; description au plus 2 000 octets ; `match_id` et description peuvent être nuls. Auto-signalement interdit, cible existante et match éventuel reliant les deux comptes. Limite 5/h/utilisateur.
 
+### Suivi des demandes
+
+Les réponses de signalement sont visibles uniquement pour leur auteur. Le suivi expose `pending | closed`
+et le texte de clôture. Les décisions internes et l’identifiant du compte signalé sont omis. Les échanges
+RGPD sont conservés séparément de la réponse de synthèse de l’ancienne route. Les réponses existantes
+apparaissent dans le fil après migration. Un usager peut ajouter une précision tant que la demande est
+ouverte. Les notes des administrateurs ne figurent ni dans le fil utilisateur ni dans l’export.
+
+| Méthode | Route | Entrée → résultat |
+| --- | --- | --- |
+| GET | `/api/users/me/reports` | `before?` → `{ reports, next_cursor }`. |
+| GET | `/api/users/me/data-subject-requests/:id/messages` | `before?` → `{ details, requested_at, status, messages, next_cursor }`. |
+| POST | `/api/users/me/data-subject-requests/:id/messages` | `{ message }` → `204` pour une demande ouverte. |
+| GET | `/api/users/me/data-subject-requests/:id/assisted-export` | Autorisation active `{ id, expires_at }` ou `null`. |
+| GET | `/api/users/me/assisted-exports/:id` | Téléchargement authentifié, réservé au titulaire. |
+| POST | `/api/users/me/erasure-receipt` | Avant l’effacement → `{ code, expires_at }`. |
+| POST | `/api/public/erasure-status` | `{ code }` → `{ status, completed_at }`. |
+| GET | `/api/users/me/support-cases` | `before?` → `{ cases, next_cursor }`. |
+| POST | `/api/users/me/support-cases` | `{ category, message }` → `201 { id }`. |
+| POST | `/api/public/support-cases` | Même corps, sans session → `201 { id, code }`. |
+| POST | `/api/public/support-cases/status` | `{ code }` → demande et dernière réponse. |
+
+Les messages et réponses contiennent au plus 2 000 caractères Unicode. Les catégories de support
+sont `login | billing | appeal | privacy | other`. Un dossier invité ne prouve aucune identité et
+ne donne accès à aucun compte. Les codes sont transmis dans le corps des requêtes, conservés côté serveur
+sous forme d’empreinte et limités en débit. Le code d’effacement expire après 90 jours et ne donne que
+l’état `not_started | in_progress | completed`. Un nouveau code remplace le précédent. Les dossiers
+d’assistance expirent après 180 jours. L’autorisation de téléchargement expire après 24 heures et
+double la limite d’export configurée dans la limite de 1 Gio lorsque celle-ci est inférieure à 1 Gio.
+L’export est généré au téléchargement et la limite de génération simultanée reste commune.
+
+### Administration du suivi
+
+| Méthode | Route | Entrée → résultat |
+| --- | --- | --- |
+| PATCH | `/api/admin/reports/:id/decision` | Signalement ouvert + `{ status: "reviewed" \| "dismissed", response }` → `204`. |
+| GET | `/api/admin/data-subject-requests/:id/messages` | Même forme que la lecture utilisateur. |
+| POST | `/api/admin/data-subject-requests/:id/messages` | **Récente**, `{ message }` → `204` et notification RGPD. |
+| GET | `/api/admin/data-subject-requests/:id/assisted-export` | Autorisation active ou `null`. |
+| POST | `/api/admin/data-subject-requests/:id/assisted-export` | **Récente**, autorise un dossier d’accès ou de portabilité pris en charge. |
+| GET | `/api/admin/support-cases` | `before?` → `{ cases, next_cursor }`. |
+| PATCH | `/api/admin/support-cases/:id` | **Récente**, `{ status: "in_progress" \| "closed", response }` → `204`. |
+
 <a id="administration"></a>
 
 ## Administration

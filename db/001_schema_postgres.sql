@@ -1577,3 +1577,72 @@ DO $$ BEGIN
     END IF;
 END $$;
 -- END phone blocklist
+
+-- BEGIN customer cases
+ALTER TABLE user_report ADD COLUMN IF NOT EXISTS public_response text
+    CHECK (public_response IS NULL OR char_length(public_response) BETWEEN 1 AND 2000);
+
+CREATE TABLE IF NOT EXISTS data_request_message (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    request_id uuid NOT NULL REFERENCES data_subject_request(id) ON DELETE CASCADE,
+    author text NOT NULL CHECK (author IN ('user', 'team')),
+    body text NOT NULL CHECK (char_length(body) BETWEEN 1 AND 2000),
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX IF NOT EXISTS idx_data_request_message_page ON data_request_message(request_id, created_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS assisted_data_export (
+    request_id uuid PRIMARY KEY REFERENCES data_subject_request(id) ON DELETE CASCADE,
+    id uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    expires_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assisted_data_export_expiry ON assisted_data_export(expires_at);
+
+CREATE TABLE IF NOT EXISTS erasure_receipt (
+    user_id uuid PRIMARY KEY REFERENCES user_account(user_id) ON DELETE CASCADE,
+    token_hash text NOT NULL UNIQUE,
+    expires_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_erasure_receipt_expiry ON erasure_receipt(expires_at);
+
+CREATE TABLE IF NOT EXISTS support_case (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid REFERENCES user_account(user_id) ON DELETE CASCADE,
+    token_hash text UNIQUE,
+    category text NOT NULL CHECK (category IN ('login', 'billing', 'appeal', 'privacy', 'other')),
+    body text NOT NULL CHECK (char_length(body) BETWEEN 1 AND 2000),
+    status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'closed')),
+    response text CHECK (response IS NULL OR char_length(response) BETWEEN 1 AND 2000),
+    handled_by uuid REFERENCES user_account(user_id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    expires_at timestamptz NOT NULL DEFAULT (clock_timestamp() + interval '180 days'),
+    CHECK ((user_id IS NULL) <> (token_hash IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_support_case_user ON support_case(user_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_support_case_queue ON support_case(status, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_support_case_expiry ON support_case(expires_at);
+
+CREATE OR REPLACE FUNCTION fct_save_data_request_reply() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.response IS NOT NULL AND NEW.response IS DISTINCT FROM OLD.response THEN
+        INSERT INTO data_request_message(request_id, author, body)
+        VALUES (NEW.id, 'team', NEW.response);
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_save_data_request_reply'
+                   AND tgrelid = 'data_subject_request'::regclass) THEN
+        INSERT INTO data_request_message(request_id, author, body, created_at)
+        SELECT id, 'team', response, COALESCE(completed_at, requested_at)
+        FROM data_subject_request WHERE response IS NOT NULL;
+        CREATE TRIGGER trg_save_data_request_reply AFTER UPDATE OF response ON data_subject_request
+        FOR EACH ROW EXECUTE FUNCTION fct_save_data_request_reply();
+    END IF;
+END;
+$$;
+-- END customer cases
