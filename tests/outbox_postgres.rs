@@ -313,7 +313,7 @@ async fn assert_payment_notification_retirement(
          ALTER TABLE notification
            ADD CONSTRAINT notification_type_check CHECK (
              type IN ('new_match', 'new_message', 'profile_liked', 'match_expiring',
-                      'billing_payment_failed', 'subscription_trial_ending')),
+                      'continuation_requested', 'billing_payment_failed', 'subscription_trial_ending')),
            ADD CONSTRAINT chk_notification_billing_context CHECK (
              (billing_reference IS NULL AND billing_trial_ends_at IS NULL) OR
              (type = 'billing_payment_failed' AND billing_reference ~ '^in_[A-Za-z0-9]+$'
@@ -337,10 +337,10 @@ async fn assert_payment_notification_retirement(
         .execute(&mut *connection)
         .await?;
     sqlx::query(
-        "INSERT INTO notification(id, user_id, type, billing_reference, billing_trial_ends_at)
-         VALUES ($1, $3, 'subscription_trial_ending', 'sub_RetiredTrial', clock_timestamp() + interval '1 day'),
-                ($2, $3, 'billing_payment_failed', 'in_StillUnpaid', NULL),
-                ($4, $3, 'new_match', NULL, NULL)",
+        "INSERT INTO notification(id, user_id, type, billing_reference, billing_trial_ends_at, payload)
+         VALUES ($1, $3, 'subscription_trial_ending', 'sub_RetiredTrial', clock_timestamp() + interval '1 day', NULL),
+                ($2, $3, 'billing_payment_failed', 'in_StillUnpaid', NULL, NULL),
+                ($4, $3, 'continuation_requested', NULL, NULL, '{}'::jsonb)",
     )
     .bind(notifications[0]).bind(notifications[1]).bind(user).bind(notifications[2])
     .execute(&mut *connection).await?;
@@ -350,6 +350,12 @@ async fn assert_payment_notification_retirement(
         sqlx::query("INSERT INTO notification_push_delivery(id, notification_id, device_id) VALUES ($1, $2, $3)")
             .bind(job).bind(notification).bind(device).execute(&mut *connection).await?;
     }
+    let snapshot_sql = "SELECT jsonb_build_array(id,type,payload,created_at,expires_at)
+                        FROM notification WHERE id=$1";
+    let retained_notice: serde_json::Value = sqlx::query_scalar(snapshot_sql)
+        .bind(notifications[2])
+        .fetch_one(&mut *connection)
+        .await?;
     drop(connection);
 
     // Both the first upgrade and a repeated deployment must preserve unrelated work.
@@ -362,6 +368,11 @@ async fn assert_payment_notification_retirement(
                 .fetch_all(&mut *connection)
                 .await?;
         assert_eq!(remaining, vec![notifications[2]]);
+        let actual: serde_json::Value = sqlx::query_scalar(snapshot_sql)
+            .bind(notifications[2])
+            .fetch_one(&mut *connection)
+            .await?;
+        assert_eq!(actual, retained_notice);
         let deliveries: Vec<Uuid> =
             sqlx::query_scalar("SELECT id FROM notification_push_delivery WHERE device_id = $1")
                 .bind(device)
@@ -377,6 +388,15 @@ async fn assert_payment_notification_retirement(
         let old_column: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'notification' AND column_name IN ('billing_trial_ends_at','billing_reference'))")
             .fetch_one(&mut *connection).await?;
         assert!(!old_column);
+        let current_types_restored: bool = sqlx::query_scalar(
+            "SELECT pg_get_constraintdef(oid) LIKE '%data_request_replied%'
+                AND pg_get_constraintdef(oid) LIKE '%first_period_ending%'
+             FROM pg_constraint WHERE conrelid='notification'::regclass
+               AND conname='notification_type_check'",
+        )
+        .fetch_one(&mut *connection)
+        .await?;
+        assert!(current_types_restored);
         assert!(
             sqlx::query(
                 "INSERT INTO notification(user_id, type) VALUES ($1, 'subscription_trial_ending')"

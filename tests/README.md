@@ -65,13 +65,18 @@ Avec un accès Docker déjà administré, omettre `sudo -v` et `--sudo-docker`.
 Cargo reste exécuté par l’utilisateur courant. Le lanceur vérifie la présence des images avant
 création et refuse de télécharger implicitement une image manquante.
 
-Pour cibler des suites :
+Pour cibler des suites sur un schéma neuf :
 
 ```bash
 python3 scripts/verify-continuation-postgres.py --sudo-docker \
   --native-migrator target/debug/db-migrate \
-  --test matches_postgres --test notifications_postgres --test outbox_postgres
+  --skip-legacy-migrations --test matches_postgres --test notifications_postgres
 ```
+
+`--skip-legacy-migrations` installe le schéma et le catalogue, puis lance directement les suites
+sélectionnées. Les tests de migration propres à une suite, comme `outbox_postgres`, s’exécutent
+si cette suite est sélectionnée. Pour vérifier la mise à niveau d’une base existante, lancer le script
+sans cette option.
 
 `--postgres-image` sélectionne une autre image locale compatible. Pour tester le migrateur d’une
 image API reconstruite depuis les sources, omettre `--native-migrator` et préciser `--api-image`.

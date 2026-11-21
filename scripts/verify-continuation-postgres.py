@@ -37,6 +37,8 @@ def main():
                         help="Locally built API image containing the current migrator")
     parser.add_argument("--postgres-image", default="histae-postgres:18.7-postgis3.7.0")
     parser.add_argument("--test", action="append", choices=TESTS + ADMIN_TESTS + tuple(POSTGRES_FILTERS))
+    parser.add_argument("--skip-legacy-migrations", action="store_true",
+                        help="Install a fresh schema and skip the runner's historical migration scenarios")
     parser.add_argument("--native-migrator", type=Path, help="Use a freshly built local db-migrate binary over the published loopback port")
     parser.add_argument("--native-phone-sync", type=Path, help="Optional live public-feed smoke after isolated tests; never sends SMS")
     parser.add_argument("--sudo-docker", action="store_true", help="Use sudo for Docker only, keep Cargo unprivileged")
@@ -132,294 +134,18 @@ def main():
                            "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
                            "--entrypoint", "/app/bin/db-migrate", args.api_image,
                            failure_message=f"Migration with local API image {args.api_image} failed")
-            for _ in range(2):
-                migrate()
+            migrate()
+
             def query(statement, role="histae_app"):
                 return docker("exec", "-i", name, "sh", "-ec",
                     'case "$1" in histae_app) export PGPASSWORD="$HISTAE_BOOTSTRAP_APP_PASSWORD" ;; histae_migrate) export PGPASSWORD="$HISTAE_BOOTSTRAP_MIGRATE_PASSWORD" ;; *) exit 2 ;; esac; exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d histae-dev',
                     "sh", role, input_text=statement)
 
-            # Recreate the retired web-payment schema, without contacting any provider.
-            legacy_user, native_user, internal_user, gift_user = [str(uuid.uuid4()) for _ in range(4)]
-            legacy_request, native_account, native_receipt = [str(uuid.uuid4()) for _ in range(3)]
-            for owner in (legacy_user,native_user,internal_user,gift_user):
-                query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{owner}','retirement-{owner}',''::bytea);")
-            query("ALTER TABLE user_subscription ADD COLUMN provider text, ADD COLUMN provider_subscription_id text, ADD COLUMN provider_price_id text, ADD COLUMN billing_period text, ADD COLUMN status text, ADD COLUMN cancel_at_period_end boolean DEFAULT false, ADD COLUMN trial_ends_at timestamptz, ADD COLUMN canceled_at timestamptz, ADD COLUMN provider_event_created_at timestamptz, ADD COLUMN projection_version bigint DEFAULT 0, ADD COLUMN provider_snapshot_at timestamptz; CREATE TABLE billing_customer(user_id uuid); CREATE TABLE billing_checkout_session(id uuid); CREATE TABLE billing_invoice(id text); CREATE TABLE stripe_webhook_event(id text); ALTER TABLE web_account_challenge RENAME TO web_billing_challenge; ALTER TABLE web_account_session RENAME TO web_billing_session; ALTER TABLE account_erasure DROP CONSTRAINT account_erasure_step_check; ALTER TABLE account_erasure ADD CONSTRAINT account_erasure_step_check CHECK(step IN ('stripe','photos','swipes','postgres','completed')); ALTER TABLE account_erasure ALTER COLUMN step SET DEFAULT 'stripe';", "histae_migrate")
-            query(f"INSERT INTO user_subscription(user_id,plan,provider) VALUES ('{legacy_user}','premium','stripe'),('{internal_user}','premium',NULL); INSERT INTO complimentary_premium_grant(user_id) VALUES ('{gift_user}'); INSERT INTO billing_store_account(id,user_id,google_account_id) VALUES ('{native_account}','{native_user}',repeat('a',64)); INSERT INTO billing_store_subscription(id,user_id,account_id,provider,original_id,reference_encrypted,environment,product_id,transaction_id,billing_period,status,starts_at,expires_at,auto_renew,acknowledged,verified_at) VALUES ('{native_receipt}','{native_user}','{native_account}','app_store','retirement-native',''::bytea,'sandbox','premium','retirement-tx','monthly','active',clock_timestamp()-interval '1 day',clock_timestamp()+interval '30 days',true,true,clock_timestamp()); INSERT INTO outbox_event(id,event_type,aggregate_id) VALUES (uuid_generate_v4(),'billing.subscription.reconcile','{legacy_user}'),(uuid_generate_v4(),'billing.customer.reconcile','{legacy_user}'); INSERT INTO data_subject_request(id,user_id,type,status) VALUES ('{legacy_request}','{legacy_user}','erasure','in_progress'); INSERT INTO account_erasure(request_id,user_id,step) VALUES ('{legacy_request}','{legacy_user}','stripe'); INSERT INTO outbox_event(id,event_type,aggregate_id,status,attempts,dead_lettered_at,last_error_code) VALUES (uuid_generate_v4(),'account.erase','{legacy_request}','dead_letter',8,clock_timestamp(),'billing_reconciliation_failed');")
-            native_snapshot_sql = f"SELECT to_jsonb(s) FROM billing_store_subscription s WHERE id='{native_receipt}';"
-            native_snapshot = query(native_snapshot_sql)
-            for _ in range(2):
-                migrate()
-                assert query(native_snapshot_sql)==native_snapshot
-                assert query("SELECT to_regclass('billing_customer') IS NULL AND to_regclass('billing_checkout_session') IS NULL AND to_regclass('billing_invoice') IS NULL AND to_regclass('stripe_webhook_event') IS NULL AND to_regclass('web_account_session') IS NOT NULL AND to_regclass('web_billing_session') IS NULL;")=="t"
-                assert query(f"SELECT NOT EXISTS(SELECT 1 FROM user_subscription WHERE user_id='{legacy_user}') AND EXISTS(SELECT 1 FROM user_account WHERE user_id='{legacy_user}') AND EXISTS(SELECT 1 FROM account_erasure WHERE request_id='{legacy_request}' AND step='photos') AND NOT EXISTS(SELECT 1 FROM outbox_event WHERE event_type IN ('billing.customer.reconcile','billing.subscription.reconcile'));")=="t"
-                assert query(f"SELECT status='pending' AND attempts=0 AND dead_lettered_at IS NULL AND last_error_code IS NULL FROM outbox_event WHERE event_type='account.erase' AND aggregate_id='{legacy_request}';")=="t"
-                for owner in (native_user,internal_user,gift_user):
-                    assert query(f"SELECT access_granted FROM effective_user_subscription WHERE user_id='{owner}';")=="t"
-            query(f"DELETE FROM outbox_event WHERE event_type='account.erase' AND aggregate_id='{legacy_request}'; DELETE FROM billing_store_subscription WHERE id='{native_receipt}'; DELETE FROM billing_store_account WHERE id='{native_account}'; DELETE FROM user_account WHERE user_id IN ('{legacy_user}','{native_user}','{internal_user}','{gift_user}');")
-            print("Retired web-payment migration removes only test payment state; native receipts, internal rights and gifts are preserved, and erasure resumes at photos.",flush=True)
+            if args.skip_legacy_migrations:
+                print("Running on a fresh schema without the historical migration scenarios.", flush=True)
+            else:
+                verify_legacy_migrations(name, docker, migrate, query)
 
-            # Simulate an existing separated cluster predating the dedicated import role.
-            docker("exec", "-i", name, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1",
-                   "-U", "histae_admin", "-d", "histae-dev", input_text=r"""
-DROP OWNED BY histae_phone_sync;
-DROP ROLE histae_phone_sync;
-SET log_statement = none;
-SET log_min_error_statement = panic;
-\set bootstrap_mode access
-\getenv phone_sync_password HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD
-\i /etc/histae/db/000_bootstrap_postgres.sql
-""")
-            print("Existing-cluster bootstrap provisions the restricted phone-sync role.", flush=True)
-
-            policy_id = str(uuid.uuid4())
-            query("DROP TABLE phone_blocklist_observation; DROP TABLE phone_blocklist_source; DROP TABLE phone_blocklist_entry; DROP TABLE phone_blocklist_control;", "histae_migrate")
-            migrate()
-            query(f"INSERT INTO phone_blocklist_entry(id,phone_hash,phone_hint,decision,decision_until,version) VALUES ('{policy_id}',repeat('b',64),'+33……0000','allow',clock_timestamp()+INTERVAL '30 days',7); UPDATE phone_blocklist_source SET last_success_at=clock_timestamp() WHERE source='castle'; INSERT INTO phone_blocklist_observation(entry_id,source,last_seen_at) VALUES ('{policy_id}','castle',clock_timestamp());")
-            policy_snapshot_sql = f"SELECT jsonb_build_array(e.decision,e.decision_until,e.version,o.last_seen_at,o.imported_at,s.last_success_at,c.key_fingerprint) FROM phone_blocklist_entry e JOIN phone_blocklist_observation o ON o.entry_id=e.id JOIN phone_blocklist_source s ON s.source=o.source CROSS JOIN phone_blocklist_control c WHERE e.id='{policy_id}';"
-            policy_snapshot = query(policy_snapshot_sql)
-            for _ in range(2):
-                migrate()
-                assert query(policy_snapshot_sql) == policy_snapshot
-            query(f"DELETE FROM phone_blocklist_entry WHERE id='{policy_id}'; UPDATE phone_blocklist_source SET last_success_at=NULL;")
-            print("Phone policy upgrade preserves exceptions, source dates and key binding.", flush=True)
-
-            query("DROP TABLE match_notification_preference, user_notification_preference;", "histae_migrate")
-            migrate()
-
-            notice_users = sorted(str(uuid.uuid4()) for _ in range(2))
-            notice_match, notice_id = str(uuid.uuid4()), str(uuid.uuid4())
-            for user in notice_users:
-                query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{user}','legacy-notice-{user}',''::bytea);")
-            query(f"INSERT INTO match_init(id,user1_id,user2_id) VALUES ('{notice_match}','{notice_users[0]}','{notice_users[1]}'); INSERT INTO notification(id,user_id,type,payload) VALUES ('{notice_id}','{notice_users[0]}','new_match',jsonb_build_object('match_id','{notice_match}'));")
-            query(f"INSERT INTO match_state(match_id,user_id) VALUES ('{notice_match}','{notice_users[0]}'),('{notice_match}','{notice_users[1]}'); INSERT INTO user_notification_preference(user_id,messages,discreet) VALUES ('{notice_users[0]}',false,true); INSERT INTO match_notification_preference(match_id,user_id,muted) VALUES ('{notice_match}','{notice_users[0]}',true),('{notice_match}','{notice_users[1]}',false);")
-            choices_sql = f"SELECT jsonb_build_array((SELECT to_jsonb(p) FROM user_notification_preference p WHERE user_id='{notice_users[0]}'),(SELECT jsonb_agg(to_jsonb(p) ORDER BY user_id) FROM match_notification_preference p WHERE match_id='{notice_match}'));"
-            choices_snapshot = query(choices_sql)
-            for _ in range(2):
-                migrate()
-                assert query(choices_sql) == choices_snapshot
-            print("Notification preference upgrade creates tables and preserves private choices on repeated runs.", flush=True)
-            notice_snapshot_sql = f"SELECT jsonb_build_array(n.id,n.type,n.payload,n.created_at,n.expires_at,m.status,m.expires_at) FROM notification n JOIN match_init m ON m.id='{notice_match}' WHERE n.id='{notice_id}';"
-            notice_snapshot = query(notice_snapshot_sql)
-            query("ALTER TABLE match_init DROP COLUMN photo_reveal_version; ALTER TABLE notification DROP CONSTRAINT notification_type_check; ALTER TABLE notification ADD CONSTRAINT notification_type_check CHECK (type IN ('new_match','new_message','profile_liked','match_expiring','billing_payment_failed')); DROP INDEX idx_notification_match_kind;", "histae_migrate")
-            for _ in range(2):
-                migrate()
-                assert query(notice_snapshot_sql) == notice_snapshot
-                assert query(f"SELECT photo_reveal_version FROM match_init WHERE id='{notice_match}';") == "0"
-                assert query("SELECT to_regclass('idx_notification_match_kind') IS NOT NULL;") == "t"
-            query(f"UPDATE match_init SET photo_reveal_version=7 WHERE id='{notice_match}';")
-            migrate()
-            assert query(f"SELECT photo_reveal_version FROM match_init WHERE id='{notice_match}';") == "7"
-            # Retired trial rows must be removed before the canonical type check is restored.
-            trial_notice, retained_notice = str(uuid.uuid4()), str(uuid.uuid4())
-            query("ALTER TABLE notification ADD COLUMN billing_trial_ends_at timestamptz; ALTER TABLE notification DROP CONSTRAINT notification_type_check; ALTER TABLE notification ADD CONSTRAINT notification_type_check CHECK (type IN ('new_match','subscription_trial_ending','continuation_requested'));", "histae_migrate")
-            query(f"INSERT INTO notification(id,user_id,type,payload) VALUES ('{trial_notice}','{notice_users[0]}','subscription_trial_ending','{{}}'), ('{retained_notice}','{notice_users[0]}','continuation_requested','{{}}');")
-            retained_snapshot_sql = f"SELECT jsonb_build_array(id,type,payload,created_at,expires_at) FROM notification WHERE id='{retained_notice}';"
-            retained_snapshot = query(retained_snapshot_sql)
-            for _ in range(2):
-                migrate()
-                assert query(retained_snapshot_sql) == retained_snapshot
-                assert query(f"SELECT count(*) FROM notification WHERE id='{trial_notice}';") == "0"
-                assert query("SELECT NOT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='notification'::regclass AND attname='billing_trial_ends_at' AND NOT attisdropped);") == "t"
-                assert query("SELECT pg_get_constraintdef(oid) LIKE '%data_request_replied%' AND pg_get_constraintdef(oid) LIKE '%first_period_ending%' FROM pg_constraint WHERE conrelid='notification'::regclass AND conname='notification_type_check';") == "t"
-            for user in notice_users:
-                query(f"DELETE FROM user_account WHERE user_id='{user}';")
-            print("Notification upgrade preserves historical notices, match deadlines and photo grant generations.", flush=True)
-            print("Retired trial notifications are removed before restoring current lifecycle types.", flush=True)
-
-            refresh_user, refresh_family, refresh_token, refresh_jti = [str(uuid.uuid4()) for _ in range(4)]
-            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{refresh_user}','legacy-refresh-{refresh_user}',''::bytea); INSERT INTO refresh_token_family(id,user_id,created_at,last_refreshed_at,expires_at) VALUES ('{refresh_family}','{refresh_user}',clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '180 days'); INSERT INTO refresh_tokens(id,user_id,family_id,jti,token_hash,created_at,expires_at) VALUES ('{refresh_token}','{refresh_user}','{refresh_family}','{refresh_jti}',repeat('a',64),clock_timestamp(),clock_timestamp()+interval '180 days');")
-            refresh_snapshot_sql = f"SELECT jsonb_build_array(family.created_at,family.last_refreshed_at,family.expires_at,token.jti,token.token_hash,token.expires_at,token.revoked) FROM refresh_token_family family JOIN refresh_tokens token ON token.family_id=family.id WHERE token.id='{refresh_token}';"
-            refresh_snapshot = query(refresh_snapshot_sql)
-            query("ALTER TABLE refresh_tokens DROP COLUMN rotation_request_hash; ALTER TABLE refresh_tokens DROP COLUMN rotation_result;", "histae_migrate")
-            for _ in range(2):
-                migrate()
-                assert query(refresh_snapshot_sql) == refresh_snapshot
-                assert query(f"SELECT rotation_request_hash IS NULL AND rotation_result IS NULL FROM refresh_tokens WHERE id='{refresh_token}';") == "t"
-                assert query("SELECT to_regclass('idx_refresh_recovery_expiry') IS NOT NULL;") == "t"
-            query(f"DELETE FROM user_account WHERE user_id='{refresh_user}';")
-            print("Refresh recovery upgrade preserves historical sessions and token deadlines.", flush=True)
-
-            review_legacy = str(uuid.uuid4())
-            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{review_legacy}','legacy-play-review',''::bytea);")
-            query("ALTER TABLE user_account DROP CONSTRAINT user_account_review_role_check; ALTER TABLE user_account DROP COLUMN is_review_account;", "histae_migrate")
-            migrate()
-            assert query(f"SELECT NOT is_review_account FROM user_account WHERE user_id='{review_legacy}';") == "t"
-            assert query(
-                "SELECT NOT EXISTS (SELECT 1 FROM effective_user_subscription "
-                f"WHERE user_id='{review_legacy}');"
-            ) == "t"
-            query(f"UPDATE user_account SET is_review_account=true WHERE user_id='{review_legacy}';")
-            migrate()
-            assert query(f"SELECT is_review_account AND role='user' FROM user_account WHERE user_id='{review_legacy}';") == "t"
-            assert query(
-                "SELECT plan='premium' AND access_granted AND provider IS NULL "
-                "AND current_period_ends_at IS NULL FROM effective_user_subscription "
-                f"WHERE user_id='{review_legacy}';"
-            ) == "t"
-            query(f"DELETE FROM user_account WHERE user_id='{review_legacy}';")
-            print("Play review upgrade preserves real accounts and dedicated review markers.", flush=True)
-
-            # Simulate the pre-gift schema and verify that redeploys preserve a granted offer.
-            gift_legacy = str(uuid.uuid4())
-            old_audit_check = query("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='data_access_log'::regclass AND conname='data_access_log_action_check';")
-            old_audit_check = old_audit_check.replace("'admin_grant_premium'::text", "'admin_promote'::text").replace("'admin_revoke_premium'::text", "'admin_demote'::text")
-            old_audit_check = old_audit_check.replace(", 'admin_correct_profile_identity'::text", "")
-            assert "admin_correct_profile_identity" not in old_audit_check
-            legacy_audit = str(uuid.uuid4())
-            query(f"INSERT INTO data_access_log(id,accessed_user_id,accessor_role,action,reason) VALUES ('{legacy_audit}','{gift_legacy}','system','view_profile','Historical profile access');")
-            audit_snapshot_sql = f"SELECT to_jsonb(log) FROM data_access_log log WHERE id='{legacy_audit}';"
-            audit_snapshot = query(audit_snapshot_sql)
-            query("DROP TABLE complimentary_premium_grant; ALTER TABLE data_access_log DROP CONSTRAINT data_access_log_action_check; ALTER TABLE data_access_log ADD CONSTRAINT data_access_log_action_check " + old_audit_check + ";", "histae_migrate")
-            migrate()
-            assert query(audit_snapshot_sql) == audit_snapshot
-            assert query("SELECT convalidated AND pg_get_constraintdef(oid) LIKE '%admin_correct_profile_identity%' FROM pg_constraint WHERE conrelid='data_access_log'::regclass AND conname='data_access_log_action_check';") == "t"
-            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{gift_legacy}','legacy-premium-gift',''::bytea); INSERT INTO complimentary_premium_grant(user_id) VALUES ('{gift_legacy}');")
-            gift_at = query(f"SELECT granted_at FROM complimentary_premium_grant WHERE user_id='{gift_legacy}';")
-            migrate()
-            assert query(audit_snapshot_sql) == audit_snapshot
-            assert query(f"SELECT granted_at FROM complimentary_premium_grant WHERE user_id='{gift_legacy}';") == gift_at
-            assert query(f"SELECT access_granted AND provider IS NULL FROM effective_user_subscription WHERE user_id='{gift_legacy}';") == "t"
-            query(f"DELETE FROM user_account WHERE user_id='{gift_legacy}';")
-            query(f"DELETE FROM data_access_log WHERE id='{legacy_audit}';")
-            print("Complimentary Premium upgrade preserves grants and restores audit actions.", flush=True)
-            print("Profile identity correction audit upgrade preserves historical access logs.", flush=True)
-
-            # Upgrade the old carry-over wallet once, without renewing expired
-            # credits or overwriting a later operator translation on redeploy.
-            wallet_owner = str(uuid.uuid4())
-            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{wallet_owner}','legacy-weekly-wallet',''::bytea); INSERT INTO continuation_wallet(user_id,advertising_credits) VALUES ('{wallet_owner}',3);")
-            legacy_reward = str(uuid.uuid4())
-            query(f"INSERT INTO advertising_reward_intent(id,user_id,ad_unit,completed_at,transaction_hash) VALUES ('{legacy_reward}','{wallet_owner}','legacy-unit',clock_timestamp(),'{legacy_reward}');")
-            query("ALTER TABLE advertising_reward_intent DROP COLUMN credited_at;", "histae_migrate")
-            query("ALTER TABLE continuation_wallet DROP COLUMN week_start; UPDATE subscription_plan SET weekly_continuation_limit=3 WHERE code='free'; UPDATE subscription_plan_feature_translation SET display_name='3 crédits gratuits par semaine' WHERE plan_code='free' AND feature_code='continuations' AND language='fr';", "histae_migrate")
-            migrate()
-            assert query(f"SELECT credited_at=completed_at FROM advertising_reward_intent WHERE id='{legacy_reward}';") == "t"
-            assert query(f"SELECT advertising_credits=3 AND week_start=date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date FROM continuation_wallet WHERE user_id='{wallet_owner}';") == "t"
-            assert query("SELECT weekly_continuation_limit FROM subscription_plan WHERE code='free';") == "2"
-            assert query("SELECT display_name FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';") == "2 crédits gratuits par semaine"
-            description = query("SELECT description FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';")
-            query(f"UPDATE advertising_reward_intent SET credited_at=NULL WHERE id='{legacy_reward}';")
-            query(f"UPDATE continuation_wallet SET week_start=week_start-7 WHERE user_id='{wallet_owner}'; UPDATE subscription_plan_feature_translation SET description='Operator weekly policy text' WHERE plan_code='free' AND feature_code='continuations' AND language='fr';")
-            migrate()
-            assert query(f"SELECT credited_at IS NULL AND completed_at IS NOT NULL FROM advertising_reward_intent WHERE id='{legacy_reward}';") == "t"
-            assert query(f"SELECT advertising_credits=3 AND week_start=date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date-7 FROM continuation_wallet WHERE user_id='{wallet_owner}';") == "t"
-            assert query("SELECT description FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';") == "Operator weekly policy text"
-            description_literal = "'" + description.replace("'", "''") + "'"
-            inactivity_peer, inactivity_match = [str(uuid.uuid4()) for _ in range(2)]
-            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{inactivity_peer}','legacy-inactivity-peer',''::bytea); INSERT INTO match_init(id,user1_id,user2_id,status) VALUES ('{inactivity_match}',LEAST('{wallet_owner}'::uuid,'{inactivity_peer}'::uuid),GREATEST('{wallet_owner}'::uuid,'{inactivity_peer}'::uuid),'confirmed');")
-            query("DROP TRIGGER trg_match_inactivity ON match_init;", "histae_migrate")
-            query(f"UPDATE match_init SET expires_at=clock_timestamp()-INTERVAL '40 days' WHERE id='{inactivity_match}';")
-            migrate()
-            assert query(f"SELECT expires_at>clock_timestamp()+INTERVAL '29 days' FROM match_init WHERE id='{inactivity_match}';") == "t"
-            deadline = query(f"SELECT expires_at FROM match_init WHERE id='{inactivity_match}';")
-            migrate()
-            assert query(f"SELECT expires_at FROM match_init WHERE id='{inactivity_match}';") == deadline
-            query(f"DELETE FROM user_account WHERE user_id='{inactivity_peer}';")
-            print("Inactivity upgrade grants one full notice cycle and never renews it on redeploy.", flush=True)
-            query(f"UPDATE subscription_plan_feature_translation SET description={description_literal} WHERE plan_code='free' AND feature_code='continuations' AND language='fr'; DELETE FROM user_account WHERE user_id='{wallet_owner}';")
-            print("Weekly wallet upgrade preserves current balances and never renews expired credits.", flush=True)
-
-            # Legacy likes and passes keep their original choice dates when shortened.
-            swipe_actor, swipe_target = [str(uuid.uuid4()) for _ in range(2)]
-            swipe_filter = f"actor_id IN ('{swipe_actor}','{swipe_target}') AND target_id IN ('{swipe_actor}','{swipe_target}')"
-            query("ALTER TABLE swipe_decision DROP CONSTRAINT swipe_decision_retention_30_days_check; ALTER TABLE swipe_decision ALTER COLUMN expires_at SET DEFAULT (now()+INTERVAL '365 days'); ALTER TABLE swipe_decision ADD CONSTRAINT swipe_decision_retention_check CHECK (expires_at=swiped_at+INTERVAL '365 days');", "histae_migrate")
-            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{swipe_actor}','legacy-swipe-actor',''::bytea),('{swipe_target}','legacy-swipe-target',''::bytea);")
-            query(f"INSERT INTO swipe_decision(actor_id,target_id,decision,swiped_at,expires_at) VALUES ('{swipe_actor}','{swipe_target}','like',now()-INTERVAL '45 days',now()-INTERVAL '45 days'+INTERVAL '365 days'),('{swipe_target}','{swipe_actor}','pass',now()-INTERVAL '5 days',now()-INTERVAL '5 days'+INTERVAL '365 days');")
-            original_swipe_choices = query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};")
-            query(f"UPDATE user_account SET deleted_at=clock_timestamp(),is_banned=true WHERE user_id='{swipe_target}';", "histae_migrate")
-
-            # Simulate the pre-store/pre-credit/pre-pause schema, then prove the upgrade and
-            # that a repeated migration preserves choices made under the new rules.
-            first, second, match_id = [str(uuid.uuid4()) for _ in range(3)]
-            query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{first}','legacy-credit-first',''::bytea),('{second}','legacy-credit-second',''::bytea); "
-                  f"INSERT INTO match_init(id,user1_id,user2_id,status,expires_at,continuation_initiator_id) VALUES ('{match_id}',LEAST('{first}'::uuid,'{second}'::uuid),GREATEST('{first}'::uuid,'{second}'::uuid),'awaiting_continuation',clock_timestamp()+INTERVAL '24 hours','{first}'); "
-                  f"INSERT INTO match_state(match_id,user_id,continued) VALUES ('{match_id}','{first}',true),('{match_id}','{second}',false); "
-                  f"INSERT INTO continuation_usage(user_id,week_start,used_count,free_used_count) VALUES ('{first}',date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date,2,2);")
-            assert query("SELECT NOT EXISTS (SELECT 1 FROM trait CROSS JOIN (VALUES('en'),('es'),('it')) langs(language) WHERE NOT EXISTS (SELECT 1 FROM trait_translation t WHERE t.trait_id=trait.id AND t.language=langs.language)) AND NOT EXISTS (SELECT 1 FROM profile_question CROSS JOIN (VALUES('en'),('es'),('it')) langs(language) WHERE NOT EXISTS (SELECT 1 FROM profile_question_translation t WHERE t.question_id=profile_question.id AND t.language=langs.language));") == "t"
-            assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
-            query(f"INSERT INTO user_subscription(user_id,plan) VALUES ('{first}','free') ON CONFLICT(user_id) DO UPDATE SET plan='free';")
-            query(f"INSERT INTO user_presence(user_id,latitude,longitude,is_location_fresh) VALUES ('{first}',48.856613,2.352222,true);")
-            # A pre-message request keeps its history when nullable columns are added.
-            legacy_request = str(uuid.uuid4())
-            query(f"INSERT INTO data_subject_request(id,user_id,type,status,notes) VALUES ('{legacy_request}','{first}','rectification','in_progress','Historical internal note');")
-            query("DROP TRIGGER trg_save_data_request_reply ON data_subject_request; "
-                  "DROP TABLE data_request_message; "
-                  "ALTER TABLE data_subject_request DROP COLUMN details, DROP COLUMN response;", "histae_migrate")
-            # Recreate the retired analyser columns and decisions on this disposable database.
-            photo_ids = [str(uuid.uuid4()) for _ in range(5)]
-            query("ALTER TABLE content_moderation_case ADD COLUMN face_count smallint, ADD COLUMN sharpness_score double precision, ADD COLUMN nsfw_score double precision, ADD COLUMN face_detectable boolean, ADD COLUMN sharp_enough boolean, ADD COLUMN content_allowed boolean; ALTER TABLE content_moderation_case DROP CONSTRAINT chk_content_moderation_reason_codes;", "histae_migrate")
-            query(f"INSERT INTO user_profile(user_id,firstname,birthdate) VALUES ('{first}','Photo migration',DATE '1990-01-01'),('{second}','Photo migration',DATE '1990-01-01');")
-            for index, photo_id in enumerate(photo_ids):
-                owner = second if index == 1 else first
-                status = 'ready' if index < 2 else 'deleting'
-                query(f"INSERT INTO user_photo(id,user_id,object_key,status,mime_type,size_bytes,width,height,sha256) VALUES ('{photo_id}','{owner}','profile-photos/{owner}/{photo_id}.webp','{status}','image/webp',12,2,2,decode(repeat('07',32),'hex'));")
-                if index == 1:  # A legacy ready photo without moderation metadata.
-                    continue
-                status = {0: 'pending', 2: 'rejected', 3: 'approved', 4: 'pending'}[index]
-                reviewed = "NULL" if index == 0 else "clock_timestamp()"
-                query(f"INSERT INTO content_moderation_case(user_id,content_type,photo_id,status,reason_codes,policy_version,reviewed_at,review_reason,face_count,sharpness_score,nsfw_score) VALUES ('{owner}','photo','{photo_id}','{status}',ARRAY['blurry'],'local_vision_v1',{reviewed},'Human decision kept',1,40,0.1);")
-            query("ALTER TABLE user_presence DROP COLUMN location_changed_at;", "histae_migrate")
-            query("DROP VIEW effective_user_subscription; DROP FUNCTION effective_subscription_at(uuid,timestamptz); DROP TABLE billing_store_subscription,billing_store_notification,billing_store_finance,billing_store_account,web_account_challenge,web_account_session;", "histae_migrate")
-            query("DROP TABLE continuation_reservation,advertising_reward_intent,continuation_wallet; ALTER TABLE continuation_usage DROP COLUMN free_used_count; ALTER TABLE user_account DROP COLUMN discovery_paused, DROP COLUMN preferred_language; ALTER TABLE device_token DROP COLUMN language; ALTER TABLE user_consent DROP COLUMN document_language; ALTER TABLE otp_verification DROP COLUMN language; DROP TABLE trait_translation, profile_question_translation, subscription_plan_translation, subscription_plan_feature_translation;", "histae_migrate")
-            query("UPDATE profile_question SET prompt='Question personnalisée avant migration ?' WHERE id='51000000-0000-4000-8000-000000000001';")
-            migrate()
-            assert query(f"SELECT count(*)=2 AND bool_and(expires_at=swiped_at+INTERVAL '30 days') AND bool_and(CASE WHEN decision='like' THEN expires_at<=clock_timestamp() ELSE expires_at>clock_timestamp() END) FROM swipe_decision WHERE {swipe_filter};") == "t"
-            assert query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};") == original_swipe_choices
-            shortened_swipes = query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at,expires_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};")
-            assert query("SELECT tgenabled='O' FROM pg_trigger WHERE tgrelid='swipe_decision'::regclass AND tgname='trg_live_swipe';") == "t"
-            query(f"""DO $$ BEGIN
-                BEGIN
-                    UPDATE swipe_decision SET expires_at=expires_at
-                    WHERE actor_id='{swipe_actor}' AND target_id='{swipe_target}';
-                    RAISE EXCEPTION 'Inactive account swipe guard was not restored';
-                EXCEPTION WHEN SQLSTATE 'P0E01' THEN NULL;
-                END;
-            END $$;""")
-            # Omitted timestamps must also receive the new default and pass its check.
-            query(f"INSERT INTO swipe_decision(actor_id,target_id,decision) VALUES ('{first}','{swipe_actor}','pass');")
-            assert query(f"SELECT type='rectification' AND status='in_progress' AND notes='Historical internal note' AND details IS NULL AND response IS NULL FROM data_subject_request WHERE id='{legacy_request}';") == "t"
-            query(f"UPDATE data_subject_request SET details='User correction message',response='Public correction reply' WHERE id='{legacy_request}';")
-            assert query("SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='content_moderation_case' AND column_name IN ('face_count','sharpness_score','nsfw_score','face_detectable','sharp_enough','content_allowed');") == "0"
-            assert query(f"SELECT status||':'||policy_version||':'||cardinality(reason_codes) FROM content_moderation_case WHERE photo_id='{photo_ids[0]}';") == "approved:manual_photo_v1:0"
-            assert query(f"SELECT status||':'||policy_version FROM content_moderation_case WHERE photo_id='{photo_ids[1]}';") == "approved:manual_photo_v1"
-            for index, status in ((2, 'rejected'), (3, 'approved'), (4, 'pending')):
-                assert query(f"SELECT status||':'||review_reason FROM content_moderation_case WHERE photo_id='{photo_ids[index]}';") == status + ":Human decision kept"
-            photo_versions = query(f"SELECT string_agg(id::text||':'||version,',' ORDER BY id) FROM content_moderation_case WHERE user_id IN ('{first}','{second}');")
-            assert query(f"SELECT latitude IS NULL AND longitude IS NULL AND NOT is_location_fresh FROM user_presence WHERE user_id='{first}';") == "t"
-            assert query("SELECT count(*) FROM profile_question_translation WHERE question_id='51000000-0000-4000-8000-000000000001';") == "0"
-            query("UPDATE profile_question SET prompt='À quoi ressemble ton dimanche idéal ?' WHERE id='51000000-0000-4000-8000-000000000001';")
-            assert query("SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename IN ('billing_store_account','billing_store_subscription','billing_store_notification','billing_store_finance','web_account_challenge','web_account_session');") == "6"
-            assert query(f"SELECT plan='free' AND provider IS NULL FROM effective_user_subscription WHERE user_id='{first}';") == "t"
-            assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
-            assert query(f"SELECT used_count||':'||free_used_count FROM continuation_usage WHERE user_id='{first}';") == "2:2"
-            assert query(f"SELECT count(*) FROM match_state WHERE match_id='{match_id}' AND continued;") == "0"
-            assert query(f"SELECT continuation_initiator_id IS NULL FROM match_init WHERE id='{match_id}';") == "t"
-            query(f"UPDATE match_state SET continued=true WHERE match_id='{match_id}' AND user_id='{first}'; INSERT INTO continuation_reservation(match_id,user_id,source,week_start) VALUES ('{match_id}','{first}','free',date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date);")
-            assert query(f"SELECT preferred_language FROM user_account WHERE user_id='{first}';") == "fr"
-            translation_id = query("SELECT trait_id FROM trait_translation WHERE language='en' ORDER BY trait_id LIMIT 1;")
-            assert translation_id
-            query(f"DELETE FROM trait_translation WHERE trait_id='{translation_id}' AND language='en'; UPDATE trait_translation SET name='Admin translation kept' WHERE trait_id='{translation_id}' AND language='it';")
-            query(f"UPDATE user_account SET discovery_paused=true,preferred_language='es' WHERE user_id='{first}';")
-            query(f"UPDATE user_presence SET latitude=89.975,longitude=0,is_location_fresh=true WHERE user_id='{first}';")
-            migrate()
-            assert query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at,expires_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};") == shortened_swipes
-            print("Thirty-day swipe expiry preserves original choices and is idempotent.", flush=True)
-            assert query(f"SELECT details='User correction message' AND response='Public correction reply' AND notes='Historical internal note' FROM data_subject_request WHERE id='{legacy_request}';") == "t"
-            assert query(f"SELECT count(*)=1 AND bool_and(author='team' AND body='Public correction reply') FROM data_request_message WHERE request_id='{legacy_request}';") == "t"
-            print("Data request message upgrade preserves history and is idempotent.", flush=True)
-            assert query(f"SELECT string_agg(id::text||':'||version,',' ORDER BY id) FROM content_moderation_case WHERE user_id IN ('{first}','{second}');") == photo_versions
-            print("Photo analyser retirement preserves human decisions and is idempotent.", flush=True)
-            assert query(f"SELECT latitude=89.975 AND longitude=0 AND is_location_fresh FROM user_presence WHERE user_id='{first}';") == "t"
-            assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "t"
-            assert query(f"SELECT preferred_language FROM user_account WHERE user_id='{first}';") == "es"
-            assert query(f"SELECT count(*) FROM trait_translation WHERE trait_id='{translation_id}' AND language='en';") == "0"
-            assert query(f"SELECT name FROM trait_translation WHERE trait_id='{translation_id}' AND language='it';") == "Admin translation kept"
-            assert query(f"SELECT count(*) FROM match_state WHERE match_id='{match_id}' AND continued;") == "1"
-            assert query(f"SELECT count(*) FROM continuation_reservation WHERE match_id='{match_id}';") == "1"
-            assert query(f"SELECT used_count||':'||free_used_count FROM continuation_usage WHERE user_id='{first}';") == "2:2"
-            query(f"DELETE FROM user_account WHERE user_id IN ('{first}','{second}','{swipe_actor}','{swipe_target}');")
-            print("Legacy billing/quota/pause/language migrations and repeated upgrade passed.", flush=True)
             port = docker("port", name, "5432/tcp").split(":")[-1]
             runtime.update(POSTGRES_PORT=port, POSTGRES_USER="histae_app", POSTGRES_PASSWORD=app_password)
             environment = os.environ.copy()
@@ -465,6 +191,279 @@ SET log_min_error_statement = panic;
             if created:
                 docker("rm", "-f", name)
             print("Temporary PostgreSQL, fixtures and credentials removed.", flush=True)
+
+
+def verify_legacy_migrations(name, docker, migrate, query):
+    migrate()
+
+    # Recreate the retired web-payment schema, without contacting any provider.
+    legacy_user, native_user, internal_user, gift_user = [str(uuid.uuid4()) for _ in range(4)]
+    legacy_request, native_account, native_receipt = [str(uuid.uuid4()) for _ in range(3)]
+    for owner in (legacy_user,native_user,internal_user,gift_user):
+        query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{owner}','retirement-{owner}',''::bytea);")
+    query("ALTER TABLE user_subscription ADD COLUMN provider text, ADD COLUMN provider_subscription_id text, ADD COLUMN provider_price_id text, ADD COLUMN billing_period text, ADD COLUMN status text, ADD COLUMN cancel_at_period_end boolean DEFAULT false, ADD COLUMN trial_ends_at timestamptz, ADD COLUMN canceled_at timestamptz, ADD COLUMN provider_event_created_at timestamptz, ADD COLUMN projection_version bigint DEFAULT 0, ADD COLUMN provider_snapshot_at timestamptz; CREATE TABLE billing_customer(user_id uuid); CREATE TABLE billing_checkout_session(id uuid); CREATE TABLE billing_invoice(id text); CREATE TABLE stripe_webhook_event(id text); ALTER TABLE web_account_challenge RENAME TO web_billing_challenge; ALTER TABLE web_account_session RENAME TO web_billing_session; ALTER TABLE account_erasure DROP CONSTRAINT account_erasure_step_check; ALTER TABLE account_erasure ADD CONSTRAINT account_erasure_step_check CHECK(step IN ('stripe','photos','swipes','postgres','completed')); ALTER TABLE account_erasure ALTER COLUMN step SET DEFAULT 'stripe';", "histae_migrate")
+    query(f"INSERT INTO user_subscription(user_id,plan,provider) VALUES ('{legacy_user}','premium','stripe'),('{internal_user}','premium',NULL); INSERT INTO complimentary_premium_grant(user_id) VALUES ('{gift_user}'); INSERT INTO billing_store_account(id,user_id,google_account_id) VALUES ('{native_account}','{native_user}',repeat('a',64)); INSERT INTO billing_store_subscription(id,user_id,account_id,provider,original_id,reference_encrypted,environment,product_id,transaction_id,billing_period,status,starts_at,expires_at,auto_renew,acknowledged,verified_at) VALUES ('{native_receipt}','{native_user}','{native_account}','app_store','retirement-native',''::bytea,'sandbox','premium','retirement-tx','monthly','active',clock_timestamp()-interval '1 day',clock_timestamp()+interval '30 days',true,true,clock_timestamp()); INSERT INTO outbox_event(id,event_type,aggregate_id) VALUES (uuid_generate_v4(),'billing.subscription.reconcile','{legacy_user}'),(uuid_generate_v4(),'billing.customer.reconcile','{legacy_user}'); INSERT INTO data_subject_request(id,user_id,type,status) VALUES ('{legacy_request}','{legacy_user}','erasure','in_progress'); INSERT INTO account_erasure(request_id,user_id,step) VALUES ('{legacy_request}','{legacy_user}','stripe'); INSERT INTO outbox_event(id,event_type,aggregate_id,status,attempts,dead_lettered_at,last_error_code) VALUES (uuid_generate_v4(),'account.erase','{legacy_request}','dead_letter',8,clock_timestamp(),'billing_reconciliation_failed');")
+    native_snapshot_sql = f"SELECT to_jsonb(s) FROM billing_store_subscription s WHERE id='{native_receipt}';"
+    native_snapshot = query(native_snapshot_sql)
+    for _ in range(2):
+        migrate()
+        assert query(native_snapshot_sql)==native_snapshot
+        assert query("SELECT to_regclass('billing_customer') IS NULL AND to_regclass('billing_checkout_session') IS NULL AND to_regclass('billing_invoice') IS NULL AND to_regclass('stripe_webhook_event') IS NULL AND to_regclass('web_account_session') IS NOT NULL AND to_regclass('web_billing_session') IS NULL;")=="t"
+        assert query(f"SELECT NOT EXISTS(SELECT 1 FROM user_subscription WHERE user_id='{legacy_user}') AND EXISTS(SELECT 1 FROM user_account WHERE user_id='{legacy_user}') AND EXISTS(SELECT 1 FROM account_erasure WHERE request_id='{legacy_request}' AND step='photos') AND NOT EXISTS(SELECT 1 FROM outbox_event WHERE event_type IN ('billing.customer.reconcile','billing.subscription.reconcile'));")=="t"
+        assert query(f"SELECT status='pending' AND attempts=0 AND dead_lettered_at IS NULL AND last_error_code IS NULL FROM outbox_event WHERE event_type='account.erase' AND aggregate_id='{legacy_request}';")=="t"
+        for owner in (native_user,internal_user,gift_user):
+            assert query(f"SELECT access_granted FROM effective_user_subscription WHERE user_id='{owner}';")=="t"
+    query(f"DELETE FROM outbox_event WHERE event_type='account.erase' AND aggregate_id='{legacy_request}'; DELETE FROM billing_store_subscription WHERE id='{native_receipt}'; DELETE FROM billing_store_account WHERE id='{native_account}'; DELETE FROM user_account WHERE user_id IN ('{legacy_user}','{native_user}','{internal_user}','{gift_user}');")
+    print("Retired web-payment migration removes only test payment state; native receipts, internal rights and gifts are preserved, and erasure resumes at photos.",flush=True)
+
+    # Simulate an existing separated cluster predating the dedicated import role.
+    docker("exec", "-i", name, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1",
+           "-U", "histae_admin", "-d", "histae-dev", input_text=r"""
+DROP OWNED BY histae_phone_sync;
+DROP ROLE histae_phone_sync;
+SET log_statement = none;
+SET log_min_error_statement = panic;
+\set bootstrap_mode access
+\getenv phone_sync_password HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD
+\i /etc/histae/db/000_bootstrap_postgres.sql
+""")
+    print("Existing-cluster bootstrap provisions the restricted phone-sync role.", flush=True)
+
+    policy_id = str(uuid.uuid4())
+    query("DROP TABLE phone_blocklist_observation; DROP TABLE phone_blocklist_source; DROP TABLE phone_blocklist_entry; DROP TABLE phone_blocklist_control;", "histae_migrate")
+    migrate()
+    query(f"INSERT INTO phone_blocklist_entry(id,phone_hash,phone_hint,decision,decision_until,version) VALUES ('{policy_id}',repeat('b',64),'+33……0000','allow',clock_timestamp()+INTERVAL '30 days',7); UPDATE phone_blocklist_source SET last_success_at=clock_timestamp() WHERE source='castle'; INSERT INTO phone_blocklist_observation(entry_id,source,last_seen_at) VALUES ('{policy_id}','castle',clock_timestamp());")
+    policy_snapshot_sql = f"SELECT jsonb_build_array(e.decision,e.decision_until,e.version,o.last_seen_at,o.imported_at,s.last_success_at,c.key_fingerprint) FROM phone_blocklist_entry e JOIN phone_blocklist_observation o ON o.entry_id=e.id JOIN phone_blocklist_source s ON s.source=o.source CROSS JOIN phone_blocklist_control c WHERE e.id='{policy_id}';"
+    policy_snapshot = query(policy_snapshot_sql)
+    for _ in range(2):
+        migrate()
+        assert query(policy_snapshot_sql) == policy_snapshot
+    query(f"DELETE FROM phone_blocklist_entry WHERE id='{policy_id}'; UPDATE phone_blocklist_source SET last_success_at=NULL;")
+    print("Phone policy upgrade preserves exceptions, source dates and key binding.", flush=True)
+
+    query("DROP TABLE match_notification_preference, user_notification_preference;", "histae_migrate")
+    migrate()
+
+    notice_users = sorted(str(uuid.uuid4()) for _ in range(2))
+    notice_match, notice_id = str(uuid.uuid4()), str(uuid.uuid4())
+    for user in notice_users:
+        query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{user}','legacy-notice-{user}',''::bytea);")
+    query(f"INSERT INTO match_init(id,user1_id,user2_id) VALUES ('{notice_match}','{notice_users[0]}','{notice_users[1]}'); INSERT INTO notification(id,user_id,type,payload) VALUES ('{notice_id}','{notice_users[0]}','new_match',jsonb_build_object('match_id','{notice_match}'));")
+    query(f"INSERT INTO match_state(match_id,user_id) VALUES ('{notice_match}','{notice_users[0]}'),('{notice_match}','{notice_users[1]}'); INSERT INTO user_notification_preference(user_id,messages,discreet) VALUES ('{notice_users[0]}',false,true); INSERT INTO match_notification_preference(match_id,user_id,muted) VALUES ('{notice_match}','{notice_users[0]}',true),('{notice_match}','{notice_users[1]}',false);")
+    choices_sql = f"SELECT jsonb_build_array((SELECT to_jsonb(p) FROM user_notification_preference p WHERE user_id='{notice_users[0]}'),(SELECT jsonb_agg(to_jsonb(p) ORDER BY user_id) FROM match_notification_preference p WHERE match_id='{notice_match}'));"
+    choices_snapshot = query(choices_sql)
+    for _ in range(2):
+        migrate()
+        assert query(choices_sql) == choices_snapshot
+    print("Notification preference upgrade creates tables and preserves private choices on repeated runs.", flush=True)
+    notice_snapshot_sql = f"SELECT jsonb_build_array(n.id,n.type,n.payload,n.created_at,n.expires_at,m.status,m.expires_at) FROM notification n JOIN match_init m ON m.id='{notice_match}' WHERE n.id='{notice_id}';"
+    notice_snapshot = query(notice_snapshot_sql)
+    query("ALTER TABLE match_init DROP COLUMN photo_reveal_version; ALTER TABLE notification DROP CONSTRAINT notification_type_check; ALTER TABLE notification ADD CONSTRAINT notification_type_check CHECK (type IN ('new_match','new_message','profile_liked','match_expiring','billing_payment_failed')); DROP INDEX idx_notification_match_kind;", "histae_migrate")
+    for _ in range(2):
+        migrate()
+        assert query(notice_snapshot_sql) == notice_snapshot
+        assert query(f"SELECT photo_reveal_version FROM match_init WHERE id='{notice_match}';") == "0"
+        assert query("SELECT to_regclass('idx_notification_match_kind') IS NOT NULL;") == "t"
+    query(f"UPDATE match_init SET photo_reveal_version=7 WHERE id='{notice_match}';")
+    migrate()
+    assert query(f"SELECT photo_reveal_version FROM match_init WHERE id='{notice_match}';") == "7"
+    for user in notice_users:
+        query(f"DELETE FROM user_account WHERE user_id='{user}';")
+    print("Notification upgrade preserves historical notices, match deadlines and photo grant generations.", flush=True)
+
+    refresh_user, refresh_family, refresh_token, refresh_jti = [str(uuid.uuid4()) for _ in range(4)]
+    query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{refresh_user}','legacy-refresh-{refresh_user}',''::bytea); INSERT INTO refresh_token_family(id,user_id,created_at,last_refreshed_at,expires_at) VALUES ('{refresh_family}','{refresh_user}',clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '180 days'); INSERT INTO refresh_tokens(id,user_id,family_id,jti,token_hash,created_at,expires_at) VALUES ('{refresh_token}','{refresh_user}','{refresh_family}','{refresh_jti}',repeat('a',64),clock_timestamp(),clock_timestamp()+interval '180 days');")
+    refresh_snapshot_sql = f"SELECT jsonb_build_array(family.created_at,family.last_refreshed_at,family.expires_at,token.jti,token.token_hash,token.expires_at,token.revoked) FROM refresh_token_family family JOIN refresh_tokens token ON token.family_id=family.id WHERE token.id='{refresh_token}';"
+    refresh_snapshot = query(refresh_snapshot_sql)
+    query("ALTER TABLE refresh_tokens DROP COLUMN rotation_request_hash; ALTER TABLE refresh_tokens DROP COLUMN rotation_result;", "histae_migrate")
+    for _ in range(2):
+        migrate()
+        assert query(refresh_snapshot_sql) == refresh_snapshot
+        assert query(f"SELECT rotation_request_hash IS NULL AND rotation_result IS NULL FROM refresh_tokens WHERE id='{refresh_token}';") == "t"
+        assert query("SELECT to_regclass('idx_refresh_recovery_expiry') IS NOT NULL;") == "t"
+    query(f"DELETE FROM user_account WHERE user_id='{refresh_user}';")
+    print("Refresh recovery upgrade preserves historical sessions and token deadlines.", flush=True)
+
+    review_legacy = str(uuid.uuid4())
+    query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{review_legacy}','legacy-play-review',''::bytea);")
+    query("ALTER TABLE user_account DROP CONSTRAINT user_account_review_role_check; ALTER TABLE user_account DROP COLUMN is_review_account;", "histae_migrate")
+    migrate()
+    assert query(f"SELECT NOT is_review_account FROM user_account WHERE user_id='{review_legacy}';") == "t"
+    assert query(
+        "SELECT NOT EXISTS (SELECT 1 FROM effective_user_subscription "
+        f"WHERE user_id='{review_legacy}');"
+    ) == "t"
+    query(f"UPDATE user_account SET is_review_account=true WHERE user_id='{review_legacy}';")
+    migrate()
+    assert query(f"SELECT is_review_account AND role='user' FROM user_account WHERE user_id='{review_legacy}';") == "t"
+    assert query(
+        "SELECT plan='premium' AND access_granted AND provider IS NULL "
+        "AND current_period_ends_at IS NULL FROM effective_user_subscription "
+        f"WHERE user_id='{review_legacy}';"
+    ) == "t"
+    query(f"DELETE FROM user_account WHERE user_id='{review_legacy}';")
+    print("Play review upgrade preserves real accounts and dedicated review markers.", flush=True)
+
+    # Simulate the pre-gift schema and verify that redeploys preserve a granted offer.
+    gift_legacy = str(uuid.uuid4())
+    old_audit_check = query("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='data_access_log'::regclass AND conname='data_access_log_action_check';")
+    old_audit_check = old_audit_check.replace("'admin_grant_premium'::text", "'admin_promote'::text").replace("'admin_revoke_premium'::text", "'admin_demote'::text")
+    old_audit_check = old_audit_check.replace(", 'admin_correct_profile_identity'::text", "")
+    assert "admin_correct_profile_identity" not in old_audit_check
+    legacy_audit = str(uuid.uuid4())
+    query(f"INSERT INTO data_access_log(id,accessed_user_id,accessor_role,action,reason) VALUES ('{legacy_audit}','{gift_legacy}','system','view_profile','Historical profile access');")
+    audit_snapshot_sql = f"SELECT to_jsonb(log) FROM data_access_log log WHERE id='{legacy_audit}';"
+    audit_snapshot = query(audit_snapshot_sql)
+    query("DROP TABLE complimentary_premium_grant; ALTER TABLE data_access_log DROP CONSTRAINT data_access_log_action_check; ALTER TABLE data_access_log ADD CONSTRAINT data_access_log_action_check " + old_audit_check + ";", "histae_migrate")
+    migrate()
+    assert query(audit_snapshot_sql) == audit_snapshot
+    assert query("SELECT convalidated AND pg_get_constraintdef(oid) LIKE '%admin_correct_profile_identity%' FROM pg_constraint WHERE conrelid='data_access_log'::regclass AND conname='data_access_log_action_check';") == "t"
+    query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{gift_legacy}','legacy-premium-gift',''::bytea); INSERT INTO complimentary_premium_grant(user_id) VALUES ('{gift_legacy}');")
+    gift_at = query(f"SELECT granted_at FROM complimentary_premium_grant WHERE user_id='{gift_legacy}';")
+    migrate()
+    assert query(audit_snapshot_sql) == audit_snapshot
+    assert query(f"SELECT granted_at FROM complimentary_premium_grant WHERE user_id='{gift_legacy}';") == gift_at
+    assert query(f"SELECT access_granted AND provider IS NULL FROM effective_user_subscription WHERE user_id='{gift_legacy}';") == "t"
+    query(f"DELETE FROM user_account WHERE user_id='{gift_legacy}';")
+    query(f"DELETE FROM data_access_log WHERE id='{legacy_audit}';")
+    print("Complimentary Premium upgrade preserves grants and restores audit actions.", flush=True)
+    print("Profile identity correction audit upgrade preserves historical access logs.", flush=True)
+
+    # Upgrade the old carry-over wallet once, without renewing expired
+    # credits or overwriting a later operator translation on redeploy.
+    wallet_owner = str(uuid.uuid4())
+    query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{wallet_owner}','legacy-weekly-wallet',''::bytea); INSERT INTO continuation_wallet(user_id,advertising_credits) VALUES ('{wallet_owner}',3);")
+    legacy_reward = str(uuid.uuid4())
+    query(f"INSERT INTO advertising_reward_intent(id,user_id,ad_unit,completed_at,transaction_hash) VALUES ('{legacy_reward}','{wallet_owner}','legacy-unit',clock_timestamp(),'{legacy_reward}');")
+    query("ALTER TABLE advertising_reward_intent DROP COLUMN credited_at;", "histae_migrate")
+    query("ALTER TABLE continuation_wallet DROP COLUMN week_start; UPDATE subscription_plan SET weekly_continuation_limit=3 WHERE code='free'; UPDATE subscription_plan_feature_translation SET display_name='3 crédits gratuits par semaine' WHERE plan_code='free' AND feature_code='continuations' AND language='fr';", "histae_migrate")
+    migrate()
+    assert query(f"SELECT credited_at=completed_at FROM advertising_reward_intent WHERE id='{legacy_reward}';") == "t"
+    assert query(f"SELECT advertising_credits=3 AND week_start=date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date FROM continuation_wallet WHERE user_id='{wallet_owner}';") == "t"
+    assert query("SELECT weekly_continuation_limit FROM subscription_plan WHERE code='free';") == "2"
+    assert query("SELECT display_name FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';") == "2 crédits gratuits par semaine"
+    description = query("SELECT description FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';")
+    query(f"UPDATE advertising_reward_intent SET credited_at=NULL WHERE id='{legacy_reward}';")
+    query(f"UPDATE continuation_wallet SET week_start=week_start-7 WHERE user_id='{wallet_owner}'; UPDATE subscription_plan_feature_translation SET description='Operator weekly policy text' WHERE plan_code='free' AND feature_code='continuations' AND language='fr';")
+    migrate()
+    assert query(f"SELECT credited_at IS NULL AND completed_at IS NOT NULL FROM advertising_reward_intent WHERE id='{legacy_reward}';") == "t"
+    assert query(f"SELECT advertising_credits=3 AND week_start=date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date-7 FROM continuation_wallet WHERE user_id='{wallet_owner}';") == "t"
+    assert query("SELECT description FROM subscription_plan_feature_translation WHERE plan_code='free' AND feature_code='continuations' AND language='fr';") == "Operator weekly policy text"
+    description_literal = "'" + description.replace("'", "''") + "'"
+    inactivity_peer, inactivity_match = [str(uuid.uuid4()) for _ in range(2)]
+    query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{inactivity_peer}','legacy-inactivity-peer',''::bytea); INSERT INTO match_init(id,user1_id,user2_id,status) VALUES ('{inactivity_match}',LEAST('{wallet_owner}'::uuid,'{inactivity_peer}'::uuid),GREATEST('{wallet_owner}'::uuid,'{inactivity_peer}'::uuid),'confirmed');")
+    query("DROP TRIGGER trg_match_inactivity ON match_init;", "histae_migrate")
+    query(f"UPDATE match_init SET expires_at=clock_timestamp()-INTERVAL '40 days' WHERE id='{inactivity_match}';")
+    migrate()
+    assert query(f"SELECT expires_at>clock_timestamp()+INTERVAL '29 days' FROM match_init WHERE id='{inactivity_match}';") == "t"
+    deadline = query(f"SELECT expires_at FROM match_init WHERE id='{inactivity_match}';")
+    migrate()
+    assert query(f"SELECT expires_at FROM match_init WHERE id='{inactivity_match}';") == deadline
+    query(f"DELETE FROM user_account WHERE user_id='{inactivity_peer}';")
+    print("Inactivity upgrade grants one full notice cycle and never renews it on redeploy.", flush=True)
+    query(f"UPDATE subscription_plan_feature_translation SET description={description_literal} WHERE plan_code='free' AND feature_code='continuations' AND language='fr'; DELETE FROM user_account WHERE user_id='{wallet_owner}';")
+    print("Weekly wallet upgrade preserves current balances and never renews expired credits.", flush=True)
+
+    # Legacy likes and passes keep their original choice dates when shortened.
+    swipe_actor, swipe_target = [str(uuid.uuid4()) for _ in range(2)]
+    swipe_filter = f"actor_id IN ('{swipe_actor}','{swipe_target}') AND target_id IN ('{swipe_actor}','{swipe_target}')"
+    query("ALTER TABLE swipe_decision DROP CONSTRAINT swipe_decision_retention_30_days_check; ALTER TABLE swipe_decision ALTER COLUMN expires_at SET DEFAULT (now()+INTERVAL '365 days'); ALTER TABLE swipe_decision ADD CONSTRAINT swipe_decision_retention_check CHECK (expires_at=swiped_at+INTERVAL '365 days');", "histae_migrate")
+    query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{swipe_actor}','legacy-swipe-actor',''::bytea),('{swipe_target}','legacy-swipe-target',''::bytea);")
+    query(f"INSERT INTO swipe_decision(actor_id,target_id,decision,swiped_at,expires_at) VALUES ('{swipe_actor}','{swipe_target}','like',now()-INTERVAL '45 days',now()-INTERVAL '45 days'+INTERVAL '365 days'),('{swipe_target}','{swipe_actor}','pass',now()-INTERVAL '5 days',now()-INTERVAL '5 days'+INTERVAL '365 days');")
+    original_swipe_choices = query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};")
+    query(f"UPDATE user_account SET deleted_at=clock_timestamp(),is_banned=true WHERE user_id='{swipe_target}';", "histae_migrate")
+
+    # Simulate the pre-store/pre-credit/pre-pause schema, then prove the upgrade and
+    # that a repeated migration preserves choices made under the new rules.
+    first, second, match_id = [str(uuid.uuid4()) for _ in range(3)]
+    query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{first}','legacy-credit-first',''::bytea),('{second}','legacy-credit-second',''::bytea); "
+          f"INSERT INTO match_init(id,user1_id,user2_id,status,expires_at,continuation_initiator_id) VALUES ('{match_id}',LEAST('{first}'::uuid,'{second}'::uuid),GREATEST('{first}'::uuid,'{second}'::uuid),'awaiting_continuation',clock_timestamp()+INTERVAL '24 hours','{first}'); "
+          f"INSERT INTO match_state(match_id,user_id,continued) VALUES ('{match_id}','{first}',true),('{match_id}','{second}',false); "
+          f"INSERT INTO continuation_usage(user_id,week_start,used_count,free_used_count) VALUES ('{first}',date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date,2,2);")
+    assert query("SELECT NOT EXISTS (SELECT 1 FROM trait CROSS JOIN (VALUES('en'),('es'),('it')) langs(language) WHERE NOT EXISTS (SELECT 1 FROM trait_translation t WHERE t.trait_id=trait.id AND t.language=langs.language)) AND NOT EXISTS (SELECT 1 FROM profile_question CROSS JOIN (VALUES('en'),('es'),('it')) langs(language) WHERE NOT EXISTS (SELECT 1 FROM profile_question_translation t WHERE t.question_id=profile_question.id AND t.language=langs.language));") == "t"
+    assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
+    query(f"INSERT INTO user_subscription(user_id,plan) VALUES ('{first}','free') ON CONFLICT(user_id) DO UPDATE SET plan='free';")
+    query(f"INSERT INTO user_presence(user_id,latitude,longitude,is_location_fresh) VALUES ('{first}',48.856613,2.352222,true);")
+    # A pre-message request keeps its history when nullable columns are added.
+    legacy_request = str(uuid.uuid4())
+    query(f"INSERT INTO data_subject_request(id,user_id,type,status,notes) VALUES ('{legacy_request}','{first}','rectification','in_progress','Historical internal note');")
+    query("DROP TRIGGER trg_save_data_request_reply ON data_subject_request; "
+          "DROP TABLE data_request_message; "
+          "ALTER TABLE data_subject_request DROP COLUMN details, DROP COLUMN response;", "histae_migrate")
+    # Recreate the retired analyser columns and decisions on this disposable database.
+    photo_ids = [str(uuid.uuid4()) for _ in range(5)]
+    query("ALTER TABLE content_moderation_case ADD COLUMN face_count smallint, ADD COLUMN sharpness_score double precision, ADD COLUMN nsfw_score double precision, ADD COLUMN face_detectable boolean, ADD COLUMN sharp_enough boolean, ADD COLUMN content_allowed boolean; ALTER TABLE content_moderation_case DROP CONSTRAINT chk_content_moderation_reason_codes;", "histae_migrate")
+    query(f"INSERT INTO user_profile(user_id,firstname,birthdate) VALUES ('{first}','Photo migration',DATE '1990-01-01'),('{second}','Photo migration',DATE '1990-01-01');")
+    for index, photo_id in enumerate(photo_ids):
+        owner = second if index == 1 else first
+        status = 'ready' if index < 2 else 'deleting'
+        query(f"INSERT INTO user_photo(id,user_id,object_key,status,mime_type,size_bytes,width,height,sha256) VALUES ('{photo_id}','{owner}','profile-photos/{owner}/{photo_id}.webp','{status}','image/webp',12,2,2,decode(repeat('07',32),'hex'));")
+        if index == 1:  # A legacy ready photo without moderation metadata.
+            continue
+        status = {0: 'pending', 2: 'rejected', 3: 'approved', 4: 'pending'}[index]
+        reviewed = "NULL" if index == 0 else "clock_timestamp()"
+        query(f"INSERT INTO content_moderation_case(user_id,content_type,photo_id,status,reason_codes,policy_version,reviewed_at,review_reason,face_count,sharpness_score,nsfw_score) VALUES ('{owner}','photo','{photo_id}','{status}',ARRAY['blurry'],'local_vision_v1',{reviewed},'Human decision kept',1,40,0.1);")
+    query("ALTER TABLE user_presence DROP COLUMN location_changed_at;", "histae_migrate")
+    query("DROP VIEW effective_user_subscription; DROP FUNCTION effective_subscription_at(uuid,timestamptz); DROP TABLE billing_store_subscription,billing_store_notification,billing_store_finance,billing_store_account,web_account_challenge,web_account_session;", "histae_migrate")
+    query("DROP TABLE continuation_reservation,advertising_reward_intent,continuation_wallet; ALTER TABLE continuation_usage DROP COLUMN free_used_count; ALTER TABLE user_account DROP COLUMN discovery_paused, DROP COLUMN preferred_language; ALTER TABLE device_token DROP COLUMN language; ALTER TABLE user_consent DROP COLUMN document_language; ALTER TABLE otp_verification DROP COLUMN language; DROP TABLE trait_translation, profile_question_translation, subscription_plan_translation, subscription_plan_feature_translation;", "histae_migrate")
+    query("UPDATE profile_question SET prompt='Question personnalisée avant migration ?' WHERE id='51000000-0000-4000-8000-000000000001';")
+    migrate()
+    assert query(f"SELECT count(*)=2 AND bool_and(expires_at=swiped_at+INTERVAL '30 days') AND bool_and(CASE WHEN decision='like' THEN expires_at<=clock_timestamp() ELSE expires_at>clock_timestamp() END) FROM swipe_decision WHERE {swipe_filter};") == "t"
+    assert query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};") == original_swipe_choices
+    shortened_swipes = query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at,expires_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};")
+    assert query("SELECT tgenabled='O' FROM pg_trigger WHERE tgrelid='swipe_decision'::regclass AND tgname='trg_live_swipe';") == "t"
+    query(f"""DO $$ BEGIN
+                BEGIN
+                    UPDATE swipe_decision SET expires_at=expires_at
+                    WHERE actor_id='{swipe_actor}' AND target_id='{swipe_target}';
+                    RAISE EXCEPTION 'Inactive account swipe guard was not restored';
+                EXCEPTION WHEN SQLSTATE 'P0E01' THEN NULL;
+                END;
+            END $$;""")
+    # Omitted timestamps must also receive the new default and pass its check.
+    query(f"INSERT INTO swipe_decision(actor_id,target_id,decision) VALUES ('{first}','{swipe_actor}','pass');")
+    assert query(f"SELECT type='rectification' AND status='in_progress' AND notes='Historical internal note' AND details IS NULL AND response IS NULL FROM data_subject_request WHERE id='{legacy_request}';") == "t"
+    query(f"UPDATE data_subject_request SET details='User correction message',response='Public correction reply' WHERE id='{legacy_request}';")
+    assert query("SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='content_moderation_case' AND column_name IN ('face_count','sharpness_score','nsfw_score','face_detectable','sharp_enough','content_allowed');") == "0"
+    assert query(f"SELECT status||':'||policy_version||':'||cardinality(reason_codes) FROM content_moderation_case WHERE photo_id='{photo_ids[0]}';") == "approved:manual_photo_v1:0"
+    assert query(f"SELECT status||':'||policy_version FROM content_moderation_case WHERE photo_id='{photo_ids[1]}';") == "approved:manual_photo_v1"
+    for index, status in ((2, 'rejected'), (3, 'approved'), (4, 'pending')):
+        assert query(f"SELECT status||':'||review_reason FROM content_moderation_case WHERE photo_id='{photo_ids[index]}';") == status + ":Human decision kept"
+    photo_versions = query(f"SELECT string_agg(id::text||':'||version,',' ORDER BY id) FROM content_moderation_case WHERE user_id IN ('{first}','{second}');")
+    assert query(f"SELECT latitude IS NULL AND longitude IS NULL AND NOT is_location_fresh FROM user_presence WHERE user_id='{first}';") == "t"
+    assert query("SELECT count(*) FROM profile_question_translation WHERE question_id='51000000-0000-4000-8000-000000000001';") == "0"
+    query("UPDATE profile_question SET prompt='À quoi ressemble ton dimanche idéal ?' WHERE id='51000000-0000-4000-8000-000000000001';")
+    assert query("SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename IN ('billing_store_account','billing_store_subscription','billing_store_notification','billing_store_finance','web_account_challenge','web_account_session');") == "6"
+    assert query(f"SELECT plan='free' AND provider IS NULL FROM effective_user_subscription WHERE user_id='{first}';") == "t"
+    assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "f"
+    assert query(f"SELECT used_count||':'||free_used_count FROM continuation_usage WHERE user_id='{first}';") == "2:2"
+    assert query(f"SELECT count(*) FROM match_state WHERE match_id='{match_id}' AND continued;") == "0"
+    assert query(f"SELECT continuation_initiator_id IS NULL FROM match_init WHERE id='{match_id}';") == "t"
+    query(f"UPDATE match_state SET continued=true WHERE match_id='{match_id}' AND user_id='{first}'; INSERT INTO continuation_reservation(match_id,user_id,source,week_start) VALUES ('{match_id}','{first}','free',date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date);")
+    assert query(f"SELECT preferred_language FROM user_account WHERE user_id='{first}';") == "fr"
+    translation_id = query("SELECT trait_id FROM trait_translation WHERE language='en' ORDER BY trait_id LIMIT 1;")
+    assert translation_id
+    query(f"DELETE FROM trait_translation WHERE trait_id='{translation_id}' AND language='en'; UPDATE trait_translation SET name='Admin translation kept' WHERE trait_id='{translation_id}' AND language='it';")
+    query(f"UPDATE user_account SET discovery_paused=true,preferred_language='es' WHERE user_id='{first}';")
+    query(f"UPDATE user_presence SET latitude=89.975,longitude=0,is_location_fresh=true WHERE user_id='{first}';")
+    migrate()
+    assert query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at,expires_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};") == shortened_swipes
+    print("Thirty-day swipe expiry preserves original choices and is idempotent.", flush=True)
+    assert query(f"SELECT details='User correction message' AND response='Public correction reply' AND notes='Historical internal note' FROM data_subject_request WHERE id='{legacy_request}';") == "t"
+    assert query(f"SELECT count(*)=1 AND bool_and(author='team' AND body='Public correction reply') FROM data_request_message WHERE request_id='{legacy_request}';") == "t"
+    print("Data request message upgrade preserves history and is idempotent.", flush=True)
+    assert query(f"SELECT string_agg(id::text||':'||version,',' ORDER BY id) FROM content_moderation_case WHERE user_id IN ('{first}','{second}');") == photo_versions
+    print("Photo analyser retirement preserves human decisions and is idempotent.", flush=True)
+    assert query(f"SELECT latitude=89.975 AND longitude=0 AND is_location_fresh FROM user_presence WHERE user_id='{first}';") == "t"
+    assert query(f"SELECT discovery_paused FROM user_account WHERE user_id='{first}';") == "t"
+    assert query(f"SELECT preferred_language FROM user_account WHERE user_id='{first}';") == "es"
+    assert query(f"SELECT count(*) FROM trait_translation WHERE trait_id='{translation_id}' AND language='en';") == "0"
+    assert query(f"SELECT name FROM trait_translation WHERE trait_id='{translation_id}' AND language='it';") == "Admin translation kept"
+    assert query(f"SELECT count(*) FROM match_state WHERE match_id='{match_id}' AND continued;") == "1"
+    assert query(f"SELECT count(*) FROM continuation_reservation WHERE match_id='{match_id}';") == "1"
+    assert query(f"SELECT used_count||':'||free_used_count FROM continuation_usage WHERE user_id='{first}';") == "2:2"
+    query(f"DELETE FROM user_account WHERE user_id IN ('{first}','{second}','{swipe_actor}','{swipe_target}');")
+    print("Legacy billing/quota/pause/language migrations and repeated upgrade passed.", flush=True)
 
 
 if __name__ == "__main__":

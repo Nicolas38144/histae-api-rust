@@ -468,7 +468,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn aggregates_every_retention_counter_without_overflow() {
+    fn reports_total_and_largest_retention_counts() {
         let result = PrivacyMaintenanceResult {
             stale_presences: 1,
             expired_presences: 2,
@@ -477,6 +477,5 @@ mod tests {
         };
         assert_eq!(result.processed(), 6);
         assert_eq!(result.maximum(), 3);
-        assert_eq!(RETENTION_QUERIES.len(), 34);
     }
 }

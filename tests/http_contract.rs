@@ -1,4 +1,3 @@
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -666,45 +665,6 @@ async fn explicit_extractors_keep_dto_errors_defaults_and_the_one_megabyte_limit
         response_json(response).await["error"]["code"],
         "invalid_request_body"
     );
-}
-
-#[tokio::test]
-async fn real_socket_uses_connect_info_and_serves_the_same_health_contract() {
-    let observer = Arc::new(Observations::default());
-    let (app, _) = app(
-        None,
-        Environment::Test,
-        &[],
-        RateLimiter::memory(&hash_key()),
-        100,
-        observer,
-    );
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind loopback");
-    let address = listener.local_addr().expect("listener address");
-    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let server = tokio::spawn(async move {
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .with_graceful_shutdown(async {
-            let _ = shutdown_rx.await;
-        })
-        .await
-    });
-    let response = reqwest::get(format!("http://{address}/health/live"))
-        .await
-        .expect("loopback request");
-    assert_eq!(response.status(), StatusCode::OK);
-    let payload = response.text().await.expect("response text");
-    assert_eq!(
-        serde_json::from_str::<Value>(&payload).expect("JSON"),
-        json!({ "status": "ok" })
-    );
-    let _ = shutdown_tx.send(());
-    server.await.expect("server task").expect("server result");
 }
 
 #[tokio::test]

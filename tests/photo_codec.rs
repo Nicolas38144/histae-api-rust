@@ -47,16 +47,16 @@ async fn accepts_every_nest_format_and_returns_bounded_webp() {
         .join("tests")
         .join("fixtures")
         .join("photos");
-    for (filename, mime_type) in [
-        ("sample.jpg", "image/jpeg"),
-        ("sample.jpeg", "image/jpeg"),
-        ("sample.png", "image/png"),
-        ("sample.heic", "image/heic"),
-        ("sample.heif", "image/heif"),
-        ("sample.webp", "image/webp"),
+    for (fixture, filename, mime_type) in [
+        ("sample.jpg", "sample.jpg", "image/jpeg"),
+        ("sample.jpeg", "sample.jpeg", "image/jpeg"),
+        ("sample.png", "sample.png", "image/png"),
+        ("sample.heic", "sample.heic", "image/heic"),
+        ("sample.heic", "sample.heif", "image/heif"),
+        ("sample.webp", "sample.webp", "image/webp"),
     ] {
-        let body = fs::read(fixtures.join(filename))
-            .unwrap_or_else(|error| panic!("failed to read {filename}: {error}"));
+        let body = fs::read(fixtures.join(fixture))
+            .unwrap_or_else(|error| panic!("failed to read {fixture}: {error}"));
         let result = codec
             .to_webp(UploadedPhoto {
                 filename,
