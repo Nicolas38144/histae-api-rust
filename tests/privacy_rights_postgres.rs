@@ -1,5 +1,9 @@
 #![cfg(feature = "postgres-integration")]
 
+#[cfg(feature = "webauthn-probe")]
+#[path = "privacy_rights/casework.rs"]
+mod casework;
+
 use std::env;
 use std::fmt;
 use std::path::PathBuf;

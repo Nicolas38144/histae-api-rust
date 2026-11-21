@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection based on docs/api/http-contract.md (137 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/api/http-contract.md.",
+    "description": "Collection based on docs/api/http-contract.md (155 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/api/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -252,6 +252,104 @@
                   "type": "noauth"
                 },
                 "description": "200 { status: \"ready\" } if the required dependencies respond; otherwise 503."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Public casework",
+          "item": [
+            {
+              "name": "POST /api/public/erasure-status",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/public/erasure-status",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"{{erasureReceiptCode}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Check erasure status"
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/public/support-cases",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/public/support-cases",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"category\": \"login\",\n  \"message\": \"I cannot sign in.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nOpen a guest support case Copy the code to guestSupportCode."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/public/support-cases/status",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/public/support-cases/status",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"{{guestSupportCode}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Check guest support status"
               },
               "response": []
             }
@@ -2215,6 +2313,237 @@
               }
             }
           }
+        },
+        {
+          "name": "My cases and requests",
+          "item": [
+            {
+              "name": "GET /api/users/me/reports",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/reports",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Read my reports For the next page, add ?before= with the returned next_cursor."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/data-subject-requests/:id/messages",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/data-subject-requests/{{dsrId}}/messages",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Read my privacy request thread For the next page, add ?before= with the returned next_cursor."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/users/me/data-subject-requests/:id/messages",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/data-subject-requests/{{dsrId}}/messages",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"Additional details.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nAdd details to my privacy request"
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/data-subject-requests/:id/assisted-export",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/data-subject-requests/{{dsrId}}/assisted-export",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Read my active export grant"
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/assisted-exports/:id",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/assisted-exports/{{assistedExportId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Download my assisted export"
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/users/me/erasure-receipt",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/erasure-receipt",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nIssue or replace my erasure receipt Copy the code to erasureReceiptCode."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/support-cases",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/support-cases",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "List my support cases For the next page, add ?before= with the returned next_cursor."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/users/me/support-cases",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/support-cases",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"category\": \"other\",\n  \"message\": \"I need help.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nOpen a support case"
+              },
+              "response": []
+            }
+          ]
         }
       ]
     },
@@ -3934,6 +4263,220 @@
               "response": []
             }
           ]
+        },
+        {
+          "name": "Casework administration",
+          "item": [
+            {
+              "name": "PATCH /api/admin/reports/:id/decision",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/reports/{{reportId}}/decision",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"reviewed\",\n  \"response\": \"We reviewed your report.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nClose a report and reply to its author"
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/data-subject-requests/:id/messages",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/messages",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Read a privacy request thread For the next page, add ?before= with the returned next_cursor."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/data-subject-requests/:id/messages",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/messages",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"Please clarify your request.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nReply in a privacy request thread. Requires a recent administrator session."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/data-subject-requests/:id/assisted-export",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/assisted-export",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Read an active export grant"
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/data-subject-requests/:id/assisted-export",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/assisted-export",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nGrant a 24-hour owner-only download. Requires a recent administrator session."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/support-cases",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/support-cases",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "List support cases For the next page, add ?before= with the returned next_cursor."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/support-cases/:id",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/support-cases/{{supportCaseId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"closed\",\n  \"response\": \"We have processed your request.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nClose a support case. Requires a recent administrator session."
+              },
+              "response": []
+            }
+          ]
         }
       ]
     },
@@ -4913,6 +5456,26 @@
     {
       "key": "phonePolicyVersion",
       "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "assistedExportId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "supportCaseId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "erasureReceiptCode",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "guestSupportCode",
+      "value": "",
       "type": "string"
     }
   ]

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection issue de docs/api/http-contract.md (137 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/api/http-contract.md.",
+    "description": "Collection issue de docs/api/http-contract.md (155 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/api/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -252,6 +252,104 @@
                   "type": "noauth"
                 },
                 "description": "200 { status: \"ready\" } si les dépendances requises répondent ; sinon 503."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Assistance et suivi public",
+          "item": [
+            {
+              "name": "POST /api/public/erasure-status",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/public/erasure-status",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"{{erasureReceiptCode}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Vérifier l’état d’un effacement"
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/public/support-cases",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/public/support-cases",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"category\": \"login\",\n  \"message\": \"Je n’arrive pas à me connecter.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nOuvrir un dossier d’assistance invité Copier le code dans guestSupportCode."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/public/support-cases/status",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/public/support-cases/status",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"{{guestSupportCode}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Consulter un dossier d’assistance invité"
               },
               "response": []
             }
@@ -2215,6 +2313,237 @@
               }
             }
           }
+        },
+        {
+          "name": "Suivi des demandes",
+          "item": [
+            {
+              "name": "GET /api/users/me/reports",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/reports",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Lister mes signalements Pour la page suivante, ajouter ?before= avec le next_cursor reçu."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/data-subject-requests/:id/messages",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/data-subject-requests/{{dsrId}}/messages",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Consulter le fil de ma demande RGPD Pour la page suivante, ajouter ?before= avec le next_cursor reçu."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/users/me/data-subject-requests/:id/messages",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/data-subject-requests/{{dsrId}}/messages",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"Précisions supplémentaires.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nPréciser ma demande RGPD"
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/data-subject-requests/:id/assisted-export",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/data-subject-requests/{{dsrId}}/assisted-export",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Consulter mon autorisation d’export"
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/assisted-exports/:id",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/assisted-exports/{{assistedExportId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Télécharger mon export assisté"
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/users/me/erasure-receipt",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/erasure-receipt",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nCréer ou remplacer mon reçu d’effacement Copier le code dans erasureReceiptCode."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/users/me/support-cases",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/support-cases",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Lister mes dossiers d’assistance Pour la page suivante, ajouter ?before= avec le next_cursor reçu."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/users/me/support-cases",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/support-cases",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"category\": \"other\",\n  \"message\": \"J’ai besoin d’aide.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nOuvrir un dossier d’assistance"
+              },
+              "response": []
+            }
+          ]
         }
       ]
     },
@@ -3934,6 +4263,220 @@
               "response": []
             }
           ]
+        },
+        {
+          "name": "Administration du suivi",
+          "item": [
+            {
+              "name": "PATCH /api/admin/reports/:id/decision",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/reports/{{reportId}}/decision",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"reviewed\",\n  \"response\": \"Nous avons examiné votre signalement.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nClore un signalement et répondre à son auteur"
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/data-subject-requests/:id/messages",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/messages",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Consulter le fil d’une demande RGPD Pour la page suivante, ajouter ?before= avec le next_cursor reçu."
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/data-subject-requests/:id/messages",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/messages",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"Merci de préciser votre demande.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nRépondre dans le fil d’une demande RGPD. Session administrateur récente requise."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/data-subject-requests/:id/assisted-export",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/assisted-export",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Consulter une autorisation d’export active"
+              },
+              "response": []
+            },
+            {
+              "name": "POST /api/admin/data-subject-requests/:id/assisted-export",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/assisted-export",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nAutoriser le titulaire à télécharger son export pendant 24 h. Session administrateur récente requise."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/support-cases",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/support-cases",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Lister les dossiers d’assistance Pour la page suivante, ajouter ?before= avec le next_cursor reçu."
+              },
+              "response": []
+            },
+            {
+              "name": "PATCH /api/admin/support-cases/:id",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  },
+                  {
+                    "key": "Origin",
+                    "value": "{{adminOrigin}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/support-cases/{{supportCaseId}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"closed\",\n  \"response\": \"Nous avons traité votre demande.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nClore un dossier d’assistance. Session administrateur récente requise."
+              },
+              "response": []
+            }
+          ]
         }
       ]
     },
@@ -4913,6 +5456,26 @@
     {
       "key": "phonePolicyVersion",
       "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "assistedExportId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "supportCaseId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "erasureReceiptCode",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "guestSupportCode",
+      "value": "",
       "type": "string"
     }
   ]

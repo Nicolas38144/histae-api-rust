@@ -253,9 +253,19 @@ impl Database {
             return Err(DatabaseError::SchemaObjectsMissing);
         }
         let request_details_ready: bool = sqlx::query_scalar(
-            "SELECT count(*) = 2 FROM pg_attribute
+            "SELECT (SELECT count(*) = 2 FROM pg_attribute
              WHERE attrelid=to_regclass(current_schema() || '.data_subject_request')
-               AND attname IN ('details', 'response') AND atttypid='text'::regtype AND NOT attisdropped",
+               AND attname IN ('details', 'response') AND atttypid='text'::regtype AND NOT attisdropped)
+             AND EXISTS (SELECT 1 FROM pg_attribute
+               WHERE attrelid=to_regclass(current_schema() || '.user_report')
+                 AND attname='public_response' AND atttypid='text'::regtype AND NOT attisdropped)
+             AND to_regclass(current_schema() || '.data_request_message') IS NOT NULL
+             AND to_regclass(current_schema() || '.assisted_data_export') IS NOT NULL
+             AND to_regclass(current_schema() || '.erasure_receipt') IS NOT NULL
+             AND to_regclass(current_schema() || '.support_case') IS NOT NULL
+             AND EXISTS (SELECT 1 FROM pg_trigger
+               WHERE tgrelid=to_regclass(current_schema() || '.data_subject_request')
+                 AND tgname='trg_save_data_request_reply' AND tgenabled='O' AND NOT tgisinternal)",
         )
         .fetch_one(&mut *connection)
         .await

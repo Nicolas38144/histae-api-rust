@@ -81,7 +81,7 @@ L’[index des guides](docs/README.md) permet de choisir une procédure par usag
 | Initialiser et sauvegarder PostgreSQL | [Base de données](docs/database/database.md) |
 | Enrôler une passkey et gérer les administrateurs | [Administration](docs/features/administration.md) |
 | Exécuter les workers et planifier la maintenance | [Exploitation](docs/operations/operations.md) |
-| Intégrer les 137 routes et leurs autorisations | [Contrat HTTP](docs/api/http-contract.md) |
+| Intégrer les 155 routes et leurs autorisations | [Contrat HTTP](docs/api/http-contract.md) |
 | Intégrer les achats Apple/Google | [Achats natifs](docs/features/store-billing.md) |
 | Intégrer français, anglais, espagnol et italien | [Internationalisation](docs/api/internationalization.md) |
 | Importer les collections française ou anglaise | [Postman](postman/README.md) |

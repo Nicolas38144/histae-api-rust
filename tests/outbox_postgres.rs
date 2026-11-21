@@ -164,6 +164,9 @@ async fn assert_initial_and_upgraded_schema_match(
         "ALTER TABLE user_account DROP COLUMN is_review_account CASCADE;
          ALTER TABLE match_init DROP COLUMN photo_reveal_version CASCADE;
          ALTER TABLE billing_store_subscription DROP COLUMN superseded CASCADE;
+         ALTER TABLE user_report DROP COLUMN public_response;
+         DROP TRIGGER trg_save_data_request_reply ON data_subject_request;
+         DROP TABLE data_request_message, assisted_data_export, erasure_receipt, support_case;
          ALTER TABLE notification DROP CONSTRAINT notification_type_check;
          ALTER TABLE notification ADD CONSTRAINT notification_type_check
            CHECK (type IN ('new_match','new_message'));
@@ -173,6 +176,21 @@ async fn assert_initial_and_upgraded_schema_match(
     )
     .execute(&mut *connection)
     .await?;
+    let owner = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted)
+         VALUES ($1,$1::text,''::bytea)",
+    )
+    .bind(owner)
+    .execute(&mut *connection)
+    .await?;
+    let legacy_request: Uuid = sqlx::query_scalar(
+        "INSERT INTO data_subject_request(user_id,type,response) VALUES ($1,'access','Existing reply')
+         RETURNING id",
+    )
+    .bind(owner)
+    .fetch_one(&mut *connection)
+    .await?;
     drop(connection);
     for _ in 0..2 {
         migrations::apply(config).await?;
@@ -181,8 +199,18 @@ async fn assert_initial_and_upgraded_schema_match(
         for (name, definition) in &initial {
             assert_eq!(upgraded.get(name), Some(definition), "schema drift: {name}");
         }
+        let replies: Vec<(String, String)> =
+            sqlx::query_as("SELECT author,body FROM data_request_message WHERE request_id=$1")
+                .bind(legacy_request)
+                .fetch_all(&mut *database.acquire().await?)
+                .await?;
+        assert_eq!(replies, [("team".to_owned(), "Existing reply".to_owned())]);
     }
     let mut connection = database.acquire().await?;
+    sqlx::query("DELETE FROM user_account WHERE user_id=$1")
+        .bind(owner)
+        .execute(&mut *connection)
+        .await?;
     let counts: (i64, i64) = sqlx::query_as(
         "SELECT count(*),count(*) FILTER (WHERE NOT EXISTS (
            SELECT 1 FROM pg_depend dependency WHERE dependency.classid='pg_class'::regclass

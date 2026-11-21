@@ -3,9 +3,13 @@ pub const ACCOUNT_NOTIFICATION_ELIGIBLE_SQL: &str = r#"
   (n.type = 'data_request_replied' AND EXISTS (
     SELECT 1 FROM data_subject_request request
     WHERE request.id=(n.payload->>'request_id')::uuid AND request.user_id=n.user_id
-      AND request.status=(n.payload->>'response_status')
-      AND request.status IN ('pending','in_progress','completed','rejected')
-      AND nullif(btrim(request.response),'') IS NOT NULL
+      AND (CASE WHEN n.payload ? 'request_message_id' THEN EXISTS (
+        SELECT 1 FROM data_request_message message
+        WHERE message.id=(n.payload->>'request_message_id')::uuid
+          AND message.request_id=request.id AND message.author='team'
+      ) ELSE request.status=(n.payload->>'response_status')
+        AND request.status IN ('pending','in_progress','completed','rejected')
+        AND nullif(btrim(request.response),'') IS NOT NULL END)
   )) OR (n.type = 'new_session' AND EXISTS (
     SELECT 1 FROM refresh_token_family opened_session
     WHERE opened_session.id=(n.payload->>'session_id')::uuid

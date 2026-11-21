@@ -55,9 +55,15 @@ impl PrivacyMaintenanceResult {
     }
 
     fn merge(&mut self, next: Self) {
-        self.expired_support_cases = self.expired_support_cases.saturating_add(next.expired_support_cases);
-        self.expired_erasure_receipts = self.expired_erasure_receipts.saturating_add(next.expired_erasure_receipts);
-        self.expired_assisted_exports = self.expired_assisted_exports.saturating_add(next.expired_assisted_exports);
+        self.expired_support_cases = self
+            .expired_support_cases
+            .saturating_add(next.expired_support_cases);
+        self.expired_erasure_receipts = self
+            .expired_erasure_receipts
+            .saturating_add(next.expired_erasure_receipts);
+        self.expired_assisted_exports = self
+            .expired_assisted_exports
+            .saturating_add(next.expired_assisted_exports);
         self.expired_phone_observations = self
             .expired_phone_observations
             .saturating_add(next.expired_phone_observations);

@@ -120,6 +120,10 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
     .execute(&mut *transaction)
     .await
     .map_err(map_sqlx_error)?;
+    sqlx::raw_sql(schema_section(TABLE_UPGRADES, "report responses")?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
     sqlx::raw_sql(schema_section(SCHEMA, "customer cases")?)
         .execute(&mut *transaction)
         .await

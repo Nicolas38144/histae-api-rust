@@ -5,9 +5,9 @@ pub mod administration;
 pub mod advertising;
 pub mod app;
 pub mod billing;
-pub mod catalog;
 #[cfg(feature = "webauthn-probe")]
 pub mod casework;
+pub mod catalog;
 pub mod config;
 pub mod contract;
 pub mod discovery;

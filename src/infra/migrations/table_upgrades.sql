@@ -32,3 +32,9 @@ ALTER TABLE notification ADD CONSTRAINT notification_type_check CHECK ((type = A
 ALTER TABLE IF EXISTS billing_store_subscription ADD COLUMN IF NOT EXISTS superseded boolean NOT NULL DEFAULT false;
 -- END store billing columns
 
+-- BEGIN report responses
+ALTER TABLE user_report ADD COLUMN IF NOT EXISTS public_response text
+    CONSTRAINT user_report_public_response_check
+    CHECK (public_response IS NULL OR char_length(public_response) BETWEEN 1 AND 2000);
+-- END report responses
+

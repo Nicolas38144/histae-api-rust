@@ -2,7 +2,7 @@
 
 [Index](../README.md) · [Schéma et migrations](database.md)
 
-Les **64 tables applicatives** de `db/001_schema_postgres.sql` sont regroupées ci-dessous
+Les **68 tables applicatives** de `db/001_schema_postgres.sql` sont regroupées ci-dessous
 avec leur rôle et un point d’accès SQL dans le code.
 
 Ce guide décrit les chemins du code ; il ne mesure pas leur fréquence en production.
@@ -75,6 +75,10 @@ Les jobs de rétention, les projections SQL et les triggers apportent des usages
 | `phone_blocklist_entry` | Empreintes des numéros et exceptions décidées par les administrateurs. | [identity/mobile/phone_blocklist/queries.rs](../../src/identity/mobile/phone_blocklist/queries.rs) |
 | `phone_blocklist_source` | Fraîcheur, état et résultats des sources de numéros publics. | [identity/mobile/phone_blocklist/queries.rs](../../src/identity/mobile/phone_blocklist/queries.rs) |
 | `phone_blocklist_observation` | Observations importées par source, conservées séparément des décisions manuelles. | [identity/mobile/phone_blocklist/queries.rs](../../src/identity/mobile/phone_blocklist/queries.rs) |
+| `data_request_message` | Messages du fil RGPD et notifications de réponse. | [casework/pg.rs](../../src/casework/pg.rs) |
+| `assisted_data_export` | Autorisations temporaires pour les exports assistés du titulaire. | [casework/pg.rs](../../src/casework/pg.rs) |
+| `erasure_receipt` | Reçus d’effacement avec un code de suivi stocké sous forme d’empreinte. | [casework/pg.rs](../../src/casework/pg.rs) |
+| `support_case` | Dossiers d’assistance pour les comptes et les invités. | [casework/pg.rs](../../src/casework/pg.rs) |
 
 `user_subscription` reste utile après le retrait de Stripe : la projection SQL
 `effective_subscription_at` lit les attributions internes, et la continuation verrouille ces lignes.
@@ -82,7 +86,7 @@ Les achats natifs et les Premium offerts utilisent leurs tables distinctes. Une 
 par une route actuelle ne suffit donc pas à considérer cette table comme inutilisée.
 
 PostGIS ajoute sa table d’extension `spatial_ref_sys`, utilisée pour les référentiels spatiaux.
-Elle porte le total à **65 tables dans `public`** sur une installation standard ; elle ne fait pas
-partie des 64 tables applicatives et doit rester gérée par PostGIS.
+Elle porte le total à **69 tables dans `public`** sur une installation standard ; elle ne fait pas
+partie des 68 tables applicatives et doit rester gérée par PostGIS.
 
 Les index et colonnes demandent leur propre analyse d’usage ; cet inventaire concerne les tables.

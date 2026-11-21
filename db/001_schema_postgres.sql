@@ -848,6 +848,8 @@ CREATE TABLE user_report (
     status text DEFAULT 'pending'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     resolved_at timestamp with time zone,
+    public_response text CONSTRAINT user_report_public_response_check
+        CHECK (public_response IS NULL OR char_length(public_response) BETWEEN 1 AND 2000),
     CONSTRAINT user_report_check CHECK ((reporter_id <> reported_id)),
     CONSTRAINT user_report_reason_check CHECK ((reason = ANY (ARRAY['inappropriate_content'::text, 'fake_profile'::text, 'harassment'::text, 'spam'::text, 'other'::text]))),
     CONSTRAINT user_report_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'reviewed'::text, 'dismissed'::text]))),
@@ -1579,9 +1581,6 @@ END $$;
 -- END phone blocklist
 
 -- BEGIN customer cases
-ALTER TABLE user_report ADD COLUMN IF NOT EXISTS public_response text
-    CHECK (public_response IS NULL OR char_length(public_response) BETWEEN 1 AND 2000);
-
 CREATE TABLE IF NOT EXISTS data_request_message (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     request_id uuid NOT NULL REFERENCES data_subject_request(id) ON DELETE CASCADE,

@@ -343,7 +343,9 @@ SET log_min_error_statement = panic;
             # A pre-message request keeps its history when nullable columns are added.
             legacy_request = str(uuid.uuid4())
             query(f"INSERT INTO data_subject_request(id,user_id,type,status,notes) VALUES ('{legacy_request}','{first}','rectification','in_progress','Historical internal note');")
-            query("ALTER TABLE data_subject_request DROP COLUMN details, DROP COLUMN response;", "histae_migrate")
+            query("DROP TRIGGER trg_save_data_request_reply ON data_subject_request; "
+                  "DROP TABLE data_request_message; "
+                  "ALTER TABLE data_subject_request DROP COLUMN details, DROP COLUMN response;", "histae_migrate")
             # Recreate the retired analyser columns and decisions on this disposable database.
             photo_ids = [str(uuid.uuid4()) for _ in range(5)]
             query("ALTER TABLE content_moderation_case ADD COLUMN face_count smallint, ADD COLUMN sharpness_score double precision, ADD COLUMN nsfw_score double precision, ADD COLUMN face_detectable boolean, ADD COLUMN sharp_enough boolean, ADD COLUMN content_allowed boolean; ALTER TABLE content_moderation_case DROP CONSTRAINT chk_content_moderation_reason_codes;", "histae_migrate")
@@ -404,6 +406,7 @@ SET log_min_error_statement = panic;
             assert query(f"SELECT jsonb_agg(jsonb_build_array(actor_id,target_id,decision,swiped_at,expires_at) ORDER BY actor_id) FROM swipe_decision WHERE {swipe_filter};") == shortened_swipes
             print("Thirty-day swipe expiry preserves original choices and is idempotent.", flush=True)
             assert query(f"SELECT details='User correction message' AND response='Public correction reply' AND notes='Historical internal note' FROM data_subject_request WHERE id='{legacy_request}';") == "t"
+            assert query(f"SELECT count(*)=1 AND bool_and(author='team' AND body='Public correction reply') FROM data_request_message WHERE request_id='{legacy_request}';") == "t"
             print("Data request message upgrade preserves history and is idempotent.", flush=True)
             assert query(f"SELECT string_agg(id::text||':'||version,',' ORDER BY id) FROM content_moderation_case WHERE user_id IN ('{first}','{second}');") == photo_versions
             print("Photo analyser retirement preserves human decisions and is idempotent.", flush=True)

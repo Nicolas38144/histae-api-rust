@@ -9,12 +9,12 @@ Importer l’un des fichiers JSON avec **Import → Files** :
 - [Collection française](postman_collection_fr.json).
 - [Collection anglaise](postman_collection_en.json).
 
-Chaque collection contient 137 requêtes correspondant au contrat HTTP. Aucun script Python ou générateur
+Chaque collection contient 155 requêtes correspondant au contrat HTTP. Aucun script Python ou générateur
 n’est nécessaire pour l’import. Les collections incluent déjà quelques actions après réponse pour stocker
 les tokens et challenges ; elles ne fabriquent ni preuve WebAuthn ni signature de fournisseur.
 
 Exécuter les requêtes choisies une par une. Certaines modifient/suppriment des données, envoient des SMS ou
-créent des opérations d’achat natives : les titres marqués `⚠️` signalent ces effets. Ne pas lancer toute la collection
+créent des opérations d’achat natives. La mention `⚠️` signale ces effets. Ne pas lancer toute la collection
 avec Collection Runner sur une base utilisée.
 
 ## Variables
@@ -31,6 +31,8 @@ Configurer l’onglet **Variables** de la collection importée :
 | `adminOrigin` | Origine exacte du dashboard, par exemple `https://dashboard.histae.com` |
 | `bootstrapToken`, `challengeId` | Jeton émis par le serveur et challenge à usage unique ; ne sont pas des credentials WebAuthn |
 | `targetUserId`, `matchId`, `photoId`, etc. | UUID réels du jeu de données testé ; remplir uniquement ceux requis par la requête |
+| `dsrId`, `assistedExportId`, `supportCaseId` | Identifiants de la demande RGPD, de l’autorisation de téléchargement ou du dossier d’assistance renvoyés par l’API |
+| `erasureReceiptCode`, `guestSupportCode` | Codes renvoyés lors de la création du reçu ou du dossier invité. Les copier dans les valeurs locales de la collection |
 | `auditReason` | Motif de consultation/action ; facultatif pour le superadmin selon le contrat |
 | `continuationCreditCost` | Coût maximal accepté : `1` pour Free, `0` pour Premium ; lire le quota avant le clic |
 | `rewardPlatform`, `rewardId` | `android` ou `ios`, puis UUID de l’intention publicitaire préparée ; aucun UUID de compte transmis à AdMob |

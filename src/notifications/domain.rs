@@ -107,6 +107,10 @@ pub enum NotificationIntent {
         request_id: Uuid,
         response_status: String,
     },
+    DataRequestMessage {
+        request_id: Uuid,
+        message_id: Uuid,
+    },
     NewSession {
         session_id: Uuid,
     },
@@ -122,7 +126,9 @@ impl NotificationIntent {
             Self::ConversationContinued { .. } => NotificationType::ConversationContinued,
             Self::PhotosRevealed { .. } => NotificationType::PhotosRevealed,
             Self::FirstPeriodEnding { .. } => NotificationType::FirstPeriodEnding,
-            Self::DataRequestReplied { .. } => NotificationType::DataRequestReplied,
+            Self::DataRequestReplied { .. } | Self::DataRequestMessage { .. } => {
+                NotificationType::DataRequestReplied
+            }
             Self::NewSession { .. } => NotificationType::NewSession,
         }
     }
@@ -168,6 +174,12 @@ impl NotificationIntent {
                 response_status,
             } => {
                 json!({ "request_id": request_id, "response_status": response_status })
+            }
+            Self::DataRequestMessage {
+                request_id,
+                message_id,
+            } => {
+                json!({ "request_id": request_id, "request_message_id": message_id })
             }
             Self::NewSession { session_id } => json!({ "session_id": session_id }),
         }

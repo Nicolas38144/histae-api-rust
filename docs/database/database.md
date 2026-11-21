@@ -6,7 +6,7 @@
 
 | Fichier | Usage |
 | --- | --- |
-| [001_schema_postgres.sql](../../db/001_schema_postgres.sql) | Schéma initial : 64 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
+| [001_schema_postgres.sql](../../db/001_schema_postgres.sql) | Schéma initial : 68 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
 | [002_insert_postgres.sql](../../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
 | [drop_postgres.sql](../../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
 | [migrations.rs](../../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
@@ -23,7 +23,7 @@ Une section incomplète est refusée. Le test PostgreSQL compare colonnes, types
 par défaut, contraintes, index et triggers d’une installation neuve avec ceux d’une ancienne structure
 remise à niveau deux fois. L’ordre physique des colonnes est exclu : `ADD COLUMN` ajoute une colonne à la fin.
 
-L’[inventaire des tables](database-usage.md) décrit un accès SQL réel pour chacune des 64 tables applicatives.
+L’[inventaire des tables](database-usage.md) décrit un accès SQL réel pour chacune des 68 tables applicatives.
 
 Il n’existe plus de ledger `schema_migrations`. Le migrateur retire cette ancienne table si elle est présente.
 
@@ -147,7 +147,7 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --
 Ajouter l’override proxy s’il est utilisé. En production, employer les fichiers d’environnement et
 Compose de production. La mise à jour de PostgreSQL implique un bref redémarrage ; le migrateur doit
 terminer avant le démarrage de la nouvelle API. Une sauvegarde contenant PostGIS doit être restaurée
-sur un serveur disposant de cette extension. Le schéma actuel comporte 65 tables publiques ; le test de restauration doit retrouver ce nombre.
+sur un serveur disposant de cette extension. Le schéma actuel comporte 69 tables publiques ; le test de restauration doit retrouver ce nombre.
 
 Le migrateur ne transforme pas automatiquement une base arbitraire. Modifier le fichier de schéma ne suffit
 pas à modifier une base existante : toute évolution doit aussi avoir son chemin de mise à niveau et ses tests.
@@ -217,7 +217,7 @@ public et le nombre de tables, puis supprime base temporaire et archive. Le rôl
 Il choisit Docker direct ou `sudo` selon l’accès disponible.
 
 Le message `Development backup/restore verification passed (...)` confirme cette restauration technique.
-Le schéma actuel comporte 64 tables applicatives et la table spatiale de PostGIS, soit 65 tables publiques attendues.
+Le schéma actuel comporte 68 tables applicatives et la table spatiale de PostGIS, soit 69 tables publiques attendues.
 Le script ne conserve pas de sauvegarde, ne compare pas toutes les données et ne teste pas la reprise du S3,
 des certificats ou des fournisseurs.
 
