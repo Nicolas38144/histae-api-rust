@@ -113,6 +113,9 @@ async fn lifecycle_notifications_recheck_names_choices_reveals_replies_and_sessi
             sqlx::query("INSERT INTO match_state (match_id,user_id,revealed,continued) VALUES ($1,$2,true,$3)")
                 .bind(match_id).bind(user).bind(user==users[1]).execute(&mut *connection).await?;
         }
+        sqlx::query("INSERT INTO continuation_reservation (match_id,user_id,source,week_start)
+            VALUES ($1,$2,'free',date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date-7)")
+            .bind(match_id).bind(users[1]).execute(&mut *connection).await?;
         sqlx::query("INSERT INTO data_subject_request (id,user_id,type,status,response,completed_at)
             VALUES ($1,$2,'rectification','completed','Synthetic reply',clock_timestamp())")
             .bind(request_id).bind(users[0]).execute(&mut *connection).await?;
@@ -147,6 +150,25 @@ async fn lifecycle_notifications_recheck_names_choices_reveals_replies_and_sessi
         assert!(delivery.find_deliverable(reveal).await?.is_some());
         assert!(delivery.find_deliverable(reply).await?.is_some());
         assert!(delivery.find_deliverable(login).await?.is_some());
+        sqlx::query("UPDATE continuation_reservation SET source='advertising' WHERE match_id=$1 AND user_id=$2")
+            .bind(match_id).bind(users[1]).execute(database.acquire().await?.as_mut()).await?;
+        assert!(delivery.find_deliverable(continuation).await?.is_none(),
+            "advertising choices from a previous week must not produce a push");
+        let week_end: chrono::DateTime<Utc> = sqlx::query_scalar(
+            "UPDATE continuation_reservation
+             SET week_start=date_trunc('week',clock_timestamp() AT TIME ZONE 'UTC')::date
+             WHERE match_id=$1 AND user_id=$2
+             RETURNING (week_start+7)::timestamp AT TIME ZONE 'UTC'",
+        ).bind(match_id).bind(users[1]).fetch_one(database.acquire().await?.as_mut()).await?;
+        sqlx::query("UPDATE notification SET expires_at=$2+INTERVAL '1 day'
+            WHERE id IN (SELECT notification_id FROM notification_push_delivery WHERE id=$1)")
+            .bind(continuation).bind(week_end).execute(database.acquire().await?.as_mut()).await?;
+        sqlx::query("UPDATE match_init SET expires_at=$2+INTERVAL '1 day' WHERE id=$1")
+            .bind(match_id).bind(week_end).execute(database.acquire().await?.as_mut()).await?;
+        sqlx::query("UPDATE refresh_token_family SET expires_at=$2+INTERVAL '1 day' WHERE id=ANY($1)")
+            .bind(&sessions[..]).bind(week_end).execute(database.acquire().await?.as_mut()).await?;
+        assert_eq!(delivery.find_deliverable(continuation).await?
+            .ok_or(FixtureError("current advertising choice"))?.expires_at, week_end);
         let mut connection=database.acquire().await?;
         let opened_deadline: chrono::DateTime<Utc> = sqlx::query_scalar(
             "UPDATE refresh_token_family SET expires_at=clock_timestamp()+INTERVAL '5 minutes'

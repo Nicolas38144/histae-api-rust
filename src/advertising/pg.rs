@@ -318,7 +318,7 @@ async fn complete_on(
     if now > expires + TimeDelta::hours(24) {
         return Err(invalid_reward("admob_callback_too_late"));
     }
-    let current_week = start_of_utc_week(event) == start_of_utc_week(now);
+    let current_week = earned_in_current_week(event, now);
     // A globally unique transaction hash prevents cross-intent replay. Record
     // the grant separately so a consumed, prior-week proof is never "credited".
     let updated = sqlx::query(
@@ -351,4 +351,25 @@ async fn complete_on(
         return Err(RewardError::StockFull);
     }
     Ok(())
+}
+
+fn earned_in_current_week(event: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    // The caller already validated clock skew. A tolerated future timestamp
+    // belongs to the week in which the proof actually arrived.
+    start_of_utc_week(event.min(now)) == start_of_utc_week(now)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::earned_in_current_week;
+    use chrono::{TimeDelta, TimeZone as _, Utc};
+
+    #[test]
+    fn an_accepted_clock_skew_does_not_discard_a_reward_on_sunday() {
+        let monday = Utc.with_ymd_and_hms(2030, 1, 7, 0, 0, 0).unwrap();
+        let sunday = monday - TimeDelta::seconds(30);
+        assert!(earned_in_current_week(monday, sunday));
+        assert!(!earned_in_current_week(sunday, monday));
+        assert!(earned_in_current_week(monday, monday));
+    }
 }

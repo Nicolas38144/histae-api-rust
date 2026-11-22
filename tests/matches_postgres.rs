@@ -1205,10 +1205,86 @@ async fn advertising_stock_expires_at_week_reset_and_free_redemptions_stop_at_fi
         sqlx::query("UPDATE continuation_usage SET used_count=5 WHERE user_id=$1").bind(users[0]).execute(database.acquire().await?.as_mut()).await?;
         let now=Utc::now();let quota=repository.quota_snapshot(users[0],now).await?;
         assert_eq!(quota.remaining,Some(0));assert_eq!(quota.advertising_balance,2);
-        let next=repository.quota_snapshot(users[0],now+TimeDelta::days(7)).await?;
+        let next_monday = (histae_api_rust::matches::domain::start_of_utc_week(now) + TimeDelta::days(7))
+            .and_hms_opt(0,0,0).ok_or(FixtureError("weekly reset"))?.and_utc();
+        let before_reset = repository.quota_snapshot(users[0],next_monday-TimeDelta::microseconds(1)).await?;
+        assert_eq!((before_reset.used,before_reset.advertising_balance,before_reset.remaining), (5,2,Some(0)));
+        let next=repository.quota_snapshot(users[0],next_monday).await?;
         assert_eq!((next.used,next.free_remaining,next.advertising_balance,next.remaining),(0,2,0,Some(2)));
         Ok(())
     }.await;
+    let cleaned = cleanup(&database, &users, &[]).await;
+    result?;
+    cleaned?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn confirming_a_free_reservation_after_reset_charges_its_original_week()
+-> Result<(), Box<dyn std::error::Error>> {
+    use histae_api_rust::matches::domain::start_of_utc_week;
+
+    let database = Database::connect(&postgres_config()?).await?;
+    let repository = PgMatchRepository::new(database.clone());
+    let users = [Uuid::new_v4(), Uuid::new_v4()];
+    for user in users {
+        account(&database, user, "Weekly free credit").await?;
+    }
+    let result = async {
+        let m = record(users[0], users[1], Utc::now() - TimeDelta::seconds(1));
+        repository.create(m.clone()).await?;
+        assert_eq!(
+            repository.record_continuation(m.id, users[0], 1).await?,
+            ContinuationResult::Pending
+        );
+        let week = start_of_utc_week(Utc::now());
+        let previous_week = week - TimeDelta::days(7);
+        let mut connection = database.acquire().await?;
+        sqlx::query(
+            "INSERT INTO continuation_usage(user_id,week_start,used_count,free_used_count)
+             VALUES($1,$2,1,1)",
+        )
+        .bind(users[0])
+        .bind(previous_week)
+        .execute(&mut *connection)
+        .await?;
+        sqlx::query(
+            "UPDATE continuation_reservation SET week_start=$3 WHERE match_id=$1 AND user_id=$2",
+        )
+        .bind(m.id)
+        .bind(users[0])
+        .bind(previous_week)
+        .execute(&mut *connection)
+        .await?;
+        drop(connection);
+
+        let quota = repository.quota_snapshot(users[0], Utc::now()).await?;
+        assert_eq!(
+            (quota.used, quota.free_remaining, quota.reserved),
+            (0, 2, 1)
+        );
+        assert_eq!(
+            repository.record_continuation(m.id, users[1], 1).await?,
+            ContinuationResult::Confirmed
+        );
+        let usage: Vec<(i16, i16)> = sqlx::query_as(
+            "SELECT used_count,free_used_count FROM continuation_usage
+             WHERE user_id=$1 ORDER BY week_start",
+        )
+        .bind(users[0])
+        .fetch_all(database.acquire().await?.as_mut())
+        .await?;
+        assert_eq!(usage, [(1, 2), (1, 0)]);
+        let first = repository.quota_snapshot(users[0], Utc::now()).await?;
+        let second = repository.quota_snapshot(users[1], Utc::now()).await?;
+        assert_eq!(
+            (first.used, first.free_remaining, first.reserved),
+            (1, 2, 0)
+        );
+        assert_eq!((second.used, second.free_remaining), (1, 1));
+        Ok::<_, Box<dyn std::error::Error>>(())
+    }
+    .await;
     let cleaned = cleanup(&database, &users, &[]).await;
     result?;
     cleaned?;

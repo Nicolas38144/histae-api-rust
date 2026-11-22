@@ -77,6 +77,7 @@ Les crédits publicitaires, y compris réservés, expirent au lundi à 00:00 UTC
 reposait sur un crédit publicitaire expiré doit être redonné ; aucun nouveau crédit ne peut être
 débité à sa place sans ce nouvel accord. `my_continued` reflète cette expiration. Les réservations
 gratuites restent attachées à leur semaine d’origine comme décrit ci-dessus.
+Une notification push encore en attente pour un accord publicitaire expire à la même limite.
 
 Le solde publicitaire est interprété à partir de `continuation_wallet.week_start` : une ancienne
 semaine vaut immédiatement zéro, sans attendre une maintenance. Une nouvelle récompense ouvre
@@ -84,6 +85,8 @@ le solde de la semaine courante à un crédit. Une preuve tardive est enregistr�
 mais ne reporte pas dans la nouvelle semaine un crédit gagné la semaine précédente. Dans ce cas,
 son statut est `expired`, même si sa preuve a été traitée. `completed_at` enregistre le traitement
 de la preuve ; `credited_at` atteste un crédit réellement accordé et produit le statut `credited`.
+Un horodatage légèrement en avance et dans la tolérance de cinq minutes est rattaché à la semaine
+de réception de la preuve. L’horloge de PostgreSQL détermine la semaine courante.
 Un crédit accordé peut ensuite être dépensé ou expirer : seul le quota indique le solde utilisable.
 
 ### Lire le solde

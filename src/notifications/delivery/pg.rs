@@ -19,7 +19,8 @@ use crate::{
 static PENDING_PUSH_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         r#"SELECT n.id AS notification_id, d.token, n.type, n.payload,
-                 LEAST(n.expires_at, m.expires_at, session.expires_at, opened_session.expires_at) AS expires_at,
+                 LEAST(n.expires_at, m.expires_at, session.expires_at, opened_session.expires_at,
+                       continuation.expires_at) AS expires_at,
                  COALESCE(d.language, account.preferred_language) AS language,
                  CASE WHEN COALESCE(preference.discreet,false) THEN NULL
                       ELSE partner_profile.firstname END AS partner_firstname
@@ -35,6 +36,17 @@ static PENDING_PUSH_SQL: LazyLock<String> = LazyLock::new(|| {
                LEFT JOIN refresh_token_family opened_session
                  ON n.type='new_session' AND opened_session.id=(n.payload->>'session_id')::uuid
                LEFT JOIN match_init m ON m.id = (n.payload->>'match_id')::uuid
+               LEFT JOIN LATERAL (
+                 SELECT reservation.user_id,
+                   CASE WHEN reservation.source='advertising'
+                     THEN (reservation.week_start+7)::timestamp AT TIME ZONE 'UTC'
+                   END AS expires_at
+                 FROM continuation_reservation reservation
+                 WHERE n.type='continuation_requested' AND reservation.match_id=m.id
+                   AND reservation.user_id=(n.payload->>'actor_id')::uuid
+                   AND (reservation.source<>'advertising' OR reservation.week_start =
+                        date_trunc('week', statement_timestamp() AT TIME ZONE 'UTC')::date)
+               ) continuation ON true
                LEFT JOIN user_account first_account ON first_account.user_id = m.user1_id
                LEFT JOIN user_account second_account ON second_account.user_id = m.user2_id
                LEFT JOIN user_profile partner_profile ON partner_profile.user_id =
@@ -64,6 +76,8 @@ static PENDING_PUSH_SQL: LazyLock<String> = LazyLock::new(|| {
                        AND NOT EXISTS (SELECT 1 FROM match_state state
                          WHERE state.match_id=m.id AND state.user_id=n.user_id AND state.continued))
                      OR (n.type = 'continuation_requested' AND m.status='awaiting_continuation'
+                       AND continuation.user_id IS NOT NULL
+                       AND (continuation.expires_at IS NULL OR continuation.expires_at>clock_timestamp())
                        AND EXISTS (SELECT 1 FROM match_state actor
                          JOIN match_state recipient ON recipient.match_id=actor.match_id
                          WHERE actor.match_id=m.id AND actor.user_id=(n.payload->>'actor_id')::uuid
