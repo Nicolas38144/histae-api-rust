@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::shared::text::javascript_trim;
+use crate::shared::text::{FREE_TEXT_MAX_CHARS, javascript_trim};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -162,8 +162,6 @@ pub(super) fn normalized_request_text(value: Option<&str>) -> Option<&str> {
     value.map(javascript_trim).filter(|value| !value.is_empty())
 }
 
-pub const REQUEST_DETAILS_MAX_LENGTH: usize = crate::shared::text::FREE_TEXT_MAX_CHARS;
-
 /// Legacy self-service request types may omit details. Manual requests need a
 /// bounded explanation; never put this user-supplied content in operational logs.
 pub fn valid_request_details(request_type: DataRequestType, details: Option<&str>) -> bool {
@@ -176,7 +174,7 @@ pub fn valid_request_details(request_type: DataRequestType, details: Option<&str
 pub fn valid_request_text(value: Option<&str>) -> bool {
     value.is_none_or(|value| {
         let value = javascript_trim(value);
-        value.chars().count() <= REQUEST_DETAILS_MAX_LENGTH
+        value.chars().count() <= FREE_TEXT_MAX_CHARS
             && !value
                 .chars()
                 .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
@@ -189,7 +187,7 @@ mod tests {
 
     #[test]
     fn public_messages_use_unicode_lengths_and_reject_control_characters() {
-        let message = "🦀".repeat(REQUEST_DETAILS_MAX_LENGTH);
+        let message = "🦀".repeat(FREE_TEXT_MAX_CHARS);
         assert!(valid_request_details(
             DataRequestType::Rectification,
             Some(&format!("\u{feff}  {message}\n")),

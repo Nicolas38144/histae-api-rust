@@ -17,7 +17,7 @@ TESTS = (
     "complimentary_premium_postgres", "web_privacy_postgres",
     "play_review_postgres", "matches_postgres", "matches_inactivity_postgres", "moderation_postgres", "privacy_rights_postgres", "account_erasure_postgres",
     "administration_reports_postgres", "admin_metrics_postgres", "query_performance_postgres",
-    "maintenance_outbox_postgres", "notifications_postgres",
+    "maintenance_outbox_postgres", "notifications_postgres", "postgres_locks",
     "discovery_postgres", "profiles_postgres", "catalog_postgres", "otp_delivery", "localization_postgres", "store_billing_postgres",
 )
 # These fixtures create their own disposable databases; application-role suites

@@ -122,17 +122,14 @@ impl AccountActivityPool {
         E: From<AccountActivityError>,
         F: for<'lease> FnOnce(&'lease ActivityLease) -> ActivityWorkFuture<'lease, T, E>,
     {
-        self.run_shared(user_ids, false, work).await
-    }
-
-    /// Maintenance still protects banned accounts, but never erased accounts.
-    pub async fn run_existing<T, E, F>(&self, user_ids: &[Uuid], work: F) -> Result<T, E>
-    where
-        T: Send,
-        E: From<AccountActivityError>,
-        F: for<'lease> FnOnce(&'lease ActivityLease) -> ActivityWorkFuture<'lease, T, E>,
-    {
-        self.run_shared(user_ids, true, work).await
+        let owner = self
+            .acquire(user_ids, LockMode::Shared)
+            .await
+            .map_err(E::from)?
+            .ok_or_else(|| E::from(AccountActivityError::AccountUnavailable))?;
+        let result = run_guarded(owner.lease(), work).await;
+        owner.release().await;
+        result
     }
 
     pub async fn try_exclusive<T, E, F>(&self, user_id: Uuid, work: F) -> Result<TryExclusive<T>, E>
@@ -142,32 +139,7 @@ impl AccountActivityPool {
         F: for<'lease> FnOnce(&'lease ActivityLease) -> ActivityWorkFuture<'lease, T, E>,
     {
         let Some(owner) = self
-            .acquire(&[user_id], LockMode::Exclusive, None, None)
-            .await
-            .map_err(E::from)?
-        else {
-            return Ok(TryExclusive::NotAcquired);
-        };
-        let result = run_guarded(owner.lease(), work).await;
-        owner.release().await;
-        result.map(TryExclusive::Acquired)
-    }
-
-    /// Serialize one kind of operation without blocking the account's other
-    /// shared activities. Both locks belong to the monitored PostgreSQL session.
-    pub async fn try_serialized<T, E, F>(
-        &self,
-        user_id: Uuid,
-        operation: &'static str,
-        work: F,
-    ) -> Result<TryExclusive<T>, E>
-    where
-        T: Send,
-        E: From<AccountActivityError>,
-        F: for<'lease> FnOnce(&'lease ActivityLease) -> ActivityWorkFuture<'lease, T, E>,
-    {
-        let Some(owner) = self
-            .acquire(&[user_id], LockMode::Shared, Some(false), Some(operation))
+            .acquire(&[user_id], LockMode::Exclusive)
             .await
             .map_err(E::from)?
         else {
@@ -191,33 +163,10 @@ impl AccountActivityPool {
         self.pool.close().await;
     }
 
-    async fn run_shared<T, E, F>(
-        &self,
-        user_ids: &[Uuid],
-        allow_banned: bool,
-        work: F,
-    ) -> Result<T, E>
-    where
-        T: Send,
-        E: From<AccountActivityError>,
-        F: for<'lease> FnOnce(&'lease ActivityLease) -> ActivityWorkFuture<'lease, T, E>,
-    {
-        let owner = self
-            .acquire(user_ids, LockMode::Shared, Some(allow_banned), None)
-            .await
-            .map_err(E::from)?
-            .ok_or_else(|| E::from(AccountActivityError::AccountUnavailable))?;
-        let result = run_guarded(owner.lease(), work).await;
-        owner.release().await;
-        result
-    }
-
     async fn acquire(
         &self,
         user_ids: &[Uuid],
         mode: LockMode,
-        allow_banned: Option<bool>,
-        operation: Option<&'static str>,
     ) -> Result<Option<ActivityOwner>, AccountActivityError> {
         let account_ids = canonical_ids(user_ids);
         let waiting = ActivityAcquisition::new(&self.waiting);
@@ -246,14 +195,15 @@ impl AccountActivityPool {
             }
         }
 
-        if let Some(allow_banned) = allow_banned {
+        // Shared activity requires active accounts. The erasure worker
+        // checks its claimed event while holding the exclusive lock.
+        if matches!(mode, LockMode::Shared) {
             let account_count: i64 = sqlx::query_scalar(
                 "SELECT count(*)::bigint FROM user_account
                  WHERE user_id = ANY($1::uuid[])
-                   AND deleted_at IS NULL AND ($2 OR NOT is_banned)",
+                   AND deleted_at IS NULL AND NOT is_banned",
             )
             .bind(&account_ids)
-            .bind(allow_banned)
             .fetch_one(session.connection_mut())
             .await
             .map_err(|_| AccountActivityError::ActivityUnavailable)?;
@@ -263,21 +213,6 @@ impl AccountActivityPool {
             }
         }
 
-        if let Some(operation) = operation {
-            for account_id in &account_ids {
-                let acquired: bool =
-                    sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtextextended($1, $2))")
-                        .bind(format!("{operation}:{account_id}"))
-                        .bind(ACCOUNT_ACTIVITY_HASH_SEED)
-                        .fetch_one(session.connection_mut())
-                        .await
-                        .map_err(|_| AccountActivityError::ActivityUnavailable)?;
-                if !acquired {
-                    let _ = unlock_all(&mut session).await;
-                    return Ok(None);
-                }
-            }
-        }
         let backend_process_id: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(session.connection_mut())
             .await

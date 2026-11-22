@@ -13,7 +13,7 @@ use super::domain::{
 use super::store::CatalogStore;
 use crate::infra::postgres::{ConstraintKind, DatabaseError};
 use crate::moderation::text::TextModerator;
-use crate::shared::text::{FREE_TEXT_MAX_CHARS, javascript_trim, utf8_len};
+use crate::shared::text::{FREE_TEXT_MAX_CHARS, javascript_trim};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CatalogError {
@@ -323,7 +323,7 @@ pub(crate) fn normalize_translations(
 
 fn normalize_trait(name: &str) -> Result<String, CatalogError> {
     let normalized = javascript_trim(name);
-    if normalized.is_empty() || utf8_len(normalized) > 100 || has_control_character(normalized) {
+    if normalized.is_empty() || normalized.len() > 100 || has_control_character(normalized) {
         return Err(CatalogError::InvalidTrait);
     }
     Ok(normalized.to_owned())

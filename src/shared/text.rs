@@ -5,10 +5,6 @@ pub fn javascript_trim(value: &str) -> &str {
     value.trim_matches(is_javascript_whitespace)
 }
 
-pub fn utf8_len(value: &str) -> usize {
-    value.len()
-}
-
 /// Reproduces `validator.js`'s `isLength` accounting: JavaScript surrogate
 /// pairs count as one scalar and a variation selector attached to a preceding
 /// scalar does not add another character.
@@ -61,12 +57,6 @@ mod tests {
             javascript_trim("\u{200b}Alice\u{200b}"),
             "\u{200b}Alice\u{200b}"
         );
-    }
-
-    #[test]
-    fn counts_utf8_bytes_instead_of_unicode_scalars() {
-        assert_eq!(utf8_len("é"), 2);
-        assert_eq!(utf8_len("🦀"), 4);
     }
 
     #[test]

@@ -1,11 +1,11 @@
 //! Identity validation shared by mobile profile creation and audited corrections.
 use chrono::{Datelike as _, NaiveDate};
 
-use crate::shared::text::{javascript_trim, utf8_len};
+use crate::shared::text::javascript_trim;
 
 pub(crate) fn normalize_firstname(value: &str) -> Option<String> {
     let value = javascript_trim(value);
-    (!value.is_empty() && utf8_len(value) <= 100).then(|| value.to_owned())
+    (!value.is_empty() && value.len() <= 100).then(|| value.to_owned())
 }
 
 pub(crate) fn strict_birthdate(value: &str) -> Option<NaiveDate> {

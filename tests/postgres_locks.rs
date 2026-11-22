@@ -120,19 +120,12 @@ async fn verify_account_eligibility(
         .run(&[FIRST_ACCOUNT], |_lease| Box::pin(async { Ok(()) }))
         .await;
     assert_eq!(banned, Err(AccountActivityError::AccountUnavailable));
-    let maintenance: Result<&str, AccountActivityError> = activity
-        .run_existing(&[FIRST_ACCOUNT], |_lease| {
-            Box::pin(async { Ok("protected") })
-        })
-        .await;
-    assert_eq!(maintenance, Ok("protected"));
-
     sqlx::query("UPDATE user_account SET is_banned = false, deleted_at = now() WHERE user_id = $1")
         .bind(FIRST_ACCOUNT)
         .execute(database.acquire().await?.as_mut())
         .await?;
     let erased: Result<(), AccountActivityError> = activity
-        .run_existing(&[FIRST_ACCOUNT], |_lease| Box::pin(async { Ok(()) }))
+        .run(&[FIRST_ACCOUNT], |_lease| Box::pin(async { Ok(()) }))
         .await;
     assert_eq!(erased, Err(AccountActivityError::AccountUnavailable));
     sqlx::query("UPDATE user_account SET deleted_at = NULL WHERE user_id = $1")

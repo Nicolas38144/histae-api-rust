@@ -409,7 +409,6 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
-    use crate::privacy::rights::REQUEST_DETAILS_MAX_LENGTH;
 
     #[derive(Default)]
     struct Store {
@@ -568,7 +567,7 @@ mod tests {
             for details in [
                 None,
                 Some(" \n\t".to_owned()),
-                Some("a".repeat(REQUEST_DETAILS_MAX_LENGTH + 1)),
+                Some("a".repeat(FREE_TEXT_MAX_CHARS + 1)),
                 Some("bad\0value".to_owned()),
             ] {
                 assert_eq!(
@@ -618,7 +617,7 @@ mod tests {
         };
         for response in [
             "bad\0value".to_owned(),
-            "🦀".repeat(REQUEST_DETAILS_MAX_LENGTH + 1),
+            "🦀".repeat(FREE_TEXT_MAX_CHARS + 1),
         ] {
             assert_eq!(
                 service.update_request(input(Some(response))).await,
