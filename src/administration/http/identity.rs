@@ -11,7 +11,7 @@ use crate::http::{
     extract::{ApiDto, ValidatedJson, ValidatedPath},
 };
 use crate::identity::admin::http::RecentAdminIdentity;
-use crate::shared::text::validator_js_length;
+use crate::shared::text::FREE_TEXT_MAX_CHARS;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -39,7 +39,7 @@ impl ApiDto for CorrectProfileIdentityBody {
 
     fn is_valid(&self) -> bool {
         crate::profiles::identity::strict_birthdate(&self.birthdate).is_some()
-            && validator_js_length(&self.reason) <= 500
+            && self.reason.chars().count() <= FREE_TEXT_MAX_CHARS
     }
 }
 

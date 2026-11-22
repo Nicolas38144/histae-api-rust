@@ -16,7 +16,7 @@ use super::store::{MatchMessageStore, MatchStore, MatchStoreError};
 use crate::infra::postgres::DatabaseError;
 use crate::profiles::service::ProfilePhotoUrlProvider;
 use crate::shared::clock::Clock;
-use crate::shared::text::javascript_trim;
+use crate::shared::text::{CHAT_MESSAGE_MAX_CHARS, javascript_trim};
 
 pub type MatchEventFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
@@ -385,7 +385,7 @@ impl MatchService {
         idempotency_input: Option<&str>,
     ) -> Result<PublicMessage, MatchError> {
         let content = javascript_trim(raw_content);
-        if content.is_empty() || content.chars().count() > 2_000 {
+        if content.is_empty() || content.chars().count() > CHAT_MESSAGE_MAX_CHARS {
             return Err(MatchError::InvalidMessageRequest);
         }
         let idempotency_key = normalize_idempotency_key(idempotency_input)?;

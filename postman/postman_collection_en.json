@@ -318,7 +318,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Changes data: run manually against a test instance.\n\nOpen a guest support case Copy the code to guestSupportCode."
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nOpen a guest support case Copy the code to guestSupportCode. Free text is limited to 1,000 Unicode characters per field."
               },
               "response": []
             },
@@ -666,7 +666,7 @@
                     }
                   }
                 },
-                "description": "Initially sets first name, birthdate (18+), optional sex and biography. Existing profiles may update biography only; send the current identity values, otherwise 409 profile_identity_locked. Omitting bio clears it. Identity corrections use the administrator profile-identity endpoint."
+                "description": "Initially sets first name, birthdate (18+), optional sex and biography. Existing profiles may update biography only; send the current identity values, otherwise 409 profile_identity_locked. Omitting bio clears it. Identity corrections use the administrator profile-identity endpoint. Free text is limited to 1,000 Unicode characters per field."
               },
               "response": []
             },
@@ -1102,7 +1102,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ answers: [{ question_id, answer }] } → the replacement collection."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ answers: [{ question_id, answer }] } → the replacement collection. Free text is limited to 1,000 Unicode characters per field."
               },
               "response": []
             }
@@ -1507,7 +1507,7 @@
                     }
                   }
                 },
-                "description": "{ content } + idempotency key → 201 with the stable message.\n\nPostman generates a new UUID v4 for each message. If the response is lost, resend the same content with the original key shown in the Postman Console."
+                "description": "{ content } + idempotency key → 201 with the stable message.\n\nPostman generates a new UUID v4 for each message. If the response is lost, resend the same content with the original key shown in the Postman Console. Content is limited to 500 Unicode characters."
               },
               "response": []
             },
@@ -2049,7 +2049,7 @@
                     }
                   }
                 },
-                "description": "{ type, details? } → 201. Correction requires details (1–2000 Unicode scalars). Restriction/objection are retired; historical records remain readable."
+                "description": "{ type, details? } → 201. Correction requires details (1–1000 Unicode scalars). Restriction/objection are retired; historical records remain readable."
               },
               "response": []
             },
@@ -2237,7 +2237,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ reported_user_id, match_id?, reason, description? } → 201 with the report."
+                "description": "⚠️ Changes or deletes data: run manually against a test instance.\n\n{ reported_user_id, match_id?, reason, description? } → 201 with the report. Free text is limited to 1,000 Unicode characters per field."
               },
               "response": []
             }
@@ -2401,7 +2401,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Changes data: run manually against a test instance.\n\nAdd details to my privacy request"
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nAdd details to my privacy request Free text is limited to 1,000 Unicode characters per field."
               },
               "response": []
             },
@@ -2539,7 +2539,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Changes data: run manually against a test instance.\n\nOpen a support case"
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nOpen a support case Free text is limited to 1,000 Unicode characters per field."
               },
               "response": []
             }
@@ -3210,7 +3210,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Superadmin only. role=admin promotes a user; role=user removes admin rights and revokes sessions, passkeys, and enrollment tokens. An optional reason must be 3–500 characters. Cannot create another superadmin."
+                "description": "⚠️ Superadmin only. role=admin promotes a user; role=user removes admin rights and revokes sessions, passkeys, and enrollment tokens. An optional reason must be 3–1000 characters. Cannot create another superadmin."
               },
               "response": []
             },
@@ -3298,7 +3298,7 @@
                     }
                   }
                 },
-                "description": "Superadmin only. enabled=true offers Premium without expiry; enabled=false removes only this Histae gift. Optional reason (3–500 characters); a default audit reason is supplied when omitted. Idempotent and audited. Does not create a purchase, cancel a paid subscription, change the role or enable review-account access. Banned accounts cannot receive a gift; review accounts keep automatic access."
+                "description": "Superadmin only. enabled=true offers Premium without expiry; enabled=false removes only this Histae gift. Optional reason (3–1000 characters); a default audit reason is supplied when omitted. Idempotent and audited. Does not create a purchase, cancel a paid subscription, change the role or enable review-account access. Banned accounts cannot receive a gift; review accounts keep automatic access."
               },
               "response": []
             },
@@ -3464,7 +3464,7 @@
                     }
                   }
                 },
-                "description": "Recent administrator authentication required. { status, notes?, response? }. Public response is required to complete or reject a correction. Notes stay internal. Restriction/objection records are read-only."
+                "description": "Recent administrator authentication required. { status, notes?, response? }. Public response is required to complete or reject a correction. Notes stay internal. Restriction/objection records are read-only. Free text is limited to 1,000 Unicode characters per field."
               },
               "response": []
             },
@@ -3708,7 +3708,7 @@
                     }
                   }
                 },
-                "description": "{ prompt, category, display_order? } → 201 with the question.\nTranslations are optional. Omitted keys preserve existing values; null removes a translation and restores the French fallback. name/prompt remains French."
+                "description": "{ prompt, category, display_order? } → 201 with the question.\nTranslations are optional. Omitted keys preserve existing values; null removes a translation and restores the French fallback. name/prompt remains French. Free text is limited to 1,000 Unicode characters per field."
               },
               "response": []
             },
@@ -3752,7 +3752,7 @@
                     }
                   }
                 },
-                "description": "At least one of these three fields → 200 with the question.\nTranslations are optional. Omitted keys preserve existing values; null removes a translation and restores the French fallback. name/prompt remains French."
+                "description": "At least one of these three fields → 200 with the question.\nTranslations are optional. Omitted keys preserve existing values; null removes a translation and restores the French fallback. name/prompt remains French. Free text is limited to 1,000 Unicode characters per field."
               },
               "response": []
             },
@@ -4249,7 +4249,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "Audited temporary allowance. Admins must supply a 3–500 character reason. Superadmins may omit reason and also choose block or automatic. Omit valid_days for automatic. Supply either phone_number or entry_id. Copy the current version; reread after an uncertain mutation response.",
+                "description": "Audited temporary allowance. Admins must supply a 3–1000 character reason. Superadmins may omit reason and also choose block or automatic. Omit valid_days for automatic. Supply either phone_number or entry_id. Copy the current version; reread after an uncertain mutation response.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"decision\": \"allow\",\n  \"version\": {{phonePolicyVersion}},\n  \"valid_days\": 30,\n  \"reason\": \"{{auditReason}}\"\n}",
@@ -4302,7 +4302,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Changes data: run manually against a test instance.\n\nClose a report and reply to its author"
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nClose a report and reply to its author Free text is limited to 1,000 Unicode characters per field."
               },
               "response": []
             },
@@ -4363,7 +4363,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Changes data: run manually against a test instance.\n\nReply in a privacy request thread. Requires a recent administrator session."
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nReply in a privacy request thread. Requires a recent administrator session. Free text is limited to 1,000 Unicode characters per field."
               },
               "response": []
             },
@@ -4472,7 +4472,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Changes data: run manually against a test instance.\n\nClose a support case. Requires a recent administrator session."
+                "description": "⚠️ Changes data: run manually against a test instance.\n\nClose a support case. Requires a recent administrator session. Free text is limited to 1,000 Unicode characters per field."
               },
               "response": []
             }

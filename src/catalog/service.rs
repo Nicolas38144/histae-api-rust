@@ -13,7 +13,7 @@ use super::domain::{
 use super::store::CatalogStore;
 use crate::infra::postgres::{ConstraintKind, DatabaseError};
 use crate::moderation::text::TextModerator;
-use crate::shared::text::{javascript_trim, utf8_len};
+use crate::shared::text::{FREE_TEXT_MAX_CHARS, javascript_trim, utf8_len};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CatalogError {
@@ -339,8 +339,7 @@ fn normalize_question(
 fn normalize_question_prompt(value: &str) -> Result<String, CatalogError> {
     let normalized = value.nfkc().collect::<String>();
     let normalized = javascript_trim(&normalized).to_owned();
-    if !(3..=200).contains(&normalized.chars().count())
-        || utf8_len(&normalized) > 500
+    if !(3..=FREE_TEXT_MAX_CHARS).contains(&normalized.chars().count())
         || has_control_character(&normalized)
     {
         return Err(CatalogError::InvalidQuestionPayload);
@@ -351,8 +350,7 @@ fn normalize_question_prompt(value: &str) -> Result<String, CatalogError> {
 fn normalize_answer(value: &str) -> Result<String, CatalogError> {
     let normalized = value.nfkc().collect::<String>();
     let normalized = javascript_trim(&normalized).to_owned();
-    if !(10..=300).contains(&normalized.chars().count())
-        || utf8_len(&normalized) > 1_000
+    if !(10..=FREE_TEXT_MAX_CHARS).contains(&normalized.chars().count())
         || has_control_character(&normalized)
     {
         return Err(CatalogError::InvalidAnswers);
@@ -407,14 +405,14 @@ mod tests {
     }
 
     #[test]
-    fn enforces_character_byte_and_control_limits() {
+    fn enforces_character_and_control_limits() {
         assert_eq!(
             normalize_answer("tropcourt"),
             Err(CatalogError::InvalidAnswers)
         );
-        assert_eq!(normalize_answer(&"é".repeat(300)), Ok("é".repeat(300)));
+        assert_eq!(normalize_answer(&"é".repeat(1_000)), Ok("é".repeat(1_000)));
         assert_eq!(
-            normalize_answer(&"🦀".repeat(251)),
+            normalize_answer(&"🦀".repeat(1_001)),
             Err(CatalogError::InvalidAnswers)
         );
         assert_eq!(

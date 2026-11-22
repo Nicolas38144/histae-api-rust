@@ -38,3 +38,47 @@ ALTER TABLE user_report ADD COLUMN IF NOT EXISTS public_response text
     CHECK (public_response IS NULL OR char_length(public_response) BETWEEN 1 AND 2000);
 -- END report responses
 
+-- BEGIN free text storage
+-- Relax only previously tighter storage bounds. Keep historical text readable.
+DO $$
+DECLARE
+    item record;
+BEGIN
+    FOR item IN SELECT * FROM (VALUES
+        ('profile_question'::regclass, 'chk_profile_question_prompt', 'prompt',
+         'prompt = btrim(prompt) AND char_length(prompt) BETWEEN 3 AND 1000'),
+        ('user_profile_answer'::regclass, 'chk_user_profile_answer_text', 'answer',
+         'answer = btrim(answer) AND char_length(answer) BETWEEN 10 AND 1000'),
+        ('content_moderation_case'::regclass, 'chk_content_moderation_review_reason', 'review_reason',
+         'review_reason IS NULL OR (review_reason = btrim(review_reason) AND char_length(review_reason) BETWEEN 3 AND 1000)'),
+        ('outbox_event'::regclass, 'chk_outbox_event_resolution', 'resolution_reason',
+         '(status = ''discarded'' AND resolved_at IS NOT NULL AND resolution_reason IS NOT NULL
+      AND char_length(resolution_reason) BETWEEN 3 AND 1000)
+      OR (status <> ''discarded'' AND resolved_at IS NULL AND resolved_by IS NULL AND resolution_reason IS NULL)'),
+        ('outbox_operator_action'::regclass, 'outbox_operator_action_reason_check', 'reason',
+         'char_length(reason) BETWEEN 3 AND 1000'),
+        ('profile_question_translation'::regclass, 'profile_question_translation_prompt_check', 'prompt',
+         'char_length(prompt) BETWEEN 3 AND 1000')
+    ) AS rules(relation, constraint_name, column_name, expression)
+    LOOP
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = item.relation AND conname = item.constraint_name
+              AND strpos(pg_get_constraintdef(oid),
+                  format('char_length(%I) <= 1000', item.column_name)) > 0
+        ) THEN
+            EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS %I, ADD CONSTRAINT %I CHECK (%s)',
+                item.relation, item.constraint_name, item.constraint_name, item.expression);
+        END IF;
+    END LOOP;
+
+    -- PostgreSQL B-tree entries have a byte limit. Keep case-insensitive
+    -- uniqueness for long multibyte prompts using a fixed-size digest key.
+    IF COALESCE(pg_get_indexdef(to_regclass('uq_profile_question_prompt_ci')), '') NOT LIKE '%digest(%' THEN
+        DROP INDEX IF EXISTS uq_profile_question_prompt_ci;
+        CREATE UNIQUE INDEX uq_profile_question_prompt_ci
+          ON profile_question (public.digest(lower(prompt), 'sha256'));
+    END IF;
+END;
+$$;
+-- END free text storage

@@ -1,6 +1,7 @@
 mod identity;
 
 use crate::localization::http::Locale;
+use crate::shared::text::FREE_TEXT_MAX_CHARS;
 use axum::extract::Extension;
 use axum::http::StatusCode;
 use axum::routing::{get, patch};
@@ -259,7 +260,7 @@ impl ApiDto for AccessQuery {
     fn is_valid(&self) -> bool {
         self.reason
             .as_ref()
-            .is_none_or(|reason| validator_js_length(reason) <= 500)
+            .is_none_or(|reason| reason.chars().count() <= FREE_TEXT_MAX_CHARS)
     }
 }
 
@@ -302,7 +303,7 @@ impl ApiDto for UpdateStatusBody {
     fn is_valid(&self) -> bool {
         self.reason
             .as_ref()
-            .is_none_or(|value| validator_js_length(value) <= 500)
+            .is_none_or(|value| value.chars().count() <= FREE_TEXT_MAX_CHARS)
     }
 }
 
@@ -353,7 +354,7 @@ impl ApiDto for UpdateRoleBody {
             && self
                 .reason
                 .as_ref()
-                .is_none_or(|reason| validator_js_length(reason) <= 500)
+                .is_none_or(|reason| reason.chars().count() <= FREE_TEXT_MAX_CHARS)
     }
 }
 
@@ -397,7 +398,7 @@ impl ApiDto for UpdateComplimentaryPremiumBody {
     fn is_valid(&self) -> bool {
         self.reason
             .as_ref()
-            .is_none_or(|reason| validator_js_length(reason) <= 500)
+            .is_none_or(|reason| reason.chars().count() <= FREE_TEXT_MAX_CHARS)
     }
 }
 
@@ -474,7 +475,7 @@ impl ApiDto for AccessPageQuery {
     fn is_valid(&self) -> bool {
         self.reason
             .as_ref()
-            .is_none_or(|reason| validator_js_length(reason) <= 500)
+            .is_none_or(|reason| reason.chars().count() <= FREE_TEXT_MAX_CHARS)
             && self.limit().is_some_and(|limit| (1..=100).contains(&limit))
             && self.offset().is_some()
             && self
@@ -510,7 +511,7 @@ impl ApiDto for AdminMessageQuery {
     fn is_valid(&self) -> bool {
         self.reason
             .as_ref()
-            .is_none_or(|reason| validator_js_length(reason) <= 500)
+            .is_none_or(|reason| reason.chars().count() <= FREE_TEXT_MAX_CHARS)
             && self.limit().is_some_and(|limit| (1..=100).contains(&limit))
             && self.offset().is_some()
             && self
@@ -713,7 +714,7 @@ mod metrics_query_tests {
         assert!(
             !UpdateComplimentaryPremiumBody {
                 enabled: true,
-                reason: Some("x".repeat(501))
+                reason: Some("x".repeat(1_001))
             }
             .is_valid()
         );

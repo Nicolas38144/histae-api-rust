@@ -2,6 +2,7 @@ use super::{
     domain::{Change, Decision, Entry, Overview, PhoneKey, PolicyError, Target, canonical_phone},
     pg::PgPhoneBlocklist,
 };
+use crate::shared::text::FREE_TEXT_MAX_CHARS;
 use crate::{
     config::SecretString,
     http::{
@@ -111,10 +112,9 @@ impl ApiDto for ChangeBody {
                 .as_deref()
                 .is_none_or(|p| canonical_phone(p).is_ok())
             && self.decision.accepts_duration(self.valid_days)
-            && self
-                .reason
-                .as_deref()
-                .is_none_or(|s| s.encode_utf16().count() <= 500 && !s.chars().any(char::is_control))
+            && self.reason.as_deref().is_none_or(|s| {
+                s.chars().count() <= FREE_TEXT_MAX_CHARS && !s.chars().any(char::is_control)
+            })
     }
 }
 async fn change(

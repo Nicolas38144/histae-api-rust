@@ -324,14 +324,14 @@ CREATE TABLE profile_question (
     CONSTRAINT chk_profile_question_category CHECK ((category = ANY (ARRAY['daily_life'::text, 'personality'::text, 'interests'::text, 'relationships'::text, 'conversation'::text]))),
     CONSTRAINT chk_profile_question_code CHECK ((code ~ '^[a-z][a-z0-9_]{2,63}$'::text)),
     CONSTRAINT chk_profile_question_display_order CHECK (((display_order >= 0) AND (display_order <= 10000))),
-    CONSTRAINT chk_profile_question_prompt CHECK (((prompt = btrim(prompt)) AND ((char_length(prompt) >= 3) AND (char_length(prompt) <= 200)) AND (octet_length(prompt) <= 500))),
+    CONSTRAINT chk_profile_question_prompt CHECK (prompt = btrim(prompt) AND char_length(prompt) BETWEEN 3 AND 1000),
     CONSTRAINT profile_question_code_key UNIQUE (code),
     CONSTRAINT profile_question_pkey PRIMARY KEY (id)
 );
 
 CREATE INDEX idx_profile_question_catalog ON profile_question USING btree (display_order, id);
 
-CREATE UNIQUE INDEX uq_profile_question_prompt_ci ON profile_question USING btree (lower(prompt));
+CREATE UNIQUE INDEX uq_profile_question_prompt_ci ON profile_question (public.digest(lower(prompt), 'sha256'));
 
 CREATE TABLE user_profile_answer (
     id uuid DEFAULT uuid_generate_v4() NOT NULL,
@@ -342,7 +342,7 @@ CREATE TABLE user_profile_answer (
     created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     CONSTRAINT chk_user_profile_answer_position CHECK ((("position" >= 1) AND ("position" <= 3))),
-    CONSTRAINT chk_user_profile_answer_text CHECK (((answer = btrim(answer)) AND ((char_length(answer) >= 10) AND (char_length(answer) <= 300)) AND (octet_length(answer) <= 1000))),
+    CONSTRAINT chk_user_profile_answer_text CHECK (answer = btrim(answer) AND char_length(answer) BETWEEN 10 AND 1000),
     CONSTRAINT uq_user_profile_answer_position UNIQUE (user_id, "position"),
     CONSTRAINT uq_user_profile_answer_question UNIQUE (user_id, question_id),
     CONSTRAINT user_profile_answer_pkey PRIMARY KEY (id),
@@ -436,7 +436,7 @@ CREATE TABLE content_moderation_case (
     updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     CONSTRAINT chk_content_moderation_policy_version CHECK ((policy_version ~ '^[a-z0-9][a-z0-9_.-]{0,63}$'::text)),
     CONSTRAINT chk_content_moderation_reason_codes CHECK ((reason_codes <@ ARRAY['spam'::text, 'insult'::text, 'personal_contact'::text, 'sexual_content'::text, 'legacy_unreviewed'::text])),
-    CONSTRAINT chk_content_moderation_review_reason CHECK (((review_reason IS NULL) OR ((review_reason = btrim(review_reason)) AND ((char_length(review_reason) >= 3) AND (char_length(review_reason) <= 500)) AND (octet_length(review_reason) <= 1000)))),
+    CONSTRAINT chk_content_moderation_review_reason CHECK (review_reason IS NULL OR (review_reason = btrim(review_reason) AND char_length(review_reason) BETWEEN 3 AND 1000)),
     CONSTRAINT chk_content_moderation_source CHECK ((((content_type = 'photo'::text) AND (photo_id IS NOT NULL) AND (bio_user_id IS NULL) AND (profile_answer_id IS NULL)) OR ((content_type = 'bio'::text) AND (photo_id IS NULL) AND (bio_user_id IS NOT NULL) AND (profile_answer_id IS NULL)) OR ((content_type = 'profile_answer'::text) AND (photo_id IS NULL) AND (bio_user_id IS NULL) AND (profile_answer_id IS NOT NULL)))),
     CONSTRAINT content_moderation_case_content_type_check CHECK ((content_type = ANY (ARRAY['photo'::text, 'bio'::text, 'profile_answer'::text]))),
     CONSTRAINT content_moderation_case_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text]))),
@@ -921,7 +921,9 @@ CREATE TABLE outbox_event (
     CONSTRAINT chk_outbox_event_completion CHECK ((((status = 'completed'::text) AND (processed_at IS NOT NULL)) OR ((status <> 'completed'::text) AND (processed_at IS NULL)))),
     CONSTRAINT chk_outbox_event_dead_letter CHECK ((((status = ANY (ARRAY['dead_letter'::text, 'discarded'::text])) AND (dead_lettered_at IS NOT NULL)) OR ((status <> ALL (ARRAY['dead_letter'::text, 'discarded'::text])) AND (dead_lettered_at IS NULL)))),
     CONSTRAINT chk_outbox_event_lock CHECK ((((status = 'processing'::text) AND (locked_at IS NOT NULL) AND (locked_by IS NOT NULL)) OR ((status <> 'processing'::text) AND (locked_at IS NULL) AND (locked_by IS NULL)))),
-    CONSTRAINT chk_outbox_event_resolution CHECK ((((status = 'discarded'::text) AND (resolved_at IS NOT NULL) AND (resolution_reason IS NOT NULL) AND ((char_length(resolution_reason) >= 3) AND (char_length(resolution_reason) <= 500))) OR ((status <> 'discarded'::text) AND (resolved_at IS NULL) AND (resolved_by IS NULL) AND (resolution_reason IS NULL)))),
+    CONSTRAINT chk_outbox_event_resolution CHECK ((status = 'discarded' AND resolved_at IS NOT NULL AND resolution_reason IS NOT NULL
+      AND char_length(resolution_reason) BETWEEN 3 AND 1000)
+      OR (status <> 'discarded' AND resolved_at IS NULL AND resolved_by IS NULL AND resolution_reason IS NULL)),
     CONSTRAINT outbox_event_attempts_check CHECK (((attempts >= 0) AND (attempts <= 100))),
     CONSTRAINT outbox_event_event_type_check CHECK ((event_type ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'::text)),
     CONSTRAINT outbox_event_last_error_code_check CHECK (((last_error_code IS NULL) OR (last_error_code ~ '^[a-z][a-z0-9_]{0,63}$'::text))),
@@ -973,7 +975,7 @@ CREATE TABLE outbox_operator_action (
     created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     CONSTRAINT outbox_operator_action_action_check CHECK ((action = ANY (ARRAY['retry'::text, 'discard'::text]))),
     CONSTRAINT outbox_operator_action_administrator_role_check CHECK ((administrator_role = ANY (ARRAY['admin'::text, 'superadmin'::text]))),
-    CONSTRAINT outbox_operator_action_reason_check CHECK (((char_length(reason) >= 3) AND (char_length(reason) <= 500))),
+    CONSTRAINT outbox_operator_action_reason_check CHECK (char_length(reason) BETWEEN 3 AND 1000),
     CONSTRAINT outbox_operator_action_pkey PRIMARY KEY (id),
     CONSTRAINT outbox_operator_action_administrator_id_fkey FOREIGN KEY (administrator_id) REFERENCES user_account(user_id) ON DELETE SET NULL,
     CONSTRAINT outbox_operator_action_outbox_event_id_fkey FOREIGN KEY (outbox_event_id) REFERENCES outbox_event(id) ON DELETE SET NULL
@@ -1266,7 +1268,8 @@ CREATE TABLE IF NOT EXISTS trait_translation (
 CREATE TABLE IF NOT EXISTS profile_question_translation (
     question_id uuid NOT NULL REFERENCES profile_question(id) ON DELETE CASCADE,
     language text NOT NULL CHECK (language IN ('fr','en','es','it')),
-    prompt text NOT NULL CHECK (char_length(prompt) BETWEEN 3 AND 200 AND octet_length(prompt) <= 500),
+    prompt text NOT NULL,
+    CONSTRAINT profile_question_translation_prompt_check CHECK (char_length(prompt) BETWEEN 3 AND 1000),
     PRIMARY KEY (question_id, language)
 );
 CREATE TABLE IF NOT EXISTS subscription_plan_translation (

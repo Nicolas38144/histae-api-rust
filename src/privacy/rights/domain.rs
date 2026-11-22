@@ -162,7 +162,7 @@ pub(super) fn normalized_request_text(value: Option<&str>) -> Option<&str> {
     value.map(javascript_trim).filter(|value| !value.is_empty())
 }
 
-pub const REQUEST_DETAILS_MAX_LENGTH: usize = 2_000;
+pub const REQUEST_DETAILS_MAX_LENGTH: usize = crate::shared::text::FREE_TEXT_MAX_CHARS;
 
 /// Legacy self-service request types may omit details. Manual requests need a
 /// bounded explanation; never put this user-supplied content in operational logs.

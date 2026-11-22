@@ -416,7 +416,7 @@ async fn manual_request_details_are_required_bounded_and_returned_to_the_owner()
         for details in [
             Value::Null,
             json!(" \n\t"),
-            json!("a".repeat(2001)),
+            json!("🦀".repeat(1001)),
             json!("bad\0value"),
         ] {
             let payload = json!({"type": request_type, "details": details}).to_string();
@@ -451,7 +451,7 @@ async fn manual_request_details_are_required_bounded_and_returned_to_the_owner()
             .unwrap_or_else(|_| unreachable!());
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
-    let details = "Please correct this information.\nI cannot edit it in the app.";
+    let details = "🦀".repeat(1_000);
     let payload = json!({"type": "rectification", "details": format!("  {details}  ")}).to_string();
     let created = app
         .clone()

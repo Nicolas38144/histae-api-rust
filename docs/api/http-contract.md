@@ -189,7 +189,7 @@ Pour le mobile, les refus de budget, la suspension et les états Sweego restent 
 | PATCH | `/api/admin/sms-safety` | **Superadmin, récente** ; `{ suspended: boolean, version: integer >= 0 }` → `204`, modification globale auditée. `409 resource_changed` si la version a changé. |
 | GET | `/api/admin/sms-safety/phone-blocklist` | Session admin ; `limit` 1–100 (50 par défaut), `offset` 0–100000 → `200 { entries, total, sources, ready }`. Numéros masqués et dates des sources, aucun hash. |
 | POST | `/api/admin/sms-safety/phone-blocklist/lookup` | Session admin ; `{ phone_number }` français → `200` politique du numéro (`id: null`, `version: 0` si absent). Le téléphone reste dans le corps. |
-| PATCH | `/api/admin/sms-safety/phone-blocklist` | **Admin ou superadmin, récente** ; une cible `entry_id` ou `phone_number`, `version`, `decision` (`allow`, `block`, `automatic`), `valid_days` 1–90 sauf `automatic`, `reason?` → `204`. L'admin peut uniquement autoriser et doit justifier (3–500 caractères) ; le superadmin peut effectuer les trois décisions sans justification. `409 resource_changed` si version dépassée. |
+| PATCH | `/api/admin/sms-safety/phone-blocklist` | **Admin ou superadmin, récente** ; une cible `entry_id` ou `phone_number`, `version`, `decision` (`allow`, `block`, `automatic`), `valid_days` 1–90 sauf `automatic`, `reason?` → `204`. L'admin peut uniquement autoriser et doit justifier (3–1 000 caractères) ; le superadmin peut effectuer les trois décisions sans justification. `409 resource_changed` si version dépassée. |
 
 La reprise conserve les compteurs. `SMS_SENDING_SUSPENDED=true` impose l’arrêt même si la suspension
 manuelle est levée. Les autorisations déjà accordées peuvent encore aboutir. Après une réponse de
@@ -280,7 +280,7 @@ Les CGU et la notice ne peuvent pas être retirées via cette route : on peut re
 
 Le profil expose `user_id, firstname, birthdate, profile_answers, moderation`, et `sex, bio, photo` lorsqu’ils existent. Le propriétaire voit son contenu même non approuvé. `moderation.bio` et `moderation.photo` contiennent `status, reasons` ; les réponses ont `moderation_status, moderation_reasons`. Une URL photo propriétaire n’est fournie que si la photo est techniquement prête.
 
-Pour le profil, prénom et naissance sont requis même avec PATCH ; prénom limité à 100 octets, âge minimal 18 ans. `sex` accepte `male | female | other | null`, `bio` accepte du texte ou `null` et au plus 2 000 octets. Le prénom, la date de naissance et le sexe sont figés dès la première création du profil.
+Pour le profil, prénom et naissance sont requis même avec PATCH ; prénom limité à 100 octets, âge minimal 18 ans. `sex` accepte `male | female | other | null`, `bio` accepte du texte ou `null` et au plus 1 000 caractères Unicode. Le prénom, la date de naissance et le sexe sont figés dès la première création du profil.
 Le mobile continue d’envoyer les valeurs courantes avec la bio ; toute différence renvoie
 `409 profile_identity_locked` sans modifier la bio ni sa modération. Une session mobile
 administrateur ne contourne pas cette règle. La correction utilise la route admin dédiée.
@@ -336,7 +336,7 @@ Autres erreurs : `400 invalid_idempotency_key`, `400 invalid_photo`, `413 photo_
 
 L’attribution d’un trait existant est idempotente. Une question expose `id, code, prompt, category, display_order` ; ordre par `display_order` puis UUID. Une réponse propriétaire expose `question_id, code, question, answer, position, moderation_status, moderation_reasons`.
 
-**Enregistrer les réponses.** Envoyer toute la liste, de zéro à trois questions distinctes ; l’ordre du tableau définit l’ordre d’affichage. Chaque texte est normalisé sur une ligne, sans caractère de contrôle, entre 10 et 300 caractères et au plus 1 000 octets. Un tableau vide efface les réponses. Le remplacement est atomique et relance leur modération. Erreurs : `404 profile_not_found`, `404 profile_question_not_found`. Si une question est supprimée par l’administration, ses réponses sont supprimées aussi : recharger le catalogue et l’état propriétaire.
+**Enregistrer les réponses.** Envoyer toute la liste, de zéro à trois questions distinctes ; l’ordre du tableau définit l’ordre d’affichage. Chaque texte est normalisé sur une ligne, sans caractère de contrôle, entre 10 et 1 000 caractères Unicode. Un tableau vide efface les réponses. Le remplacement est atomique et relance leur modération. Erreurs : `404 profile_not_found`, `404 profile_question_not_found`. Si une question est supprimée par l’administration, ses réponses sont supprimées aussi : recharger le catalogue et l’état propriétaire.
 
 <a id="decouverte-matchs-et-messages"></a>
 
@@ -399,7 +399,7 @@ Le match disparaît des listes mobiles des deux participants. Lecture, envoi et 
 
 Après le commit, les deux participants reçoivent `match.updated` avec `{ match_id, status: "ended" }` : retirer la conversation côté client. Une opération déjà validée avant la clôture peut avoir abouti. Après reconnexion, relire les ressources conformément au contrat SSE.
 
-**Messages.** Contenu non vide, 2 000 caractères maximum ; limite 60/min/utilisateur. Tant que le match reste accessible, rejouer clé/match/contenu identiques renvoie le message existant sans nouvelle notification ; réutiliser la clé pour une autre requête renvoie `409 idempotency_key_conflict`. La lecture par borne marque tous les messages reçus jusqu’à la borne incluse. Un expéditeur ne peut pas marquer son propre message comme lu.
+**Messages.** Contenu non vide, 500 caractères Unicode maximum après retrait des espaces extérieurs ; limite 60/min/utilisateur. Tant que le match reste accessible, rejouer clé/match/contenu identiques renvoie le message existant sans nouvelle notification ; réutiliser la clé pour une autre requête renvoie `409 idempotency_key_conflict`. La lecture par borne marque tous les messages reçus jusqu’à la borne incluse. Un expéditeur ne peut pas marquer son propre message comme lu.
 
 <a id="recompenses-publicitaires"></a>
 
@@ -552,7 +552,7 @@ Onboarding incomplet accepté pour les jetons/effacement, demandes RGPD et expor
 | DELETE | `/api/users/me/blocks/:userId` | UUID → `204`. |
 | POST | `/api/reports` | `{ reported_user_id, match_id?, reason, description? }` → `201` avec le signalement. |
 
-Les champs `details` (message utilisateur) et `response` (réponse visible par l’utilisateur) sont indépendants des notes internes admin. Maximum : 2 000 caractères Unicode, après normalisation des espaces extérieurs ; retours à la ligne autorisés. Les anciennes lignes peuvent avoir ces deux champs à `null`. La clôture d’une rectification enregistre un traitement manuel et sa réponse ; elle ne modifie pas automatiquement les données métier. Les types `restriction` et `objection` restent lisibles pour l’historique uniquement.
+Les champs `details` (message utilisateur) et `response` (réponse visible par l’utilisateur) sont indépendants des notes internes admin. Chaque champ, y compris les notes internes, accepte jusqu’à 1 000 caractères Unicode. Les espaces extérieurs du détail et de la réponse sont retirés et les retours à la ligne sont autorisés. Les anciennes lignes peuvent avoir ces deux champs à `null`. La clôture d’une rectification enregistre un traitement manuel et sa réponse ; elle ne modifie pas automatiquement les données métier. Les types `restriction` et `objection` restent lisibles pour l’historique uniquement.
 
 **Effacement.** Demander le jeton dédié, puis le transmettre comme reçu (`uuid:secret`). Il remplace le précédent et expire après dix minutes par défaut (`ACCOUNT_DELETION_TOKEN_TTL`, 1–30 min). Exemple de réponse au DELETE :
 
@@ -567,7 +567,7 @@ Le `202` désactive immédiatement le compte ; fermer la session mobile. **Ne pa
 
 **Droits.** Types de nouvelle demande : `access | erasure | portability | rectification` ; une seule demande ouverte par type/utilisateur. L’export contient profil/réponses, messages et réponses des demandes de données (sans les notes admin), abonnement/factures liés, métadonnées des sessions sans secrets et uniquement les décisions de swipe sortantes. Il n’expose jamais les décisions entrantes d’autrui. Le JSON est préparé par pages dans un fichier temporaire privé, transmis comme flux puis supprimé. Toutes ses données PostgreSQL, swipes compris, partagent un instantané `REPEATABLE READ`. Limite 5/h/utilisateur : `429 data_export_rate_limit_exceeded` ; export au-delà de la borne configurée : `413 data_export_too_large` ; toutes les places de préparation occupées : `503 data_export_busy` avec `Retry-After` ; source indisponible avant envoi : `503 data_export_unavailable`. L’accès réussi est journalisé.
 
-**Signalements.** `reason = inappropriate_content | fake_profile | harassment | spam | other` ; description au plus 2 000 octets ; `match_id` et description peuvent être nuls. Auto-signalement interdit, cible existante et match éventuel reliant les deux comptes. Limite 5/h/utilisateur.
+**Signalements.** `reason = inappropriate_content | fake_profile | harassment | spam | other` ; description au plus 1 000 caractères Unicode ; `match_id` et description peuvent être nuls. Auto-signalement interdit, cible existante et match éventuel reliant les deux comptes. Limite 5/h/utilisateur.
 
 ### Suivi des demandes
 
@@ -591,7 +591,7 @@ ouverte. Les notes des administrateurs ne figurent ni dans le fil utilisateur ni
 | POST | `/api/public/support-cases` | Même corps, sans session → `201 { id, code }`. |
 | POST | `/api/public/support-cases/status` | `{ code }` → demande et dernière réponse. |
 
-Les messages et réponses contiennent au plus 2 000 caractères Unicode. Les catégories de support
+Les textes libres du suivi et de l’assistance contiennent au plus 1 000 caractères Unicode. Les catégories de support
 sont `login | billing | appeal | privacy | other`. Un dossier invité ne prouve aucune identité et
 ne donne accès à aucun compte. Les codes sont transmis dans le corps des requêtes, conservés côté serveur
 sous forme d’empreinte et limités en débit. Le code d’effacement expire après 90 jours et ne donne que
@@ -678,7 +678,7 @@ Erreurs : `invalid_or_expired_admin_bootstrap`, `invalid_or_expired_webauthn_cha
 
 La liste administrative `/api/matches/:userId` ajoute `can_view_messages` à chaque match. Ce booléen est réservé au dashboard ; il ne figure pas dans les réponses mobiles. Il est indicatif : le contrôle est répété côté serveur sur chaque page de messages. Un signalement de profil (`match_id` absent) ou lié à une autre conversation ne donne aucun droit de lecture.
 
-Recherche utilisateurs : prénom ou UUID exact ; `status = active | banned`, `role = user | admin | superadmin`. La liste ne signe aucune photo (`photo: null`). Le détail expose compte, profil, préférences, traits, consentements et fraîcheur de présence ; jamais téléphone, empreinte ou coordonnées précises. Il expose aussi `complimentary_premium` (offre Histae enregistrée) et `is_review_account` (compte de revue automatique), deux booléens en lecture seule sur le détail. Les motifs fournis mesurent 3–500 caractères ; une conversation est auditée pour les deux participants.
+Recherche utilisateurs : prénom ou UUID exact ; `status = active | banned`, `role = user | admin | superadmin`. La liste ne signe aucune photo (`photo: null`). Le détail expose compte, profil, préférences, traits, consentements et fraîcheur de présence ; jamais téléphone, empreinte ou coordonnées précises. Il expose aussi `complimentary_premium` (offre Histae enregistrée) et `is_review_account` (compte de revue automatique), deux booléens en lecture seule sur le détail. Les motifs fournis mesurent 3–1 000 caractères ; une conversation est auditée pour les deux participants.
 
 L’offre Histae est indépendante du rôle et du marqueur de revue. Une attribution ne crée ni achat,
 facture ni revenu, n’annule aucun abonnement fournisseur et utilise la projection commune des droits.
@@ -719,7 +719,7 @@ français non supprimable. `name` / `prompt` reste la source française. Voir [l
 | GET | `/api/admin/content-moderation/:id` | UUID + query `reason?` → contenu audité. |
 | PATCH | `/api/admin/content-moderation/:id` | `{ version, decision, reason? }` → `200 { message: "content moderation decision recorded" }`. |
 
-Traits : nom non vide, au plus 100 octets ; doublon `409 trait_already_exists`. Questions : catégories `daily_life | personality | interests | relationships | conversation`, ordre par défaut 100 ; doublon de libellé insensible à la casse : `409 profile_question_already_exists`. Modifier le libellé affecte aussi les réponses existantes. **Avant suppression, afficher `answer_count` et demander confirmation explicite** : les réponses ne sont pas conservées.
+Traits : nom non vide, au plus 100 octets ; doublon `409 trait_already_exists`. Questions : libellés et traductions de 3 à 1 000 caractères Unicode, catégories `daily_life | personality | interests | relationships | conversation`, ordre par défaut 100 ; doublon de libellé insensible à la casse : `409 profile_question_already_exists`. Modifier le libellé affecte aussi les réponses existantes. **Avant suppression, afficher `answer_count` et demander confirmation explicite** : les réponses ne sont pas conservées.
 
 **Revoir un contenu.** Filtrer par `status = pending | approved | rejected` et `content_type = photo | bio | profile_answer`. La liste expose identifiants, utilisateur/prénom, statut/motifs, versions de politique et de revue, signaux/contrôles photo et dates ; pas le texte, la question, la clé objet, l’URL ou l’image. Ouvrir le détail fournit `content, question, photo` selon le type ; toute consultation est auditée avant signature photo.
 

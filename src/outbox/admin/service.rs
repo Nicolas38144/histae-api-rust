@@ -1,7 +1,7 @@
 use super::{domain::*, store::OutboxAdminStore};
 use crate::{
     infra::postgres::DatabaseError,
-    shared::text::{javascript_trim, validator_js_length},
+    shared::text::{FREE_TEXT_MAX_CHARS, javascript_trim},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -137,7 +137,7 @@ fn map_operator_result(result: OperatorResult) -> Result<(), OutboxAdminError> {
 fn normalize_reason(value: &str) -> Result<String, OutboxAdminError> {
     let normalized = javascript_trim(value).nfkc().collect::<String>();
     let normalized = javascript_trim(&normalized).to_owned();
-    if !(3..=500).contains(&validator_js_length(&normalized))
+    if !(3..=FREE_TEXT_MAX_CHARS).contains(&normalized.chars().count())
         || normalized
             .chars()
             .any(|character| character <= '\u{001f}' || character == '\u{007f}')

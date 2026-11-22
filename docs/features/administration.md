@@ -115,7 +115,7 @@ mobile administrateur, reçoit `409 profile_identity_locked` ; la bio reste modi
 
 `PATCH /api/admin/users/:id/profile-identity` utilise une authentification WebAuthn
 récente et l’origine du dashboard. Envoyer `firstname`, `birthdate` au format
-`YYYY-MM-DD`, `sex` (valeur ou `null` explicite) et un `reason` de 3 à 500 caractères. La
+`YYYY-MM-DD`, `sex` (valeur ou `null` explicite) et un `reason` de 3 à 1 000 caractères. La
 majorité est vérifiée ; renseigner un sexe exige le consentement sensible courant.
 Un admin peut corriger les comptes utilisateurs ; le superadmin peut aussi corriger
 les comptes administrateurs. Les droits de l’acteur sont revérifiés dans la transaction.

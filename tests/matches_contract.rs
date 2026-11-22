@@ -922,7 +922,19 @@ async fn rejects_invalid_message_bodies_keys_and_cursor_combinations() {
         }})
     );
 
-    let too_long = "x".repeat(2_001);
+    let maximum = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/matches/{match_id}/messages"),
+            Some(&token),
+            Some(&Uuid::new_v4().to_string()),
+            &json!({"content": "🦀".repeat(500)}).to_string(),
+        ))
+        .await
+        .expect("response");
+    assert_eq!(maximum.status(), StatusCode::CREATED);
+    let too_long = "🦀".repeat(501);
     let invalid_content = app
         .clone()
         .oneshot(json_request(
@@ -949,7 +961,7 @@ async fn rejects_invalid_message_bodies_keys_and_cursor_combinations() {
         .await
         .expect("response");
     assert_eq!(cursor_with_offset.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(store.calls(), 0);
+    assert_eq!(store.calls(), 1, "only the 500-character message is stored");
 }
 
 #[tokio::test]

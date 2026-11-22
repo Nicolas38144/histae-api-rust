@@ -43,7 +43,7 @@ observations et la décision. Le numéro n’est pas conservé dans l’historiq
 
 | Rôle | Actions | Justification |
 | --- | --- | --- |
-| Admin | Autorisation temporaire d’envoi | Obligatoire, 3–500 caractères, sans caractères de contrôle |
+| Admin | Autorisation temporaire d’envoi | Obligatoire, 3–1 000 caractères, sans caractères de contrôle |
 | Superadmin | Autorisation, blocage ou retour au calcul automatique | Aucune saisie exigée ; motif technique enregistré automatiquement |
 
 L’autorisation et le blocage manuels durent **1 à 90 jours**, 30 jours proposés par le dashboard.

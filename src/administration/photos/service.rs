@@ -6,7 +6,7 @@ use crate::identity::admin_role::AdminRole;
 use crate::moderation::domain::PageCursor;
 use crate::shared::{
     clock::Clock,
-    text::{javascript_trim, validator_js_length},
+    text::{FREE_TEXT_MAX_CHARS, javascript_trim},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, TimeDelta, Utc};
@@ -94,7 +94,7 @@ impl AdminPhotoService {
 
 fn normalize_admin_reason(value: &str) -> Result<String, AdminPhotoError> {
     let reason = javascript_trim(value).to_owned();
-    if !(3..=500).contains(&validator_js_length(&reason)) {
+    if !(3..=FREE_TEXT_MAX_CHARS).contains(&reason.chars().count()) {
         return Err(AdminPhotoError::InvalidRequest);
     }
     Ok(reason)

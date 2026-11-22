@@ -1,3 +1,4 @@
+use crate::shared::text::FREE_TEXT_MAX_CHARS;
 use std::sync::Arc;
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -381,7 +382,7 @@ impl AdministrationService {
 
 fn normalize_reason(value: &str) -> Result<String, AdministrationError> {
     let reason = javascript_trim(value);
-    if !(3..=500).contains(&reason.encode_utf16().count()) {
+    if !(3..=FREE_TEXT_MAX_CHARS).contains(&reason.chars().count()) {
         return Err(AdministrationError::InvalidRequest);
     }
     Ok(reason.to_owned())

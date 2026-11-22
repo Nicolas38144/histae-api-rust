@@ -9,7 +9,7 @@ use super::domain::{PageCursor, PublicReport, ReportReason, ReportRecord, Report
 use super::store::ReportStore;
 use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::{ConstraintKind, DatabaseError};
-use crate::shared::text::javascript_trim;
+use crate::shared::text::{FREE_TEXT_MAX_CHARS, javascript_trim};
 
 #[derive(Clone, Debug)]
 pub struct CreateReportInput {
@@ -61,7 +61,7 @@ impl ReportService {
             || input
                 .description
                 .as_ref()
-                .is_some_and(|value| value.len() > 2_000)
+                .is_some_and(|value| value.chars().count() > FREE_TEXT_MAX_CHARS)
         {
             return Err(ReportError::InvalidRequest);
         }

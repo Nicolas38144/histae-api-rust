@@ -318,7 +318,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nOuvrir un dossier d’assistance invité Copier le code dans guestSupportCode."
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nOuvrir un dossier d’assistance invité Copier le code dans guestSupportCode. Texte libre limité à 1 000 caractères Unicode par champ."
               },
               "response": []
             },
@@ -666,7 +666,7 @@
                     }
                   }
                 },
-                "description": "À la création, définit le prénom, la date de naissance (18 ans minimum), le sexe facultatif et la bio. Ensuite, seuls les changements de bio sont autorisés ; conserver les valeurs d’identité courantes. Sinon : 409 profile_identity_locked. Omettre bio la remet à null. Les corrections d’identité passent par la route admin profile-identity."
+                "description": "À la création, définit le prénom, la date de naissance (18 ans minimum), le sexe facultatif et la bio. Ensuite, seuls les changements de bio sont autorisés ; conserver les valeurs d’identité courantes. Sinon : 409 profile_identity_locked. Omettre bio la remet à null. Les corrections d’identité passent par la route admin profile-identity. Texte libre limité à 1 000 caractères Unicode par champ."
               },
               "response": []
             },
@@ -1102,7 +1102,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ answers: [{ question_id, answer }] } → même collection remplacée."
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ answers: [{ question_id, answer }] } → même collection remplacée. Texte libre limité à 1 000 caractères Unicode par champ."
               },
               "response": []
             }
@@ -1507,7 +1507,7 @@
                     }
                   }
                 },
-                "description": "{ content } + clé d’idempotence → 201 avec le message stable.\n\nPostman génère un nouvel UUID v4 pour chaque message. Si la réponse est perdue, rejouer le même contenu avec la clé initiale relevée dans la console Postman."
+                "description": "{ content } + clé d’idempotence → 201 avec le message stable.\n\nPostman génère un nouvel UUID v4 pour chaque message. Si la réponse est perdue, rejouer le même contenu avec la clé initiale relevée dans la console Postman. Contenu limité à 500 caractères Unicode."
               },
               "response": []
             },
@@ -2049,7 +2049,7 @@
                     }
                   }
                 },
-                "description": "{ type, details? } → 201. Une correction exige une précision (1–2000 caractères Unicode). Limitation/opposition retirées ; historique consultable."
+                "description": "{ type, details? } → 201. Une correction exige une précision (1–1000 caractères Unicode). Limitation/opposition retirées ; historique consultable."
               },
               "response": []
             },
@@ -2237,7 +2237,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ reported_user_id, match_id?, reason, description? } → 201 avec le signalement."
+                "description": "⚠️ Modifie ou supprime des données : lancer manuellement sur une instance de test.\n\n{ reported_user_id, match_id?, reason, description? } → 201 avec le signalement. Texte libre limité à 1 000 caractères Unicode par champ."
               },
               "response": []
             }
@@ -2401,7 +2401,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nPréciser ma demande RGPD"
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nPréciser ma demande RGPD Texte libre limité à 1 000 caractères Unicode par champ."
               },
               "response": []
             },
@@ -2539,7 +2539,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nOuvrir un dossier d’assistance"
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nOuvrir un dossier d’assistance Texte libre limité à 1 000 caractères Unicode par champ."
               },
               "response": []
             }
@@ -3210,7 +3210,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Réservé au superadmin. role=admin promeut un utilisateur ; role=user retire les droits admin et révoque sessions, passkeys et jetons d’enrôlement. Motif facultatif de 3 à 500 caractères. Impossible de créer un autre superadmin."
+                "description": "⚠️ Réservé au superadmin. role=admin promeut un utilisateur ; role=user retire les droits admin et révoque sessions, passkeys et jetons d’enrôlement. Motif facultatif de 3 à 1 000 caractères. Impossible de créer un autre superadmin."
               },
               "response": []
             },
@@ -3298,7 +3298,7 @@
                     }
                   }
                 },
-                "description": "Superadmin uniquement. enabled=true offre Premium sans expiration ; enabled=false retire uniquement cette offre Histae. Motif facultatif (3–500 caractères), motif d’audit par défaut si absent. Mutation idempotente et auditée. Aucun achat, annulation d’abonnement payant, changement de rôle ou activation d’un compte de revue. Attribution refusée aux comptes bannis ; les comptes de revue conservent leur accès automatique."
+                "description": "Superadmin uniquement. enabled=true offre Premium sans expiration ; enabled=false retire uniquement cette offre Histae. Motif facultatif (3–1000 caractères), motif d’audit par défaut si absent. Mutation idempotente et auditée. Aucun achat, annulation d’abonnement payant, changement de rôle ou activation d’un compte de revue. Attribution refusée aux comptes bannis ; les comptes de revue conservent leur accès automatique."
               },
               "response": []
             },
@@ -3464,7 +3464,7 @@
                     }
                   }
                 },
-                "description": "Authentification administrateur récente requise. { status, notes?, response? }. Réponse publique obligatoire pour clôturer/refuser une correction. Notes internes distinctes. Limitation/opposition en lecture seule."
+                "description": "Authentification administrateur récente requise. { status, notes?, response? }. Réponse publique obligatoire pour clôturer/refuser une correction. Notes internes distinctes. Limitation/opposition en lecture seule. Texte libre limité à 1 000 caractères Unicode par champ."
               },
               "response": []
             },
@@ -3708,7 +3708,7 @@
                     }
                   }
                 },
-                "description": "{ prompt, category, display_order? } → 201 avec la question.\nTraductions facultatives. Une clé absente conserve sa valeur ; null supprime la traduction et rétablit le français. name/prompt reste en français."
+                "description": "{ prompt, category, display_order? } → 201 avec la question.\nTraductions facultatives. Une clé absente conserve sa valeur ; null supprime la traduction et rétablit le français. name/prompt reste en français. Texte libre limité à 1 000 caractères Unicode par champ."
               },
               "response": []
             },
@@ -3752,7 +3752,7 @@
                     }
                   }
                 },
-                "description": "Au moins un de ces trois champs → 200 avec la question.\nTraductions facultatives. Une clé absente conserve sa valeur ; null supprime la traduction et rétablit le français. name/prompt reste en français."
+                "description": "Au moins un de ces trois champs → 200 avec la question.\nTraductions facultatives. Une clé absente conserve sa valeur ; null supprime la traduction et rétablit le français. name/prompt reste en français. Texte libre limité à 1 000 caractères Unicode par champ."
               },
               "response": []
             },
@@ -4249,7 +4249,7 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "Autorisation temporaire auditée. Les admins doivent fournir une justification de 3–500 caractères. Le superadmin peut omettre reason et choisir aussi block ou automatic. Pour automatic, retirer valid_days. Utiliser soit phone_number soit entry_id. Reporter la version courante ; ne pas rejouer une mutation après une réponse perdue.",
+                "description": "Autorisation temporaire auditée. Les admins doivent fournir une justification de 3–1000 caractères. Le superadmin peut omettre reason et choisir aussi block ou automatic. Pour automatic, retirer valid_days. Utiliser soit phone_number soit entry_id. Reporter la version courante ; ne pas rejouer une mutation après une réponse perdue.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"decision\": \"allow\",\n  \"version\": {{phonePolicyVersion}},\n  \"valid_days\": 30,\n  \"reason\": \"{{auditReason}}\"\n}",
@@ -4302,7 +4302,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nClore un signalement et répondre à son auteur"
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nClore un signalement et répondre à son auteur Texte libre limité à 1 000 caractères Unicode par champ."
               },
               "response": []
             },
@@ -4363,7 +4363,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nRépondre dans le fil d’une demande RGPD. Session administrateur récente requise."
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nRépondre dans le fil d’une demande RGPD. Session administrateur récente requise. Texte libre limité à 1 000 caractères Unicode par champ."
               },
               "response": []
             },
@@ -4472,7 +4472,7 @@
                     }
                   }
                 },
-                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nClore un dossier d’assistance. Session administrateur récente requise."
+                "description": "⚠️ Modifie les données : exécuter manuellement sur une instance de test.\n\nClore un dossier d’assistance. Session administrateur récente requise. Texte libre limité à 1 000 caractères Unicode par champ."
               },
               "response": []
             }

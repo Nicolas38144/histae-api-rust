@@ -162,13 +162,21 @@ async fn catalogs_preserve_order_atomic_replacement_counts_and_cascades()
             vec![trait_value]
         );
 
+        let long_prompt: String = (0x10000..0x10000 + 1_000)
+            .filter_map(char::from_u32)
+            .collect();
         for (position, id) in question_ids.iter().copied().enumerate() {
+            let prompt = if position == 0 {
+                long_prompt.clone()
+            } else {
+                format!("Question S13 {id} ?")
+            };
             repository
                 .create_question(
                     id,
                     format!("test_{}", id.simple()),
                     ProfileQuestionInput {
-                        prompt: format!("Question S13 {id} ?"),
+                        prompt,
                         category: ProfileQuestionCategory::Conversation,
                         display_order: 9_000 + i32::try_from(position)?,
                     },
@@ -191,11 +199,12 @@ async fn catalogs_preserve_order_atomic_replacement_counts_and_cascades()
             ReplaceAnswersOutcome::ProfileNotFound
         );
 
+        let long_answer = "🦀".repeat(1_000);
         let answers = vec![
             PreparedProfileAnswer {
                 question_id: question_ids[1],
-                answer: "Première réponse ordonnée".to_owned(),
-                moderation: TextModerator.analyze("Première réponse ordonnée"),
+                moderation: TextModerator.analyze(&long_answer),
+                answer: long_answer.clone(),
             },
             PreparedProfileAnswer {
                 question_id: question_ids[0],
@@ -223,6 +232,7 @@ async fn catalogs_preserve_order_atomic_replacement_counts_and_cascades()
             vec![1, 2, 3]
         );
         assert_eq!(current[0].question_id, question_ids[1]);
+        assert_eq!(current[0].answer, long_answer);
         assert_eq!(current[1].moderation_status, ModerationStatus::Pending);
         assert_eq!(
             current[1].moderation_reasons,

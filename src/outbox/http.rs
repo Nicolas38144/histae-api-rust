@@ -1,3 +1,4 @@
+use crate::shared::text::FREE_TEXT_MAX_CHARS;
 use axum::extract::Extension;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -130,7 +131,7 @@ impl ApiDto for ResolveBody {
     fn is_valid(&self) -> bool {
         self.reason
             .as_ref()
-            .is_none_or(|reason| validator_js_length(reason) <= 500)
+            .is_none_or(|reason| reason.chars().count() <= FREE_TEXT_MAX_CHARS)
     }
 }
 

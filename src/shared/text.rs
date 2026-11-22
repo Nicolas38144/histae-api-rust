@@ -1,3 +1,6 @@
+pub const CHAT_MESSAGE_MAX_CHARS: usize = 500;
+pub const FREE_TEXT_MAX_CHARS: usize = 1_000;
+
 pub fn javascript_trim(value: &str) -> &str {
     value.trim_matches(is_javascript_whitespace)
 }

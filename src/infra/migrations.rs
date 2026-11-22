@@ -184,6 +184,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
     .map_err(map_sqlx_error)?;
     for (source, name) in [
         (SCHEMA, "localization"),
+        (TABLE_UPGRADES, "free text storage"),
         (SCHEMA, "sms safety"),
         (SCHEMA, "mobile otp queue"),
         // The common subscription projection reads the review identity marker.

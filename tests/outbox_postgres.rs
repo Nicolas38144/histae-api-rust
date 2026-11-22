@@ -165,6 +165,11 @@ async fn assert_initial_and_upgraded_schema_match(
          ALTER TABLE match_init DROP COLUMN photo_reveal_version CASCADE;
          ALTER TABLE billing_store_subscription DROP COLUMN superseded CASCADE;
          ALTER TABLE user_report DROP COLUMN public_response;
+         ALTER TABLE user_profile_answer DROP CONSTRAINT chk_user_profile_answer_text;
+         ALTER TABLE user_profile_answer ADD CONSTRAINT chk_user_profile_answer_text
+           CHECK (answer=btrim(answer) AND char_length(answer) BETWEEN 10 AND 300 AND octet_length(answer)<=1000);
+         DROP INDEX uq_profile_question_prompt_ci;
+         CREATE UNIQUE INDEX uq_profile_question_prompt_ci ON profile_question(lower(prompt));
          DROP TRIGGER trg_save_data_request_reply ON data_subject_request;
          DROP TABLE data_request_message, assisted_data_export, erasure_receipt, support_case;
          ALTER TABLE notification DROP CONSTRAINT notification_type_check;
@@ -184,11 +189,13 @@ async fn assert_initial_and_upgraded_schema_match(
     .bind(owner)
     .execute(&mut *connection)
     .await?;
+    let legacy_reply = "é".repeat(1_500);
     let legacy_request: Uuid = sqlx::query_scalar(
-        "INSERT INTO data_subject_request(user_id,type,response) VALUES ($1,'access','Existing reply')
+        "INSERT INTO data_subject_request(user_id,type,response) VALUES ($1,'access',$2)
          RETURNING id",
     )
     .bind(owner)
+    .bind(&legacy_reply)
     .fetch_one(&mut *connection)
     .await?;
     drop(connection);
@@ -204,7 +211,7 @@ async fn assert_initial_and_upgraded_schema_match(
                 .bind(legacy_request)
                 .fetch_all(&mut *database.acquire().await?)
                 .await?;
-        assert_eq!(replies, [("team".to_owned(), "Existing reply".to_owned())]);
+        assert_eq!(replies, [("team".to_owned(), legacy_reply.clone())]);
     }
     let mut connection = database.acquire().await?;
     sqlx::query("DELETE FROM user_account WHERE user_id=$1")

@@ -17,7 +17,7 @@ use crate::identity::admin_role::AdminRole;
 use crate::infra::postgres::DatabaseError;
 use crate::media::service::PhotoService;
 use crate::profiles::domain::ModerationStatus;
-use crate::shared::text::{javascript_trim, validator_js_length};
+use crate::shared::text::{FREE_TEXT_MAX_CHARS, javascript_trim};
 
 pub type PhotoUrlFuture<'a> = Pin<Box<dyn Future<Output = Result<Option<String>, ()>> + Send + 'a>>;
 
@@ -158,7 +158,7 @@ impl ModerationService {
 pub fn normalize_moderation_reason(value: &str) -> Result<String, ModerationError> {
     let normalized = value.nfkc().collect::<String>();
     let reason = javascript_trim(&normalized).to_owned();
-    if !(3..=500).contains(&validator_js_length(&reason)) || reason.len() > 1_000 {
+    if !(3..=FREE_TEXT_MAX_CHARS).contains(&reason.chars().count()) {
         return Err(ModerationError::InvalidRequest);
     }
     Ok(reason)
@@ -246,7 +246,7 @@ mod tests {
             Err(ModerationError::InvalidRequest)
         );
         assert_eq!(
-            normalize_moderation_reason(&"é".repeat(501)),
+            normalize_moderation_reason(&"é".repeat(1_001)),
             Err(ModerationError::InvalidRequest)
         );
     }

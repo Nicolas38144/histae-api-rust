@@ -1,3 +1,4 @@
+use crate::shared::text::FREE_TEXT_MAX_CHARS;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -272,7 +273,12 @@ impl DataRightsService {
         &self,
         mut input: UpdateRequestInput,
     ) -> Result<UpdateRequestResult, DataRightsError> {
-        if !valid_request_text(input.response.as_deref()) {
+        if input
+            .notes
+            .as_ref()
+            .is_some_and(|value| value.chars().count() > FREE_TEXT_MAX_CHARS)
+            || !valid_request_text(input.response.as_deref())
+        {
             return Err(DataRightsError::InvalidRequest);
         }
         input.response = normalized_request_text(input.response.as_deref()).map(str::to_owned);

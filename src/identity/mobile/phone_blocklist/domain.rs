@@ -1,3 +1,4 @@
+use crate::shared::text::FREE_TEXT_MAX_CHARS;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -146,7 +147,7 @@ impl Change {
         let supplied =
             crate::shared::text::javascript_trim(self.reason.as_deref().unwrap_or_default());
         let reason = role.audit_reason(supplied, "Superadmin phone policy change");
-        if !(3..=500).contains(&reason.encode_utf16().count())
+        if !(3..=FREE_TEXT_MAX_CHARS).contains(&reason.chars().count())
             || reason.chars().any(char::is_control)
         {
             return Err(PolicyError::Invalid);
@@ -244,7 +245,7 @@ mod tests {
         );
         change.reason = Some("🙂".repeat(250));
         assert!(change.authorized_reason(AdminRole::Superadmin).is_ok());
-        change.reason = Some("🙂".repeat(251));
+        change.reason = Some("🙂".repeat(1_001));
         assert_eq!(
             change.authorized_reason(AdminRole::Superadmin),
             Err(PolicyError::Invalid)

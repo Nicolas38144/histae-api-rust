@@ -19,7 +19,7 @@ use crate::config::LegalConfig;
 use crate::infra::postgres::DatabaseError;
 use crate::moderation::text::TextModerator;
 use crate::shared::clock::Clock;
-use crate::shared::text::{javascript_trim, utf8_len};
+use crate::shared::text::{FREE_TEXT_MAX_CHARS, javascript_trim};
 
 pub type ProfilePhotoUrlFuture<'provider> =
     Pin<Box<dyn Future<Output = Result<Option<String>, ()>> + Send + 'provider>>;
@@ -130,7 +130,10 @@ impl ProfileService {
             return Err(ProfileError::InvalidProfile);
         }
         let bio = bio.map(|value| javascript_trim(&value).to_owned());
-        if bio.as_ref().is_some_and(|value| utf8_len(value) > 2_000) {
+        if bio
+            .as_ref()
+            .is_some_and(|value| value.chars().count() > FREE_TEXT_MAX_CHARS)
+        {
             return Err(ProfileError::InvalidProfile);
         }
         let bio_moderation = bio

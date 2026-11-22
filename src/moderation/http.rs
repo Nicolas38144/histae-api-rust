@@ -1,4 +1,5 @@
 use crate::localization::http::Locale;
+use crate::shared::text::FREE_TEXT_MAX_CHARS;
 use std::fmt;
 
 use axum::extract::Extension;
@@ -131,7 +132,7 @@ impl ApiDto for AccessQuery {
     fn is_valid(&self) -> bool {
         self.reason
             .as_ref()
-            .is_none_or(|reason| validator_js_length(reason) <= 500)
+            .is_none_or(|reason| reason.chars().count() <= FREE_TEXT_MAX_CHARS)
     }
 }
 
@@ -255,7 +256,7 @@ impl ApiDto for ReviewBody {
             && self
                 .reason
                 .as_ref()
-                .is_none_or(|reason| validator_js_length(reason) <= 500)
+                .is_none_or(|reason| reason.chars().count() <= FREE_TEXT_MAX_CHARS)
     }
 }
 

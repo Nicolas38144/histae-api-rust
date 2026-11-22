@@ -1,6 +1,7 @@
-#[cfg(feature = "webauthn-probe")]
 use crate::localization::catalog::TranslationPatch;
 use crate::localization::http::Locale;
+#[cfg(feature = "webauthn-probe")]
+use crate::shared::text::FREE_TEXT_MAX_CHARS;
 #[cfg(feature = "webauthn-probe")]
 use std::fmt;
 
@@ -453,7 +454,7 @@ impl ApiDto for ReplaceAnswersBody {
         self.answers.len() <= 3
             && self.answers.iter().all(|answer| {
                 valid_uuid_all(answer.question_id)
-                    && (10..=300).contains(&answer.answer.chars().count())
+                    && (10..=FREE_TEXT_MAX_CHARS).contains(&answer.answer.chars().count())
             })
     }
 }
@@ -663,7 +664,7 @@ impl ApiDto for CreateQuestionBody {
     const ERROR_MESSAGE: &'static str = "The profile question request body is invalid.";
 
     fn is_valid(&self) -> bool {
-        (3..=200).contains(&self.prompt.chars().count())
+        (3..=FREE_TEXT_MAX_CHARS).contains(&self.prompt.chars().count())
             && match self.display_order {
                 OptionalField::Missing | OptionalField::Null => true,
                 OptionalField::Value(value) => value.valid(),
@@ -745,7 +746,9 @@ impl ApiDto for UpdateQuestionBody {
 
     fn is_valid(&self) -> bool {
         let prompt_valid = match &self.prompt {
-            OptionalField::Value(value) => (3..=200).contains(&value.chars().count()),
+            OptionalField::Value(value) => {
+                (3..=FREE_TEXT_MAX_CHARS).contains(&value.chars().count())
+            }
             OptionalField::Missing | OptionalField::Null => true,
         };
         let order_valid = match self.display_order {
@@ -845,7 +848,7 @@ fn catalog_error(error: CatalogError) -> ApiError {
         CatalogError::InvalidAnswers => ApiError::new(
             StatusCode::BAD_REQUEST,
             "invalid_profile_answers",
-            "Profile answers must use distinct questions and contain between 10 and 300 characters.",
+            "Profile answers must use distinct questions and contain between 10 and 1000 characters.",
         ),
         CatalogError::ProfileNotFound => ApiError::new(
             StatusCode::NOT_FOUND,

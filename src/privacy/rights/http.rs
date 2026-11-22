@@ -25,7 +25,7 @@ use crate::privacy::rights::{
     DataRequest, DataRequestType, DataRightsError, DataRightsService, valid_request_details,
 };
 #[cfg(feature = "webauthn-probe")]
-use crate::shared::text::validator_js_length;
+use crate::shared::text::{FREE_TEXT_MAX_CHARS, validator_js_length};
 
 #[derive(Clone)]
 pub struct DataRightsHttpState {
@@ -213,7 +213,7 @@ impl ApiDto for UpdateRequestBody {
     fn is_valid(&self) -> bool {
         self.notes
             .as_ref()
-            .is_none_or(|value| validator_js_length(value) <= 2_000)
+            .is_none_or(|value| value.chars().count() <= FREE_TEXT_MAX_CHARS)
             && valid_request_text(self.response.as_deref())
     }
 }
