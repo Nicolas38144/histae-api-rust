@@ -170,14 +170,51 @@ async fn notification(
         .await?;
     let authorization = headers
         .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned);
+        .and_then(|value| value.to_str().ok());
+    let valid = match provider {
+        StoreProvider::AppStore => body
+            .get("signedPayload")
+            .and_then(Value::as_str)
+            .is_some_and(|token| compact_token(token, 65_536)),
+        StoreProvider::GooglePlay => {
+            authorization
+                .and_then(|value| value.strip_prefix("Bearer "))
+                .is_some_and(|token| compact_token(token, 8192))
+                && body
+                    .get("message")
+                    .and_then(Value::as_object)
+                    .is_some_and(|message| {
+                        message
+                            .get("messageId")
+                            .and_then(Value::as_str)
+                            .is_some_and(|id| !id.is_empty() && id.len() <= 128)
+                            && message
+                                .get("data")
+                                .and_then(Value::as_str)
+                                .is_some_and(|data| !data.is_empty() && data.len() <= 65_536)
+                    })
+        }
+    };
+    if !valid {
+        return Err(error(StoreError::Invalid));
+    }
     state
         .service
-        .notification(provider, body, authorization)
+        .notification(provider, body, authorization.map(str::to_owned))
         .await
         .map_err(error)?;
     Ok(Json(json!({"received":true})))
+}
+
+fn compact_token(token: &str, max_len: usize) -> bool {
+    token.len() <= max_len
+        && token.split('.').count() == 3
+        && token.split('.').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        })
 }
 pub fn error(value: StoreError) -> ApiError {
     let (status, code) = match value {

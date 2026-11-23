@@ -6,6 +6,7 @@ const MATCH_ACCESS: &str = "SELECT m.id FROM match_init m
     JOIN user_account a ON a.user_id=m.user1_id
     JOIN user_account b ON b.user_id=m.user2_id
     WHERE m.id=$2 AND $1 IN (m.user1_id,m.user2_id)
+      AND a.is_review_account=b.is_review_account
       AND m.status IN ('active','awaiting_continuation','confirmed')
       AND m.expires_at>clock_timestamp()
       AND a.deleted_at IS NULL AND NOT a.is_banned

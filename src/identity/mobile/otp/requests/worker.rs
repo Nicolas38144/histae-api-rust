@@ -79,7 +79,7 @@ impl OutboxHandler for OtpRequestHandler {
     }
 }
 
-fn delivery_outcome(result: Result<(), OtpError>) -> Result<(), DispatchFailure> {
+pub(crate) fn delivery_outcome(result: Result<(), OtpError>) -> Result<(), DispatchFailure> {
     match result {
         Ok(())
         | Err(

@@ -47,6 +47,40 @@ test('private bridge authenticates, caps bodies, redacts errors and dispatches o
   assert.equal((await request({}, undefined, '/unknown')).status, 404);
 });
 
+test('notification load leaves capacity for purchase verification and acknowledgement', async (t) => {
+  const done = Promise.withResolvers();
+  const admitted = Promise.withResolvers();
+  let opened = 0;
+  const app = server({ token: 'test-token' }, {
+    async notification() {
+      if (++opened === 3) admitted.resolve();
+      await done.promise;
+      return { event_id: 'test-event' };
+    },
+    async verify() { return { status: 'active' }; },
+    async acknowledge() {},
+  });
+  await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => app.close(resolve)));
+  const url = `http://127.0.0.1:${app.address().port}`;
+  const request = (path) => fetch(url + path, {
+    method: 'POST',
+    headers: { authorization: 'Bearer test-token' },
+    body: JSON.stringify({ provider: 'google_play', reference: 'test' }),
+    signal: AbortSignal.timeout(5000),
+  });
+  const pending = Promise.all(Array.from({ length: 3 }, () => request('/notification')));
+  try {
+    await Promise.race([admitted.promise, pending]);
+    assert.equal((await request('/notification')).status, 503);
+    assert.equal((await request('/verify')).status, 200);
+    assert.equal((await request('/acknowledge')).status, 200);
+  } finally {
+    done.resolve();
+    await pending;
+  }
+});
+
 test('enabled Apple verifier rejects forged JWS using the official trust anchors without granting access', async () => {
   const key = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({ type: 'pkcs8', format: 'pem' });
   const gateway = providers({ production: false, google: { enabled: false }, apple: { ...apple, enabled: true, appId: 1, privateKey: key, keyId: 'SYNTHETIC1', issuerId: binding } });

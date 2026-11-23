@@ -284,7 +284,11 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
            AND pg_get_constraintdef(oid) LIKE '%admin_import_store_finance%'
            AND pg_get_constraintdef(oid) LIKE '%admin_grant_premium%'
            AND pg_get_constraintdef(oid) LIKE '%admin_revoke_premium%'
-           AND pg_get_constraintdef(oid) LIKE '%admin_correct_profile_identity%')",
+           AND pg_get_constraintdef(oid) LIKE '%admin_correct_profile_identity%'
+           AND pg_get_constraintdef(oid) LIKE '%view_dsr_thread%'
+           AND pg_get_constraintdef(oid) LIKE '%view_dsr_export%'
+           AND pg_get_constraintdef(oid) LIKE '%view_support_case%'
+           AND pg_get_constraintdef(oid) LIKE '%admin_review_support%')",
     )
     .fetch_one(&mut *transaction)
     .await
@@ -304,6 +308,7 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
                'admin_grant_premium', 'admin_revoke_premium',
                'admin_correct_profile_identity',
                'admin_review_report', 'admin_review_dsr', 'admin_reconcile_photo',
+               'view_dsr_thread', 'view_dsr_export', 'view_support_case', 'admin_review_support',
                'view_moderation_content', 'admin_review_content',
                'system_anonymize', 'system_export_portability'))",
         )

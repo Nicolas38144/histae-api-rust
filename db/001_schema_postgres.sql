@@ -1089,7 +1089,7 @@ CREATE TABLE data_access_log (
     action text NOT NULL,
     reason text,
     accessed_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT data_access_log_action_check CHECK ((action = ANY (ARRAY['view_profile'::text, 'view_messages'::text, 'view_matches'::text, 'export_data'::text, 'admin_ban'::text, 'admin_unban'::text, 'admin_promote'::text, 'admin_demote'::text, 'admin_grant_premium'::text, 'admin_revoke_premium'::text, 'admin_correct_profile_identity'::text, 'admin_block_phone'::text, 'admin_allow_phone'::text, 'admin_reset_phone_policy'::text, 'admin_suspend_sms'::text, 'admin_resume_sms'::text, 'admin_import_store_finance'::text, 'admin_review_report'::text, 'admin_review_dsr'::text, 'admin_reconcile_photo'::text, 'view_moderation_content'::text, 'admin_review_content'::text, 'system_anonymize'::text, 'system_export_portability'::text]))),
+    CONSTRAINT data_access_log_action_check CHECK ((action = ANY (ARRAY['view_profile'::text, 'view_messages'::text, 'view_matches'::text, 'export_data'::text, 'admin_ban'::text, 'admin_unban'::text, 'admin_promote'::text, 'admin_demote'::text, 'admin_grant_premium'::text, 'admin_revoke_premium'::text, 'admin_correct_profile_identity'::text, 'admin_block_phone'::text, 'admin_allow_phone'::text, 'admin_reset_phone_policy'::text, 'admin_suspend_sms'::text, 'admin_resume_sms'::text, 'admin_import_store_finance'::text, 'admin_review_report'::text, 'admin_review_dsr'::text, 'view_dsr_thread'::text, 'view_dsr_export'::text, 'view_support_case'::text, 'admin_review_support'::text, 'admin_reconcile_photo'::text, 'view_moderation_content'::text, 'admin_review_content'::text, 'system_anonymize'::text, 'system_export_portability'::text]))),
     CONSTRAINT data_access_log_pkey PRIMARY KEY (id),
     CONSTRAINT data_access_log_accessor_id_fkey FOREIGN KEY (accessor_id) REFERENCES user_account(user_id) ON DELETE SET NULL
 );
@@ -1624,6 +1624,8 @@ CREATE TABLE IF NOT EXISTS support_case (
 CREATE INDEX IF NOT EXISTS idx_support_case_user ON support_case(user_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_support_case_queue ON support_case(status, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_support_case_expiry ON support_case(expires_at);
+CREATE INDEX IF NOT EXISTS idx_support_case_open_guest ON support_case(expires_at)
+    WHERE user_id IS NULL AND status <> 'closed';
 
 CREATE OR REPLACE FUNCTION fct_save_data_request_reply() RETURNS trigger
 LANGUAGE plpgsql AS $$

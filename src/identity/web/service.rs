@@ -38,15 +38,6 @@ impl WebAccountService {
             .challenge(key, user, &hash, language.as_str())
             .await?
             .ok_or(WebAccountError::IdempotencyConflict)?;
-        if challenge.created && challenge.matched {
-            // The OTP service owns durable Sweego limits. Keep failures generic
-            // to avoid disclosing whether the UUID/phone pair exists.
-            let _ = self
-                .otp
-                .for_web_challenge(challenge.id)
-                .send_in(phone, Some(&challenge.id.to_string()), language)
-                .await;
-        }
         Ok(ChallengeView {
             challenge_id: challenge.id,
             expires_at: challenge.expires_at,

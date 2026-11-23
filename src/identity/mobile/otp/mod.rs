@@ -9,6 +9,7 @@ pub use domain::{
     SmsDeliveryEvent, SmsEventKind, SmsEventOutcome,
 };
 pub use pg::OtpRepository;
+pub(crate) use requests::delivery_outcome;
 pub use requests::pg::PgOtpRequestStore;
 pub use requests::{OtpRequestHandler, OtpRequestService};
 pub use service::{ConsumedOtp, OtpError, OtpService};

@@ -107,7 +107,10 @@ pub fn build_router(routes: Router<HttpState>, state: HttpState) -> Router {
     let mut router = routes
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
-        .layer(middleware::from_fn(super::body::middleware))
+        .layer(middleware::from_fn_with_state(
+            Arc::new(tokio::sync::Semaphore::new(super::body::MAX_ACTIVE_BODIES)),
+            super::body::middleware,
+        ))
         .layer(middleware::from_fn(
             crate::localization::http::response_language,
         ))

@@ -214,7 +214,11 @@ impl Database {
             "SELECT EXISTS (SELECT 1 FROM pg_constraint
              WHERE conrelid=to_regclass(current_schema() || '.data_access_log')
                AND conname='data_access_log_action_check' AND convalidated
-               AND pg_get_constraintdef(oid) LIKE '%admin_correct_profile_identity%')",
+               AND pg_get_constraintdef(oid) LIKE '%admin_correct_profile_identity%'
+               AND pg_get_constraintdef(oid) LIKE '%view_dsr_thread%'
+               AND pg_get_constraintdef(oid) LIKE '%view_dsr_export%'
+               AND pg_get_constraintdef(oid) LIKE '%view_support_case%'
+               AND pg_get_constraintdef(oid) LIKE '%admin_review_support%')",
         )
         .fetch_one(&mut *connection)
         .await

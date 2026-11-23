@@ -6,6 +6,10 @@ mod fixture;
 use axum::http::{StatusCode, header};
 use fixture::{Fixture, ORIGIN, PHONE, TestResult};
 use histae_api_rust::infra::crypto::sha256_hex;
+use histae_api_rust::outbox::{
+    types::{DispatchOutcome, OutboxEvent, OutboxEventType, OutboxStatus},
+    worker::OutboxHandler,
+};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -245,7 +249,7 @@ async fn account_otp_replays_share_limits_and_session_without_website_payments()
         unknown
             .headers_mut()
             .insert("idempotency-key", Uuid::new_v4().to_string().parse()?);
-        let (status, _, _) = f.send(unknown).await?;
+        let (status, _, unknown_body) = f.send(unknown).await?;
         assert_eq!(status, StatusCode::ACCEPTED);
         assert!(f.sms.0.lock().unwrap().is_empty());
         let key = Uuid::new_v4();
@@ -265,6 +269,28 @@ async fn account_otp_replays_share_limits_and_session_without_website_payments()
                 assert_eq!(previous, &body["challenge_id"]);
             }
             challenge = Some(body["challenge_id"].clone());
+        }
+        assert!(f.sms.0.lock().unwrap().is_empty());
+        let work = |id: &serde_json::Value| OutboxEvent {
+            id: Uuid::new_v4(),
+            event_type: OutboxEventType::WebOtpSend,
+            aggregate_id: id.as_str().unwrap().parse().unwrap(),
+            payload: Default::default(),
+            status: OutboxStatus::Processing,
+            attempts: 1,
+        };
+        let unknown = work(&unknown_body["challenge_id"]);
+        let known = work(challenge.as_ref().unwrap());
+        assert_eq!(
+            f.otp_worker.handle(&unknown, Uuid::new_v4()).await,
+            Ok(DispatchOutcome::Completed)
+        );
+        assert!(f.sms.0.lock().unwrap().is_empty());
+        for _ in 0..2 {
+            assert_eq!(
+                f.otp_worker.handle(&known, Uuid::new_v4()).await,
+                Ok(DispatchOutcome::Completed)
+            );
         }
         assert_eq!(f.sms.0.lock().unwrap().len(), 1);
         let mut send = f.request(

@@ -257,7 +257,7 @@ impl PgSwipeStore {
             .transaction(|connection| {
                 Box::pin(async move {
                     let accounts = sqlx::query(
-                        "SELECT user_id, discovery_paused,
+                        "SELECT user_id, discovery_paused, is_review_account,
                            EXISTS (SELECT 1 FROM user_photo AS photo
                              JOIN content_moderation_case AS moderation
                                ON moderation.photo_id = photo.id AND moderation.status = 'approved'
@@ -271,6 +271,11 @@ impl PgSwipeStore {
                     .await
                     .map_err(map_sqlx_error)?;
                     if accounts.len() != 2 {
+                        return Err(DiscoveryStoreError::CandidateNotFound);
+                    }
+                    if accounts[0].try_get::<bool, _>("is_review_account").map_err(map_sqlx_error)?
+                        != accounts[1].try_get::<bool, _>("is_review_account").map_err(map_sqlx_error)?
+                    {
                         return Err(DiscoveryStoreError::CandidateNotFound);
                     }
                     for account in accounts {
@@ -503,7 +508,7 @@ SELECT EXISTS (
 // existing swipe decisions remain eligible for the idempotency check in the service.
 const VIEWER_SQL: &str = r#"
 WITH viewer AS MATERIALIZED (
-  SELECT profile.birthdate, profile.sex,
+  SELECT profile.birthdate, profile.sex, account.is_review_account,
     date_part('year', age(current_date, profile.birthdate))::integer AS age,
     preferences.min_age, preferences.max_age, preferences.max_distance_km, preferences.looking_for,
     (current_date - make_interval(years => preferences.max_age + 1))::date AS oldest_birthdate,
@@ -608,6 +613,7 @@ const FEED_PAGE_SQL: &str = r#"
       AND ($7::uuid IS NULL OR target.user_id = $7)
     JOIN user_account AS account ON account.user_id = target.user_id
       AND account.deleted_at IS NULL AND NOT account.is_banned AND NOT account.discovery_paused
+      AND account.is_review_account = viewer.is_review_account
     JOIN user_preferences AS preferences ON preferences.user_id = target.user_id
     WHERE viewer.age BETWEEN preferences.min_age AND preferences.max_age
       AND (viewer.looking_for = target.sex OR (viewer.looking_for = 'both' AND target.sex IN ('male', 'female')))
@@ -689,6 +695,7 @@ JOIN user_profile AS target ON target.user_id = target_presence.user_id
     AND ($7::uuid IS NULL OR target.user_id = $7)
   JOIN user_account AS target_account ON target_account.user_id = target.user_id
     AND target_account.deleted_at IS NULL AND target_account.is_banned = false AND NOT target_account.discovery_paused
+    AND target_account.is_review_account = viewer.is_review_account
   JOIN user_preferences AS target_preferences ON target_preferences.user_id = target.user_id
   WHERE viewer.age BETWEEN target_preferences.min_age AND target_preferences.max_age
     AND (viewer.looking_for = target.sex OR (viewer.looking_for = 'both' AND target.sex IN ('male', 'female')))

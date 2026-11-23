@@ -6,8 +6,6 @@ use uuid::Uuid;
 pub struct WebChallenge {
     pub id: Uuid,
     pub expires_at: DateTime<Utc>,
-    pub matched: bool,
-    pub created: bool,
 }
 #[derive(Serialize)]
 pub struct WebIdentity {

@@ -15,6 +15,15 @@ pub struct ApiError {
 }
 
 impl ApiError {
+    pub const fn busy(code: &'static str) -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            code,
+            "The service is busy. Please try again later.",
+        )
+        .with_retry_after(1)
+    }
+
     pub const fn new(status: StatusCode, code: &'static str, message: &'static str) -> Self {
         Self {
             status,

@@ -1,6 +1,7 @@
 mod pg;
 
-use pg::{CaseworkRepository, ExportGrant, MessageOutcome, ReceiptStatus};
+use pg::{CaseworkRepository, ExportGrant, MessageOutcome, ReceiptStatus, ThreadAccess};
+use std::time::Duration;
 
 use axum::{
     Json, Router,
@@ -25,6 +26,7 @@ use crate::{
     },
     identity::{
         admin::http::{AdminAuthHttpState, AdminIdentity, RecentAdminIdentity},
+        admin_role::AdminRole,
         mobile::http::{AuthenticatedMobile, MobileAuthState},
         web::http::no_store,
     },
@@ -104,7 +106,10 @@ pub fn routes(
             get(admin_export).post(grant_export),
         )
         .route("/api/admin/support-cases", get(admin_support))
-        .route("/api/admin/support-cases/{id}", patch(review_support))
+        .route(
+            "/api/admin/support-cases/{id}",
+            get(admin_support_detail).patch(review_support),
+        )
         .layer(Extension(admin));
     Router::new()
         .route("/api/public/erasure-status", post(receipt_status))
@@ -123,6 +128,26 @@ pub fn routes(
 #[serde(deny_unknown_fields)]
 struct Page {
     before: Option<Uuid>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AuditedPage {
+    before: Option<Uuid>,
+    reason: Option<String>,
+}
+
+fn access_reason(role: AdminRole, supplied: Option<&str>) -> Result<&str, ApiError> {
+    let reason =
+        javascript_trim(role.audit_reason(supplied.unwrap_or_default(), "Superadmin case access"));
+    if reason.chars().count() < 3 || !valid_request_text(Some(reason)) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_access_reason",
+            "Provide an access reason between 3 and 1000 characters.",
+        ));
+    }
+    Ok(reason)
 }
 
 fn not_found() -> ApiError {
@@ -187,13 +212,7 @@ async fn review_report(
     action(
         state
             .repository
-            .review_report(
-                id,
-                &body.status,
-                javascript_trim(&body.response),
-                identity.user_id,
-                identity.role,
-            )
+            .review_report(id, &body.status, javascript_trim(&body.response), &identity)
             .await?,
     )
 }
@@ -204,27 +223,40 @@ async fn my_thread(
     Path(id): Path<Uuid>,
     Query(page): Query<Page>,
 ) -> Result<Json<Value>, ApiError> {
-    thread(&state, id, Some(identity.account.user_id), page.before).await
+    thread(
+        &state,
+        id,
+        ThreadAccess::Owner(identity.account.user_id),
+        page.before,
+    )
+    .await
 }
 
 async fn admin_thread(
-    AdminIdentity(_): AdminIdentity,
+    RecentAdminIdentity(identity): RecentAdminIdentity,
     Extension(state): Extension<Casework>,
     Path(id): Path<Uuid>,
-    Query(page): Query<Page>,
+    Query(page): Query<AuditedPage>,
 ) -> Result<Json<Value>, ApiError> {
-    thread(&state, id, None, page.before).await
+    let reason = access_reason(identity.role, page.reason.as_deref())?;
+    thread(
+        &state,
+        id,
+        ThreadAccess::Admin(&identity, reason),
+        page.before,
+    )
+    .await
 }
 
 async fn thread(
     state: &Casework,
     id: Uuid,
-    owner: Option<Uuid>,
+    access: ThreadAccess<'_>,
     before: Option<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     let thread = state
         .repository
-        .thread(id, owner, before)
+        .thread(id, access, before)
         .await?
         .ok_or_else(not_found)?;
     let Json(mut result) = paginated("messages", thread.messages);
@@ -274,12 +306,7 @@ async fn team_message(
     action(
         state
             .repository
-            .add_team_message(
-                id,
-                javascript_trim(&body.message),
-                identity.user_id,
-                identity.role,
-            )
+            .add_team_message(id, javascript_trim(&body.message), &identity)
             .await?,
     )
 }
@@ -308,11 +335,21 @@ async fn download_export(
 }
 
 async fn admin_export(
-    AdminIdentity(_): AdminIdentity,
+    RecentAdminIdentity(identity): RecentAdminIdentity,
     Extension(state): Extension<Casework>,
     Path(id): Path<Uuid>,
+    Query(query): Query<AccessQuery>,
 ) -> Result<Json<Option<ExportGrant>>, ApiError> {
-    export_grant(&state, id, None).await
+    let reason = access_reason(identity.role, query.reason.as_deref())?;
+    Ok(Json(
+        state.repository.admin_export(id, &identity, reason).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AccessQuery {
+    reason: Option<String>,
 }
 
 async fn export_grant(
@@ -332,7 +369,7 @@ async fn grant_export(
 ) -> Result<Json<ExportGrant>, ApiError> {
     let grant = state
         .repository
-        .grant_export(id, identity.user_id, identity.role)
+        .grant_export(id, &identity)
         .await?
         .ok_or_else(conflict)?;
     Ok(Json(grant))
@@ -432,6 +469,18 @@ async fn create_guest_support(
     ValidatedJson(body): ValidatedJson<SupportDraft>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     state.limit("support-create-guest", &ip.to_string()).await?;
+    state
+        .limiter
+        .enforce(
+            "support-create-guest-global",
+            "all",
+            &LimitPolicy {
+                max: 250,
+                window: Duration::from_secs(86_400),
+            },
+            "guest_support_rate_limit_exceeded",
+        )
+        .await?;
     let code = new_token()?;
     let hash = sha256_hex(code.as_bytes());
     let id = state
@@ -443,7 +492,7 @@ async fn create_guest_support(
             javascript_trim(&body.message),
         )
         .await?
-        .ok_or_else(not_found)?;
+        .ok_or_else(|| ApiError::busy("guest_support_capacity_reached").with_retry_after(60))?;
     Ok((StatusCode::CREATED, Json(json!({ "id": id, "code": code }))))
 }
 
@@ -477,6 +526,21 @@ async fn admin_support(
     support_list(&state, None, page.before).await
 }
 
+async fn admin_support_detail(
+    RecentAdminIdentity(identity): RecentAdminIdentity,
+    Extension(state): Extension<Casework>,
+    Path(id): Path<Uuid>,
+    Query(query): Query<AccessQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let reason = access_reason(identity.role, query.reason.as_deref())?;
+    state
+        .repository
+        .support_detail(id, &identity, reason)
+        .await?
+        .map(Json)
+        .ok_or_else(not_found)
+}
+
 async fn support_list(
     state: &Casework,
     owner: Option<Uuid>,
@@ -508,12 +572,7 @@ async fn review_support(
     action(
         state
             .repository
-            .review_support(
-                id,
-                &body.status,
-                javascript_trim(&body.response),
-                identity.user_id,
-            )
+            .review_support(id, &body.status, javascript_trim(&body.response), &identity)
             .await?,
     )
 }

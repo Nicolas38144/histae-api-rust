@@ -3,12 +3,18 @@ use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::identity::admin_role::AdminRole;
+use crate::identity::admin::service::AuthenticatedAdmin;
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use crate::notifications::{domain::NotificationIntent, enqueue_notification};
 
 #[derive(Clone)]
 pub(super) struct CaseworkRepository(pub(super) Database);
+
+#[derive(Clone, Copy)]
+pub(super) enum ThreadAccess<'a> {
+    Owner(Uuid),
+    Admin(&'a AuthenticatedAdmin, &'a str),
+}
 
 #[derive(Serialize)]
 pub(super) struct ExportGrant {
@@ -48,10 +54,10 @@ impl CaseworkRepository {
         id: Uuid,
         status: &str,
         response: &str,
-        admin_id: Uuid,
-        role: AdminRole,
+        admin: &AuthenticatedAdmin,
     ) -> Result<bool, DatabaseError> {
         let mut tx = self.0.pool().begin().await.map_err(map_sqlx_error)?;
+        lock_admin(&mut tx, admin).await?;
         let reported = sqlx::query_scalar::<_, Uuid>(
         "UPDATE user_report SET status=$2, public_response=$3, resolved_at=COALESCE(resolved_at,clock_timestamp())
          WHERE id=$1 AND status='pending' RETURNING reported_id")
@@ -60,17 +66,14 @@ impl CaseworkRepository {
         let Some(reported) = reported else {
             return Ok(false);
         };
-        sqlx::query(
-            "INSERT INTO data_access_log (accessed_user_id,accessor_id,accessor_role,action,reason)
-                 VALUES ($1,$2,$3,'admin_review_report',$4)",
+        audit(
+            &mut tx,
+            reported,
+            admin,
+            "admin_review_report",
+            &format!("Report {id} moved to {status}"),
         )
-        .bind(reported)
-        .bind(admin_id)
-        .bind(role.as_str())
-        .bind(format!("Report {id} moved to {status}"))
-        .execute(&mut *tx)
-        .await
-        .map_err(map_sqlx_error)?;
+        .await?;
         tx.commit().await.map_err(map_sqlx_error)?;
         Ok(true)
     }
@@ -78,13 +81,21 @@ impl CaseworkRepository {
     pub(super) async fn thread(
         &self,
         id: Uuid,
-        owner: Option<Uuid>,
+        access: ThreadAccess<'_>,
         before: Option<Uuid>,
     ) -> Result<Option<Thread>, DatabaseError> {
-        let initial: Option<(Option<String>, DateTime<Utc>, String)> = sqlx::query_as(
-        "SELECT details,requested_at,status FROM data_subject_request WHERE id=$1 AND ($2::uuid IS NULL OR user_id=$2)")
-        .bind(id).bind(owner).fetch_optional(self.0.pool()).await.map_err(map_sqlx_error)?;
-        let Some((details, requested_at, status)) = initial else {
+        let mut tx = self.0.pool().begin().await.map_err(map_sqlx_error)?;
+        let owner = match access {
+            ThreadAccess::Owner(user) => Some(user),
+            ThreadAccess::Admin(admin, _) => {
+                lock_admin(&mut tx, admin).await?;
+                None
+            }
+        };
+        let initial: Option<(Uuid, Option<String>, DateTime<Utc>, String)> = sqlx::query_as(
+        "SELECT user_id,details,requested_at,status FROM data_subject_request WHERE id=$1 AND ($2::uuid IS NULL OR user_id=$2) FOR SHARE")
+        .bind(id).bind(owner).fetch_optional(&mut *tx).await.map_err(map_sqlx_error)?;
+        let Some((user, details, requested_at, status)) = initial else {
             return Ok(None);
         };
         let rows: Vec<Value> = sqlx::query_scalar(
@@ -93,7 +104,11 @@ impl CaseworkRepository {
          AND ($2::uuid IS NULL OR (m.created_at,m.id) <
            (SELECT b.created_at,b.id FROM data_request_message b WHERE b.id=$2 AND b.request_id=$1))
          ORDER BY created_at DESC,id DESC LIMIT 51")
-        .bind(id).bind(before).fetch_all(self.0.pool()).await.map_err(map_sqlx_error)?;
+        .bind(id).bind(before).fetch_all(&mut *tx).await.map_err(map_sqlx_error)?;
+        if let ThreadAccess::Admin(admin, reason) = access {
+            audit(&mut tx, user, admin, "view_dsr_thread", reason).await?;
+        }
+        tx.commit().await.map_err(map_sqlx_error)?;
         Ok(Some(Thread {
             details,
             requested_at,
@@ -134,10 +149,10 @@ impl CaseworkRepository {
         &self,
         id: Uuid,
         message: &str,
-        admin_id: Uuid,
-        role: AdminRole,
+        admin: &AuthenticatedAdmin,
     ) -> Result<bool, DatabaseError> {
         let mut tx = self.0.pool().begin().await.map_err(map_sqlx_error)?;
+        lock_admin(&mut tx, admin).await?;
         // Match the account-then-request lock order used by status transitions.
         let user: Option<Uuid> = sqlx::query_scalar(
         "SELECT a.user_id FROM data_subject_request r JOIN user_account a ON a.user_id=r.user_id
@@ -178,7 +193,14 @@ impl CaseworkRepository {
         .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
-        audit_request(&mut tx, user, admin_id, role, "Sent a case message").await?;
+        audit(
+            &mut tx,
+            user,
+            admin,
+            "admin_review_dsr",
+            "Sent a case message",
+        )
+        .await?;
         enqueue_notification(
             &mut tx,
             user,
@@ -216,10 +238,10 @@ impl CaseworkRepository {
     pub(super) async fn grant_export(
         &self,
         id: Uuid,
-        admin_id: Uuid,
-        role: AdminRole,
+        admin: &AuthenticatedAdmin,
     ) -> Result<Option<ExportGrant>, DatabaseError> {
         let mut tx = self.0.pool().begin().await.map_err(map_sqlx_error)?;
+        lock_admin(&mut tx, admin).await?;
         let user: Option<Uuid> = sqlx::query_scalar::<_, Uuid>(
         "SELECT r.user_id FROM data_subject_request r JOIN user_account a ON a.user_id=r.user_id
          WHERE r.id=$1 AND r.type IN ('access','portability') AND r.status IN ('in_progress','completed')
@@ -242,9 +264,41 @@ impl CaseworkRepository {
            expires_at=CASE WHEN assisted_data_export.expires_at<=clock_timestamp() THEN EXCLUDED.expires_at ELSE assisted_data_export.expires_at END
          RETURNING id,expires_at")
         .bind(id).fetch_one(&mut *tx).await.map_err(map_sqlx_error)?;
-        audit_request(&mut tx, user, admin_id, role, "Granted an assisted export").await?;
+        audit(
+            &mut tx,
+            user,
+            admin,
+            "admin_review_dsr",
+            "Granted an assisted export",
+        )
+        .await?;
         tx.commit().await.map_err(map_sqlx_error)?;
         Ok(Some(grant.into()))
+    }
+
+    pub(super) async fn admin_export(
+        &self,
+        request_id: Uuid,
+        admin: &AuthenticatedAdmin,
+        reason: &str,
+    ) -> Result<Option<ExportGrant>, DatabaseError> {
+        let mut tx = self.0.pool().begin().await.map_err(map_sqlx_error)?;
+        lock_admin(&mut tx, admin).await?;
+        let row: Option<(Uuid, Uuid, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT r.user_id,e.id,e.expires_at FROM assisted_data_export e
+             JOIN data_subject_request r ON r.id=e.request_id
+             WHERE r.id=$1 AND e.expires_at>clock_timestamp() FOR SHARE OF r, e",
+        )
+        .bind(request_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+        let Some((user, id, expires_at)) = row else {
+            return Ok(None);
+        };
+        audit(&mut tx, user, admin, "view_dsr_export", reason).await?;
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(Some((id, expires_at).into()))
     }
 
     pub(super) async fn issue_receipt(
@@ -292,19 +346,35 @@ impl CaseworkRepository {
         category: &str,
         message: &str,
     ) -> Result<Option<Uuid>, DatabaseError> {
-        sqlx::query_scalar(
+        let mut tx = self.0.pool().begin().await.map_err(map_sqlx_error)?;
+        if user.is_none() {
+            // Serialize admission across replicas without queuing work in the pool.
+            let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(58461732, 1)")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(map_sqlx_error)?;
+            if !locked {
+                return Ok(None);
+            }
+        }
+        let id = sqlx::query_scalar(
             "INSERT INTO support_case(user_id,token_hash,category,body) SELECT $1,$2,$3,$4
-         WHERE $1::uuid IS NULL OR EXISTS(SELECT 1 FROM user_account
-           WHERE user_id=$1 AND deleted_at IS NULL AND NOT is_banned FOR SHARE)
+         WHERE CASE WHEN $1::uuid IS NULL THEN NOT EXISTS (
+           SELECT 1 FROM support_case WHERE user_id IS NULL AND status <> 'closed'
+             AND expires_at > statement_timestamp() LIMIT 1 OFFSET 999
+         ) ELSE EXISTS (SELECT 1 FROM user_account
+           WHERE user_id=$1 AND deleted_at IS NULL AND NOT is_banned FOR SHARE) END
          RETURNING id",
         )
         .bind(user)
         .bind(hash)
         .bind(category)
         .bind(message)
-        .fetch_optional(self.0.pool())
+        .fetch_optional(&mut *tx)
         .await
-        .map_err(map_sqlx_error)
+        .map_err(map_sqlx_error)?;
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(id)
     }
 
     pub(super) async fn guest_support(&self, hash: &str) -> Result<Option<Value>, DatabaseError> {
@@ -323,10 +393,10 @@ impl CaseworkRepository {
         before: Option<Uuid>,
     ) -> Result<Vec<Value>, DatabaseError> {
         sqlx::query_scalar(
-        "SELECT jsonb_build_object('id',s.id,'category',s.category,'body',s.body,'status',s.status,
-                  'response',s.response,'created_at',s.created_at,'updated_at',s.updated_at,'expires_at',s.expires_at)
+        "SELECT jsonb_build_object('id',s.id,'category',s.category,'status',s.status,
+                  'created_at',s.created_at,'updated_at',s.updated_at,'expires_at',s.expires_at)
              || CASE WHEN $1::uuid IS NULL THEN jsonb_build_object('user_id',s.user_id,'handled_by',s.handled_by)
-                     ELSE '{}'::jsonb END
+                     ELSE jsonb_build_object('body',s.body,'response',s.response) END
          FROM support_case s WHERE ($1::uuid IS NULL OR user_id=$1) AND expires_at>clock_timestamp()
          AND ($2::uuid IS NULL OR (s.created_at,s.id) <
            (SELECT b.created_at,b.id FROM support_case b WHERE b.id=$2 AND ($1::uuid IS NULL OR b.user_id=$1)))
@@ -334,19 +404,64 @@ impl CaseworkRepository {
         .bind(owner).bind(before).fetch_all(self.0.pool()).await.map_err(map_sqlx_error)
     }
 
+    pub(super) async fn support_detail(
+        &self,
+        id: Uuid,
+        admin: &AuthenticatedAdmin,
+        reason: &str,
+    ) -> Result<Option<Value>, DatabaseError> {
+        let mut tx = self.0.pool().begin().await.map_err(map_sqlx_error)?;
+        lock_admin(&mut tx, admin).await?;
+        let row: Option<(Option<Uuid>, Value)> = sqlx::query_as(
+            "SELECT user_id,jsonb_build_object('id',id,'category',category,'body',body,'status',status,
+               'response',response,'user_id',user_id,'handled_by',handled_by,
+               'created_at',created_at,'updated_at',updated_at,'expires_at',expires_at)
+             FROM support_case WHERE id=$1 AND expires_at>clock_timestamp() FOR SHARE",
+        ).bind(id).fetch_optional(&mut *tx).await.map_err(map_sqlx_error)?;
+        let Some((user, detail)) = row else {
+            return Ok(None);
+        };
+        // Guest cases have no account identifier. Use the case ID as the audit subject.
+        audit(
+            &mut tx,
+            user.unwrap_or(id),
+            admin,
+            "view_support_case",
+            reason,
+        )
+        .await?;
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(Some(detail))
+    }
+
     pub(super) async fn review_support(
         &self,
         id: Uuid,
         status: &str,
         response: &str,
-        admin_id: Uuid,
+        admin: &AuthenticatedAdmin,
     ) -> Result<bool, DatabaseError> {
-        let rows = sqlx::query(
+        let mut tx = self.0.pool().begin().await.map_err(map_sqlx_error)?;
+        lock_admin(&mut tx, admin).await?;
+        let subject: Option<Uuid> = sqlx::query_scalar(
         "UPDATE support_case SET status=$2,response=$3,handled_by=$4,updated_at=clock_timestamp()
-         WHERE id=$1 AND status<>'closed' AND expires_at>clock_timestamp()")
-        .bind(id).bind(status).bind(response).bind(admin_id)
-        .execute(self.0.pool()).await.map_err(map_sqlx_error)?.rows_affected();
-        Ok(rows != 0)
+         WHERE id=$1 AND status<>'closed' AND expires_at>clock_timestamp()
+         RETURNING COALESCE(user_id,id)")
+        .bind(id).bind(status).bind(response).bind(admin.user_id)
+        .fetch_optional(&mut *tx).await.map_err(map_sqlx_error)?;
+        let Some(subject) = subject else {
+            return Ok(false);
+        };
+        audit(
+            &mut tx,
+            subject,
+            admin,
+            "admin_review_support",
+            &format!("Support case {id} moved to {status}"),
+        )
+        .await?;
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(true)
     }
 }
 
@@ -379,20 +494,53 @@ async fn lock_live_account(
     Ok(row.is_some())
 }
 
-async fn audit_request(
+async fn lock_admin(
+    connection: &mut sqlx::PgConnection,
+    admin: &AuthenticatedAdmin,
+) -> Result<(), DatabaseError> {
+    // Account, credential, then session: suspension, demotion and WebAuthn
+    // revocation must serialize with the sensitive operation.
+    let role: Option<String> = sqlx::query_scalar(
+        "SELECT role FROM user_account WHERE user_id=$1 AND deleted_at IS NULL AND NOT is_banned FOR SHARE",
+    ).bind(admin.user_id).fetch_optional(&mut *connection).await.map_err(map_sqlx_error)?;
+    if role.as_deref() != Some(admin.role.as_str()) {
+        return Err(DatabaseError::AccountUnavailable);
+    }
+    let credential: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM admin_webauthn_credential WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL FOR SHARE",
+    ).bind(admin.credential_id).bind(admin.user_id).fetch_optional(&mut *connection).await.map_err(map_sqlx_error)?;
+    if credential.is_none() {
+        return Err(DatabaseError::AccountUnavailable);
+    }
+    let session: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM admin_session WHERE id=$1 AND user_id=$2 AND credential_id=$3
+           AND revoked_at IS NULL AND idle_expires_at > clock_timestamp()
+           AND absolute_expires_at > clock_timestamp() FOR SHARE",
+    )
+    .bind(admin.session_id)
+    .bind(admin.user_id)
+    .bind(admin.credential_id)
+    .fetch_optional(connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    session.map(|_| ()).ok_or(DatabaseError::AccountUnavailable)
+}
+
+async fn audit(
     connection: &mut sqlx::PgConnection,
     user: Uuid,
-    admin_id: Uuid,
-    role: AdminRole,
+    admin: &AuthenticatedAdmin,
+    action: &str,
     reason: &str,
 ) -> Result<(), DatabaseError> {
     sqlx::query(
         "INSERT INTO data_access_log(accessed_user_id,accessor_id,accessor_role,action,reason)
-                 VALUES ($1,$2,$3,'admin_review_dsr',$4)",
+                 VALUES ($1,$2,$3,$4,$5)",
     )
     .bind(user)
-    .bind(admin_id)
-    .bind(role.as_str())
+    .bind(admin.user_id)
+    .bind(admin.role.as_str())
+    .bind(action)
     .bind(reason)
     .execute(connection)
     .await

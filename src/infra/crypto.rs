@@ -69,6 +69,18 @@ pub fn hmac_sha256(value: &str, key: &SecretString) -> Result<String, CryptoErro
     Ok(hex_lower(&hmac.finalize().into_bytes()))
 }
 
+pub(crate) fn decrypt_phone(value: &[u8], key: &SecretString) -> Result<String, CryptoError> {
+    let (nonce, ciphertext) = value
+        .split_at_checked(GCM_NONCE_BYTES)
+        .ok_or(CryptoError::EncryptionFailed)?;
+    let cipher =
+        Aes256Gcm::new_from_slice(&parse_phone_key(key)?).map_err(|_| CryptoError::InvalidKey)?;
+    let plaintext = cipher
+        .decrypt(Nonce::from_slice(nonce), ciphertext)
+        .map_err(|_| CryptoError::EncryptionFailed)?;
+    String::from_utf8(plaintext).map_err(|_| CryptoError::EncryptionFailed)
+}
+
 pub fn sha256_hex(value: &[u8]) -> String {
     use sha2::Digest as _;
     hex_lower(&Sha256::digest(value))

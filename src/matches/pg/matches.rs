@@ -72,6 +72,7 @@ impl MatchStore for PgMatchRepository {
                                AND first_account.is_banned = false
                                AND second_account.deleted_at IS NULL
                                AND second_account.is_banned = false
+                               AND first_account.is_review_account = second_account.is_review_account
                                AND NOT EXISTS (
                                  SELECT 1 FROM user_block
                                  WHERE (blocker_id = $2 AND blocked_id = $3)
@@ -266,8 +267,11 @@ impl MatchStore for PgMatchRepository {
         Box::pin(async move {
             let mut connection = self.database.acquire().await?;
             let row = sqlx::query(
-                "SELECT user1_id, user2_id FROM match_init
-                 WHERE id = $1 AND (user1_id = $2 OR user2_id = $2)",
+                "SELECT m.user1_id, m.user2_id FROM match_init m
+                 JOIN user_account first_account ON first_account.user_id=m.user1_id
+                 JOIN user_account second_account ON second_account.user_id=m.user2_id
+                 WHERE m.id = $1 AND $2 IN (m.user1_id,m.user2_id)
+                   AND first_account.is_review_account=second_account.is_review_account",
             )
             .bind(match_id)
             .bind(user_id)
@@ -399,7 +403,9 @@ fn map_user_match_row(row: sqlx::postgres::PgRow) -> Result<UserMatchRow, Databa
 }
 
 const LIST_FOR_USER_SQL: &str = r#"
-WITH page AS MATERIALIZED (
+WITH viewer AS MATERIALIZED (
+  SELECT is_review_account FROM user_account WHERE user_id=$1
+), page AS MATERIALIZED (
   SELECT participant_matches.*
   FROM (
     (SELECT match_record.id, match_record.user1_id, match_record.user2_id,
@@ -411,7 +417,8 @@ WITH page AS MATERIALIZED (
     WHERE match_record.user1_id = $1 AND match_record.status <> 'ended'
       AND (match_record.status <> 'confirmed' OR match_record.expires_at > statement_timestamp())
       AND EXISTS (SELECT 1 FROM user_account
-                  WHERE user_id = match_record.user2_id AND deleted_at IS NULL)
+                  WHERE user_id = match_record.user2_id AND deleted_at IS NULL
+                    AND is_review_account=(SELECT is_review_account FROM viewer))
       AND NOT EXISTS (
         SELECT 1 FROM user_block
         WHERE (blocker_id = $1 AND blocked_id = match_record.user2_id)
@@ -433,7 +440,8 @@ WITH page AS MATERIALIZED (
     WHERE match_record.user2_id = $1 AND match_record.status <> 'ended'
       AND (match_record.status <> 'confirmed' OR match_record.expires_at > statement_timestamp())
       AND EXISTS (SELECT 1 FROM user_account
-                  WHERE user_id = match_record.user1_id AND deleted_at IS NULL)
+                  WHERE user_id = match_record.user1_id AND deleted_at IS NULL
+                    AND is_review_account=(SELECT is_review_account FROM viewer))
       AND NOT EXISTS (
         SELECT 1 FROM user_block
         WHERE (blocker_id = $1 AND blocked_id = match_record.user1_id)

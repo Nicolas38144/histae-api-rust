@@ -11,7 +11,7 @@ bash scripts/install-debian-13.sh
 source "$HOME/.profile"
 ```
 
-Le script installe les outils de compilation, Docker Engine/Compose, Rust 1.88.0, Node.js 22.22.1,
+Le script installe les outils de compilation, Docker Engine/Compose, Rust 1.88.0, Node.js 22.23.5,
 pnpm 10.28.2, `curl`, `jq` et `openssl`. Il vérifie le manifeste SHA-256 de Node et s’arrête
 si des paquets Docker incompatibles sont déjà installés. Il ne crée ni secret ni base de données.
 L’accès Docker reste à administrer ; les exemples emploient `sudo docker`.

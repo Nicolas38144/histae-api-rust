@@ -378,7 +378,7 @@ async fn redis_failure_fails_closed_and_webhook_paths_skip_only_the_global_limit
 }
 
 #[tokio::test]
-async fn readiness_checks_dependencies_in_nest_order_and_stops_on_first_failure() {
+async fn readiness_shares_a_single_recent_result_and_reports_dependency_failure() {
     let observer = Arc::new(Observations::default());
     let (healthy, calls) = app(
         None,
@@ -389,6 +389,7 @@ async fn readiness_checks_dependencies_in_nest_order_and_stops_on_first_failure(
         observer.clone(),
     );
     let response = healthy
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/health/ready")
@@ -399,6 +400,16 @@ async fn readiness_checks_dependencies_in_nest_order_and_stops_on_first_failure(
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response_json(response).await, json!({ "status": "ready" }));
+    let response = healthy
+        .oneshot(
+            Request::builder()
+                .uri("/health/ready")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("cached response");
+    assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         *calls.lock().expect("calls"),
         ["postgres", "redis", "storage"]

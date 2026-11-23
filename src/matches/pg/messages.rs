@@ -294,6 +294,8 @@ async fn find_idempotent_message(
                 match_record.user1_id, match_record.user2_id
          FROM chat_message AS message
          JOIN match_init AS match_record ON match_record.id = message.match_id
+         JOIN user_account a ON a.user_id=match_record.user1_id
+         JOIN user_account b ON b.user_id=match_record.user2_id AND b.is_review_account=a.is_review_account
          WHERE message.sender_id = $1 AND message.idempotency_key = $2
            AND NOT EXISTS (
              SELECT 1 FROM user_account

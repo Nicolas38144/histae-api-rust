@@ -155,6 +155,6 @@ Tester le chemin proxy seulement après readiness de l’API :
 sudo docker exec reverse-proxy-container sh -c 'wget -qO- "$HISTAE_API_UPSTREAM/health/ready"'
 ```
 
-Une réponse OTP mobile `202` confirme la mise en file durable, pas l’acceptation fournisseur ni la livraison. Le worker outbox est obligatoire pour l’envoi mobile ; il doit disposer des mêmes clés téléphone, paramètres Sweego et plafonds SMS que l’API. En cas d’absence de SMS, vérifier son état et les événements `identity.otp.send`, puis les budgets et la suspension SMS. Ne jamais afficher ni journaliser les téléphones ou codes.
+Une réponse OTP `202` confirme la mise en file durable. Le worker outbox traite l’envoi mobile (`identity.otp.send`) et web (`identity.web_otp.send`). Il doit disposer des mêmes clés téléphone, paramètres Sweego et plafonds SMS que l’API. En cas d’absence de SMS, vérifier son état, les événements en attente, les budgets et la suspension SMS. Garder les téléphones et codes hors des journaux.
 
 Pour cette évolution, appliquer le migrateur puis redémarrer l’API **et** le worker avec la même version. Un ancien worker ne sait pas traiter les demandes OTP. Le téléphone en attente est chiffré et effacé après traitement ; une demande expirée est supprimée sans envoi. Voir le [parcours OTP](../api/http-contract.md#connexion-mobile-et-catalogue) pour le rejeu après une réponse perdue.

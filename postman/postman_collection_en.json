@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection based on docs/api/http-contract.md (155 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/api/http-contract.md.",
+    "description": "Collection based on docs/api/http-contract.md (156 routes). Import it into Postman, set baseUrl to http://SERVER_IP:API_PORT for access from your local network, then fill in the variables. Mobile flow: OTP send, OTP verify, consents, profile. OTP verify and refresh responses populate accessToken and refreshToken. Admin sessions use adminCookie (the full “name=value” value) and adminOrigin; signing in requires a real WebAuthn proof. Webhooks require valid signatures. Requests marked ⚠️ have real effects: do not run the entire collection with Collection Runner. Do not export the collection after testing if it contains tokens. Full contract: docs/api/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -4320,11 +4320,11 @@
                     "value": "{{adminCookie}}"
                   }
                 ],
-                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/messages",
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/messages?reason={{auditReason}}",
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "Read a privacy request thread For the next page, add ?before= with the returned next_cursor."
+                "description": "Read a privacy request thread For the next page, add &before= with the returned next_cursor. Requires recent authentication. The reason is optional for superadmin."
               },
               "response": []
             },
@@ -4381,11 +4381,11 @@
                     "value": "{{adminCookie}}"
                   }
                 ],
-                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/assisted-export",
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/assisted-export?reason={{auditReason}}",
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "Read an active export grant"
+                "description": "Read an active export grant Requires recent authentication. The reason is optional for superadmin."
               },
               "response": []
             },
@@ -4433,7 +4433,29 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "List support cases For the next page, add ?before= with the returned next_cursor."
+                "description": "List support case metadata. Add ?before= with next_cursor for the next page."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/support-cases/:id",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/support-cases/{{supportCaseId}}?reason={{auditReason}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Read a support case. Requires recent authentication. The reason is optional for superadmin."
               },
               "response": []
             },

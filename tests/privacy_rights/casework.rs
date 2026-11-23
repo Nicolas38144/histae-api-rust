@@ -243,6 +243,8 @@ async fn casework_routes_scope_reports_threads_exports_and_receipts() -> TestRes
         .await?;
         let admin_thread = format!("/api/admin/data-subject-requests/{request}/messages");
         let owner_thread = format!("/api/users/me/data-subject-requests/{request}/messages");
+        client.request("GET", &admin_thread, Some(&client.admin), None, StatusCode::BAD_REQUEST).await?;
+        client.request("GET", &format!("{admin_thread}?reason=Case%20review"), Some(&client.admin), None, StatusCode::OK).await?;
         let summary = "Existing summary";
         sqlx::query("UPDATE data_subject_request SET response=$2 WHERE id=$1")
             .bind(request)
@@ -368,6 +370,16 @@ async fn casework_routes_scope_reports_threads_exports_and_receipts() -> TestRes
             )
             .await?;
         let support_id = support["id"].as_str().ok_or(FixtureError("support ID"))?;
+        let admin_queue = client.request("GET", "/api/admin/support-cases",
+            Some(&client.admin), None, StatusCode::OK).await?;
+        let summary = admin_queue["cases"].as_array().unwrap().iter()
+            .find(|case| case["id"] == support_id).ok_or(FixtureError("support summary"))?;
+        assert!(summary.get("body").is_none());
+        assert!(summary.get("response").is_none());
+        let admin_detail = client.request("GET",
+            &format!("/api/admin/support-cases/{support_id}?reason=Case%20review"),
+            Some(&client.admin), None, StatusCode::OK).await?;
+        assert_eq!(admin_detail["body"], "Support needed");
         client
             .request(
                 "PATCH",
@@ -388,6 +400,11 @@ async fn casework_routes_scope_reports_threads_exports_and_receipts() -> TestRes
             .await?;
         assert_eq!(cases["cases"][0]["response"], "Support handled");
         assert!(cases["cases"][0].get("handled_by").is_none());
+        let audit: Vec<String> = sqlx::query_scalar(
+            "SELECT action FROM data_access_log WHERE accessed_user_id=$1 AND accessor_id=$2
+                AND action IN ('view_dsr_thread','view_support_case','admin_review_support') ORDER BY action",
+        ).bind(owner).bind(admin).fetch_all(database.acquire().await?.as_mut()).await?;
+        assert_eq!(audit, ["admin_review_support", "view_dsr_thread", "view_support_case"]);
         Ok(())
     }
     .await;

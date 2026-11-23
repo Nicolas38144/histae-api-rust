@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **155 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **156 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -35,6 +35,7 @@ Les tableaux donnent les **chemins complets**, préfixe `/api` inclus. Seules le
 Les corps sont JSON, sauf l’upload photo multipart. Les champs inconnus sont refusés. Dans les tableaux, `?` signifie « facultatif », `A | B` indique les valeurs admises et une liste de noms représente les champs d’un objet, pas un exemple JSON littéral. Une réponse `204` n’a pas de corps.
 
 - Corps JSON : **1 Mio** maximum ; les limites métier peuvent être plus petites.
+- Lecture du corps limitée à **10 secondes** (`408 request_body_timeout`). Par instance, au plus 256 requêtes en traitement et 64 requêtes avec lecture du corps. La saturation retourne `503` avec `Retry-After`.
 - Photos : **500 000 octets** maximum en entrée et après conversion WebP.
 - Dates de naissance : date calendrier stricte `YYYY-MM-DD`, jamais un timestamp.
 - Horodatages : ISO 8601 avec fuseau ; traiter les curseurs comme des chaînes opaques.
@@ -453,6 +454,8 @@ elles ne changent ni les messages, ni les compteurs, ni SSE. Les événements cr
 ne sont pas remis en file après sa levée. Le mode discret utilise le texte générique sans prénom.
 
 SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created, match.updated, matches.invalidated, message.created, message.read, subscription.updated`. Le flux ferme à expiration du JWT ou après échec/révocation détecté lors du contrôle de session toutes les 25 secondes. Le client SSE doit pouvoir envoyer le Bearer.
+L’API accepte jusqu’à trois flux ouverts par compte et 512 par instance. Une saturation renvoie
+`429 event_stream_limit_reached` ou `503 event_stream_capacity_reached`, avec `Retry-After`.
 
 **Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les types push pris en charge sont `new_match`, `new_message`, `match_expiring`, `continuation_requested`, `conversation_continued`, `photos_revealed`, `first_period_ending`, `data_request_replied` et `new_session`. Les alertes liées à un match affichent le prénom actuel de l’autre personne dans le texte visible ; ce prénom ne figure pas dans les données de routage. Les réponses aux démarches routent vers leur historique, les connexions vers les sessions. Voir les [notifications push](../features/push-notifications.md) pour les déclencheurs, le rappel unique deux heures avant l’échéance, les filtres d’obsolescence et la migration. Les données de routage du push d’inactivité ne contiennent que les identifiants techniques ; il est abandonné si un nouveau message a repoussé l’échéance ou si le match est devenu inaccessible. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation.
 
@@ -491,7 +494,7 @@ Toutes les réponses sont `no-store` et `no-referrer`.
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
-| POST | `/api/web/account/otp/send` | `{ user_id: UUIDv4, phone_number }` + clé d’idempotence UUIDv4 → `202 { challenge_id, expires_at, message }` générique ; SMS uniquement pour un compte actif correspondant. |
+| POST | `/api/web/account/otp/send` | `{ user_id: UUIDv4, phone_number }` + clé d’idempotence UUIDv4 → `202 { challenge_id, expires_at, message }` générique ; Mise en file à la réponse. Le worker envoie le SMS uniquement pour un compte actif correspondant. |
 | POST | `/api/web/account/otp/verify` | `{ challenge_id, phone_number, otp }` → `204` et cookie HttpOnly. |
 | GET | `/api/web/account/session` | Cookie valide → `{ user_id, onboarding_complete }`, sans charger la facturation. |
 | DELETE | `/api/web/account/session` | Déconnexion du navigateur et expiration du cookie → `204`. |
@@ -588,7 +591,7 @@ ouverte. Les notes des administrateurs ne figurent ni dans le fil utilisateur ni
 | POST | `/api/public/erasure-status` | `{ code }` → `{ status, completed_at }`. |
 | GET | `/api/users/me/support-cases` | `before?` → `{ cases, next_cursor }`. |
 | POST | `/api/users/me/support-cases` | `{ category, message }` → `201 { id }`. |
-| POST | `/api/public/support-cases` | Même corps, sans session → `201 { id, code }`. |
+| POST | `/api/public/support-cases` | Même corps, sans session → `201 { id, code }`. Quota global de 250 créations par 24 h et file limitée à 1 000 tickets actifs. |
 | POST | `/api/public/support-cases/status` | `{ code }` → demande et dernière réponse. |
 
 Les textes libres du suivi et de l’assistance contiennent au plus 1 000 caractères Unicode. Les catégories de support
@@ -605,12 +608,15 @@ L’export est généré au téléchargement et la limite de génération simult
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
 | PATCH | `/api/admin/reports/:id/decision` | Signalement ouvert + `{ status: "reviewed" \| "dismissed", response }` → `204`. |
-| GET | `/api/admin/data-subject-requests/:id/messages` | Même forme que la lecture utilisateur. |
+| GET | `/api/admin/data-subject-requests/:id/messages` | **Récente**, `before?`, `reason` → même forme que la lecture utilisateur. Accès journalisé. |
 | POST | `/api/admin/data-subject-requests/:id/messages` | **Récente**, `{ message }` → `204` et notification RGPD. |
-| GET | `/api/admin/data-subject-requests/:id/assisted-export` | Autorisation active ou `null`. |
+| GET | `/api/admin/data-subject-requests/:id/assisted-export` | **Récente**, `reason` → autorisation active ou `null`. Lecture de l’autorisation journalisée. |
 | POST | `/api/admin/data-subject-requests/:id/assisted-export` | **Récente**, autorise un dossier d’accès ou de portabilité pris en charge. |
-| GET | `/api/admin/support-cases` | `before?` → `{ cases, next_cursor }`. |
-| PATCH | `/api/admin/support-cases/:id` | **Récente**, `{ status: "in_progress" \| "closed", response }` → `204`. |
+| GET | `/api/admin/support-cases` | `before?` → `{ cases, next_cursor }`. Métadonnées sans le texte des tickets. |
+| GET | `/api/admin/support-cases/:id` | **Récente**, `reason` → `200` avec le contenu et la réponse. Accès journalisé. |
+| PATCH | `/api/admin/support-cases/:id` | **Récente**, `{ status: "in_progress" \| "closed", response }` → `204` et décision journalisée. |
+
+Pour les lectures journalisées du suivi, `reason` contient 3 à 1 000 caractères après retrait des espaces. Le superadmin peut omettre ce paramètre. Pour un ticket invité, le journal identifie le ticket par son UUID.
 
 <a id="administration"></a>
 

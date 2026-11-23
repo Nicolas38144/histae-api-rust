@@ -46,6 +46,7 @@ pub struct OutboxEventDispatcher {
     account_erase: Arc<dyn OutboxHandler>,
     store_billing: Option<Arc<dyn OutboxHandler>>,
     mobile_otp: Option<Arc<dyn OutboxHandler>>,
+    web_otp: Option<Arc<dyn OutboxHandler>>,
 }
 
 impl OutboxEventDispatcher {
@@ -60,11 +61,17 @@ impl OutboxEventDispatcher {
             account_erase,
             store_billing: None,
             mobile_otp: None,
+            web_otp: None,
         }
     }
 
     pub fn with_mobile_otp(mut self, handler: Arc<dyn OutboxHandler>) -> Self {
         self.mobile_otp = Some(handler);
+        self
+    }
+
+    pub fn with_web_otp(mut self, handler: Arc<dyn OutboxHandler>) -> Self {
+        self.web_otp = Some(handler);
         self
     }
 
@@ -78,6 +85,12 @@ impl OutboxDispatcher for OutboxEventDispatcher {
     fn dispatch<'a>(&'a self, event: &'a OutboxEvent, worker_id: Uuid) -> DispatchFuture<'a> {
         match &event.event_type {
             OutboxEventType::MobileOtpSend => match &self.mobile_otp {
+                Some(handler) => handler.handle(event, worker_id),
+                None => {
+                    Box::pin(async { Err(DispatchFailure::transient("otp_handler_unavailable")) })
+                }
+            },
+            OutboxEventType::WebOtpSend => match &self.web_otp {
                 Some(handler) => handler.handle(event, worker_id),
                 None => {
                     Box::pin(async { Err(DispatchFailure::transient("otp_handler_unavailable")) })

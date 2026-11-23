@@ -7,6 +7,7 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OutboxEventType {
     MobileOtpSend,
+    WebOtpSend,
     PhotoDelete,
     NotificationPush,
     AccountErase,
@@ -20,6 +21,7 @@ impl OutboxEventType {
     pub fn parse(value: String) -> Self {
         match value.as_str() {
             "identity.otp.send" => Self::MobileOtpSend,
+            "identity.web_otp.send" => Self::WebOtpSend,
             "photo.delete" => Self::PhotoDelete,
             "notification.push" => Self::NotificationPush,
             "account.erase" => Self::AccountErase,
@@ -33,6 +35,7 @@ impl OutboxEventType {
     pub fn as_str(&self) -> &str {
         match self {
             Self::MobileOtpSend => "identity.otp.send",
+            Self::WebOtpSend => "identity.web_otp.send",
             Self::PhotoDelete => "photo.delete",
             Self::NotificationPush => "notification.push",
             Self::AccountErase => "account.erase",

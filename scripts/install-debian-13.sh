@@ -71,7 +71,7 @@ case "$(dpkg --print-architecture)" in
   *) echo 'The Node.js installation in this script supports amd64 and arm64 only.' >&2; exit 1 ;;
 esac
 
-node_version=22.22.1
+node_version=22.23.5
 node_name="node-v${node_version}-linux-${node_arch}"
 node_dir="$HOME/.local/opt/$node_name"
 if [[ ! -x "$node_dir/bin/node" ]]; then

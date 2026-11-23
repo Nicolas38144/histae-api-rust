@@ -1,4 +1,4 @@
-FROM node:22.22.1-bookworm-slim
+FROM node:22.23.5-bookworm-slim
 WORKDIR /app
 COPY package*.json ./
 COPY LICENSE.md ./

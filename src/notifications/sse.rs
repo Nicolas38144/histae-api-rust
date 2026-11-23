@@ -1,11 +1,12 @@
-use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{collections::HashMap, convert::Infallible};
 
 use axum::Router;
 use axum::extract::Extension;
+use axum::http::StatusCode;
 use axum::response::sse::{Event, Sse};
 use axum::routing::get;
 use chrono::{SecondsFormat, Utc};
@@ -13,12 +14,13 @@ use futures_util::StreamExt as _;
 use futures_util::stream::{self, BoxStream};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::{self, Instant, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::http::ApiError;
 use crate::http::router::HttpState;
 use crate::identity::mobile::http::{MobileAuthState, OnboardedMobile};
 use crate::identity::mobile::pg::MobileSessionRepository;
@@ -29,6 +31,8 @@ pub const MOBILE_EVENTS_CHANNEL: &str = "histae:mobile-events:v1";
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(25);
 const BROADCAST_CAPACITY: usize = 128;
 const REDIS_RELAY_CAPACITY: usize = 256;
+const MAX_STREAMS_PER_INSTANCE: usize = 512;
+const MAX_STREAMS_PER_USER: usize = 3;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum MobileEventType {
@@ -207,6 +211,56 @@ pub struct SseHttpState {
     realtime: RealtimeService,
     sessions: Arc<dyn SessionActivity>,
     policy: SsePolicy,
+    admission: Arc<StreamAdmission>,
+}
+
+struct StreamAdmission {
+    total: Arc<Semaphore>,
+    users: Mutex<HashMap<Uuid, usize>>,
+}
+
+impl StreamAdmission {
+    fn acquire(self: &Arc<Self>, user: Uuid) -> Result<StreamPermit, ApiError> {
+        let slot = Arc::clone(&self.total)
+            .try_acquire_owned()
+            .map_err(|_| ApiError::busy("event_stream_capacity_reached"))?;
+        let mut users = self.users.lock().map_err(|_| ApiError::internal())?;
+        let active = users.entry(user).or_default();
+        if *active >= MAX_STREAMS_PER_USER {
+            return Err(ApiError::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "event_stream_limit_reached",
+                "Too many event streams are open for this account.",
+            )
+            .with_retry_after(5));
+        }
+        *active += 1;
+        Ok(StreamPermit {
+            admission: Arc::clone(self),
+            user,
+            _slot: slot,
+        })
+    }
+}
+
+struct StreamPermit {
+    admission: Arc<StreamAdmission>,
+    user: Uuid,
+    _slot: OwnedSemaphorePermit,
+}
+
+impl Drop for StreamPermit {
+    fn drop(&mut self) {
+        let Ok(mut users) = self.admission.users.lock() else {
+            return;
+        };
+        if let std::collections::hash_map::Entry::Occupied(mut entry) = users.entry(self.user) {
+            *entry.get_mut() -= 1;
+            if *entry.get() == 0 {
+                entry.remove();
+            }
+        }
+    }
 }
 
 impl SseHttpState {
@@ -215,6 +269,10 @@ impl SseHttpState {
             realtime,
             sessions,
             policy: SsePolicy::default(),
+            admission: Arc::new(StreamAdmission {
+                total: Arc::new(Semaphore::new(MAX_STREAMS_PER_INSTANCE)),
+                users: Mutex::default(),
+            }),
         }
     }
 }
@@ -229,7 +287,8 @@ pub fn routes(state: SseHttpState, auth: MobileAuthState) -> Router<HttpState> {
 async fn events(
     OnboardedMobile(identity): OnboardedMobile,
     Extension(state): Extension<SseHttpState>,
-) -> Sse<BoxStream<'static, Result<Event, Infallible>>> {
+) -> Result<Sse<BoxStream<'static, Result<Event, Infallible>>>, ApiError> {
+    let permit = state.admission.acquire(identity.account.user_id)?;
     let stream = event_stream(
         state.realtime.subscribe(),
         state.sessions,
@@ -239,7 +298,14 @@ async fn events(
         state.policy,
         state.realtime.inner.shutdown.clone(),
     );
-    Sse::new(stream)
+    Ok(Sse::new(
+        stream
+            .map(move |event| {
+                let _permit = &permit;
+                event
+            })
+            .boxed(),
+    ))
 }
 
 struct StreamState {

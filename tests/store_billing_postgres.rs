@@ -318,16 +318,22 @@ async fn web_challenge_does_not_create_accounts_and_limits_parallel_attempts()
     let phone = format!("s20-{user}");
     let key = Uuid::new_v4();
     let challenge = repo.challenge(key, user, &phone, "fr").await?.unwrap();
-    assert!(challenge.created && challenge.matched);
     let replay = repo.challenge(key, user, &phone, "fr").await?.unwrap();
     assert_eq!(replay.id, challenge.id);
-    assert!(!replay.created);
     assert!(repo.challenge(key, user, "other", "fr").await?.is_none());
     let absent = repo
         .challenge(Uuid::new_v4(), Uuid::new_v4(), &phone, "fr")
         .await?
         .unwrap();
-    assert!(!absent.matched);
+    let queued: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_event WHERE event_type='identity.web_otp.send'
+         AND aggregate_id IN ($1,$2) AND payload='{}'::jsonb",
+    )
+    .bind(challenge.id)
+    .bind(absent.id)
+    .fetch_one(db.acquire().await?.as_mut())
+    .await?;
+    assert_eq!(queued, 2);
     assert!(repo.begin_verify(absent.id, &phone).await?.is_none());
     let futures = (0..12).map(|_| repo.begin_verify(challenge.id, &phone));
     let results = futures_util::future::join_all(futures).await;
@@ -542,19 +548,23 @@ async fn website_service_keeps_identity_otp_and_session_authorization_together()
 -> Result<(), Box<dyn std::error::Error>> {
     use histae_api_rust::{
         identity::mobile::otp::{OtpRepository, OtpService},
-        identity::web::{WebAccountError, WebAccountService},
+        identity::web::{WebAccountError, WebAccountService, WebOtpHandler},
+        infra::crypto::{encrypt_phone, sha256_hex},
         localization::Language,
+        outbox::{
+            types::{DispatchOutcome, OutboxEvent, OutboxEventType, OutboxStatus},
+            worker::OutboxHandler,
+        },
     };
     use std::sync::Arc;
     let config = postgres_config()?;
     let db = Database::connect(&config).await?;
     let sms = Arc::new(SyntheticSms::default());
+    let phone_key = SecretString::new(sha256_hex(Uuid::new_v4().as_bytes()));
     let otp = OtpService::new(
         Arc::new(OtpRepository::new(db.clone())),
         sms.clone(),
-        SecretString::new(histae_api_rust::infra::crypto::sha256_hex(
-            Uuid::new_v4().as_bytes(),
-        )),
+        phone_key.clone(),
         "fr".into(),
         Duration::from_secs(2),
         Duration::from_secs(300),
@@ -565,16 +575,21 @@ async fn website_service_keeps_identity_otp_and_session_authorization_together()
         privacy_version: "web-refactor-test".into(),
         ..legal()
     };
-    let service = WebAccountService::new(WebAccountRepository::new(db.clone(), legal), otp.clone());
+    let repository = WebAccountRepository::new(db.clone(), legal);
+    let worker = WebOtpHandler::new(repository.clone(), otp.clone(), phone_key.clone());
+    let service = WebAccountService::new(repository, otp.clone());
     let phone = "+33600000002";
     let hash = service.phone_key(phone).unwrap();
     let user = Uuid::new_v4();
     insert_user(&db, user).await?;
-    sqlx::query("UPDATE user_account SET phone_number_hash=$2 WHERE user_id=$1")
-        .bind(user)
-        .bind(&hash)
-        .execute(&mut *db.acquire().await?)
-        .await?;
+    sqlx::query(
+        "UPDATE user_account SET phone_number_hash=$2,phone_number_encrypted=$3 WHERE user_id=$1",
+    )
+    .bind(user)
+    .bind(&hash)
+    .bind(encrypt_phone(phone, &phone_key)?)
+    .execute(&mut *db.acquire().await?)
+    .await?;
     let unknown = service
         .start(Uuid::new_v4(), Uuid::new_v4(), phone, Language::Fr)
         .await
@@ -593,6 +608,19 @@ async fn website_service_keeps_identity_otp_and_session_authorization_together()
             .unwrap()
             .challenge_id,
         challenge.challenge_id
+    );
+    assert!(sms.0.lock().unwrap().is_none());
+    let event = OutboxEvent {
+        id: Uuid::new_v4(),
+        event_type: OutboxEventType::WebOtpSend,
+        aggregate_id: challenge.challenge_id,
+        payload: Default::default(),
+        status: OutboxStatus::Processing,
+        attempts: 1,
+    };
+    assert_eq!(
+        worker.handle(&event, Uuid::new_v4()).await,
+        Ok(DispatchOutcome::Completed)
     );
     let code = sms.0.lock().unwrap().clone().unwrap();
     assert!(otp.consume(phone, &code).await.is_err());

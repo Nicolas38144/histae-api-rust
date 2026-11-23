@@ -11,15 +11,18 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use futures_util::Stream;
 use ipnet::IpNet;
+use tokio::sync::Semaphore;
 use uuid::{Uuid, Variant, Version};
 
 use crate::config::{Environment, LimitPolicy, TrustProxy};
 use crate::operations::logging::{self, SafeLogValue};
 
+use super::ApiError;
 use super::rate_limit::RateLimiter;
 
 const ADMOB_WEBHOOK: &str = "/api/auth/admob/webhook";
 const SWEEGO_WEBHOOK: &str = "/api/auth/sweego/webhook";
+const MAX_ACTIVE_REQUESTS: usize = 256;
 
 #[derive(Clone)]
 pub struct LifecycleState {
@@ -28,6 +31,7 @@ pub struct LifecycleState {
     limiter: RateLimiter,
     global_policy: LimitPolicy,
     observer: Arc<dyn HttpObserver>,
+    requests: Arc<Semaphore>,
 }
 
 impl LifecycleState {
@@ -44,6 +48,7 @@ impl LifecycleState {
             limiter,
             global_policy,
             observer,
+            requests: Arc::new(Semaphore::new(MAX_ACTIVE_REQUESTS)),
         })
     }
 }
@@ -208,21 +213,26 @@ pub async fn middleware(
         .insert(RequestId(request_id.clone()));
     request.extensions_mut().insert(ClientIp(client_ip));
 
-    let mut response = if path == SWEEGO_WEBHOOK || path == ADMOB_WEBHOOK {
-        next.run(request).await
-    } else {
-        match state
-            .limiter
-            .enforce(
-                "global",
-                &client_ip.to_string(),
-                &state.global_policy,
-                "rate_limit_exceeded",
-            )
-            .await
-        {
-            Ok(()) => next.run(request).await,
-            Err(error) => error.into_response(),
+    let mut response = match state.requests.try_acquire() {
+        Err(_) => ApiError::busy("request_capacity_reached").into_response(),
+        Ok(_slot) => {
+            let limit = if matches!(path.as_str(), SWEEGO_WEBHOOK | ADMOB_WEBHOOK) {
+                Ok(())
+            } else {
+                state
+                    .limiter
+                    .enforce(
+                        "global",
+                        &client_ip.to_string(),
+                        &state.global_policy,
+                        "rate_limit_exceeded",
+                    )
+                    .await
+            };
+            match limit {
+                Ok(()) => next.run(request).await,
+                Err(error) => error.into_response(),
+            }
         }
     };
     apply_security_headers(response.headers_mut(), state.environment);

@@ -252,3 +252,30 @@ async fn incomplete_onboarding_cannot_open_an_event_stream() {
     let body: Value = serde_json::from_slice(&body).expect("json");
     assert_eq!(body["error"]["code"], "onboarding_incomplete");
 }
+
+#[tokio::test]
+async fn an_account_has_a_bounded_number_of_open_streams_and_can_reconnect() {
+    let (app, token) = app().await;
+    let mut streams = Vec::new();
+    for _ in 0..3 {
+        let stream = app
+            .clone()
+            .oneshot(request(Some(&token)))
+            .await
+            .expect("stream");
+        assert_eq!(stream.status(), StatusCode::OK);
+        streams.push(stream);
+    }
+    let rejected = app
+        .clone()
+        .oneshot(request(Some(&token)))
+        .await
+        .expect("limit");
+    assert_eq!(rejected.status(), StatusCode::TOO_MANY_REQUESTS);
+    drop(streams.pop());
+    let reopened = app
+        .oneshot(request(Some(&token)))
+        .await
+        .expect("new stream");
+    assert_eq!(reopened.status(), StatusCode::OK);
+}

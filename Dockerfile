@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM node:22.22.1-bookworm-slim AS codec
+FROM node:22.23.5-bookworm-slim AS codec
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
           target/release/admin-bootstrap target/release/db-migrate target/release/storage-init \
           target/release/contract-compare target/release/phone-blocklist-sync /artifacts/
 
-FROM node:22.22.1-bookworm-slim AS runtime
+FROM node:22.23.5-bookworm-slim AS runtime
 ENV HISTAE_RUNTIME_ROOT=/app
 ENV PATH=/app/bin:$PATH
 WORKDIR /app

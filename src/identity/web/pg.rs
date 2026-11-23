@@ -5,20 +5,24 @@ use crate::{
         crypto::sha256_hex,
         postgres::{Database, DatabaseError, map_sqlx_error},
     },
+    outbox::{
+        pg::PgOutboxRepository,
+        types::{NewOutboxEvent, OutboxEventType},
+    },
 };
+use chrono::{DateTime, Utc};
 use sqlx::Row;
 use uuid::Uuid;
 
 const CREATE_CHALLENGE_SQL: &str = r#"
 INSERT INTO web_account_challenge(id, idempotency_key, requested_user_id, user_id,
 phone_hash, language) VALUES($1, $2, $3, (SELECT user_id FROM user_account WHERE
-user_id=$3 AND phone_number_hash=$4 AND deleted_at IS NULL AND NOT is_banned), $4, $5) ON
-CONFLICT(idempotency_key) DO NOTHING RETURNING id, expires_at, user_id IS NOT NULL AS
-matched
+user_id=$3 AND phone_number_hash=$4 AND deleted_at IS NULL AND NOT is_banned
+AND NOT is_review_account), $4, $5) ON CONFLICT(idempotency_key) DO NOTHING RETURNING id, expires_at
 "#;
 
 const EXISTING_CHALLENGE_SQL: &str = r#"
-SELECT id, expires_at, user_id IS NOT NULL AS matched FROM web_account_challenge WHERE
+SELECT id, expires_at FROM web_account_challenge WHERE
 idempotency_key=$1 AND requested_user_id=$2 AND phone_hash=$3 AND language=$4
 "#;
 
@@ -69,39 +73,54 @@ impl WebAccountRepository {
         language: &str,
     ) -> Result<Option<WebChallenge>, DatabaseError> {
         let id = Uuid::new_v4();
-        let row = sqlx::query(CREATE_CHALLENGE_SQL)
+        let mut tx = self.database.pool().begin().await.map_err(map_sqlx_error)?;
+        let row = sqlx::query_as::<_, (Uuid, DateTime<Utc>)>(CREATE_CHALLENGE_SQL)
             .bind(id)
             .bind(key)
             .bind(user_id)
             .bind(phone_hash)
             .bind(language)
-            .fetch_optional(self.database.pool())
+            .fetch_optional(&mut *tx)
             .await
             .map_err(map_sqlx_error)?;
-        let (row, created) = if let Some(row) = row {
-            (Some(row), true)
+        let row = if let Some(row) = row {
+            // Queue the same event for either result. Only the worker sees eligibility.
+            PgOutboxRepository::new(self.database.clone())
+                .enqueue(
+                    &mut tx,
+                    &NewOutboxEvent::empty(OutboxEventType::WebOtpSend, id),
+                )
+                .await?;
+            Some(row)
         } else {
-            (
-                sqlx::query(EXISTING_CHALLENGE_SQL)
-                    .bind(key)
-                    .bind(user_id)
-                    .bind(phone_hash)
-                    .bind(language)
-                    .fetch_optional(self.database.pool())
-                    .await
-                    .map_err(map_sqlx_error)?,
-                false,
-            )
+            sqlx::query_as(EXISTING_CHALLENGE_SQL)
+                .bind(key)
+                .bind(user_id)
+                .bind(phone_hash)
+                .bind(language)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(map_sqlx_error)?
         };
-        row.map(|row| {
-            Ok(WebChallenge {
-                id: row.try_get("id").map_err(map_sqlx_error)?,
-                expires_at: row.try_get("expires_at").map_err(map_sqlx_error)?,
-                matched: row.try_get("matched").map_err(map_sqlx_error)?,
-                created,
-            })
-        })
-        .transpose()
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(row.map(|(id, expires_at)| WebChallenge { id, expires_at }))
+    }
+
+    pub(crate) async fn pending_delivery(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<(Vec<u8>, String, String)>, DatabaseError> {
+        sqlx::query_as(
+            "SELECT a.phone_number_encrypted, c.phone_hash, c.language
+             FROM web_account_challenge c JOIN user_account a ON a.user_id=c.user_id
+             WHERE c.id=$1 AND NOT c.consumed AND c.attempts<5 AND c.expires_at>clock_timestamp()
+               AND a.phone_number_hash=c.phone_hash
+               AND a.deleted_at IS NULL AND NOT a.is_banned AND NOT a.is_review_account",
+        )
+        .bind(id)
+        .fetch_optional(self.database.pool())
+        .await
+        .map_err(map_sqlx_error)
     }
     pub async fn begin_verify(
         &self,

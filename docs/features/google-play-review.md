@@ -83,6 +83,9 @@ Ne conserver la dernière phrase qu’après avoir effectivement préparé le co
 - Les sessions, leur expiration et leur révocation restent celles de l’authentification mobile.
   Aucun accès WebAuthn ou paiement web par code fixe n’est ajouté. Les parcours SMS ordinaires
   conservent leur traitement habituel.
+- La découverte, les swipes et les conversations n’autorisent que des interactions entre comptes du
+  même groupe. Le compte de revue affiche un feed vide tant qu’aucun autre profil de revue éligible
+  n’existe. Prévoir des profils fictifs de revue pour présenter les interactions à Google.
 - Seuls les comptes marqués pour la revue, de rôle `user`, non bannis et non supprimés reçoivent
   le Premium offert. `GET /api/users/me/subscription` renvoie `plan: "premium"`, `access_granted: true`,
   `provider: null` et aucune fin de période pour cet accès interne. L’app, les continuations et

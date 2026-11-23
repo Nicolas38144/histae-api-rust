@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Histae API Rust",
-    "description": "Collection issue de docs/api/http-contract.md (155 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/api/http-contract.md.",
+    "description": "Collection issue de docs/api/http-contract.md (156 routes). Importer dans Postman, régler baseUrl sur http://IP_DU_SERVEUR:PORT_API pour un accès réseau local, puis renseigner les variables. Parcours mobile : OTP send, OTP verify, consentements, profil. Les réponses OTP verify et refresh alimentent accessToken et refreshToken. Les sessions admin utilisent adminCookie (valeur complète « nom=valeur ») et adminOrigin ; une preuve WebAuthn réelle est nécessaire pour se connecter. Les webhooks exigent de vraies signatures. Les requêtes marquées ⚠️ ont des effets réels : ne pas lancer toute la collection avec Collection Runner. Ne pas exporter la collection après tests si elle contient des tokens. Contrat détaillé : docs/api/http-contract.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -4320,11 +4320,11 @@
                     "value": "{{adminCookie}}"
                   }
                 ],
-                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/messages",
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/messages?reason={{auditReason}}",
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "Consulter le fil d’une demande RGPD Pour la page suivante, ajouter ?before= avec le next_cursor reçu."
+                "description": "Consulter le fil d’une demande RGPD Pour la page suivante, ajouter &before= avec le next_cursor reçu. Session récente requise. Le motif est facultatif pour le superadmin."
               },
               "response": []
             },
@@ -4381,11 +4381,11 @@
                     "value": "{{adminCookie}}"
                   }
                 ],
-                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/assisted-export",
+                "url": "{{baseUrl}}/api/admin/data-subject-requests/{{dsrId}}/assisted-export?reason={{auditReason}}",
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "Consulter une autorisation d’export active"
+                "description": "Consulter une autorisation d’export active Session récente requise. Le motif est facultatif pour le superadmin."
               },
               "response": []
             },
@@ -4433,7 +4433,29 @@
                 "auth": {
                   "type": "noauth"
                 },
-                "description": "Lister les dossiers d’assistance Pour la page suivante, ajouter ?before= avec le next_cursor reçu."
+                "description": "Lister les métadonnées des dossiers. Ajouter ?before= avec next_cursor pour la page suivante."
+              },
+              "response": []
+            },
+            {
+              "name": "GET /api/admin/support-cases/:id",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Cookie",
+                    "value": "{{adminCookie}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/admin/support-cases/{{supportCaseId}}?reason={{auditReason}}",
+                "auth": {
+                  "type": "noauth"
+                },
+                "description": "Lire un dossier d’assistance. Session récente requise. Le motif est facultatif pour le superadmin."
               },
               "response": []
             },

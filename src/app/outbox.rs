@@ -69,6 +69,11 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
         config.sms.timeout,
         config.sms.otp_ttl,
     );
+    let web_otp_handler = Arc::new(crate::identity::web::WebOtpHandler::new(
+        crate::identity::web::WebAccountRepository::new(database.clone(), config.legal.clone()),
+        otp.clone(),
+        config.phone.encryption_key.clone(),
+    ));
     let otp_handler = Arc::new(OtpRequestHandler::new(
         otp_requests,
         Arc::new(MobileAccountRepository::new(database.clone())),
@@ -105,7 +110,8 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
     let dispatcher = Arc::new(
         OutboxEventDispatcher::new(photo_handler, push_handler, erasure)
             .with_store_billing(native_billing)
-            .with_mobile_otp(otp_handler),
+            .with_mobile_otp(otp_handler)
+            .with_web_otp(web_otp_handler),
     );
     let tracker = MaintenanceTracker::new(Arc::new(PgMaintenanceStatusRepository::new(
         database.clone(),

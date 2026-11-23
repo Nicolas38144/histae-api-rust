@@ -4,6 +4,10 @@ use std::sync::Arc;
 
 use axum::Json;
 use serde::Serialize;
+use tokio::{
+    sync::Mutex,
+    time::{self, Duration, Instant},
+};
 
 use crate::infra::postgres::Database;
 use crate::infra::redis::RedisService;
@@ -19,11 +23,15 @@ pub trait DependencyProbe: Send + Sync {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WebauthnError;
 
+const READINESS_CACHE_TTL: Duration = Duration::from_secs(3);
+const READINESS_TIMEOUT: Duration = Duration::from_secs(4);
+
 #[derive(Clone)]
 pub struct Readiness {
     postgres: Arc<dyn DependencyProbe>,
     redis: Arc<dyn DependencyProbe>,
     object_storage: Arc<dyn DependencyProbe>,
+    cached: Arc<Mutex<Option<(Instant, bool)>>>,
 }
 
 impl Readiness {
@@ -36,23 +44,33 @@ impl Readiness {
             postgres,
             redis,
             object_storage,
+            cached: Arc::default(),
         }
     }
 
     pub async fn check(&self) -> Result<(), ApiError> {
-        self.postgres
-            .check()
-            .await
-            .map_err(|_| ApiError::dependency_unavailable())?;
-        self.redis
-            .check()
-            .await
-            .map_err(|_| ApiError::dependency_unavailable())?;
-        self.object_storage
-            .check()
-            .await
-            .map_err(|_| ApiError::dependency_unavailable())?;
-        Ok(())
+        let mut cache = self.cached.lock().await;
+        let ready = match *cache {
+            Some((at, ready)) if at.elapsed() < READINESS_CACHE_TTL => ready,
+            _ => {
+                let ready = matches!(
+                    time::timeout(READINESS_TIMEOUT, async {
+                        tokio::try_join!(
+                            self.postgres.check(),
+                            self.redis.check(),
+                            self.object_storage.check()
+                        )
+                    })
+                    .await,
+                    Ok(Ok(_))
+                );
+                *cache = Some((Instant::now(), ready));
+                ready
+            }
+        };
+        ready
+            .then_some(())
+            .ok_or_else(ApiError::dependency_unavailable)
     }
 }
 

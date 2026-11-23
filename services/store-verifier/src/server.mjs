@@ -4,7 +4,11 @@ import { configuration } from './config.mjs';
 import { providers, StoreError } from './providers.mjs';
 
 export function server(config, gateway) {
-  let active = 0;
+  const capacity = new Map([
+    ['/notification', { active: 0, max: 3 }],
+    ['/verify', { active: 0, max: 4 }],
+    ['/acknowledge', { active: 0, max: 1 }],
+  ]);
   return createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json');
     response.setHeader('Cache-Control', 'no-store');
@@ -13,8 +17,10 @@ export function server(config, gateway) {
     const expected = Buffer.from(`Bearer ${config.token}`);
     const supplied = Buffer.from(request.headers.authorization || '');
     if (!config.token || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return send(401, { error: 'unauthorized' });
-    if (request.method !== 'POST' || active >= 8) return send(503, { error: 'store_unavailable' });
-    active += 1;
+    const budget = capacity.get(request.url);
+    if (!budget || request.method !== 'POST') return send(404, { error: 'route_not_found' });
+    if (budget.active >= budget.max) return send(503, { error: 'store_unavailable' });
+    budget.active += 1;
     try {
       let size = 0;
       const chunks = [];
@@ -35,7 +41,7 @@ export function server(config, gateway) {
       // Provider exceptions may contain bearer tokens, URLs or credentials.
       // Never serialize or log them, including request paths and bodies.
       return send(error instanceof StoreError ? error.status : 503, { error: error instanceof StoreError ? error.code : 'store_verification_unavailable' });
-    } finally { active -= 1; }
+    } finally { budget.active -= 1; }
   });
 }
 

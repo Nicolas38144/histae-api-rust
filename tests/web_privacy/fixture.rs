@@ -171,6 +171,7 @@ pub struct Fixture {
     pub cookie: String,
     pub other_cookie: String,
     pub sms: Arc<SyntheticSms>,
+    pub otp_worker: histae_api_rust::identity::web::WebOtpHandler,
     activity: AccountActivityPool,
     phone_hash: String,
 }
@@ -198,7 +199,13 @@ impl Fixture {
             Duration::from_secs(1),
             Duration::from_secs(300),
         );
-        let auth = WebAccountService::new(WebAccountRepository::new(db.clone(), legal()), otp);
+        let repository = WebAccountRepository::new(db.clone(), legal());
+        let otp_worker = histae_api_rust::identity::web::WebOtpHandler::new(
+            repository.clone(),
+            otp.clone(),
+            key.clone(),
+        );
+        let auth = WebAccountService::new(repository, otp);
         let phone_hash = auth
             .phone_key(PHONE)
             .map_err(|_| FixtureError("phone hash"))?;
@@ -255,8 +262,14 @@ impl Fixture {
         let other = Uuid::new_v4();
         let mut cookies = Vec::new();
         for id in [user, other] {
-            sqlx::query("INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES($1,$2,''::bytea)")
-                .bind(id).bind(if id == user { phone_hash.clone() } else { format!("web-privacy-{id}") }).execute(&mut *db.acquire().await?).await?;
+            let encrypted = if id == user {
+                histae_api_rust::infra::crypto::encrypt_phone(PHONE, &key)?
+            } else {
+                Vec::new()
+            };
+            sqlx::query("INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES($1,$2,$3)")
+                .bind(id).bind(if id == user { phone_hash.clone() } else { format!("web-privacy-{id}") })
+                .bind(encrypted).execute(&mut *db.acquire().await?).await?;
             let token = URL_SAFE_NO_PAD.encode(Uuid::new_v4().as_bytes().repeat(2));
             sqlx::query("INSERT INTO web_account_session(user_id,token_hash) VALUES($1,$2)")
                 .bind(id)
@@ -273,6 +286,7 @@ impl Fixture {
             cookie: cookies.remove(0),
             other_cookie: cookies.remove(0),
             sms,
+            otp_worker,
             activity,
             phone_hash,
         })

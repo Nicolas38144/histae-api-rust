@@ -1500,10 +1500,10 @@
     },
     {
       "name": "rustls",
-      "version": "0.23.45",
+      "version": "0.23.46",
       "license": "Apache-2.0 OR ISC OR MIT",
       "ecosystem": "Cargo",
-      "metadata_source": "https://crates.io/api/v1/crates/rustls/0.23.45"
+      "metadata_source": "https://crates.io/api/v1/crates/rustls/0.23.46"
     },
     {
       "name": "rustls-native-certs",
@@ -1535,10 +1535,10 @@
     },
     {
       "name": "rustls-webpki",
-      "version": "0.103.15",
+      "version": "0.103.17",
       "license": "ISC",
       "ecosystem": "Cargo",
-      "metadata_source": "https://crates.io/api/v1/crates/rustls-webpki/0.103.15"
+      "metadata_source": "https://crates.io/api/v1/crates/rustls-webpki/0.103.17"
     },
     {
       "name": "rustversion",
@@ -1920,10 +1920,10 @@
     },
     {
       "name": "tokio",
-      "version": "1.53.1",
+      "version": "1.54.1",
       "license": "MIT",
       "ecosystem": "Cargo",
-      "metadata_source": "https://crates.io/api/v1/crates/tokio/1.53.1"
+      "metadata_source": "https://crates.io/api/v1/crates/tokio/1.54.1"
     },
     {
       "name": "tokio-macros",
@@ -2242,10 +2242,10 @@
     },
     {
       "name": "webpki-root-certs",
-      "version": "1.0.9",
+      "version": "1.0.12",
       "license": "CDLA-Permissive-2.0",
       "ecosystem": "Cargo",
-      "metadata_source": "https://crates.io/api/v1/crates/webpki-root-certs/1.0.9"
+      "metadata_source": "https://crates.io/api/v1/crates/webpki-root-certs/1.0.12"
     },
     {
       "name": "webpki-roots",
@@ -2256,10 +2256,10 @@
     },
     {
       "name": "webpki-roots",
-      "version": "1.0.9",
+      "version": "1.0.12",
       "license": "CDLA-Permissive-2.0",
       "ecosystem": "Cargo",
-      "metadata_source": "https://crates.io/api/v1/crates/webpki-roots/1.0.9"
+      "metadata_source": "https://crates.io/api/v1/crates/webpki-roots/1.0.12"
     },
     {
       "name": "whoami",

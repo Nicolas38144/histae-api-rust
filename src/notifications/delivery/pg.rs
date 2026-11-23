@@ -61,6 +61,7 @@ static PENDING_PUSH_SQL: LazyLock<String> = LazyLock::new(|| {
                    m.status IN ('active', 'awaiting_continuation', 'confirmed')
                    AND m.expires_at > clock_timestamp()
                    AND n.user_id IN (m.user1_id, m.user2_id)
+                   AND first_account.is_review_account=second_account.is_review_account
                    AND first_account.deleted_at IS NULL AND NOT first_account.is_banned
                    AND second_account.deleted_at IS NULL AND NOT second_account.is_banned
                    AND NOT EXISTS (

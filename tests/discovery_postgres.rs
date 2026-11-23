@@ -980,3 +980,47 @@ async fn discovery_requires_approved_photos_for_viewer_and_candidate()
     cleaned?;
     Ok(())
 }
+
+#[tokio::test]
+async fn review_accounts_are_isolated_in_discovery_and_swipes()
+-> Result<(), Box<dyn std::error::Error>> {
+    use histae_api_rust::discovery::service::DiscoveryError;
+    let (database, activity, service, _) = services(&postgres_config()?).await?;
+    let [real, review, review_peer] = std::array::from_fn::<_, 3, _>(|_| Uuid::new_v4());
+    let users = [real, review, review_peer];
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        for (ordinal, user) in users.into_iter().enumerate() {
+            ready_user(&database, user, i32::try_from(ordinal)?, 48.8566).await?;
+        }
+        sqlx::query("UPDATE user_account SET is_review_account=true WHERE user_id=ANY($1)")
+            .bind([review, review_peer].as_slice())
+            .execute(database.acquire().await?.as_mut())
+            .await?;
+        assert!(service.feed(real, 20, None).await?.profiles.is_empty());
+        let profiles = service.feed(review, 20, None).await?.profiles;
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].user_id, review_peer);
+        assert_eq!(
+            service
+                .swipe(review, real, SwipeDecision::Like)
+                .await
+                .unwrap_err(),
+            DiscoveryError::CandidateNotFound
+        );
+        assert_eq!(
+            service
+                .swipe(real, review, SwipeDecision::Like)
+                .await
+                .unwrap_err(),
+            DiscoveryError::CandidateNotFound
+        );
+        Ok(())
+    }
+    .await;
+    let cleaned = cleanup(&database, &users).await;
+    activity.close().await;
+    database.close().await;
+    result?;
+    cleaned?;
+    Ok(())
+}

@@ -10,3 +10,4 @@ pub use domain::{NewOtpRequest, PendingOtpRequest, RequestError};
 pub use service::OtpRequestService;
 pub use store::{OtpRequestStore, RequestFuture};
 pub use worker::OtpRequestHandler;
+pub(crate) use worker::delivery_outcome;

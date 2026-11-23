@@ -18,6 +18,11 @@ pub(super) async fn lock_available_match(
                   continuation_initiator_id, created_at, last_message_at
            FROM match_init
              WHERE id = $1 AND (user1_id = $2 OR user2_id = $2)
+             AND EXISTS (
+               SELECT 1 FROM user_account a JOIN user_account b
+                 ON b.is_review_account=a.is_review_account
+                 WHERE a.user_id=match_init.user1_id AND b.user_id=match_init.user2_id
+             )
              AND NOT EXISTS (
                SELECT 1 FROM user_block
                WHERE (blocker_id = match_init.user1_id AND blocked_id = match_init.user2_id)
