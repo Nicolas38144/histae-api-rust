@@ -48,7 +48,25 @@ services:
     volumes:
       - photo-codec-socket:/run/histae-photo-codec
     healthcheck:
-      test: [CMD, node, -e, "require('node:http').get({socketPath:'/run/histae-photo-codec/codec.sock',path:'/health/live'},r=>{if(r.statusCode!==204)process.exit(1)}).on('error',()=>process.exit(1))"]
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          require('node:http').get({
+            socketPath: '/run/histae-photo-codec/codec.sock',
+            path: '/health/live',
+            agent: false
+          }, response => {
+            response.resume();
+            if (response.statusCode !== 204) {
+              console.error('Unexpected health status:', response.statusCode);
+              process.exitCode = 1;
+            }
+          }).on('error', error => {
+            console.error(error.message);
+            process.exitCode = 1;
+          });
       interval: 5s
       timeout: 2s
       retries: 10

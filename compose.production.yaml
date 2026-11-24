@@ -48,7 +48,28 @@ services:
       STORE_VERIFIER_TLS_KEY_FILE: /run/secrets/store_verifier_key
     secrets: [store_verifier_ca, store_verifier_cert, store_verifier_key]
     healthcheck:
-      test: [CMD, node, -e, "require('node:https').get({hostname:'127.0.0.1',port:8080,path:'/health/live',servername:'store-verifier',ca:require('node:fs').readFileSync('/run/secrets/store_verifier_ca')},r=>{if(r.statusCode!==200)process.exit(1)}).on('error',()=>process.exit(1))"]
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          require('node:https').get({
+            hostname: '127.0.0.1',
+            port: 8080,
+            path: '/health/live',
+            servername: 'store-verifier',
+            ca: require('node:fs').readFileSync('/run/secrets/store_verifier_ca'),
+            agent: false
+          }, response => {
+            response.resume();
+            if (response.statusCode !== 200) {
+              console.error('Unexpected health status:', response.statusCode);
+              process.exitCode = 1;
+            }
+          }).on('error', error => {
+            console.error(error.message);
+            process.exitCode = 1;
+          });
 
   # Instance unique persistante, accessible uniquement sur le réseau backend.
   postgres:
