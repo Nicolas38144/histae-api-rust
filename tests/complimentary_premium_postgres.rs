@@ -73,10 +73,6 @@ impl Fixture {
         if self.created_actor {
             users.push(self.actor);
         }
-        sqlx::query("DELETE FROM data_access_log WHERE accessed_user_id=ANY($1)")
-            .bind(&users)
-            .execute(self.database.acquire().await?.as_mut())
-            .await?;
         sqlx::query("DELETE FROM user_account WHERE user_id=ANY($1)")
             .bind(users)
             .execute(self.database.acquire().await?.as_mut())

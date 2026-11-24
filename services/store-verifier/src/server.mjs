@@ -1,15 +1,18 @@
 import { createServer } from 'node:http';
+import { createServer as createTlsServer } from 'node:https';
+import { readFileSync } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
 import { configuration } from './config.mjs';
 import { providers, StoreError } from './providers.mjs';
 
-export function server(config, gateway) {
+export function server(config, gateway, tls) {
   const capacity = new Map([
     ['/notification', { active: 0, max: 3 }],
     ['/verify', { active: 0, max: 4 }],
     ['/acknowledge', { active: 0, max: 1 }],
   ]);
-  return createServer(async (request, response) => {
+  if (config.production && !tls) throw new Error('Store verifier TLS is required');
+  const handle = async (request, response) => {
     response.setHeader('Content-Type', 'application/json');
     response.setHeader('Cache-Control', 'no-store');
     const send = (status, body) => { response.writeHead(status); response.end(JSON.stringify(body)); };
@@ -42,13 +45,18 @@ export function server(config, gateway) {
       // Never serialize or log them, including request paths and bodies.
       return send(error instanceof StoreError ? error.status : 503, { error: error instanceof StoreError ? error.code : 'store_verification_unavailable' });
     } finally { budget.active -= 1; }
-  });
+  };
+  return tls ? createTlsServer({ ...tls, minVersion: 'TLSv1.2' }, handle) : createServer(handle);
 }
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   try {
     const config = configuration();
-    const app = server(config, providers(config));
+    const certificate = process.env.STORE_VERIFIER_TLS_CERT_FILE;
+    const key = process.env.STORE_VERIFIER_TLS_KEY_FILE;
+    if (Boolean(certificate) !== Boolean(key)) throw new Error('Incomplete store verifier TLS configuration');
+    const tls = certificate ? { cert: readFileSync(certificate), key: readFileSync(key) } : undefined;
+    const app = server(config, providers(config), tls);
     app.requestTimeout = 20000;
     app.headersTimeout = 10000;
     app.listen(Number(process.env.PORT || 8080), '0.0.0.0');

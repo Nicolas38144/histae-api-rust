@@ -21,6 +21,7 @@ BEGIN
   END IF;
   IF pg_has_role(current_user, 'histae_migrate', 'MEMBER')
     OR pg_has_role(current_user, 'histae_admin', 'MEMBER')
+    OR pg_has_role(current_user, 'histae_audit_archive', 'MEMBER')
     OR has_schema_privilege(current_user, 'public', 'CREATE')
     OR has_database_privilege(current_user, current_database(), 'CREATE')
     OR has_database_privilege(current_user, current_database(), 'TEMPORARY')
@@ -32,6 +33,7 @@ BEGIN
     SELECT c.oid, c.relowner FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+      AND c.relname NOT IN ('data_access_log', 'admin_auth_event', 'audit_archive_pending')
       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass
         AND d.objid = c.oid AND d.deptype = 'e')
   LOOP
@@ -49,6 +51,7 @@ BEGIN
   FOR relation IN SELECT c.oid, c.relowner FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public' AND c.relkind = 'S'
+      AND c.relname <> 'audit_archive_pending_sequence_id_seq'
       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass
         AND d.objid = c.oid AND d.deptype = 'e')
   LOOP
@@ -59,6 +62,18 @@ BEGIN
       RAISE EXCEPTION 'unexpected application sequence privileges';
     END IF;
   END LOOP;
+  IF NOT has_table_privilege(current_user, 'public.data_access_log', 'SELECT')
+    OR NOT has_table_privilege(current_user, 'public.data_access_log', 'INSERT')
+    OR NOT has_table_privilege(current_user, 'public.admin_auth_event', 'SELECT')
+    OR NOT has_table_privilege(current_user, 'public.admin_auth_event', 'INSERT')
+    OR has_table_privilege(current_user, 'public.data_access_log', 'UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES')
+    OR has_table_privilege(current_user, 'public.admin_auth_event', 'UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES')
+    OR has_table_privilege(current_user, 'public.audit_archive_pending', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES')
+    OR has_sequence_privilege(current_user, 'public.audit_archive_pending_sequence_id_seq', 'USAGE,SELECT,UPDATE')
+    OR has_function_privilege(current_user, 'public.enqueue_audit_archive()', 'EXECUTE')
+    OR has_function_privilege(current_user, 'public.purge_archived_audit_events(integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'unexpected audit privileges';
+  END IF;
   IF has_table_privilege(current_user, 'public.spatial_ref_sys', 'UPDATE') THEN
     RAISE EXCEPTION 'extension data must not be writable';
   END IF;

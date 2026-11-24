@@ -23,6 +23,17 @@ use super::rate_limit::RateLimiter;
 const ADMOB_WEBHOOK: &str = "/api/auth/admob/webhook";
 const SWEEGO_WEBHOOK: &str = "/api/auth/sweego/webhook";
 const MAX_ACTIVE_REQUESTS: usize = 256;
+const MAX_ACTIVE_CALLBACKS: usize = 24;
+
+pub(super) fn provider_callback(path: &str) -> bool {
+    matches!(
+        path,
+        ADMOB_WEBHOOK
+            | SWEEGO_WEBHOOK
+            | "/api/billing/apple/webhook"
+            | "/api/billing/google-play/webhook"
+    )
+}
 
 #[derive(Clone)]
 pub struct LifecycleState {
@@ -32,6 +43,7 @@ pub struct LifecycleState {
     global_policy: LimitPolicy,
     observer: Arc<dyn HttpObserver>,
     requests: Arc<Semaphore>,
+    callbacks: Arc<Semaphore>,
 }
 
 impl LifecycleState {
@@ -49,6 +61,7 @@ impl LifecycleState {
             global_policy,
             observer,
             requests: Arc::new(Semaphore::new(MAX_ACTIVE_REQUESTS)),
+            callbacks: Arc::new(Semaphore::new(MAX_ACTIVE_CALLBACKS)),
         })
     }
 }
@@ -213,7 +226,12 @@ pub async fn middleware(
         .insert(RequestId(request_id.clone()));
     request.extensions_mut().insert(ClientIp(client_ip));
 
-    let mut response = match state.requests.try_acquire() {
+    let admission = if provider_callback(&path) {
+        &state.callbacks
+    } else {
+        &state.requests
+    };
+    let mut response = match admission.try_acquire() {
         Err(_) => ApiError::busy("request_capacity_reached").into_response(),
         Ok(_slot) => {
             let limit = if matches!(path.as_str(), SWEEGO_WEBHOOK | ADMOB_WEBHOOK) {

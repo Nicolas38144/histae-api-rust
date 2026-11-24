@@ -96,10 +96,6 @@ async fn account(
 }
 async fn clean(database: &Database, users: &[Uuid]) -> Result<(), Box<dyn std::error::Error>> {
     let mut c = database.acquire().await?;
-    sqlx::query("DELETE FROM data_access_log WHERE accessor_id=ANY($1)")
-        .bind(users)
-        .execute(&mut *c)
-        .await?;
     sqlx::query("DELETE FROM user_account WHERE user_id=ANY($1)")
         .bind(users)
         .execute(&mut *c)

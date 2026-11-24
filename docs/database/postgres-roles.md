@@ -10,26 +10,31 @@ des rôles métier `user`, `admin` et `superadmin` de Histae.
 | `histae_admin` | PostgreSQL et administration manuelle | Superuser ; initialise les rôles et les extensions |
 | `histae_migrate` | `migrate` | Propriétaire du schéma `public` et des objets applicatifs ; aucun privilège superuser, création de base ou de rôle |
 | `histae_phone_sync` | `phone-blocklist-sync` | Lecture des quatre tables de politique ; insertion des empreintes et mise à jour des observations et statuts ; aucun accès aux comptes ou aux décisions manuelles |
+| `histae_audit_archive` | `audit-archive` | Lecture et acquittement de la file d’audit, exécution de la purge des traces expirées déjà archivées |
 | `histae_app` | API, outbox, maintenance et `storage-init` en production | Connexion, usage du schéma, DML applicatif, séquences et fonctions nécessaires ; aucun DDL ou rôle privilégié |
 
 Le migrateur crée les tables et fonctions ; leurs privilèges par défaut donnent les accès nécessaires à
 l'application, y compris pour les futurs objets. Les objets des extensions restent possédés par
 l'administrateur. `spatial_ref_sys` est accessible en lecture seulement. L'application n'a aucun droit
 `CREATE`, `TEMPORARY`, `TRUNCATE`, `TRIGGER` ou `REFERENCES`, ni appartenance aux rôles privilégiés.
-Les fonctions applicatives s'exécutent avec les droits de l'appelant, sans `SECURITY DEFINER`.
+Les fonctions métier s'exécutent avec les droits de l'appelant. La capture transactionnelle et la purge
+des traces sont les deux exceptions `SECURITY DEFINER`. `histae_app` ne peut pas les exécuter directement.
+Il a seulement les droits `SELECT` et `INSERT` sur les deux tables de traces. Voir le
+[déploiement de l’archive](../deployment/api-security-controls.md#rôle-postgresql-pour-larchive-daudit).
 
 Cette séparation limite les capacités SQL du processus applicatif. Les autorisations entre utilisateurs
 restent vérifiées par l'API ; `histae_app` dispose des données nécessaires à tous ses parcours métier.
 
 ## Mots de passe dans le fichier d'environnement
 
-Les deux modes utilisent le même fichier `.env`, avec quatre mots de passe indépendants :
+Les deux modes utilisent le même fichier `.env`, avec des mots de passe indépendants :
 
 ```dotenv
 POSTGRES_ADMIN_PASSWORD=<64-caracteres-hexadecimaux-aleatoires>
 POSTGRES_MIGRATE_PASSWORD=<64-autres-caracteres-hexadecimaux-aleatoires>
 POSTGRES_APP_PASSWORD=<64-autres-caracteres-hexadecimaux-aleatoires>
 POSTGRES_PHONE_SYNC_PASSWORD=<64-autres-caracteres-hexadecimaux-aleatoires>
+POSTGRES_AUDIT_ARCHIVE_PASSWORD=<64-autres-caracteres-hexadecimaux-aleatoires>
 ```
 
 Chaque valeur doit être différente, générée avec 32 octets aléatoires. Pour préparer le fichier sans
@@ -43,9 +48,10 @@ Le fichier doit déjà exister. Le script conserve les autres réglages, remplac
 de passe PostgreSQL, refuse les doublons ou valeurs invalides et écrit le fichier en `0600`.
 Il configure aussi l'accès natif avec `POSTGRES_USER=histae_app` et
 `POSTGRES_PASSWORD=${POSTGRES_APP_PASSWORD}`. Dans Compose, `environment` impose le rôle approprié à
-chaque service et vide les quatre variables sources dans les conteneurs applicatifs. L'API et les workers
+chaque service et vide les variables sources dans les conteneurs applicatifs. L'API et ses workers métier
 ne reçoivent que le mot de passe applicatif ; le migrateur ne reçoit que son mot de passe.
-Le job d’import ne reçoit que son mot de passe dédié. PostgreSQL reçoit les quatre pour initialiser les rôles. Aucun fichier `.env` n'est monté dans ces conteneurs.
+Le job d’import et le service d’archive reçoivent chacun leur mot de passe dédié. PostgreSQL reçoit les
+mots de passe nécessaires à l’initialisation. Aucun fichier `.env` n'est monté dans ces conteneurs.
 
 Le fichier réel est ignoré par Git et exclu des images. Il reste sensible sur l'hôte ; le protéger et
 ne pas afficher la sortie complète de `docker compose config`. L'exécution native depuis le dépôt charge

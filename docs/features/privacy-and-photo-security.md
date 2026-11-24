@@ -48,7 +48,9 @@ Chaque instance admet une conversion active et au plus quatre requêtes en atten
 à cinq secondes, puis le traitement à trente-cinq secondes. Saturation, indisponibilité et timeout du
 processus donnent un `503 photo_processing_unavailable` avec `Retry-After: 5`. Les permis sont libérés
 sur erreur et annulation. Une erreur du convertisseur fait retirer sa réservation sans remplacer la photo courante.
-Les limites de taille/pixels et l’isolation du processus Node restent appliquées.
+Compose lance le codec dans un conteneur sans réseau ni secrets. L’API lui transmet les octets via un
+socket Unix monté en lecture seule. Le processus de décodage a sa propre limite de mémoire et peut être
+tué à l’expiration du délai. Le lancement natif de développement filtre l’environnement du processus enfant.
 
 ## Liens photo et révocation
 

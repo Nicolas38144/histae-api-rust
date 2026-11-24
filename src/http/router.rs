@@ -108,7 +108,7 @@ pub fn build_router(routes: Router<HttpState>, state: HttpState) -> Router {
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
         .layer(middleware::from_fn_with_state(
-            Arc::new(tokio::sync::Semaphore::new(super::body::MAX_ACTIVE_BODIES)),
+            super::body::BodySlots::default(),
             super::body::middleware,
         ))
         .layer(middleware::from_fn(

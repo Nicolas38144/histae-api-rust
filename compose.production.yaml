@@ -16,6 +16,8 @@ x-production-database-environment: &production-database-environment
   POSTGRES_APP_PASSWORD: ""
   HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ""
   POSTGRES_PHONE_SYNC_PASSWORD: ""
+  POSTGRES_AUDIT_ARCHIVE_PASSWORD: ""
+  HISTAE_BOOTSTRAP_AUDIT_ARCHIVE_PASSWORD: ""
   HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ""
   HISTAE_BOOTSTRAP_APP_PASSWORD: ""
   NODE_EXTRA_CA_CERTS: /run/secrets/postgres_ca
@@ -23,6 +25,8 @@ x-production-database-environment: &production-database-environment
   REDIS_ADDR: redis:6379
   REDIS_TLS: "true"
   OBJECT_STORAGE_ENDPOINT: https://${HISTAE_STORAGE_HOST:?Define the public S3 hostname in HISTAE_STORAGE_HOST}
+  STORE_VERIFIER_URL: https://store-verifier:8080
+  STORE_VERIFIER_CA_FILE: /run/secrets/store_verifier_ca
 
 x-production-logging: &production-logging
   driver: json-file
@@ -39,9 +43,23 @@ x-production-dependencies: &production-dependencies
     condition: service_completed_successfully
 
 services:
+  audit-archive:
+    profiles: !reset []
+    environment:
+      ENV: production
+      POSTGRES_SSLMODE: verify-full
+      NODE_EXTRA_CA_CERTS: /run/secrets/postgres_ca
+      POSTGRES_PASSWORD: ${POSTGRES_AUDIT_ARCHIVE_PASSWORD:?Define POSTGRES_AUDIT_ARCHIVE_PASSWORD in .env}
+    secrets: [postgres_ca]
+
   store-verifier:
     environment:
       ENV: production
+      STORE_VERIFIER_TLS_CERT_FILE: /run/secrets/store_verifier_cert
+      STORE_VERIFIER_TLS_KEY_FILE: /run/secrets/store_verifier_key
+    secrets: [store_verifier_ca, store_verifier_cert, store_verifier_key]
+    healthcheck:
+      test: [CMD, node, -e, "require('node:https').get({hostname:'127.0.0.1',port:8080,path:'/health/live',servername:'store-verifier',ca:require('node:fs').readFileSync('/run/secrets/store_verifier_ca')},r=>{if(r.statusCode!==200)process.exit(1)}).on('error',()=>process.exit(1))"]
 
   # Instance unique persistante, accessible uniquement sur le réseau backend.
   postgres:
@@ -55,6 +73,7 @@ services:
       HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ${POSTGRES_MIGRATE_PASSWORD:?Define POSTGRES_MIGRATE_PASSWORD in .env}
       HISTAE_BOOTSTRAP_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Define POSTGRES_APP_PASSWORD in .env}
       HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ${POSTGRES_PHONE_SYNC_PASSWORD:?Define POSTGRES_PHONE_SYNC_PASSWORD in .env}
+      HISTAE_BOOTSTRAP_AUDIT_ARCHIVE_PASSWORD: ${POSTGRES_AUDIT_ARCHIVE_PASSWORD:?Define POSTGRES_AUDIT_ARCHIVE_PASSWORD in .env}
       POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
       PGDATA: /var/lib/postgresql/18/docker
     volumes:
@@ -266,7 +285,9 @@ services:
     ports: !reset []
     env_file: !override ["${HISTAE_ENV_FILE:-.env}"]
     entrypoint: [/app/bin/api]
-    depends_on: *production-dependencies
+    depends_on:
+      <<: *production-dependencies
+      photo-codec: { condition: service_healthy }
     environment:
       <<: *production-database-environment
       ENV: production
@@ -278,6 +299,7 @@ services:
       TRUST_PROXY: "172.30.0.3/32,172.30.0.4/32"
     secrets:
       - postgres_ca
+      - store_verifier_ca
     restart: always
     # API et passerelle S3 rejoignent le proxy ; aucun stockage brut n'y est exposé.
     networks:
@@ -297,6 +319,7 @@ services:
       METRICS_ENABLED: "false"
     secrets:
       - postgres_ca
+      - store_verifier_ca
     restart: always
 
   phone-blocklist-sync:
@@ -329,6 +352,12 @@ secrets:
     file: ./.secrets/postgres/ca.crt
   s3_identity:
     file: ./.secrets/seaweedfs/s3.json
+  store_verifier_ca:
+    file: ./.secrets/store-verifier/ca.crt
+  store_verifier_cert:
+    file: ./.secrets/store-verifier/server.crt
+  store_verifier_key:
+    file: ./.secrets/store-verifier/server.key
 
 networks:
   storage:

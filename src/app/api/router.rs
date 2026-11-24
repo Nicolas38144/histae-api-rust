@@ -164,7 +164,17 @@ impl ApiResources {
             outbox.clone(),
         ));
         let photo_store: Arc<dyn PhotoStore> = photo_repository;
-        let processor: Arc<dyn PhotoProcessor> = Arc::new(PhotoCodec::for_runtime());
+        let processor: Arc<dyn PhotoProcessor> = Arc::new(match &config.photo_codec_socket {
+            #[cfg(unix)]
+            Some(path) if path.is_absolute() => {
+                PhotoCodec::with_socket(path).map_err(|_| "photo_codec_socket_invalid")?
+            }
+            Some(_) => return Err("photo_codec_socket_invalid"),
+            None if config.environment == crate::config::Environment::Production => {
+                return Err("photo_codec_socket_required");
+            }
+            None => PhotoCodec::for_runtime(),
+        });
         let photo_service = PhotoService::new(
             photo_store,
             processor,
@@ -250,6 +260,11 @@ impl ApiResources {
         let reports = ReportService::new(Arc::new(PgReportStore::new(self.database.clone())));
         let rights_store = Arc::new(PgDataRightsStore::new(self.database.clone()));
         let rights = DataRightsService::new(rights_store.clone());
+        if config.environment == crate::config::Environment::Production
+            && config.workloads.data_export_spool_dir.is_none()
+        {
+            return Err("data_export_spool_dir_required");
+        }
         let export = DataExportService::new(
             Arc::new(PgDataExportStore::new(self.database.clone())),
             rights_store,
@@ -257,6 +272,10 @@ impl ApiResources {
             config.workloads.data_export_page_size,
             config.workloads.data_export_max_bytes,
             config.workloads.data_export_max_concurrency,
+        )
+        .with_storage(
+            config.workloads.data_export_spool_dir.clone(),
+            config.workloads.data_export_download_timeout,
         );
         let deletion = AccountDeletionService::new(
             Arc::new(PgErasureRepository::new(self.database.clone())),

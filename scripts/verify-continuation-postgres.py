@@ -13,6 +13,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = (
+    "audit_archive_postgres",
     "mobile_identity", "phone_blocklist_postgres",
     "complimentary_premium_postgres", "web_privacy_postgres",
     "play_review_postgres", "matches_postgres", "matches_inactivity_postgres", "moderation_postgres", "privacy_rights_postgres", "account_erasure_postgres",
@@ -81,12 +82,13 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="histae-continuation-") as temporary:
         directory = Path(temporary)
-        admin_password, migrate_password, app_password, sync_password = [secrets.token_hex(32) for _ in range(4)]
+        admin_password, migrate_password, app_password, sync_password, audit_password = [secrets.token_hex(32) for _ in range(5)]
         postgres = dict(POSTGRES_DB="histae-dev", POSTGRES_USER="histae_admin",
                         POSTGRES_PASSWORD=admin_password,
                         POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256",
                         HISTAE_BOOTSTRAP_MIGRATE_PASSWORD=migrate_password,
-                        HISTAE_BOOTSTRAP_APP_PASSWORD=app_password, HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD=sync_password)
+                        HISTAE_BOOTSTRAP_APP_PASSWORD=app_password, HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD=sync_password,
+                        HISTAE_BOOTSTRAP_AUDIT_ARCHIVE_PASSWORD=audit_password)
         runtime = dict(GOOGLE_PLAY_REVIEW_ENABLED="false", ENV="development", POSTGRES_HOST="127.0.0.1", POSTGRES_PORT="5432",
                        POSTGRES_DB="histae-dev", POSTGRES_USER="histae_migrate",
                        POSTGRES_PASSWORD=migrate_password, POSTGRES_SSLMODE="disable",
@@ -150,7 +152,8 @@ def main():
             runtime.update(POSTGRES_PORT=port, POSTGRES_USER="histae_app", POSTGRES_PASSWORD=app_password)
             environment = os.environ.copy()
             environment.update(runtime)
-            environment.update(HISTAE_PHONE_BLOCKLIST_TEST_ISOLATED="true", PHONE_SYNC_TEST_PASSWORD=sync_password)
+            environment.update(HISTAE_PHONE_BLOCKLIST_TEST_ISOLATED="true", PHONE_SYNC_TEST_PASSWORD=sync_password,
+                               HISTAE_AUDIT_ARCHIVE_TEST_ISOLATED="true", AUDIT_ARCHIVE_TEST_PASSWORD=audit_password)
             environment.setdefault("CARGO_BUILD_JOBS", "2")
             selected = args.test or (TESTS + ADMIN_TESTS + tuple(POSTGRES_FILTERS))
             for administrator_fixture in (False, True):
@@ -325,7 +328,7 @@ SET log_min_error_statement = panic;
     assert query(f"SELECT granted_at FROM complimentary_premium_grant WHERE user_id='{gift_legacy}';") == gift_at
     assert query(f"SELECT access_granted AND provider IS NULL FROM effective_user_subscription WHERE user_id='{gift_legacy}';") == "t"
     query(f"DELETE FROM user_account WHERE user_id='{gift_legacy}';")
-    query(f"DELETE FROM data_access_log WHERE id='{legacy_audit}';")
+    query(f"DELETE FROM data_access_log WHERE id='{legacy_audit}';", "histae_migrate")
     print("Complimentary Premium upgrade preserves grants and restores audit actions.", flush=True)
     print("Profile identity correction audit upgrade preserves historical access logs.", flush=True)
 

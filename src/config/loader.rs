@@ -406,7 +406,40 @@ impl AppConfig {
                 1,
                 16,
             )? as u8,
+            data_export_spool_dir: source
+                .value("DATA_EXPORT_SPOOL_DIR")?
+                .filter(|path| !path.is_empty())
+                .map(PathBuf::from),
+            data_export_download_timeout: duration(
+                &source.or("DATA_EXPORT_DOWNLOAD_TIMEOUT", "5m")?,
+                "DATA_EXPORT_DOWNLOAD_TIMEOUT",
+            )?,
         };
+        let spool_bytes = integer(
+            &source.or("DATA_EXPORT_SPOOL_BYTES", "2147483648")?,
+            "DATA_EXPORT_SPOOL_BYTES",
+            1_048_576,
+            64 * 1024 * 1024 * 1024,
+        )?;
+        if assisted_export_max_bytes(workloads.data_export_max_bytes)
+            * u64::from(workloads.data_export_max_concurrency)
+            > spool_bytes
+        {
+            return Err(ConfigError::invalid("DATA_EXPORT_SPOOL_BYTES"));
+        }
+        if workloads
+            .data_export_spool_dir
+            .as_ref()
+            .is_some_and(|path| !path.is_absolute())
+        {
+            return Err(ConfigError::invalid("DATA_EXPORT_SPOOL_DIR"));
+        }
+        ensure_duration(
+            workloads.data_export_download_timeout,
+            Duration::from_secs(5),
+            Duration::from_secs(1800),
+            "DATA_EXPORT_DOWNLOAD_TIMEOUT",
+        )?;
 
         let metrics_enabled = boolean(
             source.value("METRICS_ENABLED")?.as_deref(),
@@ -604,6 +637,10 @@ impl AppConfig {
         let web_account = super::web_account::load(source, environment)?;
         Ok(Self {
             environment,
+            photo_codec_socket: source
+                .value("PHOTO_CODEC_SOCKET")?
+                .filter(|path| !path.is_empty())
+                .map(PathBuf::from),
             port,
             postgres,
             jwt,

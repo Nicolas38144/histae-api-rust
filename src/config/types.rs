@@ -174,6 +174,7 @@ pub struct StoreBillingConfig {
     pub google_monthly_plan: String,
     pub google_annual_plan: String,
     pub verifier_url: Url,
+    pub verifier_ca_file: Option<std::path::PathBuf>,
     pub verifier_token: SecretString,
     pub production: bool,
 }
@@ -239,6 +240,12 @@ pub struct WorkloadConfig {
     pub data_export_page_size: u32,
     pub data_export_max_bytes: u64,
     pub data_export_max_concurrency: u8,
+    pub data_export_spool_dir: Option<std::path::PathBuf>,
+    pub data_export_download_timeout: Duration,
+}
+
+pub(crate) fn assisted_export_max_bytes(max_bytes: u64) -> u64 {
+    max_bytes.max(max_bytes.saturating_mul(2).min(1024 * 1024 * 1024))
 }
 
 #[derive(Clone, Debug)]
@@ -284,6 +291,7 @@ pub struct AdvertisingConfig {
 #[derive(Clone, Debug)]
 pub struct AppConfig {
     pub environment: Environment,
+    pub photo_codec_socket: Option<std::path::PathBuf>,
     pub port: u16,
     pub postgres: PostgresConfig,
     pub jwt: JwtConfig,

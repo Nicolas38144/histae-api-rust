@@ -29,6 +29,7 @@ services:
       PUSH_PROVIDER: disabled
     depends_on: !override
       load-redis: { condition: service_healthy }
+      photo-codec: { condition: service_healthy }
     ports:
       - 127.0.0.1:18081:8080
       - 127.0.0.1:19091:9091

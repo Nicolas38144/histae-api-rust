@@ -92,14 +92,6 @@ async fn cleanup(database: &Database, ids: &[Uuid]) -> Result<(), DatabaseError>
         .execute(database.acquire().await?.as_mut())
         .await
         .map_err(map_sqlx_error)?;
-    sqlx::query(
-        "DELETE FROM data_access_log
-         WHERE accessed_user_id = ANY($1::uuid[]) OR accessor_id = ANY($1::uuid[])",
-    )
-    .bind(ids)
-    .execute(database.acquire().await?.as_mut())
-    .await
-    .map_err(map_sqlx_error)?;
     sqlx::query("DELETE FROM user_account WHERE user_id = ANY($1::uuid[])")
         .bind(ids)
         .execute(database.acquire().await?.as_mut())

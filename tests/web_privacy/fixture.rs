@@ -332,10 +332,6 @@ impl Fixture {
     pub async fn cleanup(self) -> TestResult {
         let users = [self.user, self.other];
         sqlx::query("DELETE FROM outbox_event WHERE (event_type='account.erase' AND aggregate_id IN (SELECT id FROM data_subject_request WHERE user_id=ANY($1::uuid[]))) OR (event_type='photo.delete' AND aggregate_id IN (SELECT id FROM user_photo WHERE user_id=ANY($1::uuid[])))").bind(users.as_slice()).execute(&mut *self.db.acquire().await?).await?;
-        sqlx::query("DELETE FROM data_access_log WHERE accessed_user_id=ANY($1::uuid[])")
-            .bind(users.as_slice())
-            .execute(&mut *self.db.acquire().await?)
-            .await?;
         sqlx::query("DELETE FROM web_account_challenge WHERE requested_user_id=ANY($1::uuid[])")
             .bind(users.as_slice())
             .execute(&mut *self.db.acquire().await?)

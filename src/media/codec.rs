@@ -6,6 +6,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(unix)]
+use futures_util::StreamExt as _;
 use sha2::{Digest, Sha256};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -82,13 +84,21 @@ pub struct ProcessedPhoto {
 }
 
 pub struct PhotoCodec {
-    node_executable: PathBuf,
-    runner_script: PathBuf,
-    working_directory: PathBuf,
+    backend: Backend,
     timeout: Duration,
     queue_timeout: Duration,
     admissions: Semaphore,
     slots: Arc<Semaphore>,
+}
+
+enum Backend {
+    Process {
+        executable: PathBuf,
+        script: PathBuf,
+        directory: PathBuf,
+    },
+    #[cfg(unix)]
+    Socket(reqwest::Client),
 }
 
 impl PhotoCodec {
@@ -97,15 +107,23 @@ impl PhotoCodec {
         let root = configured_root
             .as_deref()
             .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")));
-        Self {
-            node_executable: PathBuf::from("node"),
-            runner_script: root.join("tools").join("photo-codec-runner.cjs"),
-            working_directory: root.join("tools").join("photo-codec"),
-            timeout: DEFAULT_CODEC_TIMEOUT,
-            queue_timeout: DEFAULT_CODEC_QUEUE_TIMEOUT,
-            admissions: Semaphore::new(1 + MAX_CODEC_PENDING_REQUESTS),
-            slots: Arc::new(Semaphore::new(1)),
-        }
+        Self::with_process(
+            "node",
+            root.join("tools/photo-codec-runner.cjs"),
+            root.join("tools/photo-codec"),
+            DEFAULT_CODEC_TIMEOUT,
+        )
+    }
+
+    #[cfg(unix)]
+    pub fn with_socket(path: &Path) -> Result<Self, PhotoCodecError> {
+        let client = reqwest::Client::builder()
+            .unix_socket(path)
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(DEFAULT_CODEC_TIMEOUT)
+            .build()
+            .map_err(|_| PhotoCodecError::CodecUnavailable)?;
+        Ok(Self::new(Backend::Socket(client), DEFAULT_CODEC_TIMEOUT))
     }
 
     pub fn with_process(
@@ -114,10 +132,19 @@ impl PhotoCodec {
         working_directory: impl Into<PathBuf>,
         timeout: Duration,
     ) -> Self {
+        Self::new(
+            Backend::Process {
+                executable: node_executable.into(),
+                script: runner_script.into(),
+                directory: working_directory.into(),
+            },
+            timeout,
+        )
+    }
+
+    fn new(backend: Backend, timeout: Duration) -> Self {
         Self {
-            node_executable: node_executable.into(),
-            runner_script: runner_script.into(),
-            working_directory: working_directory.into(),
+            backend,
             timeout,
             queue_timeout: DEFAULT_CODEC_QUEUE_TIMEOUT,
             admissions: Semaphore::new(1 + MAX_CODEC_PENDING_REQUESTS),
@@ -129,7 +156,9 @@ impl PhotoCodec {
         &self,
         upload: UploadedPhoto<'_>,
     ) -> Result<ProcessedPhoto, PhotoCodecError> {
-        validate_upload(&upload)?;
+        let format = validate_upload(&upload)?;
+        #[cfg(not(unix))]
+        let _ = format;
         // Admission covers the active worker and the bounded waiting queue.
         // Both permits are released on timeout, cancellation and process errors.
         let _admission = self
@@ -141,11 +170,34 @@ impl PhotoCodec {
             .map_err(|_| PhotoCodecError::CodecBusy)?
             .map_err(|_| PhotoCodecError::CodecUnavailable)?;
 
-        let mut child = Command::new(&self.node_executable)
-            .arg(&self.runner_script)
+        match &self.backend {
+            Backend::Process {
+                executable,
+                script,
+                directory,
+            } => {
+                self.run_process(upload, executable, script, directory)
+                    .await
+            }
+            #[cfg(unix)]
+            Backend::Socket(client) => run_remote(client, format, upload.body).await,
+        }
+    }
+
+    async fn run_process(
+        &self,
+        upload: UploadedPhoto<'_>,
+        executable: &Path,
+        script: &Path,
+        directory: &Path,
+    ) -> Result<ProcessedPhoto, PhotoCodecError> {
+        let mut child = Command::new(executable)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .arg(script)
             .arg(upload.filename)
             .arg(upload.mime_type)
-            .current_dir(&self.working_directory)
+            .current_dir(directory)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -209,6 +261,54 @@ impl PhotoCodec {
     }
 }
 
+#[cfg(unix)]
+async fn run_remote(
+    client: &reqwest::Client,
+    format: PhotoFormat,
+    bytes: &[u8],
+) -> Result<ProcessedPhoto, PhotoCodecError> {
+    let route = match format {
+        PhotoFormat::Jpeg => "http://photo-codec/jpeg",
+        PhotoFormat::Png => "http://photo-codec/png",
+        PhotoFormat::Heif => "http://photo-codec/heif",
+        PhotoFormat::Webp => "http://photo-codec/webp",
+    };
+    let response = client
+        .post(route)
+        .body(bytes.to_vec())
+        .send()
+        .await
+        .map_err(|error| {
+            if error.is_timeout() {
+                PhotoCodecError::CodecTimedOut
+            } else {
+                PhotoCodecError::CodecUnavailable
+            }
+        })?;
+    match response.status().as_u16() {
+        200 => {}
+        413 => return Err(PhotoCodecError::PhotoTooLarge),
+        422 => {
+            return Err(PhotoCodecError::InvalidPhoto(
+                InvalidPhotoReason::DecodeFailed,
+            ));
+        }
+        429 => return Err(PhotoCodecError::CodecBusy),
+        504 => return Err(PhotoCodecError::CodecTimedOut),
+        _ => return Err(PhotoCodecError::CodecUnavailable),
+    }
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|_| PhotoCodecError::CodecUnavailable)?;
+        if body.len() + chunk.len() > MAX_STORED_PHOTO_BYTES {
+            return Err(PhotoCodecError::PhotoTooLarge);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    processed_photo(body)
+}
+
 fn processed_photo(body: Vec<u8>) -> Result<ProcessedPhoto, PhotoCodecError> {
     if body.is_empty() || body.len() > MAX_STORED_PHOTO_BYTES {
         return Err(PhotoCodecError::PhotoTooLarge);
@@ -235,7 +335,7 @@ fn processed_photo(body: Vec<u8>) -> Result<ProcessedPhoto, PhotoCodecError> {
     })
 }
 
-fn validate_upload(upload: &UploadedPhoto<'_>) -> Result<(), PhotoCodecError> {
+fn validate_upload(upload: &UploadedPhoto<'_>) -> Result<PhotoFormat, PhotoCodecError> {
     if upload.body.is_empty() {
         return Err(PhotoCodecError::InvalidPhoto(InvalidPhotoReason::Empty));
     }
@@ -267,7 +367,7 @@ fn validate_upload(upload: &UploadedPhoto<'_>) -> Result<(), PhotoCodecError> {
             InvalidPhotoReason::ContentMismatch,
         ));
     }
-    Ok(())
+    Ok(expected)
 }
 
 fn extension(filename: &str) -> Option<String> {
@@ -440,7 +540,7 @@ mod tests {
                 mime_type: "application/octet-stream",
                 body: &jpeg,
             }),
-            Ok(())
+            Ok(PhotoFormat::Jpeg)
         );
         assert_eq!(
             validate_upload(&UploadedPhoto {

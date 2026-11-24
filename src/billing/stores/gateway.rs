@@ -3,6 +3,9 @@ use crate::config::StoreBillingConfig;
 use futures_util::StreamExt;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
+use std::{fs::File, io::Read as _};
+
+const MAX_CA_BYTES: usize = 64 * 1024;
 
 pub trait StoreGateway: Send + Sync {
     fn verify(&self, provider: StoreProvider, reference: String) -> StoreFuture<'_, StoreSnapshot>;
@@ -22,11 +25,35 @@ pub struct StoreVerifier {
 }
 impl StoreVerifier {
     pub fn new(config: StoreBillingConfig) -> Result<Self, StoreError> {
-        let client = reqwest::Client::builder()
+        let enabled = config.apple_enabled || config.google_enabled;
+        if config.production
+            && (config.verifier_url.scheme() != "https"
+                || (enabled && config.verifier_ca_file.is_none()))
+        {
+            return Err(StoreError::Unavailable);
+        }
+        let mut builder = reqwest::Client::builder()
+            .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
-            .timeout(std::time::Duration::from_secs(20))
-            .build()
-            .map_err(|_| StoreError::Unavailable)?;
+            .timeout(std::time::Duration::from_secs(20));
+        if let Some(path) = config.verifier_ca_file.as_ref().filter(|_| enabled) {
+            let mut pem = Vec::new();
+            File::open(path)
+                .map_err(|_| StoreError::Unavailable)?
+                .take((MAX_CA_BYTES + 1) as u64)
+                .read_to_end(&mut pem)
+                .map_err(|_| StoreError::Unavailable)?;
+            if pem.len() > MAX_CA_BYTES {
+                return Err(StoreError::Unavailable);
+            }
+            let roots =
+                reqwest::Certificate::from_pem_bundle(&pem).map_err(|_| StoreError::Unavailable)?;
+            if roots.is_empty() {
+                return Err(StoreError::Unavailable);
+            }
+            builder = builder.https_only(true).tls_certs_only(roots);
+        }
+        let client = builder.build().map_err(|_| StoreError::Unavailable)?;
         Ok(Self { config, client })
     }
     async fn call<T: DeserializeOwned>(

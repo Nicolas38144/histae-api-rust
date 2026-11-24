@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && mkdir -p /artifacts \
     && cp target/release/api target/release/outbox target/release/maintenance \
           target/release/admin-bootstrap target/release/db-migrate target/release/storage-init \
-          target/release/contract-compare target/release/phone-blocklist-sync /artifacts/
+          target/release/contract-compare target/release/phone-blocklist-sync target/release/audit-archive /artifacts/
 
 FROM node:22.23.5-bookworm-slim AS runtime
 ENV HISTAE_RUNTIME_ROOT=/app
@@ -36,7 +36,8 @@ RUN apt-get update \
 COPY --from=builder --chown=1000:1000 /artifacts/ /app/bin/
 COPY --from=codec --chown=1000:1000 /build/tools/photo-codec/node_modules /app/tools/photo-codec/node_modules
 COPY --chown=1000:1000 tools/photo-codec/package.json tools/photo-codec/processor.cjs tools/photo-codec/LICENSE.md /app/tools/photo-codec/
-COPY --chown=1000:1000 tools/photo-codec-runner.cjs /app/tools/photo-codec-runner.cjs
+COPY --chown=1000:1000 tools/photo-codec-runner.cjs tools/photo-codec-server.cjs /app/tools/
+RUN install -d -m 0700 -o 1000 -g 1000 /run/histae-photo-codec /var/lib/histae-exports /var/lib/histae-audit
 USER 1000:1000
 EXPOSE 8080 9091
 ENTRYPOINT ["/app/bin/api"]

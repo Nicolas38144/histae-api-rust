@@ -185,7 +185,7 @@ remplacer directement cette connexion de session.
 La configuration production utilise `verify-full` et une CA PEM. Les piles dev et production séparent
 `histae_admin`, `histae_migrate` et `histae_app`. Le bootstrap installe les extensions comme administrateur ;
 le migrateur crée les objets applicatifs et leurs privilèges futurs. Voir [Rôles PostgreSQL](postgres-roles.md)
-pour les quatre mots de passe dans `.env`, l'installation neuve et la conversion d'une base dev existante.
+pour les mots de passe dans `.env`, l'installation neuve et la conversion d'une base dev existante.
 Changer les variables d'initialisation sur un volume existant ne change pas ses rôles.
 
 ## Statistiques SQL

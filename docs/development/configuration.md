@@ -46,7 +46,7 @@ Valider sans afficher les secrets avec `docker compose … config --quiet`.
 ## Configuration locale minimale
 
 Créer `.env` et remplacer les secrets applicatifs par des valeurs distinctes ; le préparateur génère
-séparément les quatre mots de passe PostgreSQL.
+séparément les mots de passe PostgreSQL.
 Pour chaque valeur, `openssl rand -hex 32` produit 32 octets encodés en hexadécimal. Les clés téléphone
 acceptent ce format de 64 caractères ; `JWT_SECRET` exige au moins 32 octets.
 
@@ -92,7 +92,7 @@ METRICS_ENABLED=false
 ```
 
 `SMS_PROVIDER=disabled` ne livre aucun SMS. Pour une connexion OTP réelle, configurer Sweego.
-`python3 scripts/prepare-postgres-roles-env.py .env` prépare les quatre mots de passe sans les afficher.
+`python3 scripts/prepare-postgres-roles-env.py .env` prépare les mots de passe des rôles sans les afficher.
 Une base dev existante doit être convertie avant recréation selon [Rôles PostgreSQL](../database/postgres-roles.md).
 Les documents juridiques omis en développement reçoivent une version `development-unversioned` et des
 URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
@@ -117,7 +117,8 @@ URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.
 | Protection SMS | `SMS_MAX_GLOBAL_HOUR`, `SMS_MAX_GLOBAL_DAY`, `SMS_MAX_PER_PHONE_HOUR`, `SMS_MAX_PER_PHONE_DAY`, `SMS_ALERT_SPIKE_5M`, `SMS_SENDING_SUSPENDED` | Défauts : 100/heure et 500/24 h au total, 5/heure et 10/24 h par numéro, pic à 20 tentatives/5 min, arrêt `false`. Comptabilité PostgreSQL partagée et durable ; [guide](../features/sms-safety.md). |
 | Admin | `ADMIN_WEBAUTHN_ORIGIN`, `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_RP_NAME`, `ADMIN_SESSION_IDLE_TTL`, `ADMIN_SESSION_ABSOLUTE_TTL`, `ADMIN_RECENT_AUTH_TTL` | Voir [Administration](../features/administration.md) ; HTTPS en production. |
 | Enrôlement | `ADMIN_WEBAUTHN_CHALLENGE_TTL`, `ADMIN_WEBAUTHN_BOOTSTRAP_TTL` | Défauts : `5m` et `15m`, usage unique. |
-| Maintenance/export | `MAINTENANCE_MODE`, `MATCH_MAINTENANCE_BATCH_SIZE`, `MATCH_MAINTENANCE_MAX_BATCHES`, `OUTBOX_PURGE_BATCH_SIZE`, `OUTBOX_PURGE_MAX_BATCHES`, `DATA_EXPORT_PAGE_SIZE`, `DATA_EXPORT_MAX_BYTES`, `DATA_EXPORT_MAX_CONCURRENCY` | Traitements bornés ; voir [Exploitation](../operations/operations.md). |
+| Maintenance/export | `MAINTENANCE_MODE`, `MATCH_MAINTENANCE_BATCH_SIZE`, `MATCH_MAINTENANCE_MAX_BATCHES`, `OUTBOX_PURGE_BATCH_SIZE`, `OUTBOX_PURGE_MAX_BATCHES`, `DATA_EXPORT_PAGE_SIZE`, `DATA_EXPORT_MAX_BYTES`, `DATA_EXPORT_MAX_CONCURRENCY`, `DATA_EXPORT_SPOOL_DIR`, `DATA_EXPORT_SPOOL_BYTES`, `DATA_EXPORT_DOWNLOAD_TIMEOUT` | Traitements bornés. Voir [stockage des exports](../deployment/api-security-controls.md#exports). |
+| Codec photo | `PHOTO_CODEC_SOCKET` | Socket Unix absolu fourni par Compose et obligatoire pour l’API de production. Un lancement natif de développement peut utiliser le codec local. |
 | Effacement | `ACCOUNT_DELETION_TOKEN_TTL` | Défaut `10m`, jeton à usage unique ; workflow asynchrone. |
 | Métriques | `METRICS_ENABLED`, `METRICS_HOST`, `METRICS_PORT`, `METRICS_TOKEN` | Listener privé, port `9091` ; token distinct d’au moins 32 octets. La pile dev active la collecte ; préparer les secrets avec `bash scripts/prepare-observability-secrets.sh`. |
 

@@ -11,6 +11,7 @@ const MIGRATION_LOCK: i64 = 86_302_003;
 const SCHEMA: &str = include_str!("../../db/001_schema_postgres.sql");
 const SEED: &str = include_str!("../../db/002_insert_postgres.sql");
 const TABLE_UPGRADES: &str = include_str!("migrations/table_upgrades.sql");
+const AUDIT_ARCHIVE: &str = include_str!("../../db/003_audit_archive.sql");
 
 pub async fn apply(config: &PostgresConfig) -> Result<u32, DatabaseError> {
     let pool = connect_pool(config, 1, "histae-migrate").await?;
@@ -69,6 +70,10 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
         .map_err(map_sqlx_error)?;
     transaction
         .execute(sqlx::raw_sql(SEED))
+        .await
+        .map_err(map_sqlx_error)?;
+    transaction
+        .execute(sqlx::raw_sql(AUDIT_ARCHIVE))
         .await
         .map_err(map_sqlx_error)?;
     sqlx::query("DROP TABLE IF EXISTS schema_migrations")
@@ -318,6 +323,10 @@ async fn upgrade_existing_schema(connection: &mut sqlx::PgConnection) -> Result<
     }
     sqlx::query("DROP TABLE IF EXISTS schema_migrations")
         .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
+    transaction
+        .execute(sqlx::raw_sql(AUDIT_ARCHIVE))
         .await
         .map_err(map_sqlx_error)?;
     transaction.commit().await.map_err(map_sqlx_error)

@@ -13,20 +13,38 @@ use std::{sync::Arc, time::Duration};
 use tokio::{sync::Semaphore, time::timeout};
 
 const BODY_READ_TIMEOUT: Duration = Duration::from_secs(10);
-pub(super) const MAX_ACTIVE_BODIES: usize = 64;
+#[derive(Clone)]
+pub(super) struct BodySlots {
+    general: Arc<Semaphore>,
+    photos: Arc<Semaphore>,
+    callbacks: Arc<Semaphore>,
+}
 
-pub async fn middleware(
-    State(slots): State<Arc<Semaphore>>,
-    request: Request,
-    next: Next,
-) -> Response {
+impl Default for BodySlots {
+    fn default() -> Self {
+        Self {
+            general: Arc::new(Semaphore::new(64)),
+            photos: Arc::new(Semaphore::new(8)),
+            callbacks: Arc::new(Semaphore::new(16)),
+        }
+    }
+}
+
+pub async fn middleware(State(slots): State<BodySlots>, request: Request, next: Next) -> Response {
     if matches!(*request.method(), Method::GET | Method::HEAD) {
         return next.run(request).await;
     }
-    let Ok(_slot) = slots.try_acquire() else {
+    let slots = match (request.method(), request.uri().path()) {
+        (&Method::PUT, "/api/users/me/photo") => &slots.photos,
+        (&Method::POST, path) if super::lifecycle::provider_callback(path) => &slots.callbacks,
+        _ => &slots.general,
+    };
+    let Ok(slot) = slots.try_acquire() else {
         return ApiError::busy("request_body_capacity_reached").into_response();
     };
-    match validate(request).await {
+    let request = validate(request).await;
+    drop(slot);
+    match request {
         Ok(request) => next.run(request).await,
         Err(error) => error.into_response(),
     }

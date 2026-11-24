@@ -282,6 +282,7 @@ mod tests {
             google_monthly_plan: "monthly".into(),
             google_annual_plan: "annual".into(),
             verifier_url: url::Url::parse("http://store-verifier:8080").unwrap(),
+            verifier_ca_file: None,
             verifier_token: SecretString::new("synthetic-verifier-token".into()),
             production: false,
         }

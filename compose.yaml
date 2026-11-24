@@ -3,6 +3,8 @@ name: histae-api-rust
 x-store-secret-suppression: &store-secret-suppression
   POSTGRES_PHONE_SYNC_PASSWORD: ""
   HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ""
+  POSTGRES_AUDIT_ARCHIVE_PASSWORD: ""
+  HISTAE_BOOTSTRAP_AUDIT_ARCHIVE_PASSWORD: ""
   GOOGLE_PLAY_REVIEW_ENABLED: "false"
   GOOGLE_PLAY_REVIEW_PHONE_NUMBER: ""
   GOOGLE_PLAY_REVIEW_OTP: ""
@@ -31,6 +33,59 @@ x-runtime-service: &runtime-service
     options: { max-size: 10m, max-file: "5" }
 
 services:
+  photo-codec:
+    image: ${HISTAE_API_IMAGE:-histae-api-rust:local}
+    build: { context: . }
+    entrypoint: [node, /app/tools/photo-codec-server.cjs, /run/histae-photo-codec/codec.sock]
+    network_mode: none
+    read_only: true
+    user: "1000:1000"
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g
+    pids_limit: 48
+    cpus: 1.0
+    restart: unless-stopped
+    volumes:
+      - photo-codec-socket:/run/histae-photo-codec
+    healthcheck:
+      test: [CMD, node, -e, "require('node:http').get({socketPath:'/run/histae-photo-codec/codec.sock',path:'/health/live'},r=>{if(r.statusCode!==204)process.exit(1)}).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
+  audit-archive:
+    image: ${HISTAE_API_IMAGE:-histae-api-rust:local}
+    build: { context: . }
+    profiles: [audit]
+    entrypoint: [/app/bin/audit-archive]
+    init: true
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    pids_limit: 32
+    cpus: 0.5
+    restart: unless-stopped
+    networks: [backend]
+    volumes:
+      - audit-archive-data:/var/lib/histae-audit
+    environment:
+      ENV: development
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-histae-dev}
+      POSTGRES_USER: histae_audit_archive
+      POSTGRES_PASSWORD: ${POSTGRES_AUDIT_ARCHIVE_PASSWORD:-}
+      AUDIT_ARCHIVE_DIR: /var/lib/histae-audit
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "5" }
+
   # Official Apple/Google cryptographic adapters; no public port or database access.
   store-verifier:
     image: ${HISTAE_STORE_VERIFIER_IMAGE:-histae-store-verifier:local}
@@ -99,9 +154,15 @@ services:
       PORT: "8080"
       MAINTENANCE_MODE: disabled
       METRICS_HOST: 0.0.0.0
+      PHOTO_CODEC_SOCKET: /run/histae-photo-codec/codec.sock
+      DATA_EXPORT_SPOOL_DIR: /var/lib/histae-exports
       POSTGRES_POOL_MAX: ${HISTAE_API_POSTGRES_POOL_MAX:-30}
+    volumes:
+      - photo-codec-socket:/run/histae-photo-codec:ro
+      - data-export-spool:/var/lib/histae-exports
     depends_on:
       migrate: { condition: service_completed_successfully }
+      photo-codec: { condition: service_healthy }
     restart: unless-stopped
     expose: ["8080", "9091"]
     pids_limit: 256
@@ -176,3 +237,8 @@ services:
 networks:
   backend:
     name: ${HISTAE_BACKEND_NETWORK:-histae-rust-backend}
+
+volumes:
+  photo-codec-socket:
+  data-export-spool:
+  audit-archive-data:

@@ -3,17 +3,20 @@ use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use axum::body::Bytes;
 use chrono::{DateTime, SecondsFormat, Utc};
 use futures_util::Stream;
+use futures_util::task::AtomicWaker;
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::fs::File;
 use tokio::io::{AsyncSeekExt as _, AsyncWriteExt as _, SeekFrom};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use tokio::task::AbortHandle;
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
@@ -22,6 +25,7 @@ use crate::privacy::rights::DataRightsStore;
 use crate::profiles::service::ProfilePhotoUrlProvider;
 
 pub const EXPORT_FILENAME: &str = "histae-data-export.json";
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Debug)]
 pub enum ExportBuildError {
@@ -212,6 +216,8 @@ pub struct DataExportService {
     page_size: u32,
     max_bytes: u64,
     slots: Arc<Semaphore>,
+    spool_dir: PathBuf,
+    download_timeout: Duration,
 }
 
 impl DataExportService {
@@ -230,7 +236,17 @@ impl DataExportService {
             page_size,
             max_bytes,
             slots: Arc::new(Semaphore::new(usize::from(max_concurrency))),
+            spool_dir: std::env::temp_dir(),
+            download_timeout: DOWNLOAD_TIMEOUT,
         }
+    }
+
+    pub fn with_storage(mut self, spool_dir: Option<PathBuf>, download_timeout: Duration) -> Self {
+        if let Some(dir) = spool_dir {
+            self.spool_dir = dir;
+        }
+        self.download_timeout = download_timeout;
+        self
     }
 
     pub async fn prepare(&self, user_id: Uuid) -> Result<PreparedDataExport, DataExportError> {
@@ -242,9 +258,11 @@ impl DataExportService {
         &self,
         user_id: Uuid,
     ) -> Result<PreparedDataExport, DataExportError> {
-        let assisted_limit = self.max_bytes.saturating_mul(2).min(1024 * 1024 * 1024);
-        self.prepare_bounded(user_id, self.max_bytes.max(assisted_limit))
-            .await
+        self.prepare_bounded(
+            user_id,
+            crate::config::assisted_export_max_bytes(self.max_bytes),
+        )
+        .await
     }
 
     async fn prepare_bounded(
@@ -257,14 +275,11 @@ impl DataExportService {
             .map_err(|error| match error {
                 TryAcquireError::NoPermits | TryAcquireError::Closed => DataExportError::Busy,
             })?;
-        let (directory, file) = tokio::task::spawn_blocking(|| {
-            let directory = ExportDirectory(create_private_directory()?);
-            let file = open_private_file(&directory.0.join(EXPORT_FILENAME))?;
-            Ok::<_, io::Error>((directory, file))
-        })
-        .await
-        .map_err(|_| DataExportError::Unavailable)?
-        .map_err(|_| DataExportError::Unavailable)?;
+        let spool_dir = self.spool_dir.clone();
+        let (file, directory) = tokio::task::spawn_blocking(move || open_spool_file(&spool_dir))
+            .await
+            .map_err(|_| DataExportError::Unavailable)?
+            .map_err(|_| DataExportError::Unavailable)?;
         self.prepare_in_directory(user_id, directory, file, permit, max_bytes)
             .await
     }
@@ -272,7 +287,7 @@ impl DataExportService {
     async fn prepare_in_directory(
         &self,
         user_id: Uuid,
-        directory: ExportDirectory,
+        directory: Option<ExportDirectory>,
         file: std::fs::File,
         permit: OwnedSemaphorePermit,
         max_bytes: u64,
@@ -341,12 +356,13 @@ impl DataExportService {
             .record_self_export(user_id)
             .await
             .map_err(|_| DataExportError::Unavailable)?;
-        Ok(PreparedDataExport {
+        Ok(PreparedDataExport::new(
+            file,
             bytes,
-            stream: Some(ReaderStream::new(file)),
-            directory: Some(directory),
-            permit: Some(permit),
-        })
+            directory,
+            permit,
+            self.download_timeout,
+        ))
     }
 }
 
@@ -366,34 +382,88 @@ fn map_build_error(error: ExportBuildError) -> DataExportError {
 
 pub struct PreparedDataExport {
     bytes: u64,
-    stream: Option<ReaderStream<File>>,
-    directory: Option<ExportDirectory>,
-    permit: Option<OwnedSemaphorePermit>,
+    download: Arc<Download>,
+    watchdog: AbortHandle,
+}
+
+#[derive(Default)]
+struct Download {
+    state: Mutex<DownloadState>,
+    waker: AtomicWaker,
+}
+
+#[derive(Default)]
+struct DownloadState {
+    active: Option<OpenDownload>,
+    timed_out: bool,
+}
+
+struct OpenDownload {
+    stream: ReaderStream<File>,
+    _directory: Option<ExportDirectory>,
+    _permit: OwnedSemaphorePermit,
 }
 
 impl PreparedDataExport {
-    pub fn bytes(&self) -> u64 {
-        self.bytes
+    fn new(
+        file: File,
+        bytes: u64,
+        directory: Option<ExportDirectory>,
+        permit: OwnedSemaphorePermit,
+        timeout: Duration,
+    ) -> Self {
+        let download = Arc::new(Download {
+            state: Mutex::new(DownloadState {
+                active: Some(OpenDownload {
+                    stream: ReaderStream::new(file),
+                    _directory: directory,
+                    _permit: permit,
+                }),
+                timed_out: false,
+            }),
+            waker: AtomicWaker::new(),
+        });
+        let state = Arc::clone(&download);
+        let deadline = tokio::time::Instant::now() + timeout;
+        // A socket with a full send buffer may never poll its HTTP body again.
+        let watchdog = tokio::spawn(async move {
+            tokio::time::sleep_until(deadline).await;
+            if let Ok(mut download) = state.state.lock() {
+                download.timed_out = download.active.take().is_some();
+            }
+            state.waker.wake();
+        })
+        .abort_handle();
+        Self {
+            bytes,
+            download,
+            watchdog,
+        }
     }
 
-    fn cleanup(&mut self) {
-        // Close the file before scheduling deletion.
-        self.stream.take();
-        self.directory.take();
-        self.permit.take();
+    pub fn bytes(&self) -> u64 {
+        self.bytes
     }
 }
 
 impl Stream for PreparedDataExport {
     type Item = Result<Bytes, io::Error>;
 
-    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let Some(stream) = self.stream.as_mut() else {
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.download.waker.register(context.waker());
+        let Ok(mut download) = self.download.state.lock() else {
             return Poll::Ready(None);
         };
-        let polled = Pin::new(stream).poll_next(context);
+        if std::mem::take(&mut download.timed_out) {
+            return Poll::Ready(Some(Err(io::ErrorKind::TimedOut.into())));
+        }
+        let Some(open) = download.active.as_mut() else {
+            return Poll::Ready(None);
+        };
+        let polled = Pin::new(&mut open.stream).poll_next(context);
         if matches!(polled, Poll::Ready(None) | Poll::Ready(Some(Err(_)))) {
-            self.cleanup();
+            download.active.take();
+            self.watchdog.abort();
         }
         polled
     }
@@ -401,7 +471,10 @@ impl Stream for PreparedDataExport {
 
 impl Drop for PreparedDataExport {
     fn drop(&mut self) {
-        self.cleanup();
+        self.watchdog.abort();
+        if let Ok(mut download) = self.download.state.lock() {
+            download.active.take();
+        }
     }
 }
 
@@ -419,9 +492,24 @@ impl Drop for ExportDirectory {
     }
 }
 
-fn create_private_directory() -> io::Result<PathBuf> {
+fn open_spool_file(root: &Path) -> io::Result<(std::fs::File, Option<ExportDirectory>)> {
+    let directory = ExportDirectory(create_private_directory(root)?);
+    let path = directory.0.join(EXPORT_FILENAME);
+    let file = open_private_file(&path)?;
+    #[cfg(unix)]
+    {
+        // Unlink immediately so a killed API cannot leave personal data on disk.
+        std::fs::remove_file(path)?;
+        drop(directory);
+        Ok((file, None))
+    }
+    #[cfg(not(unix))]
+    Ok((file, Some(directory)))
+}
+
+fn create_private_directory(root: &Path) -> io::Result<PathBuf> {
     for _ in 0..16 {
-        let path = std::env::temp_dir().join(format!("histae-export-{}", Uuid::new_v4()));
+        let path = root.join(format!("histae-export-{}", Uuid::new_v4()));
         #[cfg(unix)]
         let mut builder = DirBuilder::new();
         #[cfg(not(unix))]
@@ -474,18 +562,43 @@ fn wire_timestamp(value: DateTime<Utc>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::StreamExt as _;
+
+    #[tokio::test]
+    async fn an_unpolled_download_releases_its_slot_at_the_deadline() {
+        let (file, directory) = open_spool_file(&std::env::temp_dir()).unwrap();
+        let semaphore = Arc::new(Semaphore::new(1));
+        let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
+        let mut download = PreparedDataExport::new(
+            File::from_std(file),
+            0,
+            directory,
+            permit,
+            Duration::from_millis(20),
+        );
+        let next_permit = tokio::time::timeout(Duration::from_secs(2), semaphore.acquire())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            download.next().await.unwrap().unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        drop(next_permit);
+    }
 
     #[tokio::test]
     async fn dropping_an_export_closes_its_file_and_removes_its_private_directory() {
-        let path = create_private_directory().expect("directory");
+        let path = create_private_directory(&std::env::temp_dir()).expect("directory");
         let file = open_private_file(&path.join(EXPORT_FILENAME)).expect("file");
         let semaphore = Arc::new(Semaphore::new(1));
-        let export = PreparedDataExport {
-            bytes: 0,
-            stream: Some(ReaderStream::new(File::from_std(file))),
-            directory: Some(ExportDirectory(path.clone())),
-            permit: Some(semaphore.clone().acquire_owned().await.expect("permit")),
-        };
+        let export = PreparedDataExport::new(
+            File::from_std(file),
+            0,
+            Some(ExportDirectory(path.clone())),
+            semaphore.clone().acquire_owned().await.expect("permit"),
+            DOWNLOAD_TIMEOUT,
+        );
         assert_eq!(semaphore.available_permits(), 0);
         drop(export);
         assert_eq!(semaphore.available_permits(), 1);
@@ -500,7 +613,8 @@ mod tests {
 
     #[tokio::test]
     async fn writer_rejects_oversized_documents_before_streaming() {
-        let directory = create_private_directory().unwrap_or_else(|_| unreachable!());
+        let directory =
+            create_private_directory(&std::env::temp_dir()).unwrap_or_else(|_| unreachable!());
         let file =
             open_private_file(&directory.join(EXPORT_FILENAME)).unwrap_or_else(|_| unreachable!());
         let mut writer = JsonExportWriter::new(File::from_std(file), 32);
@@ -517,7 +631,8 @@ mod tests {
 
     #[tokio::test]
     async fn writer_builds_nested_json_without_holding_the_document_in_memory() {
-        let directory = create_private_directory().unwrap_or_else(|_| unreachable!());
+        let directory =
+            create_private_directory(&std::env::temp_dir()).unwrap_or_else(|_| unreachable!());
         let file =
             open_private_file(&directory.join(EXPORT_FILENAME)).unwrap_or_else(|_| unreachable!());
         let mut writer = JsonExportWriter::new(File::from_std(file), 1_024);

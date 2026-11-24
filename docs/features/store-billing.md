@@ -69,13 +69,13 @@ Les nouvelles variables sont présentes dans le `.env` local avec fournisseurs n
 | `GOOGLE_PLAY_PUBSUB_AUDIENCE` | URL exacte du push HTTPS Pub/Sub, par exemple `https://api.histae.com/api/billing/google-play/webhook` |
 | `GOOGLE_PLAY_PUBSUB_SERVICE_ACCOUNT` | Email du compte de service émettant le JWT OIDC du push |
 | `STORE_VERIFIER_TOKEN` | Secret partagé API/worker/vérificateur, au moins 32 caractères aléatoires |
-| `STORE_VERIFIER_URL` | `http://store-verifier:8080` ; réseau privé uniquement, aucun port hôte publié |
+| `STORE_VERIFIER_URL` | `https://store-verifier:8080` en production ; HTTP autorisé en développement sur un réseau privé |
+| `STORE_VERIFIER_CA_FILE` | Chemin absolu du certificat de l’autorité privée ; obligatoire en production pour les achats actifs |
 | `WEB_ACCOUNT_ORIGIN` | Défaut dev `http://localhost:3000`, prod `https://www.histae.com` ; pas de slash final |
 
-Le service `store-verifier` fourni par les manifests écoute en **HTTP** sur le réseau Docker privé.
-Conserver `STORE_VERIFIER_URL=http://store-verifier:8080`, y compris en production. Les appels aux API
-Google/Apple et les webhooks publics utilisent HTTPS. La valeur `https://store-verifier:8080` provoque
-un échec de connexion TLS, même lorsque le conteneur du vérificateur est sain.
+En production, le vérificateur exige une paire TLS. L’API et le worker vérifient le nom `store-verifier`
+et la chaîne avec l’autorité dédiée de Compose. Le port reste privé. Préparer le certificat et sa clé
+avant de redémarrer les services. [Déploiement des protections P2](../deployment/api-security-controls.md).
 
 La prise en charge optionnelle de fichiers de clés dans le vérificateur (`APP_STORE_PRIVATE_KEY_FILE`,
 `GOOGLE_PLAY_CREDENTIALS_FILE`) exige un montage explicite en lecture seule dans un override Compose ;

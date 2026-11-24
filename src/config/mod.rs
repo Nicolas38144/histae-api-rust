@@ -1,5 +1,7 @@
 //! Typed configuration with stable defaults and redacted secrets.
+mod audit_archive;
 mod database;
+pub use audit_archive::AuditArchiveConfig;
 mod phone_blocklist;
 pub use phone_blocklist::PhoneBlocklistSyncConfig;
 mod environment;

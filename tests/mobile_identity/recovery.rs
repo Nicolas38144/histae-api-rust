@@ -259,10 +259,6 @@ impl RecoveryFixture {
     }
 
     async fn cleanup(self) -> TestResult {
-        sqlx::query("DELETE FROM data_access_log WHERE accessed_user_id=ANY($1::uuid[])")
-            .bind(&self.users)
-            .execute(&mut *self.database.acquire().await?)
-            .await?;
         for user in self.users {
             cleanup(&self.database, user).await?;
         }

@@ -18,6 +18,44 @@ fn codec_root() -> PathBuf {
         .join("photo-codec")
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn converts_a_photo_through_the_private_worker_socket()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = std::env::temp_dir().join(format!("histae-codec-{}", uuid::Uuid::new_v4()));
+    fs::create_dir(&directory)?;
+    let socket = directory.join("worker.sock");
+    let mut child = tokio::process::Command::new("node")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tools/photo-codec-server.cjs"))
+        .arg(&socket)
+        .kill_on_drop(true)
+        .spawn()?;
+    let result = async {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !socket.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+        let body = include_bytes!("fixtures/photos/sample.jpg");
+        let codec = PhotoCodec::with_socket(&socket)?;
+        let image = codec
+            .to_webp(UploadedPhoto {
+                filename: "sample.jpg",
+                mime_type: "image/jpeg",
+                body,
+            })
+            .await?;
+        assert_eq!(image.mime_type, "image/webp");
+        assert!(image.size_bytes <= MAX_STORED_PHOTO_BYTES);
+        Ok::<_, Box<dyn std::error::Error>>(())
+    }
+    .await;
+    child.kill().await?;
+    fs::remove_dir_all(directory)?;
+    result
+}
+
 fn generated_fixtures() -> &'static PathBuf {
     static FIXTURES: OnceLock<PathBuf> = OnceLock::new();
     FIXTURES.get_or_init(|| {
