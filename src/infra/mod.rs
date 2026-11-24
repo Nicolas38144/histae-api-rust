@@ -1,4 +1,3 @@
-pub mod audit_archive;
 pub mod crypto;
 pub mod migrations;
 pub mod postgres;

@@ -111,6 +111,11 @@ async fn cleanup(database: &Database, users: &[Uuid]) -> Result<(), DatabaseErro
     .execute(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
+    sqlx::query("DELETE FROM data_access_log WHERE accessed_user_id = ANY($1::uuid[])")
+        .bind(users)
+        .execute(&mut *connection)
+        .await
+        .map_err(map_sqlx_error)?;
     sqlx::query("DELETE FROM user_account WHERE user_id = ANY($1::uuid[])")
         .bind(users)
         .execute(&mut *connection)

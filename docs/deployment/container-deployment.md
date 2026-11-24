@@ -23,8 +23,8 @@ et impose les deux IP de proxy approuvées (`172.30.0.3/32`, `172.30.0.4/32`). U
 
 Les deux piles séparent les [rôles PostgreSQL](../database/postgres-roles.md), initialisés automatiquement sur un volume
 neuf. Modifier les variables d'un volume existant ne crée pas les rôles ni ne change leurs mots de passe.
-Avant la première mise à jour d’une pile existante, préparer le TLS du vérificateur d’achats et le rôle
-d’archive selon le [guide des protections de l’API](api-security-controls.md).
+Avant la première mise à jour d’une pile existante, préparer le TLS du vérificateur d’achats selon le
+[guide des protections de l’API](api-security-controls.md).
 Les balises `!override` demandent Docker Compose 2.24.4 ou ultérieur. `healthcheck.start_interval`
 demande Docker Engine 25 ou ultérieur : les contrôles s’exécutent toutes les deux secondes pendant
 la période de démarrage, puis reprennent leur intervalle habituel. Les tests et nombres de tentatives sont conservés.
@@ -236,7 +236,7 @@ Les scripts de [déploiement](../../../histae-scripts/README.md) valident les co
 ## Production
 
 Pour une installation neuve, préparer `.env` selon [Configuration](../development/configuration.md), compléter
-les valeurs de production et préparer les mots de passe des rôles avec
+les valeurs de production et préparer les quatre mots de passe avec
 `python3 scripts/prepare-postgres-roles-env.py .env`. Les [rôles PostgreSQL](../database/postgres-roles.md)
 sont créés automatiquement sur le volume vide ; aucun identifiant administrateur n'est injecté dans l'API.
 

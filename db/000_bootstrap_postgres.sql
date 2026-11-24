@@ -70,23 +70,6 @@ SELECT length(:'phone_sync_password') > 0 AS set_phone_password \gset
 ALTER ROLE histae_phone_sync LOGIN PASSWORD :'phone_sync_password';
 \endif
 \endif
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'histae_audit_archive') THEN
-    CREATE ROLE histae_audit_archive NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'histae_audit_archive'
-      AND (rolsuper OR rolinherit OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls))
-     OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = 'histae_audit_archive'::regrole OR roleid = 'histae_audit_archive'::regrole) THEN
-    RAISE EXCEPTION 'conflicting audit archive role';
-  END IF;
-END $$;
-\if :{?audit_archive_password}
-SELECT length(:'audit_archive_password') > 0 AS set_audit_archive_password \gset
-\if :set_audit_archive_password
-ALTER ROLE histae_audit_archive LOGIN PASSWORD :'audit_archive_password';
-\endif
-\endif
 -- Install privileged extensions as the administrator. Their objects remain
 -- administrator-owned; the migrator subsequently creates application objects.
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
@@ -104,7 +87,7 @@ ALTER EXTENSION pg_stat_statements UPDATE;
 
 SELECT current_database() AS database_name \gset
 REVOKE ALL ON DATABASE :"database_name" FROM PUBLIC;
-GRANT CONNECT ON DATABASE :"database_name" TO histae_migrate, histae_app, histae_phone_sync, histae_audit_archive;
+GRANT CONNECT ON DATABASE :"database_name" TO histae_migrate, histae_app, histae_phone_sync;
 -- This instance is dedicated to Histae. Runtime roles cannot use another DB
 -- to obtain the default PUBLIC CONNECT/TEMPORARY privileges.
 REVOKE CONNECT, TEMPORARY ON DATABASE postgres FROM PUBLIC;
@@ -113,9 +96,8 @@ REVOKE CONNECT, TEMPORARY ON DATABASE template1 FROM PUBLIC;
 ALTER SCHEMA public OWNER TO histae_migrate;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO histae_app;
-GRANT USAGE ON SCHEMA public TO histae_phone_sync, histae_audit_archive;
+GRANT USAGE ON SCHEMA public TO histae_phone_sync;
 ALTER ROLE histae_phone_sync SET search_path = public, pg_catalog;
-ALTER ROLE histae_audit_archive SET search_path = pg_catalog, public;
 DO $$ BEGIN
   IF to_regclass('public.phone_blocklist_entry') IS NOT NULL THEN
     GRANT SELECT ON phone_blocklist_control,phone_blocklist_entry,phone_blocklist_observation,phone_blocklist_source TO histae_phone_sync;
@@ -176,20 +158,6 @@ BEGIN
   END LOOP;
 END;
 $$;
--- Conversion must never restore direct write access to existing audit evidence.
-DO $$ BEGIN
-  IF to_regclass('public.data_access_log') IS NOT NULL THEN
-    REVOKE UPDATE, DELETE ON public.data_access_log FROM histae_app;
-  END IF;
-  IF to_regclass('public.admin_auth_event') IS NOT NULL THEN
-    REVOKE UPDATE, DELETE ON public.admin_auth_event FROM histae_app;
-  END IF;
-  IF to_regclass('public.audit_archive_pending') IS NOT NULL THEN
-    REVOKE ALL ON public.audit_archive_pending FROM histae_app;
-    REVOKE ALL ON SEQUENCE public.audit_archive_pending_sequence_id_seq FROM histae_app;
-    REVOKE ALL ON FUNCTION public.enqueue_audit_archive(), public.purge_archived_audit_events(integer) FROM histae_app;
-  END IF;
-END $$;
 SELECT current_user AS previous_administrator \gset
 ALTER ROLE :"previous_administrator" NOLOGIN;
 \endif

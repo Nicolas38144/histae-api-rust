@@ -3,8 +3,6 @@ name: histae-api-rust
 x-store-secret-suppression: &store-secret-suppression
   POSTGRES_PHONE_SYNC_PASSWORD: ""
   HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ""
-  POSTGRES_AUDIT_ARCHIVE_PASSWORD: ""
-  HISTAE_BOOTSTRAP_AUDIT_ARCHIVE_PASSWORD: ""
   GOOGLE_PLAY_REVIEW_ENABLED: "false"
   GOOGLE_PLAY_REVIEW_PHONE_NUMBER: ""
   GOOGLE_PLAY_REVIEW_OTP: ""
@@ -54,37 +52,6 @@ services:
       interval: 5s
       timeout: 2s
       retries: 10
-
-  audit-archive:
-    image: ${HISTAE_API_IMAGE:-histae-api-rust:local}
-    build: { context: . }
-    profiles: [audit]
-    entrypoint: [/app/bin/audit-archive]
-    init: true
-    user: "1000:1000"
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    mem_limit: 128m
-    pids_limit: 32
-    cpus: 0.5
-    restart: unless-stopped
-    networks: [backend]
-    volumes:
-      - audit-archive-data:/var/lib/histae-audit
-    environment:
-      ENV: development
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: ${POSTGRES_DB:-histae-dev}
-      POSTGRES_USER: histae_audit_archive
-      POSTGRES_PASSWORD: ${POSTGRES_AUDIT_ARCHIVE_PASSWORD:-}
-      AUDIT_ARCHIVE_DIR: /var/lib/histae-audit
-    depends_on:
-      migrate: { condition: service_completed_successfully }
-    logging:
-      driver: json-file
-      options: { max-size: 10m, max-file: "5" }
 
   # Official Apple/Google cryptographic adapters; no public port or database access.
   store-verifier:
@@ -241,4 +208,3 @@ networks:
 volumes:
   photo-codec-socket:
   data-export-spool:
-  audit-archive-data:

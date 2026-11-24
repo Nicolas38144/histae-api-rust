@@ -9,8 +9,6 @@ const ALLOWED_FIELDS: &[&str] = &[
     "billing_processed",
     "duration_ms",
     "environment",
-    "events_archived",
-    "events_purged",
     "error_code",
     "event_id",
     "event_type",

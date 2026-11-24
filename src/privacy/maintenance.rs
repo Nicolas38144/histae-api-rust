@@ -27,12 +27,14 @@ pub struct PrivacyMaintenanceResult {
     pub expired_notifications: u64,
     pub expired_consents: u64,
     pub expired_data_subject_requests: u64,
+    pub expired_data_access_logs: u64,
     pub expired_reports: u64,
     pub expired_account_tombstones: u64,
     pub expired_account_deletion_tokens: u64,
     pub expired_admin_webauthn_challenges: u64,
     pub expired_admin_webauthn_bootstraps: u64,
     pub expired_admin_sessions: u64,
+    pub expired_admin_auth_events: u64,
     pub expired_outbox_operator_actions: u64,
     pub expired_mobile_sessions: u64,
     pub expired_reward_intents: u64,
@@ -93,6 +95,9 @@ impl PrivacyMaintenanceResult {
         self.expired_data_subject_requests = self
             .expired_data_subject_requests
             .saturating_add(next.expired_data_subject_requests);
+        self.expired_data_access_logs = self
+            .expired_data_access_logs
+            .saturating_add(next.expired_data_access_logs);
         self.expired_reports = self.expired_reports.saturating_add(next.expired_reports);
         self.expired_account_tombstones = self
             .expired_account_tombstones
@@ -109,6 +114,9 @@ impl PrivacyMaintenanceResult {
         self.expired_admin_sessions = self
             .expired_admin_sessions
             .saturating_add(next.expired_admin_sessions);
+        self.expired_admin_auth_events = self
+            .expired_admin_auth_events
+            .saturating_add(next.expired_admin_auth_events);
         self.expired_outbox_operator_actions = self
             .expired_outbox_operator_actions
             .saturating_add(next.expired_outbox_operator_actions);
@@ -141,7 +149,7 @@ impl PrivacyMaintenanceResult {
             .saturating_add(next.expired_store_accounts);
     }
 
-    fn counts(self) -> [u64; 32] {
+    fn counts(self) -> [u64; 34] {
         [
             self.stale_presences,
             self.expired_presences,
@@ -151,12 +159,14 @@ impl PrivacyMaintenanceResult {
             self.expired_notifications,
             self.expired_consents,
             self.expired_data_subject_requests,
+            self.expired_data_access_logs,
             self.expired_reports,
             self.expired_account_tombstones,
             self.expired_account_deletion_tokens,
             self.expired_admin_webauthn_challenges,
             self.expired_admin_webauthn_bootstraps,
             self.expired_admin_sessions,
+            self.expired_admin_auth_events,
             self.expired_outbox_operator_actions,
             self.expired_mobile_sessions,
             self.expired_reward_intents,
@@ -225,35 +235,37 @@ impl PrivacyMaintenanceRepository {
                         stale_presences: counts[0],
                         expired_presences: counts[1],
                         expired_swipes: counts[2],
-                        expired_phone_observations: counts[27],
-                        expired_phone_policies: counts[28],
-                        expired_support_cases: counts[29],
-                        expired_erasure_receipts: counts[30],
-                        expired_assisted_exports: counts[31],
+                        expired_phone_observations: counts[29],
+                        expired_phone_policies: counts[30],
+                        expired_support_cases: counts[31],
+                        expired_erasure_receipts: counts[32],
+                        expired_assisted_exports: counts[33],
                         expired_otps: counts[3],
-                        expired_mobile_otp_requests: counts[25],
+                        expired_mobile_otp_requests: counts[27],
                         expired_refresh_tokens: counts[4],
-                        expired_refresh_recoveries: counts[26],
+                        expired_refresh_recoveries: counts[28],
                         expired_notifications: counts[5],
                         expired_consents: counts[6],
                         expired_data_subject_requests: counts[7],
-                        expired_reports: counts[8],
-                        expired_account_tombstones: counts[9],
-                        expired_account_deletion_tokens: counts[10],
-                        expired_admin_webauthn_challenges: counts[11],
-                        expired_admin_webauthn_bootstraps: counts[12],
-                        expired_admin_sessions: counts[13],
-                        expired_outbox_operator_actions: counts[14],
-                        expired_mobile_sessions: counts[15],
-                        expired_reward_intents: counts[16],
-                        expired_continuation_reservations: counts[17],
-                        expired_continuation_usage: counts[18],
-                        expired_sms_attempts: counts[19],
-                        expired_web_challenges: counts[20],
-                        expired_web_sessions: counts[21],
-                        expired_store_notifications: counts[22],
-                        expired_store_subscriptions: counts[23],
-                        expired_store_accounts: counts[24],
+                        expired_data_access_logs: counts[8],
+                        expired_reports: counts[9],
+                        expired_account_tombstones: counts[10],
+                        expired_account_deletion_tokens: counts[11],
+                        expired_admin_webauthn_challenges: counts[12],
+                        expired_admin_webauthn_bootstraps: counts[13],
+                        expired_admin_sessions: counts[14],
+                        expired_admin_auth_events: counts[15],
+                        expired_outbox_operator_actions: counts[16],
+                        expired_mobile_sessions: counts[17],
+                        expired_reward_intents: counts[18],
+                        expired_continuation_reservations: counts[19],
+                        expired_continuation_usage: counts[20],
+                        expired_sms_attempts: counts[21],
+                        expired_web_challenges: counts[22],
+                        expired_web_sessions: counts[23],
+                        expired_store_notifications: counts[24],
+                        expired_store_subscriptions: counts[25],
+                        expired_store_accounts: counts[26],
                     }))
                 })
             })
@@ -261,7 +273,7 @@ impl PrivacyMaintenanceRepository {
     }
 }
 
-const RETENTION_QUERIES: [&str; 32] = [
+const RETENTION_QUERIES: [&str; 34] = [
     "WITH stale AS (
        SELECT user_id FROM user_presence
        WHERE is_location_fresh = true AND updated_at <= $1 - INTERVAL '1 hour'
@@ -291,6 +303,9 @@ const RETENTION_QUERIES: [&str; 32] = [
        WHERE status IN ('completed', 'rejected') AND completed_at IS NOT NULL
          AND completed_at <= $1 - INTERVAL '5 years'
        ORDER BY completed_at LIMIT $2)",
+    "DELETE FROM data_access_log WHERE id IN (
+       SELECT id FROM data_access_log WHERE accessed_at <= $1 - INTERVAL '1 year'
+       ORDER BY accessed_at LIMIT $2)",
     "DELETE FROM user_report WHERE id IN (
        SELECT id FROM user_report
        WHERE status IN ('reviewed', 'dismissed') AND resolved_at IS NOT NULL
@@ -329,6 +344,9 @@ const RETENTION_QUERIES: [&str; 32] = [
           WHERE revoked_at <= $1 - INTERVAL '24 hours' AND absolute_expires_at > $1
           ORDER BY revoked_at, id LIMIT $2)
        ) AS candidates ORDER BY cleanup_at, id LIMIT $2)",
+    "DELETE FROM admin_auth_event WHERE id IN (
+       SELECT id FROM admin_auth_event WHERE created_at <= $1 - INTERVAL '1 year'
+       ORDER BY created_at LIMIT $2)",
     "DELETE FROM outbox_operator_action WHERE id IN (
        SELECT id FROM outbox_operator_action WHERE created_at <= $1 - INTERVAL '1 year'
        ORDER BY created_at LIMIT $2)",

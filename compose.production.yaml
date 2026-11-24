@@ -16,8 +16,6 @@ x-production-database-environment: &production-database-environment
   POSTGRES_APP_PASSWORD: ""
   HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ""
   POSTGRES_PHONE_SYNC_PASSWORD: ""
-  POSTGRES_AUDIT_ARCHIVE_PASSWORD: ""
-  HISTAE_BOOTSTRAP_AUDIT_ARCHIVE_PASSWORD: ""
   HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ""
   HISTAE_BOOTSTRAP_APP_PASSWORD: ""
   NODE_EXTRA_CA_CERTS: /run/secrets/postgres_ca
@@ -43,15 +41,6 @@ x-production-dependencies: &production-dependencies
     condition: service_completed_successfully
 
 services:
-  audit-archive:
-    profiles: !reset []
-    environment:
-      ENV: production
-      POSTGRES_SSLMODE: verify-full
-      NODE_EXTRA_CA_CERTS: /run/secrets/postgres_ca
-      POSTGRES_PASSWORD: ${POSTGRES_AUDIT_ARCHIVE_PASSWORD:?Define POSTGRES_AUDIT_ARCHIVE_PASSWORD in .env}
-    secrets: [postgres_ca]
-
   store-verifier:
     environment:
       ENV: production
@@ -73,7 +62,6 @@ services:
       HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ${POSTGRES_MIGRATE_PASSWORD:?Define POSTGRES_MIGRATE_PASSWORD in .env}
       HISTAE_BOOTSTRAP_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Define POSTGRES_APP_PASSWORD in .env}
       HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ${POSTGRES_PHONE_SYNC_PASSWORD:?Define POSTGRES_PHONE_SYNC_PASSWORD in .env}
-      HISTAE_BOOTSTRAP_AUDIT_ARCHIVE_PASSWORD: ${POSTGRES_AUDIT_ARCHIVE_PASSWORD:?Define POSTGRES_AUDIT_ARCHIVE_PASSWORD in .env}
       POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
       PGDATA: /var/lib/postgresql/18/docker
     volumes:

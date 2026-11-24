@@ -46,7 +46,7 @@ Valider sans afficher les secrets avec `docker compose … config --quiet`.
 ## Configuration locale minimale
 
 Créer `.env` et remplacer les secrets applicatifs par des valeurs distinctes ; le préparateur génère
-séparément les mots de passe PostgreSQL.
+séparément les quatre mots de passe PostgreSQL.
 Pour chaque valeur, `openssl rand -hex 32` produit 32 octets encodés en hexadécimal. Les clés téléphone
 acceptent ce format de 64 caractères ; `JWT_SECRET` exige au moins 32 octets.
 
@@ -92,7 +92,7 @@ METRICS_ENABLED=false
 ```
 
 `SMS_PROVIDER=disabled` ne livre aucun SMS. Pour une connexion OTP réelle, configurer Sweego.
-`python3 scripts/prepare-postgres-roles-env.py .env` prépare les mots de passe des rôles sans les afficher.
+`python3 scripts/prepare-postgres-roles-env.py .env` prépare les quatre mots de passe sans les afficher.
 Une base dev existante doit être convertie avant recréation selon [Rôles PostgreSQL](../database/postgres-roles.md).
 Les documents juridiques omis en développement reçoivent une version `development-unversioned` et des
 URLs `example.invalid` ; les remplacer pour tester un parcours réaliste.

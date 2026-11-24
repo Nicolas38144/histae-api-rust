@@ -88,7 +88,3 @@ path = "src/bin/storage_init.rs"
 [[bin]]
 name = "phone-blocklist-sync"
 path = "src/bin/phone_blocklist_sync.rs"
-
-[[bin]]
-name = "audit-archive"
-path = "src/bin/audit_archive.rs"
