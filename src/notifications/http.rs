@@ -130,6 +130,11 @@ fn device_error(error: DeviceError) -> ApiError {
             "authentication_required",
             "A valid mobile session is required.",
         ),
+        DeviceError::AccountLimitReached => ApiError::new(
+            StatusCode::CONFLICT,
+            "device_limit_reached",
+            "The account already has the maximum number of push devices.",
+        ),
         DeviceError::NotFound => ApiError::new(
             StatusCode::NOT_FOUND,
             "device_not_found",

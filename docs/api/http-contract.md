@@ -446,7 +446,9 @@ Erreurs : `400 invalid_reward_request`, `400 invalid_reward_id`, `400 invalid_ad
 | PUT | `/api/matches/:id/notification-preferences` | `{ muted, muted_until? }` → `200` avec le choix privé ; `false`/`null` réactive, `true`/`null` désactive sans échéance, une date future doit être à 31 jours maximum. |
 | GET | `/api/users/me/events` | Flux SSE authentifié `text/event-stream`. |
 
-L’appareil expose UUID, `session_id`, plateforme, version et dates d’usage ; la session vient du Bearer, pas du corps client. Un token fournisseur déjà connu est réaffecté/rafraîchi de façon idempotente. Une ancienne liaison peut avoir `session_id: null`.
+L’appareil expose UUID, `session_id`, plateforme, version et dates d’usage. La session vient du Bearer. Une session a un seul appareil push. Un nouveau token remplace l’ancien pour cette session. Réinscrire le même token dans la même session conserve l’UUID. Le transférer vers une autre session ou un autre compte crée une nouvelle liaison et invalide les livraisons en file pour l’ancienne.
+
+Un compte peut enregistrer jusqu’à trois appareils. Une inscription qui dépasserait ce plafond renvoie `409 device_limit_reached`. Les appareils dont la session a expiré ou a été révoquée sont purgés lors d’une inscription réussie. Une liaison historique peut avoir `session_id: null` et compte dans le plafond. Le listage renvoie au plus trois appareils, classés par dernier usage connu. Chaque notification crée au plus trois livraisons, en privilégiant les appareils éligibles les plus récemment utilisés.
 
 Les préférences exigent une session mobile avec onboarding terminé. Les sourdines ne sont accessibles
 qu’au participant demandeur, pour un match ouvert et non expiré, sans blocage entre comptes actifs.

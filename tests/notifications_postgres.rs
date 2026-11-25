@@ -11,7 +11,7 @@ use histae_api_rust::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use histae_api_rust::notifications::delivery::{
     NotificationDeliveryStore, PgNotificationDeliveryStore,
 };
-use histae_api_rust::notifications::devices::DeviceStore;
+use histae_api_rust::notifications::devices::{DeviceError, DeviceStore};
 use histae_api_rust::notifications::domain::{
     DevicePlatform, DeviceRegistration, NotificationIntent,
 };
@@ -381,6 +381,114 @@ async fn devices_and_notification_jobs_preserve_transactions_deduplication_and_e
     database.close().await;
     cleanup_result?;
     test_result
+}
+
+#[tokio::test]
+async fn push_device_limits_and_binding_changes_apply_to_queued_deliveries()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&local_config()?).await?;
+    let user_id = Uuid::new_v4();
+    let other_user = Uuid::new_v4();
+    let sessions: [Uuid; 4] = std::array::from_fn(|_| Uuid::new_v4());
+    let other_session = Uuid::new_v4();
+    fixture(&database, user_id, &sessions).await?;
+    fixture(&database, other_user, &[other_session]).await?;
+    let devices = PgNotificationRepository::new(database.clone());
+    let delivery = PgNotificationDeliveryStore::new(database.clone());
+    let registration = |number| DeviceRegistration {
+        token: format!("fixture-device-{user_id}-{number}"),
+        platform: DevicePlatform::Ios,
+        app_version: None,
+        language: None,
+    };
+    let mut jobs = Vec::new();
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let mut initial = Vec::new();
+        for (index, session_id) in sessions[..2].iter().copied().enumerate() {
+            initial.push(devices.register(user_id, session_id, registration(index)).await?
+                .ok_or(FixtureError("initial_device"))?);
+        }
+        let (left, right) = tokio::join!(
+            devices.register(user_id, sessions[2], registration(2)),
+            devices.register(user_id, sessions[3], registration(3)),
+        );
+        let (empty_slot, third_device) = match (left, right) {
+            (Ok(Some(device)), Err(DeviceError::AccountLimitReached)) => (3, device),
+            (Err(DeviceError::AccountLimitReached), Ok(Some(device))) => (2, device),
+            _ => return Err(FixtureError("concurrent_device_limit").into()),
+        };
+
+        // Verify the independent list and fan-out limits with historical data above the cap.
+        let mut connection = database.acquire().await?;
+        let overflow: Vec<Uuid> = sqlx::query_scalar(
+            "INSERT INTO device_token (user_id, token, platform)
+             SELECT $1, $2 || suffix, 'ios' FROM generate_series(1, 2) AS suffix RETURNING id",
+        )
+        .bind(user_id)
+        .bind(format!("legacy-device-{user_id}-"))
+        .fetch_all(&mut *connection)
+        .await?;
+        assert_eq!(devices.list(user_id).await?.len(), 3);
+        let opened_session = sessions[empty_slot];
+        let intent = NotificationIntent::NewSession { session_id: opened_session };
+        database.transaction(|connection| Box::pin(async move {
+            enqueue_notification(connection, user_id, &opened_session.to_string(), &intent).await
+        })).await?;
+        let queued: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            "SELECT d.device_id, d.id FROM notification_push_delivery d
+             JOIN notification n ON n.id = d.notification_id
+             JOIN outbox_event o ON o.id = d.id WHERE n.user_id = $1",
+        ).bind(user_id).fetch_all(&mut *connection).await?;
+        jobs.extend(queued.iter().map(|(_, id)| *id));
+        assert_eq!(jobs.len(), 3);
+        assert!(queued.iter().all(|(id, _)| !overflow.contains(id)));
+        sqlx::query("DELETE FROM device_token WHERE id = ANY($1::uuid[])")
+            .bind(&overflow).execute(&mut *connection).await?;
+        drop(connection);
+        let job_for = |device_id: Uuid| queued.iter().find_map(|(device, job)|
+            (*device == device_id).then_some(*job)).ok_or(FixtureError("device_job"));
+
+        let replaced_job = job_for(initial[1].id)?;
+        let replacement = devices.register(user_id, sessions[1], registration(4)).await?
+            .ok_or(FixtureError("replacement_device"))?;
+        assert_ne!(replacement.id, initial[1].id);
+        assert_eq!(devices.list(user_id).await?.len(), 3);
+        assert!(delivery.find_deliverable(replaced_job).await?.is_none());
+
+        let transferred_job = job_for(initial[0].id)?;
+        let previous = delivery.find_deliverable(transferred_job).await?
+            .ok_or(FixtureError("original_delivery"))?;
+        let transferred = devices.register(other_user, other_session, registration(0)).await?
+            .ok_or(FixtureError("transferred_device"))?;
+        assert_ne!(transferred.id, previous.device_id);
+        assert!(delivery.find_deliverable(transferred_job).await?.is_none());
+        delivery.remove_token(&previous.token, Some(previous.device_id)).await?;
+        assert_eq!(devices.list(other_user).await?[0].id, transferred.id);
+        let returned = devices.register(user_id, sessions[0], registration(0)).await?
+            .ok_or(FixtureError("returned_device"))?;
+        assert_ne!(returned.id, previous.device_id);
+        assert!(delivery.find_deliverable(transferred_job).await?.is_none());
+
+        let revoked_job = job_for(third_device.id)?;
+        assert!(delivery.find_deliverable(revoked_job).await?.is_some());
+        let mut connection = database.acquire().await?;
+        sqlx::query("UPDATE refresh_token_family SET revoked_at = clock_timestamp(), revocation_reason = 'logout' WHERE id = $1")
+            .bind(third_device.session_id).execute(&mut *connection).await?;
+        drop(connection);
+        assert!(delivery.find_deliverable(revoked_job).await?.is_none());
+        assert!(devices.register(user_id, opened_session, registration(empty_slot)).await?.is_some());
+        let active_devices = devices.list(user_id).await?;
+        assert_eq!(active_devices.len(), 3);
+        assert!(active_devices.iter().all(|device| device.id != third_device.id));
+        Ok(())
+    }.await;
+
+    let first_cleanup = cleanup(&database, user_id, &jobs).await;
+    let second_cleanup = cleanup(&database, other_user, &[]).await;
+    database.close().await;
+    first_cleanup?;
+    second_cleanup?;
+    result
 }
 
 #[path = "notifications_postgres/lifecycle.rs"]

@@ -222,9 +222,9 @@ CREATE TABLE device_token (
     CONSTRAINT fk_device_session_owner FOREIGN KEY (session_id, user_id) REFERENCES refresh_token_family(id, user_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_device_session ON device_token USING btree (session_id) WHERE (session_id IS NOT NULL);
+CREATE UNIQUE INDEX idx_device_session ON device_token USING btree (session_id) WHERE (session_id IS NOT NULL);
 
-CREATE INDEX idx_device_token_user ON device_token USING btree (user_id);
+CREATE INDEX idx_device_token_user ON device_token USING btree (user_id, last_used_at DESC NULLS LAST, id);
 
 -- Profils, consentements et catalogues
 

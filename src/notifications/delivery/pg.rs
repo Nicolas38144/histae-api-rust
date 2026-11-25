@@ -18,7 +18,7 @@ use crate::{
 // Reuse SQL text only. Access and state are checked afresh on every delivery.
 static PENDING_PUSH_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        r#"SELECT n.id AS notification_id, d.token, n.type, n.payload,
+        r#"SELECT n.id AS notification_id, d.id AS device_id, d.token, n.type, n.payload,
                  LEAST(n.expires_at, m.expires_at, session.expires_at, opened_session.expires_at,
                        continuation.expires_at) AS expires_at,
                  COALESCE(d.language, account.preferred_language) AS language,
@@ -130,6 +130,7 @@ impl PgNotificationDeliveryStore {
             )
             .ok_or(DatabaseError::QueryFailed)?,
             notification_id: row.try_get("notification_id").map_err(map_sqlx_error)?,
+            device_id: row.try_get("device_id").map_err(map_sqlx_error)?,
             partner_firstname: row.try_get("partner_firstname").map_err(map_sqlx_error)?,
             expires_at: row.try_get("expires_at").map_err(map_sqlx_error)?,
             token: row.try_get("token").map_err(map_sqlx_error)?,
@@ -147,13 +148,20 @@ impl NotificationDeliveryStore for PgNotificationDeliveryStore {
         Box::pin(self.pending(id))
     }
 
-    fn remove_token<'a>(&'a self, token: &'a str) -> DeliveryStoreFuture<'a, ()> {
+    fn remove_token<'a>(
+        &'a self,
+        token: &'a str,
+        device_id: Option<Uuid>,
+    ) -> DeliveryStoreFuture<'a, ()> {
         Box::pin(async move {
-            sqlx::query("DELETE FROM device_token WHERE token = $1")
-                .bind(token)
-                .execute(self.database.pool())
-                .await
-                .map_err(map_sqlx_error)?;
+            sqlx::query(
+                "DELETE FROM device_token WHERE token = $1 AND ($2::uuid IS NULL OR id = $2)",
+            )
+            .bind(token)
+            .bind(device_id)
+            .execute(self.database.pool())
+            .await
+            .map_err(map_sqlx_error)?;
             Ok(())
         })
     }

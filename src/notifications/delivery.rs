@@ -23,6 +23,7 @@ use crate::outbox::worker::{DispatchFuture, OutboxHandler};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingPush {
     pub notification_id: Uuid,
+    pub device_id: Uuid,
     pub language: Language,
     pub token: String,
     pub notification_type: NotificationType,
@@ -36,7 +37,11 @@ pub type DeliveryStoreFuture<'a, T> =
 
 pub trait NotificationDeliveryStore: Send + Sync {
     fn find_deliverable(&self, id: Uuid) -> DeliveryStoreFuture<'_, Option<PendingPush>>;
-    fn remove_token<'a>(&'a self, token: &'a str) -> DeliveryStoreFuture<'a, ()>;
+    fn remove_token<'a>(
+        &'a self,
+        token: &'a str,
+        device_id: Option<Uuid>,
+    ) -> DeliveryStoreFuture<'a, ()>;
 }
 
 #[derive(Clone)]
@@ -60,16 +65,7 @@ impl NotificationPushHandler {
             return Ok(());
         };
         let data = allowlisted_data(&pending)?;
-        self.push
-            .send_personalized(
-                &pending.token,
-                pending.notification_type,
-                data,
-                pending.language,
-                pending.partner_firstname.as_deref(),
-                pending.expires_at,
-            )
-            .await
+        self.push.send_personalized(&pending, data).await
     }
 }
 
@@ -280,7 +276,11 @@ mod tests {
             Box::pin(async move { Ok(pending) })
         }
 
-        fn remove_token<'a>(&'a self, _token: &'a str) -> DeliveryStoreFuture<'a, ()> {
+        fn remove_token<'a>(
+            &'a self,
+            _token: &'a str,
+            _device_id: Option<Uuid>,
+        ) -> DeliveryStoreFuture<'a, ()> {
             Box::pin(async { Ok(()) })
         }
     }
@@ -325,6 +325,7 @@ mod tests {
         let handler = NotificationPushHandler::new(
             Arc::new(Store {
                 pending: Some(PendingPush {
+                    device_id: Uuid::new_v4(),
                     language: crate::localization::Language::Fr,
                     notification_id,
                     token: "generated-device-token".to_owned(),

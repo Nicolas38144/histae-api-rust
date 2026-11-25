@@ -5,14 +5,15 @@ use sqlx::PgConnection;
 use sqlx::types::Json;
 use uuid::Uuid;
 
+use super::devices::MAX_DEVICES_PER_ACCOUNT;
 use super::domain::NotificationIntent;
 use super::eligibility::{ACCOUNT_NOTIFICATION_ELIGIBLE_SQL, PUSH_PREFERENCES_ELIGIBLE_SQL};
 use crate::infra::postgres::{DatabaseError, map_sqlx_error};
 
 static ENQUEUE_NOTIFICATION_SQL: OnceLock<String> = OnceLock::new();
 
-/// Persists the inbox notification, one outbox job per currently eligible device,
-/// and the delivery references on the caller's business transaction.
+/// Persists the inbox notification and a bounded set of push jobs and delivery
+/// references on the caller's business transaction.
 pub async fn enqueue_notification(
     connection: &mut PgConnection,
     user_id: Uuid,
@@ -29,6 +30,7 @@ pub async fn enqueue_notification(
         .bind(intent.expires_at())
         .bind(intent.excluded_session_id())
         .bind(intent.kind().retention_seconds())
+        .bind(MAX_DEVICES_PER_ACCOUNT)
         .execute(connection)
         .await
         .map_err(map_sqlx_error)?;
@@ -81,9 +83,8 @@ fn enqueue_sql() -> &'static str {
               )
               ON CONFLICT (deduplication_key) DO NOTHING
               RETURNING id, user_id, type, payload
-            ), targets AS MATERIALIZED (
-              SELECT uuidv7() AS id, n.id AS notification_id,
-                     d.id AS device_id, d.session_id
+            ), eligible_devices AS (
+              SELECT n.id AS notification_id, d.id AS device_id, d.session_id
               FROM created_notification n
               JOIN device_token d ON d.user_id = n.user_id
               LEFT JOIN user_notification_preference preference ON preference.user_id=n.user_id
@@ -97,6 +98,10 @@ fn enqueue_sql() -> &'static str {
             "#,
             PUSH_PREFERENCES_ELIGIBLE_SQL,
             r#")
+              ORDER BY d.last_used_at DESC NULLS LAST, d.id
+              LIMIT $9 FOR KEY SHARE OF d
+            ), targets AS MATERIALIZED (
+              SELECT uuidv7() AS id, notification_id, device_id, session_id FROM eligible_devices
             ), jobs AS (
               INSERT INTO outbox_event (id, event_type, aggregate_id)
               SELECT id, 'notification.push', id FROM targets

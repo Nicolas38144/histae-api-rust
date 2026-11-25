@@ -13,8 +13,9 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 use url::Url;
+use uuid::Uuid;
 
-use super::delivery::NotificationDeliveryStore;
+use super::delivery::{NotificationDeliveryStore, PendingPush};
 use super::domain::NotificationType;
 use crate::config::{PushConfig, PushProvider};
 use crate::shared::clock::{Clock, SystemClock};
@@ -55,14 +56,15 @@ pub trait PushSender: Send + Sync {
 
     fn send_personalized<'a>(
         &'a self,
-        token: &'a str,
-        kind: NotificationType,
+        pending: &'a PendingPush,
         data: BTreeMap<String, String>,
-        language: Language,
-        _firstname: Option<&'a str>,
-        _expires_at: DateTime<Utc>,
     ) -> PushFuture<'a> {
-        self.send_in(token, kind, data, language)
+        self.send_in(
+            &pending.token,
+            pending.notification_type,
+            data,
+            pending.language,
+        )
     }
 }
 
@@ -191,6 +193,11 @@ struct AccessToken {
     expires_at: DateTime<Utc>,
 }
 
+struct PushTarget<'a> {
+    token: &'a str,
+    device_id: Option<Uuid>,
+}
+
 impl PushService {
     pub fn new(config: PushConfig, store: Arc<dyn NotificationDeliveryStore>) -> Self {
         Self::with_dependencies(
@@ -223,7 +230,7 @@ impl PushService {
 
     async fn send_inner(
         &self,
-        token: &str,
+        target: PushTarget<'_>,
         kind: NotificationType,
         data: BTreeMap<String, String>,
         language: Language,
@@ -248,7 +255,7 @@ impl PushService {
         public_data.insert("type".to_owned(), kind.as_str().to_owned());
         let request = json!({
             "message": {
-                "token": token,
+                "token": target.token,
                 "notification": { "title": title, "body": message },
                 "data": public_data,
                 "android": {
@@ -274,7 +281,7 @@ impl PushService {
         if explicitly_unregistered(response.body.as_ref()) {
             self.inner
                 .store
-                .remove_token(token)
+                .remove_token(target.token, target.device_id)
                 .await
                 .map_err(|_| PushDeliveryError)?;
             return Ok(());
@@ -342,7 +349,10 @@ impl PushSender for PushService {
         data: BTreeMap<String, String>,
     ) -> PushFuture<'a> {
         Box::pin(self.send_inner(
-            token,
+            PushTarget {
+                token,
+                device_id: None,
+            },
             kind,
             data,
             Language::Fr,
@@ -359,7 +369,10 @@ impl PushSender for PushService {
         language: Language,
     ) -> PushFuture<'a> {
         Box::pin(self.send_inner(
-            token,
+            PushTarget {
+                token,
+                device_id: None,
+            },
             kind,
             data,
             language,
@@ -370,14 +383,20 @@ impl PushSender for PushService {
 
     fn send_personalized<'a>(
         &'a self,
-        token: &'a str,
-        kind: NotificationType,
+        pending: &'a PendingPush,
         data: BTreeMap<String, String>,
-        language: Language,
-        firstname: Option<&'a str>,
-        expires_at: DateTime<Utc>,
     ) -> PushFuture<'a> {
-        Box::pin(self.send_inner(token, kind, data, language, firstname, expires_at))
+        Box::pin(self.send_inner(
+            PushTarget {
+                token: &pending.token,
+                device_id: Some(pending.device_id),
+            },
+            pending.notification_type,
+            data,
+            pending.language,
+            pending.partner_firstname.as_deref(),
+            pending.expires_at,
+        ))
     }
 }
 
@@ -455,6 +474,7 @@ mod tests {
         fn remove_token<'a>(
             &'a self,
             token: &'a str,
+            _device_id: Option<Uuid>,
         ) -> super::super::delivery::DeliveryStoreFuture<'a, ()> {
             Box::pin(async move {
                 self.removed
@@ -765,12 +785,17 @@ mod tests {
         ]);
         service
             .send_personalized(
-                "generated-token",
-                NotificationType::ContinuationRequested,
+                &PendingPush {
+                    notification_id: Uuid::new_v4(),
+                    device_id: Uuid::new_v4(),
+                    token: "generated-token".to_owned(),
+                    notification_type: NotificationType::ContinuationRequested,
+                    language: Language::Fr,
+                    partner_firstname: Some("Lucas".to_owned()),
+                    expires_at: now + ChronoDuration::minutes(10),
+                    payload: serde_json::Map::new(),
+                },
                 data,
-                Language::Fr,
-                Some("Lucas"),
-                now + ChronoDuration::minutes(10),
             )
             .await
             .unwrap_or_else(|_| unreachable!());
@@ -827,12 +852,17 @@ mod tests {
         );
         service
             .send_personalized(
-                "generated-token",
-                NotificationType::FirstPeriodEnding,
+                &PendingPush {
+                    notification_id: Uuid::new_v4(),
+                    device_id: Uuid::new_v4(),
+                    token: "generated-token".to_owned(),
+                    notification_type: NotificationType::FirstPeriodEnding,
+                    language: Language::Fr,
+                    partner_firstname: Some("Lucas".to_owned()),
+                    expires_at: now,
+                    payload: serde_json::Map::new(),
+                },
                 BTreeMap::new(),
-                Language::Fr,
-                Some("Lucas"),
-                now,
             )
             .await
             .unwrap_or_else(|_| unreachable!());

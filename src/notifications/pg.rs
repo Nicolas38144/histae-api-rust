@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use super::devices::{DeviceStore, DeviceStoreFuture};
+use super::devices::{DeviceError, DeviceStore, DeviceStoreFuture, MAX_DEVICES_PER_ACCOUNT};
 use super::domain::{DevicePlatform, DeviceRecord, DeviceRegistration};
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 
@@ -30,38 +30,122 @@ impl PgNotificationRepository {
         user_id: Uuid,
         session_id: Uuid,
         registration: DeviceRegistration,
-    ) -> Result<Option<DeviceRecord>, DatabaseError> {
+    ) -> Result<Option<DeviceRecord>, DeviceError> {
+        for _ in 0..2 {
+            match self
+                .register_device_once(user_id, session_id, &registration)
+                .await
+            {
+                Err(DeviceError::Database(
+                    DatabaseError::SerializationFailure | DatabaseError::Deadlock,
+                )) => {}
+                result => return result,
+            }
+        }
+        self.register_device_once(user_id, session_id, &registration)
+            .await
+    }
+
+    async fn register_device_once(
+        &self,
+        user_id: Uuid,
+        session_id: Uuid,
+        registration: &DeviceRegistration,
+    ) -> Result<Option<DeviceRecord>, DeviceError> {
+        let registration = registration.clone();
         self.database
             .transaction(|connection| {
                 Box::pin(async move {
-                    let account = sqlx::query_scalar::<_, Uuid>(
-                        "SELECT user_id FROM user_account
-                         WHERE user_id = $1 AND deleted_at IS NULL AND NOT is_banned
-                         FOR UPDATE",
+                    // Lock both accounts in the same order for transfers. Enqueue takes a
+                    // share lock on the recipient, so it cannot queue against an old binding.
+                    let accounts = sqlx::query_as::<_, (Uuid, bool)>(
+                        "SELECT user_id, deleted_at IS NULL AND NOT is_banned
+                         FROM user_account
+                         WHERE user_id = $1 OR user_id = (SELECT user_id FROM device_token WHERE token = $2)
+                         ORDER BY user_id FOR UPDATE",
                     )
+                    .bind(user_id)
+                    .bind(&registration.token)
+                    .fetch_all(&mut *connection)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                    if !accounts.contains(&(user_id, true)) {
+                        return Ok(None);
+                    }
+                    let session = sqlx::query_scalar::<_, Uuid>(
+                        "SELECT id FROM refresh_token_family
+                         WHERE id = $1 AND user_id = $2
+                           AND revoked_at IS NULL AND expires_at > clock_timestamp()
+                         FOR SHARE",
+                    )
+                    .bind(session_id)
                     .bind(user_id)
                     .fetch_optional(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
-                    if account.is_none() {
+                    if session.is_none() {
                         return Ok(None);
                     }
 
+                    sqlx::query(
+                        "DELETE FROM device_token d USING refresh_token_family session
+                         WHERE d.user_id = $1 AND session.id = d.session_id
+                           AND (session.revoked_at IS NOT NULL OR session.expires_at <= clock_timestamp())",
+                    )
+                    .bind(user_id)
+                    .execute(&mut *connection)
+                    .await
+                    .map_err(map_sqlx_error)?;
+
+                    let other_devices = sqlx::query_scalar::<_, i64>(
+                        "SELECT count(*) FROM (
+                           SELECT 1 FROM device_token WHERE user_id = $1
+                             AND session_id IS DISTINCT FROM $2 AND token <> $3 LIMIT $4
+                         ) AS other_devices",
+                    )
+                    .bind(user_id)
+                    .bind(session_id)
+                    .bind(&registration.token)
+                    .bind(MAX_DEVICES_PER_ACCOUNT)
+                    .fetch_one(&mut *connection)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                    if other_devices == MAX_DEVICES_PER_ACCOUNT {
+                        return Err(DeviceError::AccountLimitReached);
+                    }
+
+                    sqlx::query("DELETE FROM device_token WHERE session_id = $1 AND user_id = $2 AND token <> $3")
+                        .bind(session_id)
+                        .bind(user_id)
+                        .bind(&registration.token)
+                        .execute(&mut *connection)
+                        .await
+                        .map_err(map_sqlx_error)?;
+
+                    let locked_ids: Vec<_> = accounts.into_iter().map(|(id, _)| id).collect();
                     let row = sqlx::query_as::<_, DeviceTuple>(
-                        "INSERT INTO device_token
-                           (id, user_id, session_id, token, platform, app_version, created_at, last_used_at, language)
-                         SELECT $1, $2, id, $4, $5, $6, clock_timestamp(), clock_timestamp(), $7
-                         FROM refresh_token_family
-                         WHERE id = $3 AND user_id = $2
-                           AND revoked_at IS NULL AND expires_at > clock_timestamp()
-                         ON CONFLICT (token) DO UPDATE SET
-                           user_id = EXCLUDED.user_id,
-                           session_id = EXCLUDED.session_id,
-                           platform = EXCLUDED.platform,
-                           app_version = EXCLUDED.app_version,
-                           language = EXCLUDED.language,
-                           last_used_at = clock_timestamp()
-                         RETURNING id, session_id, platform, app_version, created_at, last_used_at, language",
+                        "WITH registered AS (
+                           INSERT INTO device_token
+                             (id, user_id, session_id, token, platform, app_version, created_at, last_used_at, language)
+                           VALUES ($1, $2, $3, $4, $5, $6, clock_timestamp(), clock_timestamp(), $7)
+                           ON CONFLICT (token) DO UPDATE SET
+                             id = CASE WHEN device_token.user_id = EXCLUDED.user_id
+                               AND device_token.session_id IS NOT DISTINCT FROM EXCLUDED.session_id
+                               THEN device_token.id ELSE EXCLUDED.id END,
+                             user_id = EXCLUDED.user_id,
+                             session_id = EXCLUDED.session_id,
+                             platform = EXCLUDED.platform,
+                             app_version = EXCLUDED.app_version,
+                             language = EXCLUDED.language,
+                             last_used_at = clock_timestamp()
+                           WHERE device_token.user_id = ANY($8::uuid[])
+                           RETURNING id, session_id, platform, app_version, created_at, last_used_at, language,
+                             OLD.id AS previous_id
+                         ), discarded_deliveries AS (
+                           DELETE FROM notification_push_delivery delivery USING registered
+                           WHERE registered.previous_id <> registered.id AND delivery.device_id = registered.previous_id
+                         )
+                         SELECT id, session_id, platform, app_version, created_at, last_used_at, language FROM registered",
                     )
                     .bind(Uuid::new_v4())
                     .bind(user_id)
@@ -70,10 +154,13 @@ impl PgNotificationRepository {
                     .bind(registration.platform.as_str())
                     .bind(registration.app_version)
                     .bind(registration.language.map(|language| language.as_str()))
+                    .bind(&locked_ids)
                     .fetch_optional(&mut *connection)
                     .await
-                    .map_err(map_sqlx_error)?;
-                    row.map(map_device).transpose()
+                    .map_err(map_sqlx_error)?
+                    // Another request bound the token to an account outside our lock set.
+                    .ok_or(DatabaseError::SerializationFailure)?;
+                    Ok(Some(map_device(row)?))
                 })
             })
             .await
@@ -87,9 +174,10 @@ impl PgNotificationRepository {
             "SELECT id, session_id, platform, app_version, created_at, last_used_at, language
              FROM device_token
              WHERE user_id = $1
-             ORDER BY last_used_at DESC NULLS LAST, id",
+             ORDER BY last_used_at DESC NULLS LAST, id LIMIT $2",
         )
         .bind(user_id)
+        .bind(MAX_DEVICES_PER_ACCOUNT)
         .fetch_all(self.database.pool())
         .await
         .map_err(map_sqlx_error)?
@@ -119,7 +207,7 @@ impl DeviceStore for PgNotificationRepository {
         user_id: Uuid,
         session_id: Uuid,
         registration: DeviceRegistration,
-    ) -> DeviceStoreFuture<'_, Option<DeviceRecord>> {
+    ) -> DeviceStoreFuture<'_, Option<DeviceRecord>, DeviceError> {
         Box::pin(self.register_device(user_id, session_id, registration))
     }
 

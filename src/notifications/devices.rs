@@ -1,4 +1,5 @@
 use crate::localization::Language;
+use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -9,8 +10,10 @@ use super::domain::{DevicePlatform, DeviceRecord, DeviceRegistration, PublicDevi
 use crate::infra::postgres::DatabaseError;
 use crate::shared::text::javascript_trim;
 
-pub type DeviceStoreFuture<'a, T> =
-    Pin<Box<dyn Future<Output = Result<T, DatabaseError>> + Send + 'a>>;
+pub(super) const MAX_DEVICES_PER_ACCOUNT: i64 = 3;
+
+pub type DeviceStoreFuture<'a, T, E = DatabaseError> =
+    Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'a>>;
 
 pub trait DeviceStore: Send + Sync {
     fn register(
@@ -18,7 +21,7 @@ pub trait DeviceStore: Send + Sync {
         user_id: Uuid,
         session_id: Uuid,
         registration: DeviceRegistration,
-    ) -> DeviceStoreFuture<'_, Option<DeviceRecord>>;
+    ) -> DeviceStoreFuture<'_, Option<DeviceRecord>, DeviceError>;
 
     fn list(&self, user_id: Uuid) -> DeviceStoreFuture<'_, Vec<DeviceRecord>>;
 
@@ -104,9 +107,23 @@ impl DeviceService {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeviceError {
     AuthenticationRequired,
+    AccountLimitReached,
     NotFound,
     Database(DatabaseError),
 }
+
+impl fmt::Display for DeviceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::AuthenticationRequired => "authentication_required",
+            Self::AccountLimitReached => "device_limit_reached",
+            Self::NotFound => "device_not_found",
+            Self::Database(error) => error.safe_code(),
+        })
+    }
+}
+
+impl std::error::Error for DeviceError {}
 
 impl From<DatabaseError> for DeviceError {
     fn from(error: DatabaseError) -> Self {
@@ -135,7 +152,7 @@ mod tests {
             _user_id: Uuid,
             _session_id: Uuid,
             registration: DeviceRegistration,
-        ) -> DeviceStoreFuture<'_, Option<DeviceRecord>> {
+        ) -> DeviceStoreFuture<'_, Option<DeviceRecord>, DeviceError> {
             Box::pin(async move {
                 *self
                     .registration
@@ -144,7 +161,7 @@ mod tests {
                 self.device
                     .lock()
                     .map(|device| device.clone())
-                    .map_err(|_| DatabaseError::QueryFailed)
+                    .map_err(|_| DatabaseError::QueryFailed.into())
             })
         }
 

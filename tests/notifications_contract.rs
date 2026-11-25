@@ -18,7 +18,9 @@ use histae_api_rust::identity::mobile::service::MobileAuthService;
 use histae_api_rust::identity::mobile::store::{MobileSessionStore, SessionStoreFuture};
 use histae_api_rust::identity::mobile::tokens::{NewRefreshToken, TokenService};
 use histae_api_rust::infra::postgres::DatabaseError;
-use histae_api_rust::notifications::devices::{DeviceService, DeviceStore, DeviceStoreFuture};
+use histae_api_rust::notifications::devices::{
+    DeviceError, DeviceService, DeviceStore, DeviceStoreFuture,
+};
 use histae_api_rust::notifications::domain::{DevicePlatform, DeviceRecord, DeviceRegistration};
 use histae_api_rust::notifications::http::{NotificationHttpState, routes};
 use serde_json::{Value, json};
@@ -123,6 +125,7 @@ struct DeviceState {
     devices: Vec<DeviceRecord>,
     registration: Option<DeviceRegistration>,
     register_result: Option<DeviceRecord>,
+    register_error: Option<DeviceError>,
     remove_result: bool,
     error: Option<DatabaseError>,
 }
@@ -133,12 +136,15 @@ impl DeviceStore for FakeDeviceStore {
         _user_id: Uuid,
         _session_id: Uuid,
         registration: DeviceRegistration,
-    ) -> DeviceStoreFuture<'_, Option<DeviceRecord>> {
+    ) -> DeviceStoreFuture<'_, Option<DeviceRecord>, DeviceError> {
         Box::pin(async move {
             let mut state = self.state.lock().map_err(|_| DatabaseError::QueryFailed)?;
             state.registration = Some(registration);
-            if let Some(error) = state.error {
+            if let Some(error) = state.register_error {
                 return Err(error);
+            }
+            if let Some(error) = state.error {
+                return Err(error.into());
             }
             Ok(state.register_result.clone())
         })
@@ -359,7 +365,7 @@ async fn rejects_invalid_and_privileged_payload_fields_with_the_nest_error() {
 }
 
 #[tokio::test]
-async fn distinguishes_invalid_ids_unknown_devices_and_stale_sessions() {
+async fn distinguishes_invalid_ids_unknown_devices_stale_sessions_and_full_accounts() {
     let store = FakeDeviceStore::default();
     let (app, token) = app(store.clone(), true);
     let invalid = app
@@ -394,12 +400,15 @@ async fn distinguishes_invalid_ids_unknown_devices_and_stale_sessions() {
         "device_not_found"
     );
 
+    let registration_body =
+        r#"{"push_token":"provider-token-with-enough-characters","platform":"ios"}"#;
     let stale = app
+        .clone()
         .oneshot(request(
             "POST",
             "/api/users/me/devices",
             Some(&token),
-            r#"{"push_token":"provider-token-with-enough-characters","platform":"ios"}"#,
+            registration_body,
         ))
         .await
         .expect("response");
@@ -407,6 +416,22 @@ async fn distinguishes_invalid_ids_unknown_devices_and_stale_sessions() {
     assert_eq!(
         json_body(stale).await,
         json!({"error":{"code":"authentication_required","message":"A valid mobile session is required."}})
+    );
+
+    store.state.lock().expect("state").register_error = Some(DeviceError::AccountLimitReached);
+    let full = app
+        .oneshot(request(
+            "POST",
+            "/api/users/me/devices",
+            Some(&token),
+            registration_body,
+        ))
+        .await
+        .expect("response");
+    assert_eq!(full.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        json_body(full).await["error"]["code"],
+        "device_limit_reached"
     );
 }
 
