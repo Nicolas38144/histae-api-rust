@@ -292,7 +292,7 @@ certificat public S3 et installer les fichiers sont dans [Secrets de production]
 | `.secrets/postgres/server.key` | Clé sans passphrase, propriétaire PostgreSQL en `0600`, ou root:groupe PostgreSQL en `0640` |
 | `.secrets/postgres/ca.crt` | Autorité publique lisible par les clients applicatifs UID 1000 et Redis |
 | `.secrets/redis/server.crt` et `server.key` | SAN `DNS:redis`, même CA ; clé lisible par l’UID Redis, accès restreint |
-| `.secrets/seaweedfs/s3.json` | Identité S3 correspondant exactement aux clés applicatives |
+| `.secrets/seaweedfs/s3.json` | Identité applicative avec `Read` et `Write` sur le seul `OBJECT_STORAGE_BUCKET` |
 | `.secrets/storage-gateway/server.crt` et `server.key` | Certificat du domaine `HISTAE_STORAGE_HOST`, chaîne reconnue par les clients ; clé lisible par UID/GID 101 |
 
 Vérifier les UID avant d’attribuer les permissions, par exemple :
@@ -310,15 +310,8 @@ Le mot de passe `REDIS_PASSWORD` sert à créer le fichier ACL en mémoire au d�
 Le compte applicatif peut incrémenter les quotas sous `histae:rate-limit:*` et utiliser le canal
 `histae:mobile-events:v1`. Les quotas fixent leur délai via une transaction Redis.
 
-Exemple de structure `s3.json`, avec des placeholders à remplacer :
-
-```json
-{"identities":[{"name":"histae","credentials":[{"accessKey":"REPLACE_ACCESS_KEY","secretKey":"REPLACE_SECRET_KEY"}],"actions":["Admin","Read","Write","List","Tagging"]}]}
-```
-
-Cette identité serveur initialise le bucket privé ; ne jamais la fournir au mobile. `storage-init` vérifie ou
-crée le bucket via S3, puis termine avec le code 0. SeaweedFS persiste objets et métadonnées ; cela ne fournit
-ni sauvegarde automatique ni haute disponibilité.
+`storage-init` vérifie le bucket privé avec la clé applicative. Sur un volume neuf, créer d’abord le
+bucket avec une identité temporaire dédiée. [Procédure S3](production-secrets.md#créer-le-bucket-sur-un-volume-neuf).
 
 Compose impose `OBJECT_STORAGE_ENDPOINT=https://<HISTAE_STORAGE_HOST>` en mode path-style. Sur le réseau
 interne `storage-clients`, ce nom résout vers `storage-internal`, qui accepte `HEAD`, `PUT` et `DELETE`.
@@ -353,6 +346,11 @@ puis recréer dashboard et Caddy depuis leur dossier. Le backend de production e
 ```bash
 sudo docker network inspect histae-backend >/dev/null 2>&1 || sudo docker network create histae-backend
 sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml config --quiet
+```
+
+Sur un volume SeaweedFS neuf, [créer le bucket avec l’identité temporaire](production-secrets.md#créer-le-bucket-sur-un-volume-neuf) avant de démarrer la pile.
+
+```bash
 sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml up -d --build --wait
 sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml ps --all
 sudo docker exec reverse-proxy-container sh -c 'wget -qO- "$HISTAE_API_UPSTREAM/health/ready"'

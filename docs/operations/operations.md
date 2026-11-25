@@ -10,7 +10,7 @@
 | `outbox` / `outbox-worker` | Effets durables : envois OTP mobiles, suppression photo, push, effacement de compte et réconciliation Apple/Google | Permanent, claims et retries bornés |
 | `maintenance` | Matchs et inactivité 10/23/30, photos, rétention RGPD, programmation des relectures Apple/Google | Une passe puis sortie |
 | `db-migrate` / `migrate` | Installation et mise à niveau PostgreSQL | Une exécution puis sortie |
-| `storage-init` | Vérification/création du bucket privé de production | Une exécution puis sortie |
+| `storage-init` | Vérifie le bucket privé. `--create` crée le bucket avec l’identité temporaire | Une exécution puis sortie |
 | `admin-bootstrap` | Émission d’un jeton d’enrôlement administratif | Une exécution avec UUID puis sortie |
 | `contract-compare` | Comparaison explicite de deux API isolées | Outil de validation ; voir [Tests](../../tests/README.md#comparaison-de-deux-api) |
 

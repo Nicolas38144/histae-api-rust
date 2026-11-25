@@ -10,7 +10,7 @@ des rôles métier `user`, `admin` et `superadmin` de Histae.
 | `histae_admin` | PostgreSQL et administration manuelle | Superuser ; initialise les rôles et les extensions |
 | `histae_migrate` | `migrate` | Propriétaire du schéma `public` et des objets applicatifs ; aucun privilège superuser, création de base ou de rôle |
 | `histae_phone_sync` | `phone-blocklist-sync` | Lecture des quatre tables de politique ; insertion des empreintes et mise à jour des observations et statuts ; aucun accès aux comptes ou aux décisions manuelles |
-| `histae_app` | API, outbox, maintenance et `storage-init` en production | Connexion, usage du schéma, DML applicatif, séquences et fonctions nécessaires ; aucun DDL ou rôle privilégié |
+| `histae_app` | API, outbox et maintenance en production | Connexion, usage du schéma, DML applicatif, séquences et fonctions nécessaires ; aucun DDL ou rôle privilégié |
 
 Le migrateur crée les tables et fonctions ; leurs privilèges par défaut donnent les accès nécessaires à
 l'application, y compris pour les futurs objets. Les objets des extensions restent possédés par

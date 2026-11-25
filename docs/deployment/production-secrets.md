@@ -73,19 +73,17 @@ Parcours : [S3](#1-clés-s3-et-identité-seaweedfs), [supervision](#2-token-des-
 
 ## 1. Clés S3 et identité SeaweedFS
 
-Générer deux valeurs dédiées et les reporter dans le `.env` API :
+Générer deux valeurs dédiées au service applicatif et les reporter dans le `.env` API.
 
 ```bash
 printf 'OBJECT_STORAGE_ACCESS_KEY=histae-production-%s\n' "$(openssl rand -hex 8)"
 printf 'OBJECT_STORAGE_SECRET_KEY=%s\n' "$(openssl rand -hex 32)"
 ```
 
-Ces commandes affichent volontairement les valeurs dans ton terminal pour les copier.
-Ne pas remplacer des identifiants S3 déjà utilisés sans coordonner leur rotation.
+Ces commandes affichent les valeurs dans le terminal pour les copier. Sur une pile existante, planifier la rotation avec le redéploiement de l’API.
 
-Si aucun `s3.json` n'existe sur le serveur, le préparateur le créera à partir du `.env`.
-Si tu utilises le modèle fourni, renseigner manuellement les **mêmes deux valeurs** dans
-`.secrets/seaweedfs/s3.json` :
+Le préparateur génère `.secrets/seaweedfs/s3.json` à partir du `.env` lorsque le fichier est absent.
+Le modèle suivant utilise `histae-photos` comme exemple. Remplacer ce nom dans les deux actions par la valeur exacte de `OBJECT_STORAGE_BUCKET` et renseigner les mêmes clés que dans le `.env`.
 
 ```json
 {
@@ -95,13 +93,15 @@ Si tu utilises le modèle fourni, renseigner manuellement les **mêmes deux vale
       "accessKey": "REPLACE_OBJECT_STORAGE_ACCESS_KEY",
       "secretKey": "REPLACE_OBJECT_STORAGE_SECRET_KEY"
     }],
-    "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    "actions": ["Read:histae-photos", "Write:histae-photos"]
   }]
 }
 ```
 
-Les valeurs `REPLACE_…` restent fictives ; elles n'authentifient aucune requête réelle.
-L'identité doit rester celle du serveur, jamais celle d'un client mobile.
+Cette identité serveur permet de vérifier le bucket, lire les photos, les téléverser et les supprimer.
+Sur une installation existante, conserver le nom de l’identité liée au bucket. Installer les nouvelles
+clés dans le `.env` et le JSON lors de la même mise à jour, retirer les anciennes clés et recréer le
+conteneur SeaweedFS afin qu’il charge le fichier à jour. Conserver le volume existant.
 
 Depuis la racine API, avec le compte propriétaire du `.env` :
 
@@ -117,10 +117,37 @@ chmod 600 .env ../histae-reverse-proxy/.env
 Le fichier monté peut être lu par le conteneur, tandis que les dossiers privés restreignent son
 accès sur l'hôte. Les secrets de supervision déjà cohérents peuvent être conservés.
 
-Le nom du bucket est défini par `OBJECT_STORAGE_BUCKET`. Le service `storage-init` vérifie ou crée
-ce bucket au démarrage ; il ne rend pas les photos publiques. L'API fournit les accès nécessaires
-aux clients au moyen d'URL signées. Le JSON d'identité et le `.env` doivent rester cohérents : générer
-une nouvelle clé dans un seul des deux fichiers ferait échouer l'authentification S3.
+### Créer le bucket sur un volume neuf
+
+Depuis la racine de l’API, dans une session autorisée à utiliser Docker, préparer l’image applicative,
+le certificat S3 et les réseaux de production. Générer une paire S3 temporaire distincte, puis ajouter
+une seconde entrée dans `identities` avec le nom `histae-storage-bootstrap`, ces clés et les actions
+`Read:histae-photos` et `Admin:histae-photos`. Utiliser le nom exact du bucket dans les deux actions.
+Garder ces clés temporaires dans le gestionnaire de secrets pendant l’opération.
+
+```bash
+dc=(docker compose --env-file "${HISTAE_ENV_FILE:-.env}" -f compose.yaml -f compose.production.yaml)
+"${dc[@]}" build api &&
+"${dc[@]}" up -d --wait --force-recreate object-storage storage-internal &&
+(
+  read -rs -p 'Clé d’accès temporaire S3 : ' OBJECT_STORAGE_ACCESS_KEY && printf '\n' &&
+  read -rs -p 'Clé secrète temporaire S3 : ' OBJECT_STORAGE_SECRET_KEY && printf '\n' &&
+  export OBJECT_STORAGE_ACCESS_KEY OBJECT_STORAGE_SECRET_KEY &&
+  "${dc[@]}" run --rm --no-deps -e OBJECT_STORAGE_ACCESS_KEY -e OBJECT_STORAGE_SECRET_KEY storage-init --create
+)
+```
+
+Après la tentative, retirer l’entrée temporaire de `s3.json`, recréer SeaweedFS et éliminer la paire
+temporaire. Ces étapes s’appliquent aussi en cas d’échec de la création.
+
+```bash
+"${dc[@]}" up -d --wait --force-recreate object-storage
+"${dc[@]}" run --rm --no-deps storage-init
+```
+
+Le second appel vérifie l’accès au bucket avec la clé d’exécution. Les déploiements ordinaires font
+ce même contrôle au démarrage. Pour un bucket existant, commencer directement avec la seule identité
+applicative et vérifier la lecture d’une photo signée après le redéploiement.
 
 ## 2. Token des métriques et mot de passe initial Grafana
 
@@ -746,13 +773,14 @@ Le reset centralisé sélectionne `compose.yaml`, `compose.production.yaml` et
 5. Crée le backend production s'il manque ; la pile proxy crée les réseaux edge et monitoring.
 6. Démarre le proxy, le site, le dashboard et Cloudflared, puis les services API de production
    et la supervision. Les dépendances imposent la disponibilité PostgreSQL/Redis, les migrations,
-   l'initialisation du bucket et la modération avant le démarrage de l'API et du worker outbox.
+   la vérification du bucket et la modération avant le démarrage de l'API et du worker outbox.
 7. Exécute une passe de maintenance, contrôle la readiness depuis Caddy, vérifie Prometheus et
    les règles d'alerte, puis affiche les services et la durée.
 
 Les trois réseaux backend, edge et monitoring doivent correspondre à la configuration retenue,
 avec les noms communs cohérents entre dépôts. Les fichiers du tunnel, ses credentials, les secrets
-et les certificats doivent déjà exister. Prévoir assez de RAM et d'espace disque pour les images,
+et les certificats doivent déjà exister. Sur un volume neuf, [créer le bucket S3](#créer-le-bucket-sur-un-volume-neuf)
+avant de lancer le reset. Prévoir assez de RAM et d'espace disque pour les images,
 les builds et les données ; le dimensionnement actuel est décrit dans le
 [guide de déploiement](container-deployment.md#ressources).
 
@@ -800,8 +828,7 @@ Après avoir configuré les fournisseurs et corrigé les permissions, la séquen
 ```bash
 cd ~/Projects/Histae/histae-scripts &&
   sudo bash prepare-production.sh --check &&
-  sudo bash docker-nuke.sh &&
-  sudo bash reset-docker-compose.sh --production
+  sudo bash docker-nuke.sh
 ```
 
 Saisir `NUKE` lorsque le script le demande. Les `&&` arrêtent l'enchaînement si une étape échoue
@@ -811,9 +838,9 @@ le reset reconstruit les images applicatives/PostgreSQL, télécharge les autres
 et recrée les réseaux et volumes. Cette première reconstruction sera plus longue, car le cache
 Docker a lui aussi été effacé. `--full` n'est pas nécessaire lorsque les conteneurs ont été supprimés.
 
-Les mêmes `.env`, secrets et certificats hôtes restent utilisés ; il ne faut pas les régénérer
-uniquement parce que les volumes dev ont été effacés. La nouvelle base production sera initialisée
-par les migrations, et le stockage par `storage-init`. Ensuite, créer le premier compte en
+Réutiliser les `.env`, secrets et certificats hôtes. Créer le bucket sur le volume neuf selon la
+[procédure S3](#créer-le-bucket-sur-un-volume-neuf), puis lancer `sudo bash reset-docker-compose.sh --production`
+depuis `histae-scripts`. Les migrations initialisent la base. Créer ensuite le premier compte de
 production et suivre la section 7.3 pour son rôle superadmin et sa passkey.
 
 Une fois des données de production à conserver présentes, utiliser le reset normal pour les

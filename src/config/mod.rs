@@ -5,6 +5,7 @@ pub use phone_blocklist::PhoneBlocklistSyncConfig;
 mod environment;
 mod error;
 mod loader;
+mod object_storage;
 mod play_review;
 mod stores;
 mod types;

@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
-use histae_api_rust::config::AppConfig;
-use histae_api_rust::media::S3ObjectStorage;
+use histae_api_rust::config::ObjectStorageConfig;
+use histae_api_rust::media::{S3ObjectStorage, storage::PhotoObjectStorage};
 use histae_api_rust::operations::logging;
 
 #[tokio::main]
@@ -9,7 +9,19 @@ async fn main() -> ExitCode {
     if logging::init().is_err() {
         return ExitCode::FAILURE;
     }
-    let config = match AppConfig::from_env() {
+    let mut arguments = std::env::args_os().skip(1);
+    let create = match (arguments.next(), arguments.next()) {
+        (None, None) => false,
+        (Some(flag), None) if flag == "--create" => true,
+        _ => {
+            let _ = logging::error(
+                "object_storage_initialization_failed",
+                Some("invalid_arguments"),
+            );
+            return ExitCode::FAILURE;
+        }
+    };
+    let config = match ObjectStorageConfig::from_env() {
         Ok(config) => config,
         Err(error) => {
             let _ = logging::error(
@@ -19,8 +31,9 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let result = match S3ObjectStorage::new(&config.object_storage) {
-        Ok(storage) => storage.ensure_bucket().await,
+    let result = match S3ObjectStorage::new(&config) {
+        Ok(storage) if create => storage.ensure_bucket().await,
+        Ok(storage) => storage.check().await,
         Err(error) => Err(error),
     };
     match result {

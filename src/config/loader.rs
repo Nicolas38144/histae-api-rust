@@ -121,43 +121,7 @@ impl AppConfig {
 
         let postgres = super::database::load(source, environment)?;
 
-        let object_access = source.or(
-            "OBJECT_STORAGE_ACCESS_KEY",
-            if environment == Environment::Production {
-                ""
-            } else {
-                "histae-dev"
-            },
-        )?;
-        let object_secret = source.or(
-            "OBJECT_STORAGE_SECRET_KEY",
-            if environment == Environment::Production {
-                ""
-            } else {
-                "histae-dev-secret-change-me"
-            },
-        )?;
-        if object_access.is_empty() || object_secret.is_empty() {
-            return Err(ConfigError::missing("OBJECT_STORAGE_CREDENTIALS"));
-        }
-        let object_storage = ObjectStorageConfig {
-            endpoint: object_storage_endpoint(
-                &source.or(
-                    "OBJECT_STORAGE_ENDPOINT",
-                    "http://storage.histae.localhost:8333",
-                )?,
-                environment,
-            )?,
-            region: storage_region(&source.or("OBJECT_STORAGE_REGION", "us-east-1")?)?,
-            bucket: storage_bucket(&source.or("OBJECT_STORAGE_BUCKET", "histae-photos")?)?,
-            access_key: object_access,
-            secret_key: SecretString::new(object_secret),
-            force_path_style: boolean(
-                source.value("OBJECT_STORAGE_FORCE_PATH_STYLE")?.as_deref(),
-                true,
-                "OBJECT_STORAGE_FORCE_PATH_STYLE",
-            )?,
-        };
+        let object_storage = ObjectStorageConfig::from_source(source, environment)?;
 
         let access_ttl = duration(&source.or("JWT_ACCESS_TTL", "15m")?, "JWT_ACCESS_TTL")?;
         ensure_duration(
