@@ -58,6 +58,7 @@ async fn signup_intent(
     let id = Uuid::new_v4();
     PgOtpRequestStore::new(database.clone())
         .record_review(NewOtpRequest {
+            challenge_bound: false,
             id,
             phone_hash: account.phone_hash.clone(),
             encrypted_phone: Vec::new(),

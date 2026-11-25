@@ -81,7 +81,7 @@ sont facultatifs pour les plafonds et la suspension ; l’API, le worker outbox 
 
 Appliquer le migrateur, puis déployer l’API et le worker outbox compatibles avec la même configuration SMS et les mêmes clés téléphone. Le mobile utilise désormais une file `identity.otp.send` : sans worker, un `202` n’entraîne aucun envoi. Aucun déploiement n’est effectué automatiquement lors des modifications de code.
 
-Le délai de renvoi est partagé entre tous les parcours et instances pour un téléphone, même quand aucun SMS n’est prévu. Le rejeu garde le même UUID, téléphone, langue et type de parcours ; il ne prolonge pas le délai. La vérification d’un code reçu reste possible pendant cette attente. Le téléphone en attente est chiffré avec un contexte lié à l’UUID, jamais placé dans le payload outbox, et effacé après traitement. Les demandes expirées ou remplacées ne sont pas envoyées. La maintenance RGPD nettoie les métadonnées à expiration.
+Le délai de renvoi mobile est partagé entre inscription, connexion et instances pour un téléphone. Le rejeu garde le même UUID, téléphone, langue et type de parcours et laisse le délai initial en place. La vérification reste possible pendant cette attente. Le téléphone en attente est chiffré avec un contexte lié à l’UUID. Le worker efface le téléphone après traitement et acquitte les demandes expirées ou les demandes historiques remplacées. La maintenance RGPD nettoie les métadonnées à expiration.
 
 Les tests utilisent des fournisseurs simulés et une instance PostgreSQL jetable : limites par numéro, concurrence sur le budget global entre numéros et instances, fenêtres glissantes, idempotence et cooldown durables, téléphone chiffré, suspension et purge. Ils ne consomment aucun crédit Sweego. Pour les rejouer :
 

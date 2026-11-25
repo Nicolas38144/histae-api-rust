@@ -23,6 +23,11 @@ pub trait OtpStore: Send + Sync {
         reason: SmsFailureReason,
     ) -> OtpStoreFuture<'_, OtpDeliveryState>;
     fn apply_sms_event(&self, event: SmsDeliveryEvent) -> OtpStoreFuture<'_, SmsEventOutcome>;
-    fn consume(&self, phone_hash: String, otp_hash: String) -> OtpStoreFuture<'_, bool>;
+    fn consume(
+        &self,
+        phone_hash: String,
+        otp_hash: String,
+        scope: OtpScope,
+    ) -> OtpStoreFuture<'_, bool>;
     fn snapshot(&self) -> OtpStoreFuture<'_, OtpDeliverySnapshot>;
 }

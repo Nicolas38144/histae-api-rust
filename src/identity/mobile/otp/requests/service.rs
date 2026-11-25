@@ -2,7 +2,9 @@ use std::{sync::Arc, time::Duration};
 
 use uuid::Uuid;
 
-use super::{NewOtpRequest, OtpRequestStore, RequestError, cipher::RequestPhoneCipher};
+use super::{
+    NewOtpRequest, OtpRequestReceipt, OtpRequestStore, RequestError, cipher::RequestPhoneCipher,
+};
 use crate::{config::SecretString, infra::postgres::DatabaseError, localization::Language};
 
 #[derive(Clone)]
@@ -35,7 +37,8 @@ impl OtpRequestService {
         id: Uuid,
         registration: bool,
         language: Language,
-    ) -> Result<u64, RequestError> {
+        challenge_bound: bool,
+    ) -> Result<OtpRequestReceipt, RequestError> {
         let encrypted_phone = self
             .cipher
             .encrypt(id, phone)
@@ -46,6 +49,7 @@ impl OtpRequestService {
                 phone_hash,
                 encrypted_phone,
                 registration,
+                challenge_bound,
                 language,
                 ttl: self.ttl,
                 cooldown: self.cooldown,
@@ -59,13 +63,15 @@ impl OtpRequestService {
         id: Uuid,
         registration: bool,
         language: Language,
-    ) -> Result<u64, RequestError> {
+        challenge_bound: bool,
+    ) -> Result<OtpRequestReceipt, RequestError> {
         self.store
             .record_review(NewOtpRequest {
                 id,
                 phone_hash,
                 encrypted_phone: Vec::new(),
                 registration,
+                challenge_bound,
                 language,
                 ttl: self.ttl,
                 cooldown: self.cooldown,

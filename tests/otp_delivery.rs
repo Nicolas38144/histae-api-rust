@@ -10,8 +10,8 @@ use histae_api_rust::identity::mobile::account::{
     AccountStoreError, MobileAccountRepository, MobileAccountStore, NewMobileAccount,
 };
 use histae_api_rust::identity::mobile::otp::{
-    BeginOtpDelivery, OtpDeliveryStart, OtpDeliveryState, OtpRepository, OtpStore,
-    SmsDeliveryEvent, SmsEventKind, SmsEventOutcome,
+    BeginOtpDelivery, OtpChannel, OtpDeliveryStart, OtpDeliveryState, OtpRepository, OtpScope,
+    OtpStore, SmsDeliveryEvent, SmsEventKind, SmsEventOutcome,
 };
 use histae_api_rust::infra::postgres::{ConstraintKind, Database, DatabaseError, map_sqlx_error};
 use uuid::Uuid;
@@ -72,6 +72,7 @@ fn local_config() -> Result<PostgresConfig, FixtureError> {
 
 fn begin(phone_hash: &str, otp_hash: &str, idempotency_key: Uuid) -> BeginOtpDelivery {
     BeginOtpDelivery {
+        channel: OtpChannel::Mobile,
         language: histae_api_rust::localization::Language::Fr,
         id: Uuid::new_v4(),
         phone_hash: phone_hash.to_owned(),
@@ -142,7 +143,7 @@ async fn otp_repository_serializes_idempotency_callbacks_and_consumption()
 
     assert!(
         !repository
-            .consume(phone_hash.clone(), "otp-hash".to_owned())
+            .consume(phone_hash.clone(), "otp-hash".to_owned(), OtpScope::Mobile)
             .await?
     );
     assert!(
@@ -186,7 +187,7 @@ async fn otp_repository_serializes_idempotency_callbacks_and_consumption()
     assert!(!serialized.contains(&first.id.to_string()));
 
     let attempts = (0..8)
-        .map(|_| repository.consume(phone_hash.clone(), "otp-hash".to_owned()))
+        .map(|_| repository.consume(phone_hash.clone(), "otp-hash".to_owned(), OtpScope::Mobile))
         .collect::<Vec<_>>();
     let results = futures_util::future::join_all(attempts).await;
     assert_eq!(
@@ -200,6 +201,123 @@ async fn otp_repository_serializes_idempotency_callbacks_and_consumption()
     );
 
     cleanup_otp(&database, &[&phone_hash, &other_phone_hash]).await?;
+    database.close().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn verification_failures_are_atomic_and_local_to_the_issued_code()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&local_config()?).await?;
+    let repository = OtpRepository::new(database.clone());
+    let phone = format!("otp-channel-{}", Uuid::new_v4());
+    let replaced = Uuid::new_v4();
+    let legit = Uuid::new_v4();
+    for (channel, key, code) in [
+        (OtpChannel::Mobile, replaced, "legacy"),
+        (OtpChannel::MobileChallenge, replaced, "exhausted"),
+        (OtpChannel::MobileChallenge, legit, "valid"),
+        (OtpChannel::Web, replaced, "web"),
+    ] {
+        let delivery = BeginOtpDelivery {
+            channel,
+            ..begin(&phone, code, key)
+        };
+        assert_eq!(
+            repository.begin(delivery.clone()).await?,
+            OtpDeliveryStart::Created(delivery.id)
+        );
+        assert!(
+            repository
+                .mark_accepted(
+                    delivery.id,
+                    phone.clone(),
+                    format!("tx-{}", delivery.id),
+                    format!("msg-{}", delivery.id)
+                )
+                .await?
+        );
+    }
+    let outcomes = futures_util::future::join_all((0..12).map(|_| {
+        repository.consume(
+            phone.clone(),
+            "incorrect".to_owned(),
+            OtpScope::MobileChallenge(replaced),
+        )
+    }))
+    .await;
+    for outcome in outcomes {
+        assert!(!outcome?);
+    }
+    let failed: i16 = sqlx::query_scalar("SELECT verification_attempts FROM otp_verification WHERE channel='mobile_challenge' AND idempotency_key=$1")
+        .bind(replaced).fetch_one(&mut *database.acquire().await?).await?;
+    assert_eq!(failed, 5);
+    assert!(
+        !repository
+            .consume(
+                phone.clone(),
+                "exhausted".to_owned(),
+                OtpScope::MobileChallenge(replaced)
+            )
+            .await?
+    );
+    assert!(
+        !repository
+            .consume(
+                phone.clone(),
+                "valid".to_owned(),
+                OtpScope::MobileChallenge(Uuid::new_v4())
+            )
+            .await?
+    );
+    assert!(
+        repository
+            .consume(
+                phone.clone(),
+                "valid".to_owned(),
+                OtpScope::MobileChallenge(legit)
+            )
+            .await?
+    );
+    assert!(
+        repository
+            .consume(
+                phone.clone(),
+                "web".to_owned(),
+                OtpScope::WebChallenge(replaced)
+            )
+            .await?
+    );
+    for _ in 0..5 {
+        assert!(
+            !repository
+                .consume(phone.clone(), "incorrect".to_owned(), OtpScope::Mobile)
+                .await?
+        );
+    }
+    assert!(
+        !repository
+            .consume(phone.clone(), "legacy".to_owned(), OtpScope::Mobile)
+            .await?
+    );
+    let renewed = begin(&phone, "renewed", Uuid::new_v4());
+    repository.begin(renewed.clone()).await?;
+    assert!(
+        repository
+            .mark_accepted(
+                renewed.id,
+                phone.clone(),
+                "renewed-tx".to_owned(),
+                "renewed-msg".to_owned()
+            )
+            .await?
+    );
+    assert!(
+        repository
+            .consume(phone.clone(), "renewed".to_owned(), OtpScope::Mobile)
+            .await?
+    );
+    cleanup_otp(&database, &[&phone]).await?;
     database.close().await;
     Ok(())
 }
@@ -234,7 +352,11 @@ async fn newer_delivery_supersedes_ancestors_and_undelivered_is_absorbing()
     );
     assert!(
         repository
-            .consume(phone_hash.clone(), "current-hash".to_owned())
+            .consume(
+                phone_hash.clone(),
+                "current-hash".to_owned(),
+                OtpScope::Mobile
+            )
             .await?
     );
     assert_eq!(
@@ -250,7 +372,7 @@ async fn newer_delivery_supersedes_ancestors_and_undelivered_is_absorbing()
     );
     assert!(
         !repository
-            .consume(phone_hash.clone(), "old-hash".to_owned())
+            .consume(phone_hash.clone(), "old-hash".to_owned(), OtpScope::Mobile)
             .await?
     );
 

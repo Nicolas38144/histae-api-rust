@@ -61,6 +61,7 @@ pub struct OtpHttpState {
     limiter: RateLimiter,
     policy: LimitPolicy,
     requests: OtpRequestService,
+    require_challenge: bool,
 }
 
 impl OtpHttpState {
@@ -77,7 +78,13 @@ impl OtpHttpState {
             limiter,
             policy,
             requests,
+            require_challenge: false,
         }
+    }
+
+    pub fn with_required_challenge(mut self, required: bool) -> Self {
+        self.require_challenge = required;
+        self
     }
 }
 
@@ -117,6 +124,8 @@ struct SendOtpBody {
     phone_number: String,
     #[serde(default)]
     registration: bool,
+    #[serde(default)]
+    challenge_bound: bool,
 }
 
 impl ApiDto for SendOtpBody {}
@@ -125,6 +134,8 @@ impl ApiDto for SendOtpBody {}
 struct SendOtpResponse {
     message: &'static str,
     resend_after_seconds: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    challenge_id: Option<Uuid>,
 }
 
 async fn send_otp(
@@ -134,6 +145,9 @@ async fn send_otp(
     locale: Locale,
     ValidatedJson(body): ValidatedJson<SendOtpBody>,
 ) -> Result<(StatusCode, Json<SendOtpResponse>), ApiError> {
+    if state.require_challenge && !body.challenge_bound {
+        return Err(otp_challenge_required());
+    }
     let phone = OtpService::canonical_phone(&body.phone_number).map_err(otp_error)?;
     let phone_key = state
         .otp
@@ -142,7 +156,7 @@ async fn send_otp(
     state
         .limiter
         .enforce(
-            "otp-send-ip",
+            "otp-mobile-send-ip",
             &client_ip.to_string(),
             &state.policy,
             "otp_rate_limit_exceeded",
@@ -151,7 +165,7 @@ async fn send_otp(
     state
         .limiter
         .enforce(
-            "otp-send-phone",
+            "otp-mobile-send-phone",
             &phone_key,
             &state.policy,
             "otp_rate_limit_exceeded",
@@ -163,7 +177,7 @@ async fn send_otp(
     // of whether an account exists. Eligibility is never queried here.
     let id = OtpService::parse_idempotency_key(idempotency_key.as_deref()).map_err(otp_error)?;
     // Keep a durable review signup/login intent, without an SMS payload or job.
-    let resend_after_seconds = if state.login.is_review_phone(&phone) {
+    let receipt = if state.login.is_review_phone(&phone) {
         state
             .requests
             .record_review(
@@ -171,6 +185,7 @@ async fn send_otp(
                 id,
                 body.registration,
                 locale.anonymous().language,
+                body.challenge_bound,
             )
             .await
             .map_err(otp_request_error)?
@@ -185,6 +200,7 @@ async fn send_otp(
                 id,
                 body.registration,
                 locale.anonymous().language,
+                body.challenge_bound,
             )
             .await
             .map_err(otp_request_error)?
@@ -193,7 +209,8 @@ async fn send_otp(
         StatusCode::ACCEPTED,
         Json(SendOtpResponse {
             message: "Verification code request accepted.",
-            resend_after_seconds,
+            resend_after_seconds: receipt.resend_after_seconds,
+            challenge_id: receipt.challenge_id,
         }),
     ))
 }
@@ -203,6 +220,7 @@ async fn send_otp(
 struct VerifyOtpBody {
     phone_number: String,
     otp: String,
+    challenge_id: Option<Uuid>,
 }
 
 impl ApiDto for VerifyOtpBody {}
@@ -212,34 +230,54 @@ async fn verify_otp(
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
     ValidatedJson(body): ValidatedJson<VerifyOtpBody>,
 ) -> Result<Json<TokenPair>, ApiError> {
-    let phone_key = state
-        .otp
-        .rate_limit_key(&body.phone_number, OtpError::InvalidOtpRequest)
-        .map_err(otp_error)?;
     state
         .limiter
         .enforce(
-            "otp-verify-ip",
+            "otp-mobile-verify-ip",
             &client_ip.to_string(),
             &state.policy,
             "otp_rate_limit_exceeded",
         )
         .await?;
-    state
-        .limiter
-        .enforce(
-            "otp-verify-phone",
-            &phone_key,
-            &state.policy,
-            "otp_rate_limit_exceeded",
-        )
-        .await?;
+    if state.require_challenge && body.challenge_id.is_none() {
+        return Err(otp_challenge_required());
+    }
+    if body.challenge_id.is_some_and(|id| {
+        id.get_version() != Some(Version::Random) || id.get_variant() != Variant::RFC4122
+    }) {
+        return Err(otp_error(OtpError::InvalidOtpRequest));
+    }
+    // The review account uses a reusable code and retains an independent
+    // phone quota even when an intent UUID was provided.
+    if state.login.is_review_phone(&body.phone_number) {
+        let phone_key = state
+            .otp
+            .rate_limit_key(&body.phone_number, OtpError::InvalidOtpRequest)
+            .map_err(otp_error)?;
+        state
+            .limiter
+            .enforce(
+                "otp-review-verify-phone",
+                &phone_key,
+                &state.policy,
+                "otp_rate_limit_exceeded",
+            )
+            .await?;
+    }
     state
         .login
-        .verify(&body.phone_number, &body.otp)
+        .verify(&body.phone_number, &body.otp, body.challenge_id)
         .await
         .map(Json)
         .map_err(login_error)
+}
+
+fn otp_challenge_required() -> ApiError {
+    ApiError::new(
+        StatusCode::BAD_REQUEST,
+        "otp_challenge_required",
+        "Use a verification request bound to its challenge.",
+    )
 }
 
 #[derive(Serialize)]

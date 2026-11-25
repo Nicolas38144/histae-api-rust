@@ -65,9 +65,12 @@ impl OtpRequestHandler {
         }
         // Stable UUID + existing OTP ledger prevent a duplicate provider call
         // when a worker retries or recovers an interrupted claim.
+        let (otp, key) = match request.challenge_id {
+            Some(challenge) => (self.otp.for_mobile_challenge(challenge), challenge),
+            None => (self.otp.clone(), request.id),
+        };
         delivery_outcome(
-            self.otp
-                .send_in(&phone, Some(&request.id.to_string()), request.language)
+            otp.send_in(&phone, Some(&key.to_string()), request.language)
                 .await,
         )
     }

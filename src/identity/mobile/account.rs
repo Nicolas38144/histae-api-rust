@@ -207,7 +207,12 @@ impl MobileLoginService {
             .is_some_and(|review| review.matches_phone(phone))
     }
 
-    pub async fn verify(&self, phone: &str, code: &str) -> Result<TokenPair, MobileLoginError> {
+    pub async fn verify(
+        &self,
+        phone: &str,
+        code: &str,
+        challenge: Option<Uuid>,
+    ) -> Result<TokenPair, MobileLoginError> {
         if let Some(review) = self
             .review
             .as_ref()
@@ -220,7 +225,15 @@ impl MobileLoginService {
                 .await
                 .map_err(map_auth_error);
         }
-        let verified = self.otp.consume(phone, code).await?;
+        let verified = match challenge {
+            Some(id) => {
+                self.otp
+                    .for_mobile_challenge(id)
+                    .consume(phone, code)
+                    .await?
+            }
+            None => self.otp.consume(phone, code).await?,
+        };
         let account = match self
             .accounts
             .find_by_phone_hash(verified.phone_hash.clone())

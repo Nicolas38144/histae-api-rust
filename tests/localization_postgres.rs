@@ -275,6 +275,7 @@ async fn language_preferences_consent_evidence_and_otp_replays_remain_independen
     assert_eq!(consents[0].document_language, Language::It);
     let otp = OtpRepository::new(db.clone());
     let input = BeginOtpDelivery {
+        channel: histae_api_rust::identity::mobile::otp::OtpChannel::Mobile,
         id: Uuid::new_v4(),
         phone_hash: format!("i18n-otp-{user}"),
         otp_hash: "not-a-real-code".into(),

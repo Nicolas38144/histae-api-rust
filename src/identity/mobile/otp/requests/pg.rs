@@ -4,7 +4,10 @@ use chrono::{DateTime, Utc};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use super::{NewOtpRequest, OtpRequestStore, PendingOtpRequest, RequestError, RequestFuture};
+use super::{
+    NewOtpRequest, OtpRequestReceipt, OtpRequestStore, PendingOtpRequest, RequestError,
+    RequestFuture,
+};
 use crate::{
     infra::postgres::{Database, DatabaseError, map_sqlx_error},
     localization::Language,
@@ -30,7 +33,10 @@ impl PgOtpRequestStore {
 }
 
 impl OtpRequestStore for PgOtpRequestStore {
-    fn enqueue(&self, request: NewOtpRequest) -> RequestFuture<'_, u64, RequestError> {
+    fn enqueue(
+        &self,
+        request: NewOtpRequest,
+    ) -> RequestFuture<'_, OtpRequestReceipt, RequestError> {
         Box::pin(async move {
             let outbox = Arc::clone(&self.outbox);
             self.database
@@ -43,7 +49,10 @@ impl OtpRequestStore for PgOtpRequestStore {
         })
     }
 
-    fn record_review(&self, request: NewOtpRequest) -> RequestFuture<'_, u64, RequestError> {
+    fn record_review(
+        &self,
+        request: NewOtpRequest,
+    ) -> RequestFuture<'_, OtpRequestReceipt, RequestError> {
         Box::pin(async move {
             self.database
                 .transaction(|connection| {
@@ -55,21 +64,26 @@ impl OtpRequestStore for PgOtpRequestStore {
 
     fn pending(&self, id: Uuid) -> RequestFuture<'_, Option<PendingOtpRequest>> {
         Box::pin(async move {
-            let row: Option<(String, Vec<u8>, bool, String)> = sqlx::query_as(
-                "SELECT phone_hash, encrypted_phone, registration, language FROM mobile_otp_request r
+            let row: Option<(String, Vec<u8>, bool, String, Option<Uuid>)> = sqlx::query_as(
+                "SELECT phone_hash, encrypted_phone, registration, language, challenge_id FROM mobile_otp_request r
                  WHERE id=$1 AND encrypted_phone IS NOT NULL AND expires_at > clock_timestamp()
-                 AND NOT EXISTS (SELECT 1 FROM mobile_otp_request newer WHERE newer.phone_hash=r.phone_hash AND (newer.created_at,newer.id) > (r.created_at,r.id))"
+                 AND (r.challenge_id IS NOT NULL OR NOT EXISTS (
+                     SELECT 1 FROM mobile_otp_request newer WHERE newer.phone_hash=r.phone_hash
+                     AND newer.challenge_id IS NULL AND (newer.created_at,newer.id) > (r.created_at,r.id)))"
             ).bind(id).fetch_optional(self.database.pool()).await.map_err(map_sqlx_error)?;
-            row.map(|(phone_hash, encrypted_phone, registration, language)| {
-                let language = Language::parse(&language).ok_or(DatabaseError::QueryFailed)?;
-                Ok(PendingOtpRequest {
-                    id,
-                    phone_hash,
-                    encrypted_phone,
-                    registration,
-                    language,
-                })
-            })
+            row.map(
+                |(phone_hash, encrypted_phone, registration, language, challenge_id)| {
+                    let language = Language::parse(&language).ok_or(DatabaseError::QueryFailed)?;
+                    Ok(PendingOtpRequest {
+                        id,
+                        phone_hash,
+                        encrypted_phone,
+                        registration,
+                        challenge_id,
+                        language,
+                    })
+                },
+            )
             .transpose()
         })
     }
@@ -90,7 +104,7 @@ async fn enqueue_locked(
     connection: &mut PgConnection,
     outbox: Option<&PgOutboxRepository>,
     request: NewOtpRequest,
-) -> Result<u64, RequestError> {
+) -> Result<OtpRequestReceipt, RequestError> {
     // Key first, then phone: identical intents serialize across instances and
     // conflicting reuse cannot race a new enqueue. Keep both locks in this transaction.
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 6837821))")
@@ -98,22 +112,26 @@ async fn enqueue_locked(
         .execute(&mut *connection)
         .await
         .map_err(map_sqlx_error)?;
-    let existing: Option<(String, bool, String, DateTime<Utc>)> = sqlx::query_as(
-        "SELECT phone_hash, registration, language, resend_at FROM mobile_otp_request WHERE id=$1",
+    let existing: Option<(String, bool, String, DateTime<Utc>, Option<Uuid>)> = sqlx::query_as(
+        "SELECT phone_hash, registration, language, resend_at, challenge_id FROM mobile_otp_request WHERE id=$1",
     )
     .bind(request.id)
     .fetch_optional(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
     let now = database_now(connection).await?;
-    if let Some((hash, registration, language, resend_at)) = existing {
+    if let Some((hash, registration, language, resend_at, challenge_id)) = existing {
         if hash != request.phone_hash
             || registration != request.registration
             || language != request.language.as_str()
+            || challenge_id.is_some() != request.challenge_bound
         {
             return Err(RequestError::Conflict);
         }
-        return Ok(seconds_until(resend_at, now));
+        return Ok(OtpRequestReceipt {
+            resend_after_seconds: seconds_until(resend_at, now),
+            challenge_id,
+        });
     }
 
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 6837822))")
@@ -135,7 +153,8 @@ async fn enqueue_locked(
         return Err(RequestError::Cooldown(seconds_until(deadline, now)));
     }
 
-    insert_request(connection, &request, now, outbox.is_some()).await?;
+    let challenge_id = request.challenge_bound.then(Uuid::new_v4);
+    insert_request(connection, &request, now, outbox.is_some(), challenge_id).await?;
     if let Some(outbox) = outbox {
         outbox
             .enqueue(
@@ -145,7 +164,10 @@ async fn enqueue_locked(
             .await?;
     }
     purge_expired(connection, now).await?;
-    Ok(request.cooldown.as_secs())
+    Ok(OtpRequestReceipt {
+        resend_after_seconds: request.cooldown.as_secs(),
+        challenge_id,
+    })
 }
 
 async fn database_now(connection: &mut PgConnection) -> Result<DateTime<Utc>, DatabaseError> {
@@ -160,12 +182,14 @@ async fn insert_request(
     request: &NewOtpRequest,
     now: DateTime<Utc>,
     send_sms: bool,
+    challenge_id: Option<Uuid>,
 ) -> Result<(), DatabaseError> {
     sqlx::query(
-        "INSERT INTO mobile_otp_request(id,phone_hash,encrypted_phone,registration,language,created_at,expires_at,resend_at)
-         VALUES($1,$2,$3,$4,$5,$6,$6 + make_interval(secs => $7::double precision),$6 + make_interval(secs => $8::double precision))",
+        "INSERT INTO mobile_otp_request(id,phone_hash,encrypted_phone,registration,language,created_at,expires_at,resend_at,challenge_id)
+         VALUES($1,$2,$3,$4,$5,$6,$6 + make_interval(secs => $7::double precision),$6 + make_interval(secs => $8::double precision),$9)",
     ).bind(request.id).bind(&request.phone_hash).bind(send_sms.then_some(&request.encrypted_phone)).bind(request.registration)
         .bind(request.language.as_str()).bind(now).bind(request.ttl.as_secs_f64()).bind(request.cooldown.as_secs_f64())
+        .bind(challenge_id)
         .execute(connection).await.map_err(map_sqlx_error)?;
     Ok(())
 }

@@ -308,7 +308,18 @@ pub async fn verify_schema_compatibility_on(
             AND to_regclass(current_schema() || '.phone_blocklist_entry') IS NOT NULL
             AND to_regclass(current_schema() || '.phone_blocklist_source') IS NOT NULL
             AND to_regclass(current_schema() || '.phone_blocklist_observation') IS NOT NULL
-            AND to_regclass(current_schema() || '.mobile_otp_request') IS NOT NULL
+            AND to_regclass(current_schema() || '.idx_otp_channel_idempotency') IS NOT NULL
+            AND to_regclass(current_schema() || '.idx_otp_one_usable_legacy_phone') IS NOT NULL
+            AND NOT EXISTS (
+                SELECT 1 FROM (VALUES ('otp_verification', 'channel'),
+                    ('otp_verification', 'verification_attempts'),
+                    ('mobile_otp_request', 'challenge_id')) AS required(table_name, column_name)
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM pg_attribute
+                    WHERE attrelid = to_regclass(current_schema() || '.' || required.table_name)
+                      AND attname = required.column_name AND NOT attisdropped
+                )
+            )
             AND to_regclass(current_schema() || '.billing_store_subscription') IS NOT NULL
             AND to_regclass(current_schema() || '.effective_user_subscription') IS NOT NULL
             AND to_regclass(current_schema() || '.complimentary_premium_grant') IS NOT NULL

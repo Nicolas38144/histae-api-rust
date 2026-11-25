@@ -169,6 +169,7 @@ async fn check_safety(
     // Public idempotent replays preserve a policy failure and never ask for another send.
     let otp = OtpRepository::new(database.clone());
     let attempt = BeginOtpDelivery {
+        channel: histae_api_rust::identity::mobile::otp::OtpChannel::Mobile,
         language: histae_api_rust::localization::Language::Fr,
         id: Uuid::new_v4(),
         phone_hash: phone.into(),
@@ -373,7 +374,9 @@ async fn assert_mobile_queue(database: &Database) -> Result<(), Box<dyn std::err
             let id = Uuid::new_v4();
             (
                 id,
-                service.enqueue(phone, hash, id, true, Language::Fr).await,
+                service
+                    .enqueue(phone, hash, id, true, Language::Fr, false)
+                    .await,
             )
         }
     }))
@@ -406,13 +409,14 @@ async fn assert_mobile_queue(database: &Database) -> Result<(), Box<dyn std::err
     assert!(store.pending(id).await?.is_none());
     assert!(
         service
-            .enqueue(phone, hash.clone(), id, true, Language::Fr)
+            .enqueue(phone, hash.clone(), id, true, Language::Fr, false)
             .await?
+            .resend_after_seconds
             <= 60
     );
     assert_eq!(
         service
-            .enqueue(phone, hash.clone(), id, false, Language::Fr)
+            .enqueue(phone, hash.clone(), id, false, Language::Fr, false)
             .await,
         Err(RequestError::Conflict)
     );
@@ -425,7 +429,14 @@ async fn assert_mobile_queue(database: &Database) -> Result<(), Box<dyn std::err
     );
     assert!(matches!(
         restarted
-            .enqueue(phone, hash.clone(), Uuid::new_v4(), true, Language::Fr)
+            .enqueue(
+                phone,
+                hash.clone(),
+                Uuid::new_v4(),
+                true,
+                Language::Fr,
+                false
+            )
             .await,
         Err(RequestError::Cooldown(_))
     ));
@@ -433,7 +444,7 @@ async fn assert_mobile_queue(database: &Database) -> Result<(), Box<dyn std::err
         .bind(id).execute(&mut *database.acquire().await?).await?;
     let next = Uuid::new_v4();
     restarted
-        .enqueue(phone, hash, next, true, Language::Fr)
+        .enqueue(phone, hash, next, true, Language::Fr, false)
         .await?;
     assert!(store.pending(next).await?.is_some());
     sqlx::query("UPDATE mobile_otp_request SET created_at=created_at-interval '61 seconds',expires_at=clock_timestamp()-interval '1 second',resend_at=clock_timestamp()-interval '1 second' WHERE id=$1")

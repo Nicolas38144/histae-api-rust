@@ -35,9 +35,16 @@ pub struct NewOtpRequest {
     pub phone_hash: String,
     pub encrypted_phone: Vec<u8>,
     pub registration: bool,
+    pub challenge_bound: bool,
     pub language: Language,
     pub ttl: Duration,
     pub cooldown: Duration,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OtpRequestReceipt {
+    pub resend_after_seconds: u64,
+    pub challenge_id: Option<Uuid>,
 }
 
 pub struct PendingOtpRequest {
@@ -45,5 +52,6 @@ pub struct PendingOtpRequest {
     pub phone_hash: String,
     pub encrypted_phone: Vec<u8>,
     pub registration: bool,
+    pub challenge_id: Option<Uuid>,
     pub language: Language,
 }

@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS mobile_otp_request (
     phone_hash text NOT NULL CHECK (phone_hash ~ '^[a-f0-9]{64}$'),
     encrypted_phone bytea,
     registration boolean NOT NULL,
+    challenge_id uuid,
     language text NOT NULL CHECK (language IN ('fr','en','es','it')),
     created_at timestamptz NOT NULL,
     expires_at timestamptz NOT NULL,
@@ -116,6 +117,8 @@ CREATE TABLE otp_verification (
     language text DEFAULT 'fr' NOT NULL CHECK (language IN ('fr','en','es','it')),
     expires_at timestamp with time zone NOT NULL,
     used boolean DEFAULT false NOT NULL,
+    channel text NOT NULL DEFAULT 'mobile' CHECK (channel IN ('mobile', 'mobile_challenge', 'web')),
+    verification_attempts smallint NOT NULL DEFAULT 0 CHECK (verification_attempts BETWEEN 0 AND 5),
     idempotency_key uuid DEFAULT uuid_generate_v4() NOT NULL,
     delivery_status text DEFAULT 'pending'::text NOT NULL,
     provider text DEFAULT 'sweego'::text NOT NULL,
@@ -139,9 +142,10 @@ COMMENT ON COLUMN otp_verification.provider_sent_at IS 'Local receipt time of au
 
 CREATE INDEX idx_otp_expires ON otp_verification USING btree (expires_at, id);
 
-CREATE UNIQUE INDEX idx_otp_idempotency ON otp_verification USING btree (idempotency_key);
+CREATE UNIQUE INDEX idx_otp_channel_idempotency ON otp_verification (channel, idempotency_key);
 
-CREATE UNIQUE INDEX idx_otp_one_usable_per_phone ON otp_verification USING btree (phone_number_hash) WHERE ((delivery_status = ANY (ARRAY['accepted'::text, 'sent'::text])) AND (used = false));
+CREATE UNIQUE INDEX idx_otp_one_usable_legacy_phone ON otp_verification (phone_number_hash)
+    WHERE channel = 'mobile' AND delivery_status IN ('accepted', 'sent') AND NOT used;
 
 CREATE INDEX idx_otp_phone ON otp_verification USING btree (phone_number_hash);
 

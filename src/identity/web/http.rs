@@ -73,43 +73,6 @@ pub(crate) fn error(error: WebAccountError) -> ApiError {
 fn session_token(state: &WebAccountState, headers: &HeaderMap) -> Result<String, ApiError> {
     token(headers, &state.config).ok_or_else(|| error(WebAccountError::Authentication))
 }
-async fn limit_otp(
-    state: &WebAccountState,
-    phone: &str,
-    ip: std::net::IpAddr,
-    verify: bool,
-) -> Result<(), ApiError> {
-    let hash = state.service.phone_key(phone).map_err(|e| {
-        if verify {
-            error(WebAccountError::Authentication)
-        } else {
-            error(e)
-        }
-    })?;
-    let namespaces = if verify {
-        ["otp-verify-ip", "otp-verify-phone"]
-    } else {
-        ["otp-send-ip", "otp-send-phone"]
-    };
-    state
-        .limiter
-        .enforce(
-            namespaces[0],
-            &ip.to_string(),
-            &state.otp_policy,
-            "otp_rate_limit_exceeded",
-        )
-        .await?;
-    state
-        .limiter
-        .enforce(
-            namespaces[1],
-            &hash,
-            &state.otp_policy,
-            "otp_rate_limit_exceeded",
-        )
-        .await
-}
 async fn send(
     Extension(state): Extension<WebAccountState>,
     Extension(ClientIp(ip)): Extension<ClientIp>,
@@ -118,7 +81,25 @@ async fn send(
     ValidatedJson(body): ValidatedJson<SendBody>,
 ) -> Result<(StatusCode, Json<ChallengeView>), ApiError> {
     validate_website_origin(&state.config, &headers)?;
-    limit_otp(&state, &body.phone_number, ip, false).await?;
+    let phone_key = state.service.phone_key(&body.phone_number).map_err(error)?;
+    state
+        .limiter
+        .enforce(
+            "otp-web-send-ip",
+            &ip.to_string(),
+            &state.otp_policy,
+            "otp_rate_limit_exceeded",
+        )
+        .await?;
+    state
+        .limiter
+        .enforce(
+            "otp-web-send-phone",
+            &phone_key,
+            &state.otp_policy,
+            "otp_rate_limit_exceeded",
+        )
+        .await?;
     let key = headers
         .get("idempotency-key")
         .and_then(|value| value.to_str().ok())
@@ -144,7 +125,15 @@ async fn verify(
     ValidatedJson(body): ValidatedJson<VerifyBody>,
 ) -> Result<Response, ApiError> {
     validate_website_origin(&state.config, &headers)?;
-    limit_otp(&state, &body.phone_number, ip, true).await?;
+    state
+        .limiter
+        .enforce(
+            "otp-web-verify-ip",
+            &ip.to_string(),
+            &state.otp_policy,
+            "otp_rate_limit_exceeded",
+        )
+        .await?;
     let token = state
         .service
         .verify(body.challenge_id, &body.phone_number, &body.otp)

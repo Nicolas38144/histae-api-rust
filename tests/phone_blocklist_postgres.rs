@@ -135,10 +135,10 @@ async fn final_guard_and_audited_exceptions_keep_roles_expiry_imports_and_privac
         assert_eq!(guard.reserve(Uuid::new_v4(),phone().hash,policy.clone()).await?,Err(SmsSendRejection::Unavailable));
         let otp=OtpRepository::new(database.clone());
         let delivery=Uuid::new_v4();let code_hash="c".repeat(64);
-        otp.begin(BeginOtpDelivery {language:histae_api_rust::localization::Language::Fr,id:delivery,phone_hash:phone().hash,otp_hash:code_hash.clone(),idempotency_key:Uuid::new_v4(),ttl:Duration::from_secs(600),settlement:Duration::from_secs(15)}).await?;
+        otp.begin(BeginOtpDelivery {channel:histae_api_rust::identity::mobile::otp::OtpChannel::Mobile,language:histae_api_rust::localization::Language::Fr,id:delivery,phone_hash:phone().hash,otp_hash:code_hash.clone(),idempotency_key:Uuid::new_v4(),ttl:Duration::from_secs(600),settlement:Duration::from_secs(15)}).await?;
         otp.mark_accepted(delivery,phone().hash,"policy-transaction".into(),"policy-message".into()).await?;
         pg::import(&database,Source::Castle,vec![observation()],&key()).await?;
-        assert!(!otp.consume(phone().hash,code_hash.clone()).await?,"a code issued before a block cannot open a new session");
+        assert!(!otp.consume(phone().hash,code_hash.clone(),histae_api_rust::identity::mobile::otp::OtpScope::Mobile).await?,"a code issued before a block cannot open a new session");
         assert_eq!(guard.reserve(Uuid::new_v4(),phone().hash,policy.clone()).await?,Err(SmsSendRejection::PhoneBlocked));
         let attempts:i64=sqlx::query_scalar("SELECT count(*) FROM sms_send_attempt WHERE phone_hash=$1")
             .bind(phone().hash).fetch_one(database.acquire().await?.as_mut()).await?;
@@ -155,8 +155,8 @@ async fn final_guard_and_audited_exceptions_keep_roles_expiry_imports_and_privac
         assert_eq!(store.change(change(admin,Decision::Allow,Some(30),0,Some("Stale administrator view".into()))).await,Err(PolicyError::Conflict));
         pg::import(&database,Source::Ip1,vec![observation()],&key()).await?;
         assert!(!store.lookup(phone()).await?.blocked,"feed imports cannot override a manual exception");
-        assert!(otp.consume(phone().hash,code_hash.clone()).await?);
-        assert!(!otp.consume(phone().hash,code_hash).await?);
+        assert!(otp.consume(phone().hash,code_hash.clone(),histae_api_rust::identity::mobile::otp::OtpScope::Mobile).await?);
+        assert!(!otp.consume(phone().hash,code_hash,histae_api_rust::identity::mobile::otp::OtpScope::Mobile).await?);
         assert_eq!(guard.reserve(Uuid::new_v4(),phone().hash,policy.clone()).await?,Ok(()));
         sqlx::query("UPDATE phone_blocklist_entry SET decision_until=clock_timestamp()-INTERVAL '1 second' WHERE id=$1")
             .bind(id).execute(database.acquire().await?.as_mut()).await?;

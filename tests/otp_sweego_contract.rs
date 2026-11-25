@@ -25,12 +25,13 @@ use histae_api_rust::identity::mobile::http::{
     OtpHttpState, SweegoHttpState, otp_routes, sweego_routes,
 };
 use histae_api_rust::identity::mobile::otp::requests::{
-    NewOtpRequest, OtpRequestHandler, OtpRequestService, OtpRequestStore, PendingOtpRequest,
-    RequestError, RequestFuture,
+    NewOtpRequest, OtpRequestHandler, OtpRequestReceipt, OtpRequestService, OtpRequestStore,
+    PendingOtpRequest, RequestError, RequestFuture,
 };
 use histae_api_rust::identity::mobile::otp::{
-    BeginOtpDelivery, OtpDeliverySnapshot, OtpDeliveryStart, OtpDeliveryState, OtpDeliveryStates,
-    OtpService, OtpStore, OtpStoreFuture, SmsDeliveryEvent, SmsEventOutcome,
+    BeginOtpDelivery, OtpChannel, OtpDeliverySnapshot, OtpDeliveryStart, OtpDeliveryState,
+    OtpDeliveryStates, OtpScope, OtpService, OtpStore, OtpStoreFuture, SmsDeliveryEvent,
+    SmsEventOutcome,
 };
 use histae_api_rust::identity::mobile::service::MobileAuthService;
 use histae_api_rust::identity::mobile::store::{MobileSessionStore, SessionStoreFuture};
@@ -72,6 +73,8 @@ struct Attempt {
     phone_hash: String,
     otp_hash: String,
     idempotency_key: Uuid,
+    channel: OtpChannel,
+    failures: u8,
     state: OtpDeliveryState,
     used: bool,
 }
@@ -104,10 +107,9 @@ impl OtpStore for FakeOtpStore {
                 .attempts
                 .lock()
                 .map_err(|_| DatabaseError::QueryFailed)?;
-            if let Some(existing) = attempts
-                .iter()
-                .find(|attempt| attempt.idempotency_key == input.idempotency_key)
-            {
+            if let Some(existing) = attempts.iter().find(|attempt| {
+                attempt.idempotency_key == input.idempotency_key && attempt.channel == input.channel
+            }) {
                 if existing.phone_hash != input.phone_hash {
                     return Ok(OtpDeliveryStart::Conflict);
                 }
@@ -118,6 +120,8 @@ impl OtpStore for FakeOtpStore {
                 phone_hash: input.phone_hash,
                 otp_hash: input.otp_hash,
                 idempotency_key: input.idempotency_key,
+                channel: input.channel,
+                failures: 0,
                 state: OtpDeliveryState::Pending,
                 used: false,
             });
@@ -179,7 +183,12 @@ impl OtpStore for FakeOtpStore {
         })
     }
 
-    fn consume(&self, phone_hash: String, otp_hash: String) -> OtpStoreFuture<'_, bool> {
+    fn consume(
+        &self,
+        phone_hash: String,
+        otp_hash: String,
+        scope: OtpScope,
+    ) -> OtpStoreFuture<'_, bool> {
         Box::pin(async move {
             let mut attempts = self
                 .attempts
@@ -187,7 +196,11 @@ impl OtpStore for FakeOtpStore {
                 .map_err(|_| DatabaseError::QueryFailed)?;
             let Some(attempt) = attempts.iter_mut().find(|attempt| {
                 attempt.phone_hash == phone_hash
-                    && attempt.otp_hash == otp_hash
+                    && attempt.channel == scope.channel()
+                    && scope
+                        .challenge_id()
+                        .is_none_or(|id| id == attempt.idempotency_key)
+                    && attempt.failures < 5
                     && matches!(
                         attempt.state,
                         OtpDeliveryState::Accepted | OtpDeliveryState::Sent
@@ -196,8 +209,11 @@ impl OtpStore for FakeOtpStore {
             }) else {
                 return Ok(false);
             };
-            attempt.used = true;
-            Ok(true)
+            attempt.used = attempt.otp_hash == otp_hash;
+            if !attempt.used && attempt.channel != OtpChannel::Web {
+                attempt.failures += 1;
+            }
+            Ok(attempt.used)
         })
     }
 
@@ -343,9 +359,9 @@ impl MobileSessionStore for FakeSessions {
                 let rows = self.requests.rows.lock().expect("requests");
                 let latest = rows
                     .values()
-                    .filter(|(row, _)| row.phone_hash == account.phone_hash)
-                    .max_by_key(|(row, at)| (*at, row.id));
-                if !latest.is_some_and(|(row, at)| {
+                    .filter(|(row, _, _)| row.phone_hash == account.phone_hash)
+                    .max_by_key(|(row, at, _)| (*at, row.id));
+                if !latest.is_some_and(|(row, at, _)| {
                     row.registration && (now - *at).num_seconds() < row.ttl.as_secs() as i64
                 }) {
                     return Ok(None);
@@ -421,7 +437,7 @@ impl MobileSessionStore for FakeSessions {
     }
 }
 
-type QueuedRequests = BTreeMap<Uuid, (NewOtpRequest, DateTime<Utc>)>;
+type QueuedRequests = BTreeMap<Uuid, (NewOtpRequest, DateTime<Utc>, Option<Uuid>)>;
 
 #[derive(Clone)]
 struct FakeRequests {
@@ -439,26 +455,36 @@ impl Default for FakeRequests {
 }
 
 impl OtpRequestStore for FakeRequests {
-    fn record_review(&self, mut request: NewOtpRequest) -> RequestFuture<'_, u64, RequestError> {
+    fn record_review(
+        &self,
+        mut request: NewOtpRequest,
+    ) -> RequestFuture<'_, OtpRequestReceipt, RequestError> {
         request.encrypted_phone.clear();
         self.enqueue(request)
     }
 
-    fn enqueue(&self, request: NewOtpRequest) -> RequestFuture<'_, u64, RequestError> {
+    fn enqueue(
+        &self,
+        request: NewOtpRequest,
+    ) -> RequestFuture<'_, OtpRequestReceipt, RequestError> {
         Box::pin(async move {
             let now = *self.now.lock().expect("clock");
             let mut rows = self.rows.lock().expect("requests");
-            if let Some((old, created)) = rows.get(&request.id) {
+            if let Some((old, created, challenge_id)) = rows.get(&request.id) {
                 if old.phone_hash != request.phone_hash
                     || old.registration != request.registration
                     || old.language != request.language
+                    || old.challenge_bound != request.challenge_bound
                 {
                     return Err(RequestError::Conflict);
                 }
                 let elapsed = (now - *created).num_seconds().max(0) as u64;
-                return Ok(old.cooldown.as_secs().saturating_sub(elapsed));
+                return Ok(OtpRequestReceipt {
+                    resend_after_seconds: old.cooldown.as_secs().saturating_sub(elapsed),
+                    challenge_id: *challenge_id,
+                });
             }
-            for (old, created) in rows.values() {
+            for (old, created, _) in rows.values() {
                 if old.phone_hash == request.phone_hash {
                     let elapsed = (now - *created).num_seconds().max(0) as u64;
                     if elapsed < old.cooldown.as_secs() {
@@ -466,9 +492,12 @@ impl OtpRequestStore for FakeRequests {
                     }
                 }
             }
-            let seconds = request.cooldown.as_secs();
-            rows.insert(request.id, (request, now));
-            Ok(seconds)
+            let receipt = OtpRequestReceipt {
+                resend_after_seconds: request.cooldown.as_secs(),
+                challenge_id: request.challenge_bound.then(Uuid::new_v4),
+            };
+            rows.insert(request.id, (request, now, receipt.challenge_id));
+            Ok(receipt)
         })
     }
 
@@ -476,12 +505,15 @@ impl OtpRequestStore for FakeRequests {
         Box::pin(async move {
             let now = *self.now.lock().expect("clock");
             let rows = self.rows.lock().expect("requests");
-            Ok(rows.get(&id).and_then(|(row, created)| {
+            Ok(rows.get(&id).and_then(|(row, created, challenge_id)| {
                 if row.encrypted_phone.is_empty()
                     || (now - *created).num_seconds() >= row.ttl.as_secs() as i64
-                    || rows
-                        .values()
-                        .any(|(newer, at)| newer.phone_hash == row.phone_hash && at > created)
+                    || (!row.challenge_bound
+                        && rows.values().any(|(newer, at, _)| {
+                            !newer.challenge_bound
+                                && newer.phone_hash == row.phone_hash
+                                && at > created
+                        }))
                 {
                     return None;
                 }
@@ -490,6 +522,7 @@ impl OtpRequestStore for FakeRequests {
                     phone_hash: row.phone_hash.clone(),
                     encrypted_phone: row.encrypted_phone.clone(),
                     registration: row.registration,
+                    challenge_id: *challenge_id,
                     language: row.language,
                 })
             }))
@@ -498,7 +531,7 @@ impl OtpRequestStore for FakeRequests {
 
     fn finish(&self, id: Uuid) -> RequestFuture<'_, ()> {
         Box::pin(async move {
-            if let Some((row, _)) = self.rows.lock().expect("requests").get_mut(&id) {
+            if let Some((row, ..)) = self.rows.lock().expect("requests").get_mut(&id) {
                 row.encrypted_phone.clear();
             }
             Ok(())
@@ -548,6 +581,10 @@ fn fixture(otp_limit: u64) -> Fixture {
 }
 
 fn fixture_with_review(otp_limit: u64, review_enabled: bool) -> Fixture {
+    fixture_with_options(otp_limit, review_enabled, false)
+}
+
+fn fixture_with_options(otp_limit: u64, review_enabled: bool, require_challenge: bool) -> Fixture {
     let hash_key = SecretString::new("hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh".to_owned());
     let otp_store = FakeOtpStore::default();
     let delivery = FakeDelivery::default();
@@ -621,13 +658,10 @@ fn fixture_with_review(otp_limit: u64, review_enabled: bool) -> Fixture {
         otp.clone(),
         encryption_key,
     );
-    let routes = otp_routes(OtpHttpState::new(
-        otp,
-        login,
-        limiter.clone(),
-        otp_policy,
-        request_service,
-    ))
+    let routes = otp_routes(
+        OtpHttpState::new(otp, login, limiter.clone(), otp_policy, request_service)
+            .with_required_challenge(require_challenge),
+    )
     .merge(sweego_routes(SweegoHttpState::new(
         webhook,
         limiter.clone(),
@@ -822,7 +856,7 @@ async fn expired_and_superseded_intents_never_dispatch_an_old_sms() {
             .lock()
             .expect("requests")
             .values()
-            .all(|(row, _)| row.encrypted_phone.is_empty())
+            .all(|(row, ..)| row.encrypted_phone.is_empty())
     );
 }
 
@@ -1146,6 +1180,74 @@ async fn verify_creates_an_account_issues_tokens_and_consumes_the_code_once() {
 }
 
 #[tokio::test]
+async fn challenge_bound_mobile_code_cannot_be_verified_through_the_legacy_path() {
+    for required in [false, true] {
+        let fixture = fixture_with_options(12, false, required);
+        let request_key = Uuid::new_v4();
+        if required {
+            let legacy = json!({"phone_number": PHONE, "registration": true}).to_string();
+            let rejected = fixture
+                .app
+                .clone()
+                .oneshot(request(
+                    "/api/auth/otp/send",
+                    &legacy,
+                    Some(&request_key.to_string()),
+                ))
+                .await
+                .expect("response");
+            assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(
+                json_body(rejected).await["error"]["code"],
+                "otp_challenge_required"
+            );
+        }
+        let body = json!({"phone_number": PHONE, "registration": true, "challenge_bound": true})
+            .to_string();
+        let send = || request("/api/auth/otp/send", &body, Some(&request_key.to_string()));
+        let sent = fixture.app.clone().oneshot(send()).await.expect("response");
+        assert_eq!(sent.status(), StatusCode::ACCEPTED);
+        let challenge: Uuid = serde_json::from_value(json_body(sent).await["challenge_id"].clone())
+            .expect("server challenge");
+        assert_ne!(challenge, request_key);
+        let replay = fixture.app.clone().oneshot(send()).await.expect("replay");
+        assert_eq!(
+            json_body(replay).await["challenge_id"],
+            challenge.to_string()
+        );
+        fixture.dispatch().await;
+        assert_eq!(fixture.delivery.calls(), 1);
+        let code = fixture.delivery.last_code().expect("issued OTP");
+        for (body, expected) in [
+            (
+                json!({"phone_number": PHONE, "otp": code}),
+                if required {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::UNAUTHORIZED
+                },
+            ),
+            (
+                json!({"phone_number": PHONE, "otp": code, "challenge_id": request_key}),
+                StatusCode::UNAUTHORIZED,
+            ),
+            (
+                json!({"phone_number": PHONE, "otp": code, "challenge_id": challenge}),
+                StatusCode::OK,
+            ),
+        ] {
+            let response = fixture
+                .app
+                .clone()
+                .oneshot(request("/api/auth/otp/verify", &body.to_string(), None))
+                .await
+                .expect("response");
+            assert_eq!(response.status(), expected);
+        }
+    }
+}
+
+#[tokio::test]
 async fn verify_distinguishes_malformed_and_nonexistent_codes() {
     let fixture = fixture(5);
     let malformed = fixture
@@ -1347,7 +1449,7 @@ async fn play_review_signup_then_login_is_reusable_without_sms_jobs() {
     assert_eq!(rows.len(), 1);
     assert!(
         rows.values()
-            .all(|(row, _)| row.registration && row.encrypted_phone.is_empty())
+            .all(|(row, ..)| row.registration && row.encrypted_phone.is_empty())
     );
     assert_eq!(fixture.delivery.calls(), 0);
     assert_eq!(*fixture.accounts.lookups.lock().expect("lookups"), 0);

@@ -24,7 +24,8 @@ et les identifiants du catalogue sont déterministes.
 
 Sur un volume neuf, l’entrypoint PostgreSQL applique les rôles, extensions et permissions.
 Le service `migrate` exécute ensuite le schéma et le catalogue dans une transaction avec le rôle
-`histae_migrate` et `histae.seed_fake_users=off`.
+`histae_migrate` et `histae.seed_fake_users=off`. Le schéma initial définit les identifiants de challenge,
+les compteurs et les index qui séparent les parcours OTP.
 
 ### Base existante
 

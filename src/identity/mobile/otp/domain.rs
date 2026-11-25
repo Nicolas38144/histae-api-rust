@@ -44,8 +44,50 @@ pub enum OtpDeliveryStart {
     PolicyRejected(super::super::sweego::SmsFailureReason),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OtpChannel {
+    Mobile,
+    MobileChallenge,
+    Web,
+}
+
+impl OtpChannel {
+    pub(super) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Mobile => "mobile",
+            Self::MobileChallenge => "mobile_challenge",
+            Self::Web => "web",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OtpScope {
+    Mobile,
+    MobileChallenge(Uuid),
+    WebChallenge(Uuid),
+}
+
+impl OtpScope {
+    pub fn channel(self) -> OtpChannel {
+        match self {
+            Self::Mobile => OtpChannel::Mobile,
+            Self::MobileChallenge(_) => OtpChannel::MobileChallenge,
+            Self::WebChallenge(_) => OtpChannel::Web,
+        }
+    }
+
+    pub fn challenge_id(self) -> Option<Uuid> {
+        match self {
+            Self::Mobile => None,
+            Self::MobileChallenge(id) | Self::WebChallenge(id) => Some(id),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BeginOtpDelivery {
+    pub channel: OtpChannel,
     pub language: Language,
     pub id: Uuid,
     pub phone_hash: String,

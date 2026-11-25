@@ -28,11 +28,11 @@ impl OtpRepository {
                     let settlement_millis = duration_millis(input.settlement)?;
                     let inserted = sqlx::query_scalar::<_, Uuid>(
                         "INSERT INTO otp_verification
-                         (id, phone_number_hash, otp_hash, idempotency_key, expires_at, settlement_deadline, language)
+                         (id, phone_number_hash, otp_hash, idempotency_key, expires_at, settlement_deadline, language, channel)
                          VALUES ($1, $2, $3, $4,
                            clock_timestamp() + $5 * INTERVAL '1 millisecond',
-                           clock_timestamp() + $6 * INTERVAL '1 millisecond', $7)
-                         ON CONFLICT (idempotency_key) DO NOTHING RETURNING id",
+                           clock_timestamp() + $6 * INTERVAL '1 millisecond', $7, $8)
+                         ON CONFLICT (channel, idempotency_key) DO NOTHING RETURNING id",
                     )
                     .bind(input.id)
                     .bind(&input.phone_hash)
@@ -41,6 +41,7 @@ impl OtpRepository {
                     .bind(ttl_millis)
                     .bind(settlement_millis)
                     .bind(input.language.as_str())
+                    .bind(input.channel.as_str())
                     .fetch_optional(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
@@ -50,21 +51,23 @@ impl OtpRepository {
                     sqlx::query(
                         "UPDATE otp_verification
                          SET delivery_status = 'unknown', delivery_error_code = 'delivery_unknown'
-                         WHERE idempotency_key = $1 AND phone_number_hash = $2 AND language = $3
+                         WHERE idempotency_key = $1 AND phone_number_hash = $2 AND language = $3 AND channel = $4
                            AND delivery_status = 'pending'
                            AND settlement_deadline <= clock_timestamp()",
                     )
                     .bind(input.idempotency_key)
                     .bind(&input.phone_hash)
                     .bind(input.language.as_str())
+                    .bind(input.channel.as_str())
                     .execute(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
                     let existing = sqlx::query_as::<_, (Uuid, String, String, String, Option<String>)>(
                         "SELECT id, phone_number_hash, delivery_status, language, delivery_error_code
-                         FROM otp_verification WHERE idempotency_key = $1",
+                         FROM otp_verification WHERE idempotency_key = $1 AND channel = $2",
                     )
                     .bind(input.idempotency_key)
+                    .bind(input.channel.as_str())
                     .fetch_optional(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?
@@ -236,6 +239,7 @@ impl OtpRepository {
         &self,
         phone_hash: String,
         otp_hash: String,
+        scope: OtpScope,
     ) -> Result<bool, DatabaseError> {
         self.database
             .transaction(|connection| {
@@ -249,19 +253,26 @@ impl OtpRepository {
                     {
                         return Ok(false);
                     }
-                    let result = sqlx::query(
-                        "UPDATE otp_verification SET used = true
-                         WHERE phone_number_hash = $1 AND otp_hash = $2
+                    // The phone lock serializes attempts and delivery changes. Web
+                    // already reserves attempts in its challenge table.
+                    let used = sqlx::query_scalar::<_, bool>(
+                        "UPDATE otp_verification SET used = (otp_hash = $2),
+                           verification_attempts = verification_attempts + (otp_hash <> $2)::int
+                         WHERE phone_number_hash = $1 AND channel = $3
+                           AND ($4::uuid IS NULL OR idempotency_key = $4)
                            AND delivery_status IN ('accepted', 'sent')
                            AND used = false AND expires_at > clock_timestamp()
-                         RETURNING id",
+                           AND CASE WHEN channel = 'web' THEN otp_hash = $2 ELSE verification_attempts < 5 END
+                         RETURNING used",
                     )
                     .bind(phone_hash)
                     .bind(otp_hash)
-                    .execute(&mut *connection)
+                    .bind(scope.channel().as_str())
+                    .bind(scope.challenge_id())
+                    .fetch_optional(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
-                    Ok(result.rows_affected() == 1)
+                    Ok(used == Some(true))
                 })
             })
             .await
@@ -350,8 +361,13 @@ impl OtpStore for OtpRepository {
         Box::pin(self.apply_sms_event_impl(event))
     }
 
-    fn consume(&self, phone_hash: String, otp_hash: String) -> OtpStoreFuture<'_, bool> {
-        Box::pin(self.consume_impl(phone_hash, otp_hash))
+    fn consume(
+        &self,
+        phone_hash: String,
+        otp_hash: String,
+        scope: OtpScope,
+    ) -> OtpStoreFuture<'_, bool> {
+        Box::pin(self.consume_impl(phone_hash, otp_hash, scope))
     }
 
     fn snapshot(&self) -> OtpStoreFuture<'_, OtpDeliverySnapshot> {
@@ -371,6 +387,7 @@ struct DeliveryRow {
     transaction_id: Option<String>,
     attempt_number: i64,
     used: bool,
+    legacy_mobile: bool,
 }
 
 async fn lock_phone(
@@ -401,10 +418,11 @@ async fn locked_delivery(
             Option<String>,
             i64,
             bool,
+            bool,
         ),
     >(
         "SELECT id, phone_number_hash, delivery_status, provider_message_id,
-           provider_transaction_id, attempt_number, used
+           provider_transaction_id, attempt_number, used, channel = 'mobile'
          FROM otp_verification
          WHERE id = $1 AND phone_number_hash = $2 FOR UPDATE",
     )
@@ -414,7 +432,16 @@ async fn locked_delivery(
     .await
     .map_err(map_sqlx_error)?;
     row.map(
-        |(id, phone_hash, state, message_id, transaction_id, attempt_number, used)| {
+        |(
+            id,
+            phone_hash,
+            state,
+            message_id,
+            transaction_id,
+            attempt_number,
+            used,
+            legacy_mobile,
+        )| {
             Ok(DeliveryRow {
                 id,
                 phone_hash,
@@ -423,6 +450,7 @@ async fn locked_delivery(
                 transaction_id,
                 attempt_number,
                 used,
+                legacy_mobile,
             })
         },
     )
@@ -443,14 +471,14 @@ async fn activate(
     connection: &mut sqlx::PgConnection,
     row: &DeliveryRow,
 ) -> Result<(), DatabaseError> {
-    if row.used {
+    if row.used || !row.legacy_mobile {
         return Ok(());
     }
     sqlx::query(
         "UPDATE otp_verification SET used = true WHERE id = $1 AND (
            expires_at <= clock_timestamp() OR EXISTS (
              SELECT 1 FROM otp_verification
-             WHERE phone_number_hash = $2 AND attempt_number > $3 AND sent_at IS NOT NULL
+             WHERE phone_number_hash = $2 AND channel = 'mobile' AND attempt_number > $3 AND sent_at IS NOT NULL
            )
          )",
     )
@@ -462,7 +490,7 @@ async fn activate(
     .map_err(map_sqlx_error)?;
     sqlx::query(
         "UPDATE otp_verification SET used = true
-         WHERE phone_number_hash = $1 AND attempt_number < $2 AND used = false
+         WHERE phone_number_hash = $1 AND channel = 'mobile' AND attempt_number < $2 AND used = false
            AND EXISTS (SELECT 1 FROM otp_verification WHERE id = $3 AND used = false)",
     )
     .bind(&row.phone_hash)

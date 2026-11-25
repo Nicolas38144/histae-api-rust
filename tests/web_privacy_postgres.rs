@@ -303,6 +303,17 @@ async fn account_otp_replays_share_limits_and_session_without_website_payments()
             .insert("idempotency-key", Uuid::new_v4().to_string().parse()?);
         let (status, _, _) = f.send(send).await?;
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        for last_octet in 1..=4 {
+            let body =
+                json!({"challenge_id": Uuid::new_v4(), "phone_number": PHONE, "otp": "000000"})
+                    .to_string();
+            let mut request = f.request("POST", "/api/web/account/otp/verify", None, &body);
+            request.extensions_mut().insert(axum::extract::ConnectInfo(
+                std::net::SocketAddr::from(([192, 0, 2, last_octet], 12345)),
+            ));
+            let (status, _, _) = f.send(request).await?;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+        }
         let code = f.sms.0.lock().unwrap()[0].clone();
         let verify =
             json!({"challenge_id":challenge.unwrap(),"phone_number":PHONE,"otp":code}).to_string();

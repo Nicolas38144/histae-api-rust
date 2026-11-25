@@ -127,8 +127,8 @@ Il n’existe pas de mécanisme de retry universel.
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
-| POST | `/api/auth/otp/send` | `{ phone_number, registration?: boolean }` + clé d’idempotence → `202 { message, resend_after_seconds }`. `registration` vaut `false` par défaut. |
-| POST | `/api/auth/otp/verify` | `{ phone_number, otp }` → `200 { access_token, refresh_token }`. |
+| POST | `/api/auth/otp/send` | `{ phone_number, registration?: boolean, challenge_bound?: boolean }` + clé d’idempotence → `202 { message, resend_after_seconds, challenge_id? }`. Les deux booléens valent `false` par défaut. |
+| POST | `/api/auth/otp/verify` | `{ phone_number, otp, challenge_id?: UUIDv4 }` → `200 { access_token, refresh_token }`. |
 | POST | `/api/auth/refresh` | `{ refresh_token, recovery_id? }` + `Idempotency-Key` facultatif → `200 { access_token, refresh_token }`. |
 | GET | `/api/plans` | `200 { plans: [...], offers: [...] }` ; trois offres commerciales et leurs plans de droits, avec quotas et fonctionnalités. |
 | GET | `/api/legal/documents` | `200 { documents: [{ consent_type, required_document_version, document_url, document_language, document_date }] }` ; quatre documents courants, publics et localisés selon `Accept-Language`, sans compte ni preuve de consentement. `Cache-Control: no-store`. |
@@ -141,15 +141,19 @@ public n’expose aucune preuve de consentement ni date utilisateur.
 
 **Inscription avant téléphone.** Le mobile prépare le profil et les préférences en mémoire, puis présente les documents de cette route. Aucun profil ni consentement n’est enregistré avant la vérification OTP. Après authentification, il compare versions, URL et langues aux documents propriétaires avant de sauvegarder les choix explicites, puis le profil et les préférences autorisées. Un changement de document impose une nouvelle présentation et un nouveau choix. La route publique ne crée aucun compte et ne modifie aucun consentement.
 
-**OTP.** Seuls les téléphones français E.164 `+33…` sont acceptés. La vérification consomme le code une seule fois et crée un compte utilisateur si nécessaire après une demande d’inscription. Envoi et vérification : 5/h par IP et numéro pseudonymisé. La validité du code suit `OTP_TTL`.
+**OTP.** L’API accepte les téléphones français E.164 `+33…`. L’envoi est limité par IP et numéro pseudonymisé, et la vérification par IP. `RATE_LIMIT_OTP` fixe ces quotas à 5/h par défaut, indépendamment pour le mobile et le web. La validité du code suit `OTP_TTL`. La vérification consomme le code une seule fois et crée un compte utilisateur si nécessaire après une demande d’inscription.
+
+Pour lier un code à sa demande, envoyer `challenge_bound: true` et conserver en mémoire le `challenge_id` aléatoire renvoyé par le serveur. Utiliser ce même identifiant dans `/verify`. Un rejeu de `/send` restitue le même challenge. Cinq codes erronés épuisent uniquement ce challenge. Le téléphone et l’identifiant doivent correspondre à une demande dont le SMS a été accepté. La réponse `401 invalid_or_expired_otp` couvre aussi un challenge inconnu, épuisé ou consommé.
+
+Les clients historiques peuvent continuer à envoyer et vérifier avec leur format actuel. Cinq codes erronés épuisent alors le code mobile historique actif. Un nouvel envoi accepté ouvre un nouveau budget. Une fois les clients migrés, `MOBILE_OTP_REQUIRE_CHALLENGE=true` exige `challenge_bound: true` à l’envoi et `challenge_id` à la vérification. Le refus de l’ancien format renvoie `400 otp_challenge_required`.
 
 Exception mobile explicite : le [compte de revue Google Play](../features/google-play-review.md), désactivé par défaut, utilise un code réutilisable pour un seul numéro fictif configuré. Son `/send` conserve le délai de renvoi et enregistre une intention sans téléphone chiffré ni SMS/outbox. La première création exige `registration: true` dans la dernière intention encore valide ; une simple connexion ne crée aucun compte. Les quotas et validations restent actifs ; cette exception n’authentifie ni un compte réel existant ni un administrateur.
 
 Pour une inscription, le client envoie `registration: true`. Les deux parcours répondent de manière générique : un numéro déjà enregistré en inscription, ou inconnu en connexion, ouvre le même écran de code, mais ne reçoit aucun SMS. Aucun renseignement sur l’existence du compte ni sur la livraison n’est exposé par cette route.
 
-L’envoi répond `202 { "message": "Verification code request accepted.", "resend_after_seconds": 60 }`. Il confirme uniquement l’écriture durable de la demande et de son événement outbox, dans la même transaction. La route HTTP ne recherche aucun compte et ne contacte pas Sweego. Le worker outbox vérifie l’éligibilité puis traite le SMS éventuel avec l’UUID initial. Une demande déjà remplacée ou expirée est acquittée sans envoi. Le téléphone chiffré est effacé après traitement ; les métadonnées expirent selon `OTP_TTL`, avec nettoyage borné et maintenance RGPD.
+Le `202` confirme l’écriture durable de la demande et de son événement outbox dans la même transaction. Le worker vérifie l’éligibilité avant d’envoyer le SMS. Il acquitte les demandes expirées et les demandes historiques remplacées. Le téléphone chiffré est effacé après traitement et les métadonnées expirent selon `OTP_TTL`.
 
-Un nouvel UUID pour le même téléphone avant `OTP_RESEND_COOLDOWN` reçoit `429 otp_resend_too_soon` avec `Retry-After`. Ce délai est partagé entre instances et parcours. Un rejeu du même UUID conserve le délai initial sans nouvel envoi et renvoie le nombre de secondes restant. Un autre téléphone, parcours ou langage avec le même UUID renvoie `409 idempotency_key_conflict`. Les quotas IP/téléphone s’appliquent également aux demandes supprimées et aux rejeux. Le mobile distingue cette attente de renvoi des limites de vérification : saisir le code reçu reste possible pendant le compte à rebours.
+Un nouvel UUID pour le même téléphone avant `OTP_RESEND_COOLDOWN` reçoit `429 otp_resend_too_soon` avec `Retry-After`. Ce délai est partagé entre instances et entre inscription et connexion mobiles. Un rejeu du même UUID conserve le délai initial sans nouvel envoi et renvoie le nombre de secondes restant. Changer le téléphone, le type de parcours, la langue ou `challenge_bound` avec le même UUID renvoie `409 idempotency_key_conflict`. Les quotas IP/téléphone s’appliquent également aux demandes supprimées et aux rejeux. La vérification reste possible pendant le délai de renvoi.
 
 Le worker conserve les états de livraison et ne répète jamais un appel fournisseur incertain avec la même intention. Un callback signé peut confirmer le code initial, jamais réactiver un code consommé, expiré ou remplacé. Une réponse HTTP perdue se reprend avec le même UUID et les mêmes paramètres ; un nouvel envoi exige une action explicite après le délai. Configuration : [variables OTP](../development/configuration.md#groupes-de-variables) ; diagnostic : [Exploitation](../operations/operations.md#diagnostic-de-demarrage).
 
@@ -500,6 +504,8 @@ Toutes les réponses sont `no-store` et `no-referrer`.
 | DELETE | `/api/web/privacy/data` | `{ category: photo|location|sensitive_profile }` → `204` ; le compte et les autres catégories sont conservés. |
 | POST | `/api/web/privacy/deletion-token` | Émet un jeton à usage unique lié au compte connecté → `201 { confirmation_token, expires_at }`. |
 | DELETE | `/api/web/privacy/account` | `{ confirmation_token }` → `202 { request_id, status: in_progress }` et cookie expiré. |
+
+Les envois web ont leurs propres quotas HTTP par IP et numéro. La vérification applique un quota IP et cinq tentatives par challenge web. Les codes web et mobiles ont des durées de vie indépendantes. Les plafonds d’appels Sweego par destinataire et globaux restent communs aux canaux.
 
 L’identité cible vient uniquement de la session ; aucun `user_id` cible n’est accepté dans une
 suppression. Les consentements requis pour l’onboarding et les droits Premium ne conditionnent pas

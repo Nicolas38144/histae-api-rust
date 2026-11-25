@@ -54,7 +54,7 @@ pub struct OtpService {
     region: Arc<str>,
     provider_timeout: Duration,
     otp_ttl: Duration,
-    hash_context: Option<Uuid>,
+    scope: OtpScope,
 }
 
 impl OtpService {
@@ -73,7 +73,7 @@ impl OtpService {
             region: region.into(),
             provider_timeout,
             otp_ttl,
-            hash_context: None,
+            scope: OtpScope::Mobile,
         }
     }
 
@@ -93,15 +93,25 @@ impl OtpService {
     /// A website code is bound to its opaque challenge and cannot authenticate
     /// a mobile login or a different website challenge.
     pub fn for_web_challenge(&self, challenge: Uuid) -> Self {
+        self.scoped(OtpScope::WebChallenge(challenge))
+    }
+
+    pub(crate) fn for_mobile_challenge(&self, challenge: Uuid) -> Self {
+        self.scoped(OtpScope::MobileChallenge(challenge))
+    }
+
+    fn scoped(&self, scope: OtpScope) -> Self {
         let mut scoped = self.clone();
-        scoped.hash_context = Some(challenge);
+        scoped.scope = scope;
         scoped
     }
 
     fn code_hash(&self, code: &str) -> Result<String, OtpError> {
-        let input = self
-            .hash_context
-            .map_or_else(|| code.to_owned(), |id| format!("web-billing:{id}:{code}"));
+        let input = match self.scope {
+            OtpScope::Mobile => code.to_owned(),
+            OtpScope::MobileChallenge(id) => format!("mobile-otp:{id}:{code}"),
+            OtpScope::WebChallenge(id) => format!("web-billing:{id}:{code}"),
+        };
         hmac_sha256(&input, &self.hash_key).map_err(|_| OtpError::Internal)
     }
 
@@ -122,6 +132,13 @@ impl OtpService {
     ) -> Result<(), OtpError> {
         let phone = normalize_phone(phone_input).ok_or(OtpError::InvalidPhone)?;
         let idempotency_key = normalize_idempotency_key(idempotency_input)?;
+        if self
+            .scope
+            .challenge_id()
+            .is_some_and(|id| id != idempotency_key)
+        {
+            return Err(OtpError::InvalidIdempotencyKey);
+        }
         let code = generate_otp()?;
         let phone_hash = hmac_sha256(&phone, &self.hash_key).map_err(|_| OtpError::Internal)?;
         let otp_hash = self.code_hash(&code)?;
@@ -133,6 +150,7 @@ impl OtpService {
         let start = self
             .store
             .begin(BeginOtpDelivery {
+                channel: self.scope.channel(),
                 language,
                 id: delivery_id,
                 phone_hash: phone_hash.clone(),
@@ -218,7 +236,7 @@ impl OtpService {
         let otp_hash = self.code_hash(otp)?;
         if !self
             .store
-            .consume(phone_hash.clone(), otp_hash)
+            .consume(phone_hash.clone(), otp_hash, self.scope)
             .await
             .map_err(|_| OtpError::Internal)?
         {

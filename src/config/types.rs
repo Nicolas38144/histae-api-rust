@@ -298,6 +298,7 @@ pub struct AppConfig {
     pub account_deletion_token_ttl: Duration,
     pub phone: PhoneConfig,
     pub play_review: Option<PlayReviewConfig>,
+    pub mobile_otp_require_challenge: bool,
     pub sms: SmsConfig,
     pub redis: RedisConfig,
     pub push: PushConfig,

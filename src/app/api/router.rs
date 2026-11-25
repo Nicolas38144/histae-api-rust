@@ -374,13 +374,16 @@ impl ApiResources {
             ))
             .merge(advertising_routes(advertising, mobile_auth.clone()))
             .merge(mobile_auth_routes(mobile_auth.clone()))
-            .merge(otp_routes(OtpHttpState::new(
-                otp,
-                login,
-                limiter.clone(),
-                config.rate_limit.otp.clone(),
-                otp_requests,
-            )))
+            .merge(otp_routes(
+                OtpHttpState::new(
+                    otp,
+                    login,
+                    limiter.clone(),
+                    config.rate_limit.otp.clone(),
+                    otp_requests,
+                )
+                .with_required_challenge(config.mobile_otp_require_challenge),
+            ))
             .merge(sweego_routes(SweegoHttpState::new(
                 sweego_webhook,
                 limiter.clone(),

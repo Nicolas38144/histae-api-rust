@@ -611,6 +611,11 @@ impl AppConfig {
             account_deletion_token_ttl,
             phone,
             play_review: super::play_review::load(source)?,
+            mobile_otp_require_challenge: boolean(
+                source.value("MOBILE_OTP_REQUIRE_CHALLENGE")?.as_deref(),
+                false,
+                "MOBILE_OTP_REQUIRE_CHALLENGE",
+            )?,
             sms,
             redis,
             push,

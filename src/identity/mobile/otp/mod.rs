@@ -5,8 +5,8 @@ mod service;
 mod store;
 
 pub use domain::{
-    BeginOtpDelivery, OtpDeliverySnapshot, OtpDeliveryStart, OtpDeliveryState, OtpDeliveryStates,
-    SmsDeliveryEvent, SmsEventKind, SmsEventOutcome,
+    BeginOtpDelivery, OtpChannel, OtpDeliverySnapshot, OtpDeliveryStart, OtpDeliveryState,
+    OtpDeliveryStates, OtpScope, SmsDeliveryEvent, SmsEventKind, SmsEventOutcome,
 };
 pub use pg::OtpRepository;
 pub(crate) use requests::delivery_outcome;
