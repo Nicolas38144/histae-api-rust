@@ -53,8 +53,8 @@ poursuit le travail. Un intervalle initial de cinq minutes doit être ajusté se
 Ne pas augmenter les budgets sans regarder la charge SQL.
 
 Dans le dashboard, « Jamais exécuté » signifie qu’aucun état n’a été enregistré pour ce traitement.
-Outbox peut avoir réussi alors que maintenance n’a jamais été lancée. Les relectures natives sont
-planifiées pendant la passe de maintenance ; il n’existe plus de job de paiement web séparé.
+Outbox peut avoir réussi alors que maintenance n’a jamais été lancée. La passe de maintenance planifie
+les vérifications d’abonnement auprès des stores.
 Vérifier `status`, `last_error_code`, progression et travail restant après une passe, pas seulement son existence.
 
 ### Timer systemd sur Debian

@@ -215,7 +215,7 @@ puis applique le budget par compte avant de valider les champs du JSON. Le parse
 d’abord le format, la syntaxe et la taille du corps. `privacy/web/service.rs` délègue les
 retraits partiels aux services photo et consentements ; l'effacement du compte utilise le service
 de suppression existant. Aucun UUID cible n'est accepté. Les routes de compte partagent leur challenge OTP,
-leurs limites et leur cookie ; `WEB_ACCOUNT_ORIGIN` définit l’origine autorisée. Aucun paiement web n’est proposé.
+leurs limites et leur cookie ; `WEB_ACCOUNT_ORIGIN` définit l’origine autorisée.
 
 ```bash
 cargo fmt --all -- --check

@@ -176,8 +176,6 @@ async fn providers_ownership_ordering_ack_and_erasure_are_independent()
         subscription.management_url.as_deref(),
         Some("https://apps.apple.com/account/subscriptions")
     );
-    assert!(!subscription.customer_portal_available);
-    assert!(subscription.trial_ends_at.is_none());
     // A non-commercial free row must not override native access.
     let mut c = db.acquire().await?;
     sqlx::query("INSERT INTO user_subscription(user_id,plan) VALUES($1,'free')")

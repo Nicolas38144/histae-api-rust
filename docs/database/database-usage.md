@@ -80,8 +80,8 @@ Les jobs de rétention, les projections SQL et les triggers apportent des usages
 | `erasure_receipt` | Reçus d’effacement avec un code de suivi stocké sous forme d’empreinte. | [casework/pg.rs](../../src/casework/pg.rs) |
 | `support_case` | Dossiers d’assistance pour les comptes et les invités. | [casework/pg.rs](../../src/casework/pg.rs) |
 
-`user_subscription` reste utile après le retrait de Stripe : la projection SQL
-`effective_subscription_at` lit les attributions internes, et la continuation verrouille ces lignes.
+`user_subscription` contient les attributions internes. La projection SQL
+`effective_subscription_at` les lit, et la continuation verrouille ces lignes.
 Les achats natifs et les Premium offerts utilisent leurs tables distinctes. Une absence d’écriture
 par une route actuelle ne suffit donc pas à considérer cette table comme inutilisée.
 

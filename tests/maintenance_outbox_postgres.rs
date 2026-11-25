@@ -176,7 +176,7 @@ async fn preserves_operator_safety_leadership_and_bounded_cleanup()
     let retry_event = Uuid::new_v4();
     let discard_event = Uuid::new_v4();
     let account_event = Uuid::new_v4();
-    let billing_event = Uuid::new_v4();
+    let unknown_event = Uuid::new_v4();
     let existing_photo_event = Uuid::new_v4();
     let absent_photo_event = Uuid::new_v4();
     let pending_event = Uuid::new_v4();
@@ -184,7 +184,7 @@ async fn preserves_operator_safety_leadership_and_bounded_cleanup()
         retry_event,
         discard_event,
         account_event,
-        billing_event,
+        unknown_event,
         existing_photo_event,
         absent_photo_event,
         pending_event,
@@ -228,8 +228,8 @@ async fn preserves_operator_safety_leadership_and_bounded_cleanup()
         insert_dead_letter(&database, account_event, "account.erase", Uuid::new_v4()).await?;
         insert_dead_letter(
             &database,
-            billing_event,
-            "billing.subscription.reconcile",
+            unknown_event,
+            "test.unknown",
             Uuid::new_v4(),
         )
         .await?;
@@ -284,7 +284,7 @@ async fn preserves_operator_safety_leadership_and_bounded_cleanup()
         );
         assert_eq!(
             service
-                .discard(billing_event, operator, "Projection inspectée")
+                .discard(unknown_event, operator, "Type d’événement inconnu")
                 .await,
             Err(OutboxAdminError::DiscardNotAllowed)
         );

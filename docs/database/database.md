@@ -65,13 +65,12 @@ les autres tarifs personnalisés ni les achats existants ; voir [Configuration](
 Le catalogue n'a plus de colonne `subscription_plan.trial_days` ni de contrainte associée dans le
 schéma initial ; le seed et les requêtes sont alignés. Le migrateur retire aussi cette colonne si
 elle existe encore. Les nouvelles souscriptions n'ont aucune période d'essai. Le champ `trial_days` est aussi retiré du
-catalogue HTTP et des modèles clients. Les dates d'essais historiques des abonnements ne sont pas modifiées.
+catalogue HTTP et des modèles clients.
 
-Les notifications de fin d’essai sont retirées : le migrateur supprime leurs tâches outbox et
-leurs notifications, puis la colonne dédiée `notification.billing_trial_ends_at`. La section
-`notification events` dans `table_upgrades.sql` rétablit ensuite la contrainte complète des types actuels ; aucune liste
-historique de types ne la remplace. Les contraintes sont alignées sur le schéma neuf ; cette mise à niveau est idempotente et conserve les autres
-notifications et les abonnements.
+La mise à niveau exige que le schéma de la base commence déjà les effacements de compte à l’étape
+`photos`. Pour une base antérieure, appliquer d’abord la version intermédiaire du migrateur.
+La section `notification events` de `table_upgrades.sql` aligne la contrainte des types de notification
+sur le schéma actuel.
 Les index de performance sont ensuite construits avec `CONCURRENTLY`, hors de la transaction de schéma.
 Un verrou advisory sérialise les migrateurs. Un index valide est conservé ; un index invalide laissé par une
 interruption est supprimé puis reconstruit au prochain lancement.

@@ -81,8 +81,7 @@ Ne conserver la dernière phrase qu’après avoir effectivement préparé le co
   téléphone couvert par un tombstone : refus. Une contrainte PostgreSQL interdit les rôles
   `admin` et `superadmin`, et la route de promotion renvoie son refus habituel.
 - Les sessions, leur expiration et leur révocation restent celles de l’authentification mobile.
-  Aucun accès WebAuthn ou paiement web par code fixe n’est ajouté. Les parcours SMS ordinaires
-  conservent leur traitement habituel.
+  Le code fixe sert au parcours de revue mobile. Les parcours SMS ordinaires conservent leur traitement habituel.
 - La découverte, les swipes et les conversations n’autorisent que des interactions entre comptes du
   même groupe. Le compte de revue affiche un feed vide tant qu’aucun autre profil de revue éligible
   n’existe. Prévoir des profils fictifs de revue pour présenter les interactions à Google.

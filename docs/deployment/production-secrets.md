@@ -642,14 +642,8 @@ Cloudflare au navigateur ne suffit pas à prouver le renouvellement de celui de 
 
 ## 5. Achats natifs
 
-Le préparateur du dépôt `histae-scripts` vérifie encore des variables Stripe obsolètes. Si cette
-vérification bloque, corriger le préparateur pour les achats natifs ; l’API n’exige pas ces secrets.
-
-Les paiements passent exclusivement par Apple/Google. Configurer les secrets privés et les produits
-suivant le [guide des stores](../features/store-billing.md). Aucun secret de paiement web n’est requis au démarrage.
-Le `.env` reste propre à chaque serveur ; ne pas recopier les valeurs locales en production.
-Les anciennes variables à retirer et le renommage `WEB_ACCOUNT_ORIGIN` sont détaillés dans
-[la migration des paiements](../features/billing.md#retrait-de-lancien-paiement-web).
+Configurer les secrets privés et les produits Apple et Google dans le `.env` du serveur.
+Voir le [guide des stores](../features/store-billing.md).
 
 ## 6. Références d'images et reprise du préparateur
 

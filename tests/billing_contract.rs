@@ -23,7 +23,7 @@ use histae_api_rust::identity::mobile::store::{MobileSessionStore, SessionStoreF
 use histae_api_rust::identity::mobile::tokens::{NewRefreshToken, TokenService};
 use histae_api_rust::infra::postgres::DatabaseError;
 use histae_api_rust::shared::clock::SystemClock;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
@@ -211,48 +211,15 @@ async fn requires_mobile_authentication() {
 }
 
 #[tokio::test]
-async fn exposes_effective_subscription_but_removes_website_purchase_mutations() {
+async fn exposes_effective_subscription() {
     let billing = FakeBilling::successful();
     let (app, token) = app(Arc::new(billing));
-    let response = app
-        .clone()
-        .oneshot(authenticated(
-            "/api/users/me/subscription",
-            "GET",
-            &token,
-            None,
-            None,
-        ))
-        .await
-        .unwrap();
+    let response = app.oneshot(subscription_request(&token)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = json_response(response).await;
     assert_eq!(body["plan"], "free");
     assert_eq!(body["access_granted"], false);
     assert!(body["management_url"].is_null());
-    assert_eq!(body["customer_portal_available"], false);
-    assert_eq!(body.get("trial_ends_at"), Some(&Value::Null));
-    for path in [
-        "/api/users/me/subscription/checkout",
-        "/api/users/me/subscription/portal",
-    ] {
-        let response = app
-            .clone()
-            .oneshot(authenticated(
-                path,
-                "POST",
-                &token,
-                Some(json!({"billing_period":"annual"})),
-                None,
-            ))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        assert_eq!(
-            json_response(response).await["error"]["code"],
-            "route_not_found"
-        );
-    }
 }
 
 #[tokio::test]
@@ -270,16 +237,7 @@ async fn subscription_failures_never_become_free_access_or_expose_database_detai
         ),
     ] {
         let (app, token) = app(Arc::new(FakeBilling { error: Some(error) }));
-        let response = app
-            .oneshot(authenticated(
-                "/api/users/me/subscription",
-                "GET",
-                &token,
-                None,
-                None,
-            ))
-            .await
-            .unwrap();
+        let response = app.oneshot(subscription_request(&token)).await.unwrap();
         assert_eq!(response.status(), status);
         let body = json_response(response).await;
         assert_eq!(body["error"]["code"], code);
@@ -288,24 +246,10 @@ async fn subscription_failures_never_become_free_access_or_expose_database_detai
     }
 }
 
-fn authenticated(
-    uri: &str,
-    method: &str,
-    token: &str,
-    body: Option<Value>,
-    idempotency_key: Option<&str>,
-) -> Request<Body> {
-    let mut builder = Request::builder()
-        .method(method)
-        .uri(uri)
-        .header(header::AUTHORIZATION, format!("Bearer {token}"));
-    if body.is_some() {
-        builder = builder.header(header::CONTENT_TYPE, "application/json");
-    }
-    if let Some(key) = idempotency_key {
-        builder = builder.header("idempotency-key", key);
-    }
-    builder
-        .body(body.map_or_else(Body::empty, |value| Body::from(value.to_string())))
+fn subscription_request(token: &str) -> Request<Body> {
+    Request::builder()
+        .uri("/api/users/me/subscription")
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .body(Body::empty())
         .unwrap_or_else(|_| unreachable!())
 }

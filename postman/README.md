@@ -112,5 +112,5 @@ admin et session web OTP. Renseigner `storeProvider`, IDs/receipts réels de tes
 Les placeholders ne donnent jamais Premium. Ne pas exporter les purchaseTokens ni cookies.
 Pour le site, configurer `webAccountOrigin` exact, une clé UUIDv4 `webAccountOtpKey`, puis `webAccountCookie` (ou le gestionnaire de cookies Postman). Le challenge
 est mémorisé après 202. Le cookie web est distinct du cookie admin et du Bearer mobile.
-Les anciennes routes de paiement web ont été retirées (404). Le template financier du JSON est synthétique : ne pas
-l’importer comme chiffre réel. Voir [le guide](../docs/features/store-billing.md).
+Le modèle financier du JSON sert aux tests. Utiliser les rapports des stores pour les imports réels.
+Voir [le guide](../docs/features/store-billing.md).

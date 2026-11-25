@@ -84,10 +84,6 @@ pub struct SubscriptionView {
     pub current_period_starts_at: Option<String>,
     pub current_period_ends_at: Option<String>,
     pub canceled_at: Option<String>,
-    /// Compatibility for installed clients; web billing has been retired.
-    pub customer_portal_available: bool,
-    /// Trials are unavailable; retained as null for installed clients.
-    pub trial_ends_at: Option<String>,
     pub management_url: Option<String>,
 }
 
@@ -104,8 +100,6 @@ impl SubscriptionView {
             current_period_ends_at: None,
             canceled_at: None,
             management_url: None,
-            customer_portal_available: false,
-            trial_ends_at: None,
         }
     }
 }

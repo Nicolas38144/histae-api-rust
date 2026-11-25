@@ -176,7 +176,6 @@ par les clients. Le champ `trial_days` est supprimé des plans et des offres ; a
 
 Les offres décrivent les droits et les prix indicatifs du catalogue. Les achats sont réalisés
 uniquement dans les applications Android/iOS ; le prix proposé au paiement vient du SDK du store.
-Aucune URL de paiement web ni identifiant de prix externe n’est fourni par le client.
 
 ### Protection des envois SMS
 
@@ -471,8 +470,8 @@ L’API accepte jusqu’à trois flux ouverts par compte et 512 par instance. Un
 | POST | `/api/billing/apple/webhook` | `{ signedPayload }` JWS Notifications V2 Apple → `200 { received: true }`. |
 | POST | `/api/billing/google-play/webhook` | Enveloppe Pub/Sub + `Authorization: Bearer <JWT OIDC>` → `200 { received: true }`. |
 
-État : `plan, provider, status, access_granted, billing_period`, dates de période/essai/annulation,
-`cancel_at_period_end, customer_portal_available, management_url`. Les champs de compatibilité `customer_portal_available` et `trial_ends_at` valent toujours `false` et `null`. `provider` : `app_store|google_play|null`.
+État : `plan, provider, status, access_granted, billing_period`, dates de période et d’annulation,
+`cancel_at_period_end, management_url`. Les valeurs de `provider` sont `app_store`, `google_play` et `null`.
 `management_url` : lien officiel du store ou `null`. `plan` vaut Free si aucun droit courant, même si un historique
 Premium existe. Ne jamais déduire les droits du SDK, d’un webhook reçu, d’un redirect ou de `status` seul.
 États natifs : `pending, active, grace_period, past_due, on_hold, paused, canceled, expired, revoked`.

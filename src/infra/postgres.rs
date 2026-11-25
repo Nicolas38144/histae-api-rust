@@ -436,6 +436,14 @@ pub async fn verify_schema_compatibility_on(
                   AND pg_get_constraintdef(oid) LIKE '%swipes%'
             )
             AND EXISTS (
+                SELECT 1 FROM pg_attribute AS attribute
+                JOIN pg_attrdef AS step_default
+                  ON step_default.adrelid = attribute.attrelid AND step_default.adnum = attribute.attnum
+                WHERE attribute.attrelid = to_regclass(current_schema() || '.account_erasure')
+                  AND attribute.attname = 'step' AND NOT attribute.attisdropped
+                  AND pg_get_expr(step_default.adbin, step_default.adrelid) = quote_literal('photos') || '::text'
+            )
+            AND EXISTS (
                 SELECT 1 FROM pg_constraint
                 WHERE conrelid = to_regclass(current_schema() || '.admin_webauthn_challenge')
                   AND conname = 'chk_admin_webauthn_challenge_state'

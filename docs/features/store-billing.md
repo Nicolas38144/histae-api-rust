@@ -88,8 +88,7 @@ Ordre de livraison :
 2. Apple Notifications V2 → `https://api.histae.com/api/billing/apple/webhook`, environnements correspondants.
    Google RTDN → topic Pub/Sub → push OIDC vers `/api/billing/google-play/webhook` avec les valeurs exactes ci-dessus.
 3. Renseigner les identifiants et clés, activer les fournisseurs en dev, garder les comptes test dans la pile de dev.
-4. Déployer API, worker, maintenance et vérificateur. Le migrateur peut être relancé ;
-   il conserve les achats natifs et retire les anciennes données de paiement web de test.
+4. Déployer l’API, le worker, la maintenance et le vérificateur.
 5. Tester les achats Sandbox/Play test, renouvellements, refus, grâce, hold, annulation, remboursement, restauration,
    fermeture de l’app, panne réseau et webhook retardé sur de vrais appareils.
 6. Activer `BILLING_ENABLED=true` dans une nouvelle compilation Flutter après ces validations ; ne jamais y copier une clé privée.

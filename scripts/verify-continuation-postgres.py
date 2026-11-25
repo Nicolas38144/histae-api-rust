@@ -196,26 +196,6 @@ def main():
 def verify_legacy_migrations(name, docker, migrate, query):
     migrate()
 
-    # Recreate the retired web-payment schema, without contacting any provider.
-    legacy_user, native_user, internal_user, gift_user = [str(uuid.uuid4()) for _ in range(4)]
-    legacy_request, native_account, native_receipt = [str(uuid.uuid4()) for _ in range(3)]
-    for owner in (legacy_user,native_user,internal_user,gift_user):
-        query(f"INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted) VALUES ('{owner}','retirement-{owner}',''::bytea);")
-    query("ALTER TABLE user_subscription ADD COLUMN provider text, ADD COLUMN provider_subscription_id text, ADD COLUMN provider_price_id text, ADD COLUMN billing_period text, ADD COLUMN status text, ADD COLUMN cancel_at_period_end boolean DEFAULT false, ADD COLUMN trial_ends_at timestamptz, ADD COLUMN canceled_at timestamptz, ADD COLUMN provider_event_created_at timestamptz, ADD COLUMN projection_version bigint DEFAULT 0, ADD COLUMN provider_snapshot_at timestamptz; CREATE TABLE billing_customer(user_id uuid); CREATE TABLE billing_checkout_session(id uuid); CREATE TABLE billing_invoice(id text); CREATE TABLE stripe_webhook_event(id text); ALTER TABLE web_account_challenge RENAME TO web_billing_challenge; ALTER TABLE web_account_session RENAME TO web_billing_session; ALTER TABLE account_erasure DROP CONSTRAINT account_erasure_step_check; ALTER TABLE account_erasure ADD CONSTRAINT account_erasure_step_check CHECK(step IN ('stripe','photos','swipes','postgres','completed')); ALTER TABLE account_erasure ALTER COLUMN step SET DEFAULT 'stripe';", "histae_migrate")
-    query(f"INSERT INTO user_subscription(user_id,plan,provider) VALUES ('{legacy_user}','premium','stripe'),('{internal_user}','premium',NULL); INSERT INTO complimentary_premium_grant(user_id) VALUES ('{gift_user}'); INSERT INTO billing_store_account(id,user_id,google_account_id) VALUES ('{native_account}','{native_user}',repeat('a',64)); INSERT INTO billing_store_subscription(id,user_id,account_id,provider,original_id,reference_encrypted,environment,product_id,transaction_id,billing_period,status,starts_at,expires_at,auto_renew,acknowledged,verified_at) VALUES ('{native_receipt}','{native_user}','{native_account}','app_store','retirement-native',''::bytea,'sandbox','premium','retirement-tx','monthly','active',clock_timestamp()-interval '1 day',clock_timestamp()+interval '30 days',true,true,clock_timestamp()); INSERT INTO outbox_event(id,event_type,aggregate_id) VALUES (uuid_generate_v4(),'billing.subscription.reconcile','{legacy_user}'),(uuid_generate_v4(),'billing.customer.reconcile','{legacy_user}'); INSERT INTO data_subject_request(id,user_id,type,status) VALUES ('{legacy_request}','{legacy_user}','erasure','in_progress'); INSERT INTO account_erasure(request_id,user_id,step) VALUES ('{legacy_request}','{legacy_user}','stripe'); INSERT INTO outbox_event(id,event_type,aggregate_id,status,attempts,dead_lettered_at,last_error_code) VALUES (uuid_generate_v4(),'account.erase','{legacy_request}','dead_letter',8,clock_timestamp(),'billing_reconciliation_failed');")
-    native_snapshot_sql = f"SELECT to_jsonb(s) FROM billing_store_subscription s WHERE id='{native_receipt}';"
-    native_snapshot = query(native_snapshot_sql)
-    for _ in range(2):
-        migrate()
-        assert query(native_snapshot_sql)==native_snapshot
-        assert query("SELECT to_regclass('billing_customer') IS NULL AND to_regclass('billing_checkout_session') IS NULL AND to_regclass('billing_invoice') IS NULL AND to_regclass('stripe_webhook_event') IS NULL AND to_regclass('web_account_session') IS NOT NULL AND to_regclass('web_billing_session') IS NULL;")=="t"
-        assert query(f"SELECT NOT EXISTS(SELECT 1 FROM user_subscription WHERE user_id='{legacy_user}') AND EXISTS(SELECT 1 FROM user_account WHERE user_id='{legacy_user}') AND EXISTS(SELECT 1 FROM account_erasure WHERE request_id='{legacy_request}' AND step='photos') AND NOT EXISTS(SELECT 1 FROM outbox_event WHERE event_type IN ('billing.customer.reconcile','billing.subscription.reconcile'));")=="t"
-        assert query(f"SELECT status='pending' AND attempts=0 AND dead_lettered_at IS NULL AND last_error_code IS NULL FROM outbox_event WHERE event_type='account.erase' AND aggregate_id='{legacy_request}';")=="t"
-        for owner in (native_user,internal_user,gift_user):
-            assert query(f"SELECT access_granted FROM effective_user_subscription WHERE user_id='{owner}';")=="t"
-    query(f"DELETE FROM outbox_event WHERE event_type='account.erase' AND aggregate_id='{legacy_request}'; DELETE FROM billing_store_subscription WHERE id='{native_receipt}'; DELETE FROM billing_store_account WHERE id='{native_account}'; DELETE FROM user_account WHERE user_id IN ('{legacy_user}','{native_user}','{internal_user}','{gift_user}');")
-    print("Retired web-payment migration removes only test payment state; native receipts, internal rights and gifts are preserved, and erasure resumes at photos.",flush=True)
-
     # Simulate an existing separated cluster predating the dedicated import role.
     docker("exec", "-i", name, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1",
            "-U", "histae_admin", "-d", "histae-dev", input_text=r"""
@@ -258,7 +238,7 @@ SET log_min_error_statement = panic;
     print("Notification preference upgrade creates tables and preserves private choices on repeated runs.", flush=True)
     notice_snapshot_sql = f"SELECT jsonb_build_array(n.id,n.type,n.payload,n.created_at,n.expires_at,m.status,m.expires_at) FROM notification n JOIN match_init m ON m.id='{notice_match}' WHERE n.id='{notice_id}';"
     notice_snapshot = query(notice_snapshot_sql)
-    query("ALTER TABLE match_init DROP COLUMN photo_reveal_version; ALTER TABLE notification DROP CONSTRAINT notification_type_check; ALTER TABLE notification ADD CONSTRAINT notification_type_check CHECK (type IN ('new_match','new_message','profile_liked','match_expiring','billing_payment_failed')); DROP INDEX idx_notification_match_kind;", "histae_migrate")
+    query("ALTER TABLE match_init DROP COLUMN photo_reveal_version; ALTER TABLE notification DROP CONSTRAINT notification_type_check; ALTER TABLE notification ADD CONSTRAINT notification_type_check CHECK (type IN ('new_match','new_message','profile_liked','match_expiring')); DROP INDEX idx_notification_match_kind;", "histae_migrate")
     for _ in range(2):
         migrate()
         assert query(notice_snapshot_sql) == notice_snapshot

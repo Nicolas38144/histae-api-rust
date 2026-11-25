@@ -92,7 +92,6 @@ async fn claims_are_exclusive_stale_and_owned() -> Result<(), Box<dyn std::error
         let result = AssertUnwindSafe(async {
             assert_initial_and_upgraded_schema_match(&config, &database).await?;
             assert_event_identifier_upgrade(&config, &database).await?;
-            assert_payment_notification_retirement(&config, &database).await?;
             assert_index_upgrade(&config, &database).await?;
             assert_claim_protocol(&database).await
         })
@@ -297,130 +296,6 @@ async fn assert_event_identifier_upgrade(
     assert_eq!(requeued, legacy_id);
     sqlx::query("DELETE FROM outbox_event WHERE id=ANY($1)")
         .bind(&[legacy_id, generated][..])
-        .execute(&mut *connection)
-        .await?;
-    Ok(())
-}
-
-async fn assert_payment_notification_retirement(
-    config: &PostgresConfig,
-    database: &Database,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let user = Uuid::new_v4();
-    let device = Uuid::new_v4();
-    let notifications = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
-    let jobs = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
-    let mut connection = database.acquire().await?;
-    // Recreate the previous notification schema and a pending delivery of each kind.
-    sqlx::raw_sql(
-        "ALTER TABLE notification
-           ADD COLUMN billing_reference text, ADD COLUMN billing_trial_ends_at timestamptz,
-           DROP CONSTRAINT notification_type_check,
-           DROP CONSTRAINT IF EXISTS chk_notification_billing_context;
-         ALTER TABLE notification
-           ADD CONSTRAINT notification_type_check CHECK (
-             type IN ('new_match', 'new_message', 'profile_liked', 'match_expiring',
-                      'continuation_requested', 'billing_payment_failed', 'subscription_trial_ending')),
-           ADD CONSTRAINT chk_notification_billing_context CHECK (
-             (billing_reference IS NULL AND billing_trial_ends_at IS NULL) OR
-             (type = 'billing_payment_failed' AND billing_reference ~ '^in_[A-Za-z0-9]+$'
-               AND billing_trial_ends_at IS NULL) OR
-             (type = 'subscription_trial_ending' AND billing_reference ~ '^sub_[A-Za-z0-9]+$'
-               AND billing_trial_ends_at IS NOT NULL));",
-    )
-    .execute(&mut *connection)
-    .await?;
-    sqlx::query(
-        "INSERT INTO user_account(user_id, phone_number_hash, phone_number_encrypted)
-         VALUES ($1, $1::text, ''::bytea)",
-    )
-    .bind(user)
-    .execute(&mut *connection)
-    .await?;
-    sqlx::query("INSERT INTO device_token(id, user_id, token, platform) VALUES ($1, $2, $1::text, 'android')")
-        .bind(device).bind(user).execute(&mut *connection).await?;
-    sqlx::query("INSERT INTO user_subscription(user_id,plan) VALUES($1,'free')")
-        .bind(user)
-        .execute(&mut *connection)
-        .await?;
-    sqlx::query(
-        "INSERT INTO notification(id, user_id, type, billing_reference, billing_trial_ends_at, payload)
-         VALUES ($1, $3, 'subscription_trial_ending', 'sub_RetiredTrial', clock_timestamp() + interval '1 day', NULL),
-                ($2, $3, 'billing_payment_failed', 'in_StillUnpaid', NULL, NULL),
-                ($4, $3, 'continuation_requested', NULL, NULL, '{}'::jsonb)",
-    )
-    .bind(notifications[0]).bind(notifications[1]).bind(user).bind(notifications[2])
-    .execute(&mut *connection).await?;
-    for (notification, job) in notifications.into_iter().zip(jobs) {
-        sqlx::query("INSERT INTO outbox_event(id, event_type, aggregate_id) VALUES ($1, 'notification.push', $1)")
-            .bind(job).execute(&mut *connection).await?;
-        sqlx::query("INSERT INTO notification_push_delivery(id, notification_id, device_id) VALUES ($1, $2, $3)")
-            .bind(job).bind(notification).bind(device).execute(&mut *connection).await?;
-    }
-    let snapshot_sql = "SELECT jsonb_build_array(id,type,payload,created_at,expires_at)
-                        FROM notification WHERE id=$1";
-    let retained_notice: serde_json::Value = sqlx::query_scalar(snapshot_sql)
-        .bind(notifications[2])
-        .fetch_one(&mut *connection)
-        .await?;
-    drop(connection);
-
-    // Both the first upgrade and a repeated deployment must preserve unrelated work.
-    for _ in 0..2 {
-        assert_eq!(migrations::apply(config).await?, 0);
-        let mut connection = database.acquire().await?;
-        let remaining: Vec<Uuid> =
-            sqlx::query_scalar("SELECT id FROM notification WHERE user_id = $1")
-                .bind(user)
-                .fetch_all(&mut *connection)
-                .await?;
-        assert_eq!(remaining, vec![notifications[2]]);
-        let actual: serde_json::Value = sqlx::query_scalar(snapshot_sql)
-            .bind(notifications[2])
-            .fetch_one(&mut *connection)
-            .await?;
-        assert_eq!(actual, retained_notice);
-        let deliveries: Vec<Uuid> =
-            sqlx::query_scalar("SELECT id FROM notification_push_delivery WHERE device_id = $1")
-                .bind(device)
-                .fetch_all(&mut *connection)
-                .await?;
-        assert_eq!(deliveries, vec![jobs[2]]);
-        let pending: Vec<Uuid> =
-            sqlx::query_scalar("SELECT id FROM outbox_event WHERE id = ANY($1::uuid[])")
-                .bind(&jobs[..])
-                .fetch_all(&mut *connection)
-                .await?;
-        assert_eq!(pending, vec![jobs[2]]);
-        let old_column: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'notification' AND column_name IN ('billing_trial_ends_at','billing_reference'))")
-            .fetch_one(&mut *connection).await?;
-        assert!(!old_column);
-        let current_types_restored: bool = sqlx::query_scalar(
-            "SELECT pg_get_constraintdef(oid) LIKE '%data_request_replied%'
-                AND pg_get_constraintdef(oid) LIKE '%first_period_ending%'
-             FROM pg_constraint WHERE conrelid='notification'::regclass
-               AND conname='notification_type_check'",
-        )
-        .fetch_one(&mut *connection)
-        .await?;
-        assert!(current_types_restored);
-        assert!(
-            sqlx::query(
-                "INSERT INTO notification(user_id, type) VALUES ($1, 'subscription_trial_ending')"
-            )
-            .bind(user)
-            .execute(&mut *connection)
-            .await
-            .is_err()
-        );
-    }
-    let mut connection = database.acquire().await?;
-    sqlx::query("DELETE FROM outbox_event WHERE id = ANY($1::uuid[])")
-        .bind(&jobs[..])
-        .execute(&mut *connection)
-        .await?;
-    sqlx::query("DELETE FROM user_account WHERE user_id = $1")
-        .bind(user)
         .execute(&mut *connection)
         .await?;
     Ok(())

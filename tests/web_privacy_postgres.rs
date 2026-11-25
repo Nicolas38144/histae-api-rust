@@ -326,17 +326,6 @@ async fn account_otp_replays_share_limits_and_session_without_website_payments()
             identity,
             json!({"user_id":f.user,"onboarding_complete":false})
         );
-        for (path, body) in [
-            (
-                "/api/web/billing/checkout",
-                "{\"billing_period\":\"monthly\"}",
-            ),
-            ("/api/web/billing/portal", ""),
-        ] {
-            let (status, _, body) = f.send(f.request("POST", path, Some(cookie), body)).await?;
-            assert_eq!(status, StatusCode::NOT_FOUND);
-            assert_eq!(body["error"]["code"], "route_not_found");
-        }
         let (status, headers, _) = f
             .send(f.request("DELETE", "/api/web/account/session", Some(cookie), ""))
             .await?;

@@ -70,8 +70,6 @@ fn effective_subscription_view(
         current_period_starts_at: date("current_period_starts_at")?,
         current_period_ends_at: date("current_period_ends_at")?,
         canceled_at: date("canceled_at")?,
-        customer_portal_available: false,
-        trial_ends_at: None,
         management_url: provider.map(|provider| provider.management_url().to_owned()),
     })
 }
