@@ -23,6 +23,7 @@ x-production-database-environment: &production-database-environment
   REDIS_ADDR: redis:6379
   REDIS_TLS: "true"
   OBJECT_STORAGE_ENDPOINT: https://${HISTAE_STORAGE_HOST:?Define the public S3 hostname in HISTAE_STORAGE_HOST}
+  OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
   STORE_VERIFIER_URL: https://store-verifier:8080
   STORE_VERIFIER_CA_FILE: /run/secrets/store_verifier_ca
 
@@ -173,24 +174,37 @@ services:
     logging: *production-logging
     networks: [redis-private]
 
-  # SeaweedFS server (master, volume, filer et S3), pas le mode mini de développement.
-  # Ses interfaces brutes restent sur un réseau dédié, inaccessible à l'API/proxy public.
+  # SeaweedFS server (master, volume, filer et S3). Only the S3 HTTP socket is shared.
   object-storage:
-    image: chrislusf/seaweedfs:4.45
+    image: chrislusf/seaweedfs:4.55@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9
+    network_mode: none
+    # The socket inherits the gateways' group before the upstream entrypoint drops root.
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        chown seaweed:101 /run/seaweedfs
+        chmod 2750 /run/seaweedfs
+        umask 0007
+        exec /entrypoint.sh "$$@"
+      - --
     command:
       - server
       - -dir=/data
-      - -ip=object-storage
-      - -ip.bind=0.0.0.0
+      - -ip=127.0.0.1
+      - -ip.bind=127.0.0.1
       - -master.telemetry=false
       - -master.volumeSizeLimitMB=1024
       - -volume.max=0
       - -volume.index=leveldb
       - -filer
       - -filer.exposeDirectoryData=false
+      - -iam=false
+      - -sftp=false
       - -s3
       - -s3.config=/run/secrets/s3_identity
       - -s3.iam=false
+      - -s3.localSocket=/run/seaweedfs/s3.sock
       - -s3.port.iceberg=0
       - -s3.port.lance=0
       - -s3.allowDeleteBucketNotEmpty=false
@@ -198,9 +212,15 @@ services:
     volumes:
       - histae-object-storage-production-data:/data
       - ./docker/seaweedfs/filer.toml:/etc/seaweedfs/filer.toml:ro
+      - storage-s3-socket:/run/seaweedfs
     secrets: [s3_identity]
     healthcheck:
-      test: [CMD, wget, -q, --spider, http://127.0.0.1:8333/healthz]
+      test:
+        - CMD-SHELL
+        - >-
+          test -S /run/seaweedfs/s3.sock
+          && wget -q --spider http://127.0.0.1:9333/readyz
+          && wget -q --spider http://127.0.0.1:8333/healthz
       interval: 10s
       timeout: 5s
       retries: 20
@@ -212,10 +232,9 @@ services:
     cpus: 1.0
     pids_limit: 256
     logging: *production-logging
-    networks: [storage]
 
-  # Unique entrée S3 : HTTPS, Host conservé pour les signatures, aucun accès au filer.
-  storage-gateway:
+  # Signed downloads from the edge proxy. Writers use a different network and gateway.
+  storage-gateway: &storage-gateway
     image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
     entrypoint: [caddy]
     command: [run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
@@ -230,12 +249,14 @@ services:
     security_opt: [no-new-privileges:true]
     volumes:
       - ./docker/storage-gateway/Caddyfile:/etc/caddy/Caddyfile:ro
-      - type: bind
+      - &storage-gateway-tls
+        type: bind
         source: ./.secrets/storage-gateway
         target: /etc/caddy/tls
         read_only: true
         bind:
           create_host_path: false
+      - &storage-gateway-socket storage-s3-socket:/run/seaweedfs:ro
     healthcheck:
       test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/health/live]
       interval: 10s
@@ -249,12 +270,18 @@ services:
     cpus: 0.5
     pids_limit: 64
     logging: *production-logging
+    networks: [edge]
+
+  storage-internal:
+    <<: *storage-gateway
+    volumes:
+      - ./docker/storage-gateway/internal.Caddyfile:/etc/caddy/Caddyfile:ro
+      - *storage-gateway-tls
+      - *storage-gateway-socket
     networks:
-      backend:
+      storage-clients:
         aliases:
           - ${HISTAE_STORAGE_HOST:?Define HISTAE_STORAGE_HOST}
-      storage:
-      edge:
 
   # Initialise seulement le bucket privé via S3 ; aucune permission publique ajoutée.
   storage-init:
@@ -276,9 +303,9 @@ services:
     cpus: 0.5
     pids_limit: 64
     logging: *production-logging
-    networks: [backend]
+    networks: [storage-clients]
     depends_on:
-      storage-gateway:
+      storage-internal:
         condition: service_healthy
 
   migrate:
@@ -317,10 +344,10 @@ services:
       - postgres_ca
       - store_verifier_ca
     restart: always
-    # API et passerelle S3 rejoignent le proxy ; aucun stockage brut n'y est exposé.
     networks:
       backend:
       redis-private:
+      storage-clients:
       edge:
         aliases:
           - histae-api-production
@@ -340,7 +367,7 @@ services:
       - postgres_ca
       - store_verifier_ca
     restart: always
-    networks: [backend, redis-private]
+    networks: [backend, redis-private, storage-clients]
 
   phone-blocklist-sync:
     environment:
@@ -361,10 +388,12 @@ services:
       METRICS_ENABLED: "false"
     secrets:
       - postgres_ca
+    networks: [backend, storage-clients]
 
 volumes:
   histae-postgres-production-data:
   histae-object-storage-production-data:
+  storage-s3-socket:
 
 secrets:
   # Certificat public de l'autorité, jamais sa clé privée.
@@ -380,7 +409,7 @@ secrets:
     file: ./.secrets/store-verifier/server.key
 
 networks:
-  storage:
+  storage-clients:
     internal: true
   redis-private:
     internal: true

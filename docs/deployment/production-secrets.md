@@ -524,8 +524,8 @@ ingress:
 
 Le connecteur contacte le Caddy principal en HTTP sur le réseau edge, comme pour les autres domaines.
 Dans `histae-reverse-proxy/Caddyfile`, le matcher `storage.histae.com` transmet ensuite à
-`https://storage-gateway:443`. Son transport exige un certificat valide pour `storage.histae.com`
-avec `tls_server_name storage.histae.com` ; la vérification TLS reste activée.
+`https://storage-gateway:443`. Son transport vérifie un certificat valide pour `storage.histae.com`
+avec `tls_server_name storage.histae.com`. `storage-internal` charge la même paire TLS pour les clients internes.
 
 Le bloc définit aussi `header_up Host {hostport}` : Caddy 2.11 remplace normalement le Host lors d’un
 proxy HTTPS, ce qui invaliderait les signatures S3. Aucun chemin ni paramètre n’est réécrit.
@@ -575,9 +575,8 @@ Pour cette pile, le hook à mettre en place doit :
 3. Vérifier les nouveaux fichiers : PEM, paire correspondante, nom DNS, chaîne et expiration.
 4. Conserver une sauvegarde privée de la paire précédente et préparer les deux nouveaux fichiers
    avant leur installation, avec `server.crt` en `0644` et `server.key` en `root:101` / `0640`.
-5. Installer **les deux fichiers**, puis recharger la passerelle ; ne pas recharger entre les copies.
-6. Confirmer le chargement et une nouvelle connexion HTTPS vers l'origine S3. Un signal envoyé
-   avec succès ne prouve pas, à lui seul, que le nouveau certificat est servi.
+5. Installer **les deux fichiers** avant de recharger les deux passerelles.
+6. Confirmer le nouveau certificat avec une nouvelle connexion HTTPS vers chaque passerelle.
 7. Remonter tout échec de copie, de permission ou de chargement dans la supervision ; conserver
    une possibilité de revenir à la paire précédente.
 
@@ -585,8 +584,8 @@ Les copies se réinstallent avec `install` comme lors de l'installation initiale
 refus des fichiers existants, **après vérification et sauvegarde**. Le hook est exécuté avec un
 compte autorisé à lire les fichiers Certbot, attribuer les propriétaires et agir sur Docker.
 
-La passerelle actuelle démarre par `caddy run --config … --adapter caddyfile`, sans `--resume`,
-et son Caddyfile contient `admin off`. La commande `caddy reload` dépend de cette API d'administration.
+Les passerelles démarrent par `caddy run --config … --adapter caddyfile`, sans `--resume`,
+et leurs Caddyfiles contiennent `admin off`. La commande `caddy reload` dépend de cette API d'administration.
 Pour ce démarrage par fichier, Caddy permet un rechargement par **`SIGUSR1`**, y compris des fichiers
 TLS dépendants : [signaux Caddy](https://caddyserver.com/docs/command-line#signals).
 
@@ -595,18 +594,18 @@ Après installation complète de la paire renouvelée, depuis la racine API :
 ```bash
 sudo docker compose --env-file .env \
   -f compose.yaml -f compose.production.yaml \
-  kill -s SIGUSR1 storage-gateway
+  kill -s SIGUSR1 storage-gateway storage-internal
 ```
 
 Ici `kill -s SIGUSR1` envoie le signal de rechargement à Caddy ; il ne demande pas l'arrêt du service.
 Ce choix dépend du mode de démarrage actuel : le revoir si Caddy passe à une configuration par API
 ou à `--resume`. En cas de besoin, le redémarrage ciblé suivant relit aussi les certificats, avec
-une brève interruption de la passerelle :
+une brève interruption des passerelles :
 
 ```bash
 sudo docker compose --env-file .env \
   -f compose.yaml -f compose.production.yaml \
-  restart storage-gateway
+  restart storage-gateway storage-internal
 ```
 
 Le renouvellement d'un certificat S3 ne nécessite pas de reconstruire toute la pile. Les secrets

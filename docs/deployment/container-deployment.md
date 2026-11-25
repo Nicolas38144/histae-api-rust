@@ -178,7 +178,7 @@ le proxy, l’override et les listes de confiance. Voir [Administration](../feat
 | Site | `../histae-site/Caddyfile` | Export statique, langues et redirections juridiques |
 | Dashboard | `../histae-dashboard/Caddyfile` | SPA React, proxy `/api/*`, protections navigateur |
 | Reverse proxy | `../histae-reverse-proxy/Caddyfile` | Domaines publics et routage Docker |
-| Passerelle S3 production | `docker/storage-gateway/Caddyfile` | TLS interne et transmission des requêtes S3 signées |
+| Passerelles S3 production | `docker/storage-gateway/Caddyfile` et `docker/storage-gateway/internal.Caddyfile` | TLS, téléchargements publics présignés et écritures internes |
 
 L’API Rust est servie par Axum. Le tunnel cible `http://reverse-proxy:80` ; Cloudflare termine le
 HTTPS public. Le Caddy edge écoute sur `:80`, sans HTTPS automatique ni API d’administration.
@@ -192,7 +192,7 @@ Les champs autorisés comprennent la méthode normalisée, une catégorie fixe d
 `X-Request-ID` UUID v4 validé. Les logs Docker sont bornés ; les healthchecks sont exclus des logs d’accès.
 
 Les serveurs statiques utilisent UID/GID 1000, une racine en lecture seule et un `/tmp` éphémère.
-La passerelle S3 utilise UID/GID 101 ; les permissions de ses certificats doivent correspondre.
+Les deux passerelles S3 utilisent UID/GID 101 et chargent la même paire TLS.
 
 Les routes API gardent leurs statuts et leur corps, sans repli vers une page HTML. Le dashboard
 impose `Cache-Control: no-store`, refuse sources et fichiers cachés, et laisse les SSE sans compression.
@@ -201,9 +201,9 @@ La limite de corps HTTP est de 1 Mio, en complément des contrôles applicatifs.
 En production, le tunnel envoie aussi `storage.histae.com` au proxy HTTP. Celui-ci relaie vers
 `https://storage-gateway:443`, vérifie le certificat avec `tls_server_name storage.histae.com`
 et conserve le Host public avec `header_up Host {hostport}`. Chemin encodé, paramètres et corps
-restent intacts pour SigV4. Le certificat et sa clé viennent de `.secrets/storage-gateway/`, montés
-sur `/etc/caddy/tls` et lisibles par UID/GID 101. Voir [Secrets S3](production-secrets.md#4-certificat-https-du-stockage-s3).
-La passerelle n’active pas de log d’accès ni de log d’erreur contenant une URL signée.
+restent intacts pour SigV4. La passerelle publique relaie uniquement les lectures d’objets présignées.
+Les deux passerelles montent `.secrets/storage-gateway/` sur `/etc/caddy/tls` et excluent les URL signées
+des journaux d’accès et d’erreur. Voir [Secrets S3](production-secrets.md#4-certificat-https-du-stockage-s3).
 
 <a id="verifier-caddy-et-le-tunnel"></a>
 
@@ -225,6 +225,8 @@ Depuis l’API, avec les certificats et l’image de la passerelle préparés :
 ```bash
 sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml \
   run --rm --no-deps storage-gateway validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml \
+  run --rm --no-deps storage-internal validate --config /etc/caddy/Caddyfile --adapter caddyfile
 sudo docker exec reverse-proxy-container \
   sh -c 'wget -T 10 -qO- "$HISTAE_API_UPSTREAM/health/ready"'
 ```
@@ -318,14 +320,24 @@ Cette identité serveur initialise le bucket privé ; ne jamais la fournir au mo
 crée le bucket via S3, puis termine avec le code 0. SeaweedFS persiste objets et métadonnées ; cela ne fournit
 ni sauvegarde automatique ni haute disponibilité.
 
-Compose impose `OBJECT_STORAGE_ENDPOINT=https://<HISTAE_STORAGE_HOST>` et donne ce nom comme alias privé
-à `storage-gateway`. Le tunnel publie le même nom vers `http://reverse-proxy:80`. La route S3 de Caddy
+Compose impose `OBJECT_STORAGE_ENDPOINT=https://<HISTAE_STORAGE_HOST>` en mode path-style. Sur le réseau
+interne `storage-clients`, ce nom résout vers `storage-internal`, qui accepte `HEAD`, `PUT` et `DELETE`.
+L’API, l’outbox, la maintenance et `storage-init` rejoignent ce réseau. Le tunnel publie le même nom vers
+`http://reverse-proxy:80`. La route S3 de Caddy
 transmet à `https://storage-gateway:443`, vérifie le certificat avec `tls_server_name storage.histae.com`
 et conserve explicitement le Host public ainsi que le chemin et les paramètres des requêtes signées.
 Pour un autre domaine, adapter ensemble `HISTAE_STORAGE_HOST`, le matcher et le nom TLS de Caddy.
 `storage.histae.com` est réservé à la production : il ne suit pas `HISTAE_API_UPSTREAM` et n'utilise
 jamais le stockage dev, même lorsque le proxy dirige les requêtes API vers la pile dev.
-Les interfaces brutes de SeaweedFS restent sur le réseau `storage` interne.
+SeaweedFS 4.55 tourne sans réseau Docker en production. Le master, le filer et les ports gRPC écoutent
+sur la boucle locale du conteneur. Seul le socket Unix HTTP S3 est monté dans les deux passerelles.
+La version épinglée intègre les contrôles d’autorisation du gRPC IAM et des téléversements par formulaire.
+[Contrôle gRPC IAM](https://github.com/seaweedfs/seaweedfs/blob/4.55/weed/s3api/s3api_server_grpc.go),
+[contrôle des téléversements par formulaire](https://github.com/seaweedfs/seaweedfs/blob/4.55/weed/s3api/s3api_object_handlers_postpolicy.go).
+
+Avant une mise à niveau, sauvegarder le volume du stockage, qui contient les objets et leurs métadonnées.
+Après le démarrage, la readiness de l’API vérifie le bucket via `storage-internal`. Vérifier aussi la lecture
+d’une photo via un nouveau lien signé et le refus des écritures par l’URL publique.
 
 PostgreSQL utilise SQLx avec vérification du certificat et du nom serveur. Redis utilise également la CA
 montée : le nom historique `NODE_EXTRA_CA_CERTS` est lu par les adaptateurs Rust. Après changement de CA,

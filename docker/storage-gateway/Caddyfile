@@ -11,6 +11,7 @@
 }
 
 http://:8080 {
+	bind 127.0.0.1
 	header -Server
 	handle /health/live {
 		respond 200
@@ -26,10 +27,28 @@ https://:443 {
 	request_body {
 		max_size 1048576
 	}
-	# No rewrite, no access logging, no body buffering, Host preserved for SigV4.
-	reverse_proxy object-storage:8333 {
-		transport http {
-			compression off
+	@unsupported not method GET HEAD
+	handle @unsupported {
+		header Allow "GET, HEAD"
+		respond 405
+	}
+	@presigned_object {
+		method GET HEAD
+		path_regexp ^/[^/]+/[^/].*
+		query X-Amz-Algorithm=AWS4-HMAC-SHA256 X-Amz-Signature=*
+		not header Authorization *
+	}
+	handle @presigned_object {
+		# SeaweedFS verifies SigV4 against the original Host, path and query.
+		reverse_proxy unix//run/seaweedfs/s3.sock {
+			header_up Host {hostport}
+			transport http {
+				versions 1.1
+				compression off
+			}
 		}
+	}
+	handle {
+		respond 403
 	}
 }
