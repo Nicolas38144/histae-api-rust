@@ -18,7 +18,6 @@ pub const DURATION_BUCKETS_MS: [f64; 11] = [
     f64::INFINITY,
 ];
 pub const DEPENDENCIES: [&str; 4] = ["postgres", "redis", "object_storage", "sweego"];
-const MAX_HTTP_ROUTES: usize = 200;
 
 #[derive(Clone, Debug, Default)]
 pub struct Counters {
@@ -86,22 +85,16 @@ impl OperationalMetrics {
         }
     }
 
-    pub fn record_http(&self, method: &str, route: &str, status: u16, duration_ms: f64) {
-        let normalized = if route.starts_with('/') {
-            route
-        } else {
-            "<unmatched>"
-        };
+    pub(super) fn record_http(&self, method: &str, route: &str, status: u16, duration_ms: f64) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        let key = (method.to_owned(), normalized.to_owned());
-        if !state.routes.contains_key(&key) && state.routes.len() >= MAX_HTTP_ROUTES {
-            return;
-        }
+        // Observations only carry registered route templates or the shared
+        // fallback label, combined with a fixed set of method labels.
+        let key = (method.to_owned(), route.to_owned());
         let counters = state.routes.entry(key).or_insert_with(|| HttpCounters {
             method: method.to_owned(),
-            route: normalized.to_owned(),
+            route: route.to_owned(),
             requests: 0,
             errors: 0,
             status_401: 0,
@@ -201,8 +194,8 @@ fn normalized_error_code(value: Option<&str>) -> String {
 impl HttpObserver for OperationalMetrics {
     fn record(&self, observation: HttpObservation) {
         self.record_http(
-            &observation.method,
-            &observation.route,
+            observation.method(),
+            observation.route(),
             observation.status.as_u16(),
             observation.duration_ms,
         );
@@ -246,23 +239,6 @@ impl DependencyMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn bounds_route_cardinality_and_normalizes_unmatched_routes() {
-        let metrics = OperationalMetrics::new();
-        metrics.record_http("GET", "unmatched", 404, 6.0);
-        for index in 0..250 {
-            metrics.record_http("GET", &format!("/route/{index}"), 200, 1.0);
-        }
-        let snapshot = metrics.snapshot();
-        assert_eq!(snapshot.http.len(), MAX_HTTP_ROUTES);
-        assert!(
-            snapshot
-                .http
-                .iter()
-                .any(|route| route.route == "<unmatched>")
-        );
-    }
 
     #[tokio::test]
     async fn dependency_observation_preserves_results_and_isolates_instances() {

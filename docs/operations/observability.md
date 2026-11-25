@@ -14,6 +14,11 @@ Il ne fait pas partie du contrat `/api`, n’accepte que `GET /metrics` et exige
 les métriques. Une collecte PostgreSQL en échec laisse disponibles les compteurs mémoire et publie
 `histae_metrics_collection_success 0`.
 
+Les métriques HTTP utilisent les modèles de route enregistrés et un ensemble fermé de méthodes.
+Les méthodes d’extension portent le label `OTHER`. Les chemins inconnus et les méthodes refusées
+pour un chemin sont regroupés sous `route="<unmatched>"`. Les compteurs `401`, `403`, `429` et `5xx`
+restent disponibles pour les routes enregistrées et pour ce regroupement.
+
 Le serveur applicatif principal ne publie aucun endpoint Prometheus. En développement Docker, les métriques
 sont activées automatiquement sur `api:9091`, sans publication du port sur l’hôte.
 Les outils utilisent des volumes persistants et des réseaux privés. Leurs plafonds mémoire cumulés sont de

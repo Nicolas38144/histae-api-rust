@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use axum::body::{Body, BodyDataStream, Bytes};
 use axum::extract::{ConnectInfo, MatchedPath, Request, State};
-use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use futures_util::Stream;
@@ -138,13 +138,28 @@ pub struct RequestId(pub String);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ClientIp(pub IpAddr);
 
+#[derive(Clone, Copy)]
+pub(super) struct RoutedRequest;
+
 #[derive(Clone, Debug)]
 pub struct HttpObservation {
-    pub method: String,
-    pub route: String,
+    method: &'static str,
+    route: Option<MatchedPath>,
     pub status: StatusCode,
     pub request_id: String,
     pub duration_ms: f64,
+}
+
+impl HttpObservation {
+    pub fn method(&self) -> &'static str {
+        self.method
+    }
+
+    pub fn route(&self) -> &str {
+        self.route
+            .as_ref()
+            .map_or("<unmatched>", MatchedPath::as_str)
+    }
 }
 
 pub trait HttpObserver: Send + Sync {
@@ -179,8 +194,8 @@ impl HttpObserver for SafeHttpObserver {
         }
         let duration = (observation.duration_ms * 10.0).round() / 10.0;
         let fields = [
-            ("method", SafeLogValue::String(&observation.method)),
-            ("route", SafeLogValue::String(&observation.route)),
+            ("method", SafeLogValue::String(observation.method())),
+            ("route", SafeLogValue::String(observation.route())),
             (
                 "status",
                 SafeLogValue::Integer(i64::from(observation.status.as_u16())),
@@ -208,9 +223,9 @@ pub async fn middleware(
     let request_id = request_id(request.headers());
     let route = request
         .extensions()
-        .get::<MatchedPath>()
-        .map_or_else(|| "<unmatched>".to_owned(), |path| path.as_str().to_owned());
-    let method = request.method().as_str().to_owned();
+        .get::<RoutedRequest>()
+        .and_then(|_| request.extensions().get::<MatchedPath>().cloned());
+    let method = normalized_method(request.method());
     let path = request.uri().path().to_owned();
     let remote = request
         .extensions()
@@ -316,10 +331,25 @@ fn is_streaming_response(response: &Response) -> bool {
 struct PendingObservation {
     observer: Arc<dyn HttpObserver>,
     started_at: Instant,
-    method: String,
-    route: String,
+    method: &'static str,
+    route: Option<MatchedPath>,
     status: StatusCode,
     request_id: String,
+}
+
+fn normalized_method(method: &Method) -> &'static str {
+    match *method {
+        Method::GET => "GET",
+        Method::HEAD => "HEAD",
+        Method::POST => "POST",
+        Method::PUT => "PUT",
+        Method::PATCH => "PATCH",
+        Method::DELETE => "DELETE",
+        Method::OPTIONS => "OPTIONS",
+        Method::CONNECT => "CONNECT",
+        Method::TRACE => "TRACE",
+        _ => "OTHER",
+    }
 }
 
 impl PendingObservation {
@@ -470,8 +500,8 @@ mod tests {
             pending: Some(PendingObservation {
                 observer: observer.clone(),
                 started_at: Instant::now(),
-                method: "GET".to_owned(),
-                route: "/api/users/me/events".to_owned(),
+                method: "GET",
+                route: None,
                 status: StatusCode::OK,
                 request_id: Uuid::new_v4().to_string(),
             }),

@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::body::{Body, to_bytes};
+use axum::extract::Path;
 use axum::http::{Method, Request, StatusCode, header};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -12,6 +13,7 @@ use histae_api_rust::http::lifecycle::{HttpObservation, HttpObserver};
 use histae_api_rust::http::rate_limit::{FixedWindowStore, RateLimiter, StoreError, StoreFuture};
 use histae_api_rust::http::router::{HttpState, build_router, health_routes};
 use histae_api_rust::infra::redis::FixedWindowIncrement;
+use histae_api_rust::operations::{metrics::OperationalMetrics, prometheus::render_snapshot};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
@@ -286,8 +288,98 @@ async fn live_health_preserves_body_head_routing_and_defensive_headers() {
     }
 
     let observations = observer.0.lock().expect("observations");
-    assert_eq!(observations[0].route, "/health/live");
-    assert_eq!(observations[4].route, "<unmatched>");
+    assert_eq!(observations[0].route(), "/health/live");
+    assert_eq!(observations[2].method(), "HEAD");
+    assert_eq!(observations[2].route(), "/health/live");
+    assert_eq!(observations[3].route(), "<unmatched>");
+    assert_eq!(observations[4].route(), "<unmatched>");
+}
+
+#[tokio::test]
+async fn http_metrics_group_routing_rejections_and_keep_registered_routes_visible() {
+    const ROUTES: usize = 205;
+    let metrics = Arc::new(OperationalMetrics::new());
+    let state = HttpState::with_observer(
+        readiness(None).0,
+        Environment::Test,
+        &TrustProxy::Disabled,
+        &[],
+        RateLimiter::memory(&hash_key()),
+        policy(500),
+        metrics.clone(),
+    )
+    .expect("HTTP state");
+    let mut routes =
+        Router::new().route(
+            "/fixture/status/{code}",
+            get(|Path(code): Path<u16>| async move {
+                StatusCode::from_u16(code).expect("fixture code")
+            }),
+        );
+    for index in 0..ROUTES {
+        routes = routes.route(
+            &format!("/fixture/route-{index}"),
+            get(|| async { StatusCode::NO_CONTENT }),
+        );
+    }
+    let app = build_router(routes, state);
+    let send = |method: &str, path: &str| {
+        app.clone().oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .body(Body::empty())
+                .expect("request"),
+        )
+    };
+
+    for (method, path) in [
+        ("CUSTOM", "/fixture/status/401"),
+        ("ANNOTATE", "/missing"),
+        ("POST", "/fixture/status/401"),
+        ("GET", "/missing/one"),
+        ("GET", "/missing/two"),
+    ] {
+        assert_eq!(
+            send(method, path).await.expect("response").status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    for index in 0..ROUTES {
+        assert_eq!(
+            send("GET", &format!("/fixture/route-{index}"))
+                .await
+                .expect("response")
+                .status(),
+            StatusCode::NO_CONTENT
+        );
+    }
+    for code in [401, 403, 404, 429, 500] {
+        assert_eq!(
+            send("GET", &format!("/fixture/status/{code}"))
+                .await
+                .expect("response")
+                .status()
+                .as_u16(),
+            code
+        );
+    }
+
+    let snapshot = metrics.snapshot();
+    assert_eq!(snapshot.http.len(), ROUTES + 1 + 3);
+    let scrape = render_snapshot(&snapshot, None, true);
+    for (method, count) in [("GET", 2), ("POST", 1), ("OTHER", 2)] {
+        let expected = format!(
+            "histae_http_requests_total{{method=\"{method}\",route=\"<unmatched>\"}} {count}"
+        );
+        assert!(scrape.lines().any(|line| line == expected), "{expected}");
+    }
+    let route_labels = "method=\"GET\",route=\"/fixture/status/{code}\"";
+    for status in ["401", "403", "429", "5xx"] {
+        let expected =
+            format!("histae_http_responses_total{{{route_labels},status=\"{status}\"}} 1");
+        assert!(scrape.lines().any(|line| line == expected), "{expected}");
+    }
 }
 
 #[tokio::test]
@@ -300,8 +392,16 @@ async fn production_adds_hsts_and_rate_limit_failures_keep_the_common_headers() 
             ttl_millis: 9_500,
         })),
     );
-    let (app, _) = app(None, Environment::Production, &[], limiter, 1, observer);
+    let (app, _) = app(
+        None,
+        Environment::Production,
+        &[],
+        limiter,
+        1,
+        observer.clone(),
+    );
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/health/live")
@@ -321,6 +421,20 @@ async fn production_adds_hsts_and_rate_limit_failures_keep_the_common_headers() 
         response_json(response).await,
         json!({ "error": { "code": "rate_limit_exceeded", "message": "Too many requests were sent. Please try again later." } })
     );
+    let rejected = app
+        .oneshot(
+            Request::builder()
+                .method(Method::PUT)
+                .uri("/health/live")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(rejected.status(), StatusCode::TOO_MANY_REQUESTS);
+    let observations = observer.0.lock().expect("observations");
+    assert_eq!(observations[0].route(), "/health/live");
+    assert_eq!(observations[1].route(), "<unmatched>");
 }
 
 #[tokio::test]

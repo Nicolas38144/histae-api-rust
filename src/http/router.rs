@@ -1,20 +1,24 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::Router;
 use axum::extract::{DefaultBodyLimit, Request, State};
+use axum::handler::Handler;
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::middleware;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use axum::{Extension, Router};
+use tower::ServiceBuilder;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::config::{Environment, LimitPolicy, TrustProxy};
 
 use super::error::ApiError;
 use super::health::{self, Readiness};
-use super::lifecycle::{HttpObserver, LifecycleState, SafeHttpObserver, TrustProxyError};
+use super::lifecycle::{
+    HttpObserver, LifecycleState, RoutedRequest, SafeHttpObserver, TrustProxyError,
+};
 use super::rate_limit::RateLimiter;
 
 pub const JSON_BODY_LIMIT: usize = 1024 * 1024;
@@ -102,23 +106,35 @@ pub fn health_routes() -> Router<HttpState> {
 }
 
 pub fn build_router(routes: Router<HttpState>, state: HttpState) -> Router {
-    let lifecycle = state.lifecycle.clone();
     let cors_origins = Arc::clone(&state.cors_origins);
-    let mut router = routes
-        .fallback(not_found)
-        .method_not_allowed_fallback(not_found)
+    let common_layers = ServiceBuilder::new()
         .layer(middleware::from_fn_with_state(
-            super::body::BodySlots::default(),
-            super::body::middleware,
+            state.lifecycle.clone(),
+            super::lifecycle::middleware,
         ))
+        .layer(DefaultBodyLimit::max(JSON_BODY_LIMIT))
         .layer(middleware::from_fn(
             crate::localization::http::response_language,
         ))
-        .layer(DefaultBodyLimit::max(JSON_BODY_LIMIT))
         .layer(middleware::from_fn_with_state(
-            lifecycle,
-            super::lifecycle::middleware,
+            super::body::BodySlots::default(),
+            super::body::middleware,
         ));
+    // The marker must be visible to the lifecycle layer before admission.
+    // Install the fallbacks afterwards so they only receive the common layers.
+    let routes = if routes.has_routes() {
+        routes.route_layer(
+            ServiceBuilder::new()
+                .layer(Extension(RoutedRequest))
+                .layer(common_layers.clone()),
+        )
+    } else {
+        routes
+    };
+    let fallback = not_found.layer(common_layers);
+    let mut router = routes
+        .fallback(fallback.clone())
+        .method_not_allowed_fallback(fallback);
     if !cors_origins.is_empty() {
         let cors_state = CorsResponseState {
             origins: Arc::clone(&cors_origins),
