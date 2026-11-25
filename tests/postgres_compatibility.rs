@@ -93,6 +93,7 @@ async fn reads_the_existing_schema_types_and_transaction_protocol()
     let database = Database::connect(&local_config()?)
         .await
         .map_err(|_| FixtureError("connect"))?;
+    database.verify_schema_compatibility().await?;
 
     let mut connection = database
         .acquire()
@@ -127,47 +128,12 @@ async fn reads_the_existing_schema_types_and_transaction_protocol()
             verify_schema_compatibility_on(&mut schema_probe).await,
             Err(DatabaseError::SchemaObjectsMissing)
         );
-        sqlx::query("CREATE TABLE user_account(id integer)")
-            .execute(&mut *schema_probe)
-            .await?;
-        sqlx::query("CREATE TABLE swipe_decision(id integer)")
-            .execute(&mut *schema_probe)
-            .await?;
-        sqlx::query("CREATE TABLE account_erasure(step text, scylla_partition smallint, CONSTRAINT account_erasure_step_check CHECK (step IN ('scylla', 'completed')))")
-            .execute(&mut *schema_probe)
-            .await?;
-        sqlx::query("CREATE TABLE admin_webauthn_challenge(id integer)")
+        sqlx::query("CREATE TABLE user_account(user_id uuid PRIMARY KEY)")
             .execute(&mut *schema_probe)
             .await?;
         assert_eq!(
             verify_schema_compatibility_on(&mut schema_probe).await,
             Err(DatabaseError::SchemaObjectsMissing)
-        );
-        sqlx::query("ALTER TABLE account_erasure DROP COLUMN scylla_partition")
-            .execute(&mut *schema_probe)
-            .await?;
-        sqlx::query("ALTER TABLE account_erasure DROP CONSTRAINT account_erasure_step_check")
-            .execute(&mut *schema_probe)
-            .await?;
-        sqlx::query("ALTER TABLE account_erasure ADD CONSTRAINT account_erasure_step_check CHECK (step IN ('photos', 'swipes', 'postgres', 'completed'))")
-            .execute(&mut *schema_probe)
-            .await?;
-        sqlx::query("ALTER TABLE admin_webauthn_challenge ADD COLUMN ceremony_state bytea")
-            .execute(&mut *schema_probe)
-            .await?;
-        sqlx::query("ALTER TABLE admin_webauthn_challenge ADD CONSTRAINT chk_admin_webauthn_challenge_state CHECK (ceremony_state IS NULL OR octet_length(ceremony_state) BETWEEN 1 AND 65536)")
-            .execute(&mut *schema_probe)
-            .await?;
-        assert_eq!(
-            verify_schema_compatibility_on(&mut schema_probe).await,
-            Err(DatabaseError::SchemaObjectsMissing)
-        );
-        sqlx::query("ALTER TABLE account_erasure ALTER COLUMN step SET DEFAULT 'photos'")
-            .execute(&mut *schema_probe)
-            .await?;
-        assert_eq!(
-            verify_schema_compatibility_on(&mut schema_probe).await,
-            Ok(())
         );
         Ok(())
     }

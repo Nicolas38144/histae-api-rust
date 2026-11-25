@@ -147,8 +147,7 @@ INSERT INTO content_moderation_case
 SELECT user_id, 'bio', user_id,
        CASE WHEN seed_number % 20 = 0 THEN 'pending'
             WHEN seed_number % 25 = 0 THEN 'rejected' ELSE 'approved' END,
-       CASE WHEN seed_number % 20 = 0 THEN ARRAY['legacy_unreviewed']::text[]
-            WHEN seed_number % 25 = 0 THEN ARRAY['spam']::text[]
+       CASE WHEN seed_number % 20 <> 0 AND seed_number % 25 = 0 THEN ARRAY['spam']::text[]
             ELSE ARRAY[]::text[] END,
        'dev_load_v1'
 FROM seed_users
@@ -175,8 +174,7 @@ INSERT INTO content_moderation_case
   (user_id, content_type, profile_answer_id, status, reason_codes, policy_version)
 SELECT seed.user_id, 'profile_answer', answer.id,
        CASE WHEN seed.seed_number % 40 = 0 THEN 'pending' ELSE 'approved' END,
-       CASE WHEN seed.seed_number % 40 = 0 THEN ARRAY['legacy_unreviewed']::text[]
-            ELSE ARRAY[]::text[] END,
+       ARRAY[]::text[],
        'dev_load_v1'
 FROM seed_users AS seed JOIN user_profile_answer AS answer ON answer.user_id = seed.user_id
 WHERE seed.seed_number % 10 = 0

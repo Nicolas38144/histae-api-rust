@@ -90,9 +90,9 @@ async fn claims_are_exclusive_stale_and_owned() -> Result<(), Box<dyn std::error
         migrations::apply(&config).await?;
         let database = Database::connect(&config).await?;
         let result = AssertUnwindSafe(async {
-            assert_initial_and_upgraded_schema_match(&config, &database).await?;
-            assert_event_identifier_upgrade(&config, &database).await?;
-            assert_index_upgrade(&config, &database).await?;
+            assert_repeated_initialization_preserves_schema(&config, &database).await?;
+            assert_event_identifiers(&config, &database).await?;
+            assert_index_repair(&config, &database).await?;
             assert_claim_protocol(&database).await
         })
         .catch_unwind()
@@ -151,106 +151,29 @@ async fn schema_snapshot(
     Ok(rows.into_iter().collect())
 }
 
-async fn assert_initial_and_upgraded_schema_match(
+async fn assert_repeated_initialization_preserves_schema(
     config: &PostgresConfig,
     database: &Database,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let initial = schema_snapshot(database).await?;
-    // Simulate older installations without rewriting any stored identifiers.
-    // Column order is deliberately excluded: ADD COLUMN appends on existing tables.
-    let mut connection = database.acquire().await?;
-    sqlx::raw_sql(
-        "ALTER TABLE user_account DROP COLUMN is_review_account CASCADE;
-         ALTER TABLE match_init DROP COLUMN photo_reveal_version CASCADE;
-         ALTER TABLE billing_store_subscription DROP COLUMN superseded CASCADE;
-         ALTER TABLE user_report DROP COLUMN public_response;
-         ALTER TABLE user_profile_answer DROP CONSTRAINT chk_user_profile_answer_text;
-         ALTER TABLE user_profile_answer ADD CONSTRAINT chk_user_profile_answer_text
-           CHECK (answer=btrim(answer) AND char_length(answer) BETWEEN 10 AND 300 AND octet_length(answer)<=1000);
-         DROP INDEX uq_profile_question_prompt_ci;
-         CREATE UNIQUE INDEX uq_profile_question_prompt_ci ON profile_question(lower(prompt));
-         DROP TRIGGER trg_save_data_request_reply ON data_subject_request;
-         DROP TABLE data_request_message, assisted_data_export, erasure_receipt, support_case;
-         ALTER TABLE notification DROP CONSTRAINT notification_type_check;
-         ALTER TABLE notification ADD CONSTRAINT notification_type_check
-           CHECK (type IN ('new_match','new_message'));
-         ALTER TABLE chat_message ALTER COLUMN id SET DEFAULT uuid_generate_v4();
-         ALTER TABLE notification ALTER COLUMN id SET DEFAULT uuid_generate_v4();
-         ALTER TABLE outbox_event ALTER COLUMN id DROP DEFAULT;",
-    )
-    .execute(&mut *connection)
-    .await?;
-    let owner = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO user_account(user_id,phone_number_hash,phone_number_encrypted)
-         VALUES ($1,$1::text,''::bytea)",
-    )
-    .bind(owner)
-    .execute(&mut *connection)
-    .await?;
-    let legacy_reply = "é".repeat(1_500);
-    let legacy_request: Uuid = sqlx::query_scalar(
-        "INSERT INTO data_subject_request(user_id,type,response) VALUES ($1,'access',$2)
-         RETURNING id",
-    )
-    .bind(owner)
-    .bind(&legacy_reply)
-    .fetch_one(&mut *connection)
-    .await?;
-    drop(connection);
     for _ in 0..2 {
-        migrations::apply(config).await?;
-        let upgraded = schema_snapshot(database).await?;
-        assert_eq!(initial.len(), upgraded.len(), "schema object count changed");
-        for (name, definition) in &initial {
-            assert_eq!(upgraded.get(name), Some(definition), "schema drift: {name}");
-        }
-        let replies: Vec<(String, String)> =
-            sqlx::query_as("SELECT author,body FROM data_request_message WHERE request_id=$1")
-                .bind(legacy_request)
-                .fetch_all(&mut *database.acquire().await?)
-                .await?;
-        assert_eq!(replies, [("team".to_owned(), legacy_reply.clone())]);
+        assert_eq!(migrations::apply(config).await?, 0);
+        assert_eq!(schema_snapshot(database).await?, initial);
     }
-    let mut connection = database.acquire().await?;
-    sqlx::query("DELETE FROM user_account WHERE user_id=$1")
-        .bind(owner)
-        .execute(&mut *connection)
-        .await?;
-    let counts: (i64, i64) = sqlx::query_as(
-        "SELECT count(*),count(*) FILTER (WHERE NOT EXISTS (
-           SELECT 1 FROM pg_depend dependency WHERE dependency.classid='pg_class'::regclass
-             AND dependency.objid=relation.oid AND dependency.deptype='e'))
-         FROM pg_class relation WHERE relation.relnamespace='public'::regnamespace
-           AND relation.relkind IN ('r','p')",
-    )
-    .fetch_one(&mut *connection)
-    .await?;
-    println!(
-        "Initial and upgraded schemas match: {} application tables, {} public tables including extensions.",
-        counts.1, counts.0
-    );
     Ok(())
 }
 
-async fn assert_event_identifier_upgrade(
+async fn assert_event_identifiers(
     config: &PostgresConfig,
     database: &Database,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let legacy_id = Uuid::new_v4();
+    let explicit_id = Uuid::new_v4();
     let aggregate = Uuid::new_v4();
     let mut connection = database.acquire().await?;
-    sqlx::raw_sql(
-        "ALTER TABLE chat_message ALTER COLUMN id SET DEFAULT uuid_generate_v4();
-         ALTER TABLE notification ALTER COLUMN id SET DEFAULT uuid_generate_v4();
-         ALTER TABLE outbox_event ALTER COLUMN id DROP DEFAULT;",
-    )
-    .execute(&mut *connection)
-    .await?;
     sqlx::query(
         "INSERT INTO outbox_event(id,event_type,aggregate_id) VALUES($1,'photo.delete',$2)",
     )
-    .bind(legacy_id)
+    .bind(explicit_id)
     .bind(aggregate)
     .execute(&mut *connection)
     .await?;
@@ -263,7 +186,7 @@ async fn assert_event_identifier_upgrade(
         .bind(aggregate)
         .fetch_one(&mut *connection)
         .await?;
-    assert_eq!(retained, legacy_id);
+    assert_eq!(retained, explicit_id);
     let defaults: Vec<String> = sqlx::query_scalar(
         "SELECT column_default FROM information_schema.columns
          WHERE table_schema='public' AND column_name='id'
@@ -293,15 +216,15 @@ async fn assert_event_identifier_upgrade(
         .bind(aggregate)
         .fetch_one(&mut *connection)
         .await?;
-    assert_eq!(requeued, legacy_id);
+    assert_eq!(requeued, explicit_id);
     sqlx::query("DELETE FROM outbox_event WHERE id=ANY($1)")
-        .bind(&[legacy_id, generated][..])
+        .bind(&[explicit_id, generated][..])
         .execute(&mut *connection)
         .await?;
     Ok(())
 }
 
-async fn assert_index_upgrade(
+async fn assert_index_repair(
     config: &PostgresConfig,
     database: &Database,
 ) -> Result<(), Box<dyn std::error::Error>> {

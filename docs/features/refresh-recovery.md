@@ -42,9 +42,8 @@ légitime devenue trop ancienne. Les effacements de compte suppriment ces donné
 
 ## Ordre de livraison
 
-1. Sauvegarder la base et appliquer le migrateur actuel avec le rôle de migration habituel.
-   Il ajoute `refresh_tokens.rotation_request_hash` et `rotation_result`, sans modifier les
-   sessions existantes ni leur échéance. Le schéma initial contient aussi ces colonnes.
+1. Vérifier que la base utilise le schéma actuel, qui contient `refresh_tokens.rotation_request_hash`
+   et `rotation_result`.
 2. Déployer l'API et les workers utilisant ce schéma, dont la maintenance.
 3. Distribuer l'application compatible.
 
@@ -70,8 +69,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 
 Les scénarios couvrent la première rotation concurrente, les reprises, les ciphertexts altérés,
 un descendant ne correspondant pas au résultat déchiffré, le nettoyage avec une rotation verrouillée,
-le bannissement et les autres révocations. Le lanceur vérifie aussi l'upgrade depuis une base sans
-les colonnes de reprise, en conservant les sessions, les tokens historiques et leurs échéances.
+le bannissement et les autres révocations.
 Utiliser une base **locale jetable**, jamais la production :
 
 ```bash

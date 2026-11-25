@@ -130,7 +130,7 @@ impl CaseworkRepository {
         let open = sqlx::query_scalar::<_, Uuid>(
         "SELECT r.id FROM data_subject_request r
          WHERE r.id=$1 AND r.user_id=$2
-           AND r.status IN ('pending','in_progress') AND r.type NOT IN ('restriction','objection') FOR UPDATE OF r")
+           AND r.status IN ('pending','in_progress') FOR UPDATE OF r")
         .bind(id).bind(owner).fetch_optional(&mut *tx).await.map_err(map_sqlx_error)?;
         if open.is_none() {
             return Ok(MessageOutcome::Unavailable);
@@ -163,7 +163,7 @@ impl CaseworkRepository {
         };
         let request: Option<Uuid> = sqlx::query_scalar(
             "SELECT id FROM data_subject_request
-         WHERE id=$1 AND user_id=$2 AND type NOT IN ('restriction','objection') FOR UPDATE",
+         WHERE id=$1 AND user_id=$2 FOR UPDATE",
         )
         .bind(id)
         .bind(user)

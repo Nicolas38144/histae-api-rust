@@ -1,6 +1,6 @@
 -- Consolidated PostgreSQL schema, including discovery and admin WebAuthn state.
--- Apply to an empty schema only; db-migrate checks and upgrades complete databases.
--- Reference data and opt-in development fixtures: insert_postgres.sql.
+-- Apply to an empty schema. db-migrate validates initialized databases.
+-- Reference data and opt-in development fixtures: 002_insert_postgres.sql.
 -- Retention and cross-storage invariants: docs/database/database.md and docs/operations/operations.md.
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -155,7 +155,7 @@ CREATE TABLE refresh_token_family (
     expires_at timestamp with time zone NOT NULL,
     revoked_at timestamp with time zone,
     revocation_reason text,
-    CONSTRAINT chk_refresh_family_revocation CHECK ((((revoked_at IS NULL) AND (revocation_reason IS NULL)) OR ((revoked_at IS NOT NULL) AND (revocation_reason IS NOT NULL) AND (revocation_reason = ANY (ARRAY['replay'::text, 'logout'::text, 'logout_all'::text, 'user_revoked'::text, 'banned'::text, 'legacy_revoked'::text]))))),
+    CONSTRAINT chk_refresh_family_revocation CHECK ((((revoked_at IS NULL) AND (revocation_reason IS NULL)) OR ((revoked_at IS NOT NULL) AND (revocation_reason IS NOT NULL) AND (revocation_reason = ANY (ARRAY['replay'::text, 'logout'::text, 'logout_all'::text, 'user_revoked'::text, 'banned'::text]))))),
     CONSTRAINT refresh_token_family_id_user_id_key UNIQUE (id, user_id),
     CONSTRAINT refresh_token_family_pkey PRIMARY KEY (id),
     CONSTRAINT refresh_token_family_user_id_fkey FOREIGN KEY (user_id) REFERENCES user_account(user_id) ON DELETE CASCADE
@@ -435,7 +435,7 @@ CREATE TABLE content_moderation_case (
     created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     CONSTRAINT chk_content_moderation_policy_version CHECK ((policy_version ~ '^[a-z0-9][a-z0-9_.-]{0,63}$'::text)),
-    CONSTRAINT chk_content_moderation_reason_codes CHECK ((reason_codes <@ ARRAY['spam'::text, 'insult'::text, 'personal_contact'::text, 'sexual_content'::text, 'legacy_unreviewed'::text])),
+    CONSTRAINT chk_content_moderation_reason_codes CHECK ((reason_codes <@ ARRAY['spam'::text, 'insult'::text, 'personal_contact'::text, 'sexual_content'::text])),
     CONSTRAINT chk_content_moderation_review_reason CHECK (review_reason IS NULL OR (review_reason = btrim(review_reason) AND char_length(review_reason) BETWEEN 3 AND 1000)),
     CONSTRAINT chk_content_moderation_source CHECK ((((content_type = 'photo'::text) AND (photo_id IS NOT NULL) AND (bio_user_id IS NULL) AND (profile_answer_id IS NULL)) OR ((content_type = 'bio'::text) AND (photo_id IS NULL) AND (bio_user_id IS NOT NULL) AND (profile_answer_id IS NULL)) OR ((content_type = 'profile_answer'::text) AND (photo_id IS NULL) AND (bio_user_id IS NULL) AND (profile_answer_id IS NOT NULL)))),
     CONSTRAINT content_moderation_case_content_type_check CHECK ((content_type = ANY (ARRAY['photo'::text, 'bio'::text, 'profile_answer'::text]))),
@@ -1035,7 +1035,7 @@ CREATE TABLE data_subject_request (
     CONSTRAINT data_subject_request_response_check CHECK (response IS NULL OR char_length(response) BETWEEN 1 AND 2000),
     CONSTRAINT data_subject_request_details_check CHECK (details IS NULL OR char_length(details) BETWEEN 1 AND 2000),
     CONSTRAINT data_subject_request_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'in_progress'::text, 'completed'::text, 'rejected'::text]))),
-    CONSTRAINT data_subject_request_type_check CHECK ((type = ANY (ARRAY['access'::text, 'erasure'::text, 'portability'::text, 'rectification'::text, 'restriction'::text, 'objection'::text]))),
+    CONSTRAINT data_subject_request_type_check CHECK ((type = ANY (ARRAY['access'::text, 'erasure'::text, 'portability'::text, 'rectification'::text]))),
     CONSTRAINT data_subject_request_pkey PRIMARY KEY (id),
     CONSTRAINT data_subject_request_handled_by_fkey FOREIGN KEY (handled_by) REFERENCES user_account(user_id) ON DELETE SET NULL,
     CONSTRAINT data_subject_request_user_id_fkey FOREIGN KEY (user_id) REFERENCES user_account(user_id) ON DELETE CASCADE
@@ -1637,16 +1637,6 @@ BEGIN
     RETURN NEW;
 END;
 $$;
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_save_data_request_reply'
-                   AND tgrelid = 'data_subject_request'::regclass) THEN
-        INSERT INTO data_request_message(request_id, author, body, created_at)
-        SELECT id, 'team', response, COALESCE(completed_at, requested_at)
-        FROM data_subject_request WHERE response IS NOT NULL;
-        CREATE TRIGGER trg_save_data_request_reply AFTER UPDATE OF response ON data_subject_request
-        FOR EACH ROW EXECUTE FUNCTION fct_save_data_request_reply();
-    END IF;
-END;
-$$;
+CREATE TRIGGER trg_save_data_request_reply AFTER UPDATE OF response ON data_subject_request
+FOR EACH ROW EXECUTE FUNCTION fct_save_data_request_reply();
 -- END customer cases

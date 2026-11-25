@@ -35,9 +35,7 @@ numéro en clair ou clé fournisseur n’entre dans ces tables, les réponses ad
 La maintenance RGPD supprime ces lignes après **25 heures**, avec son retard de planification éventuel ;
 un nettoyage borné accompagne aussi les réservations. La maintenance doit rester planifiée.
 
-Au premier déploiement, le migrateur importe les tentatives encore présentes dans les OTP locaux.
-Il ne peut pas reconstituer les OTP déjà supprimés : une fenêtre initiale complète de 24 heures
-n’est garantie qu’après une journée de fonctionnement sous cette protection.
+Sur une base neuve, la fenêtre de 24 heures se remplit à partir des premières tentatives d’envoi.
 
 Le [blocage des numéros publics](phone-blocklist.md) précède la réservation du budget. Il est partagé
 par les envois mobiles, web et outbox ; les exceptions temporaires se gèrent dans le même onglet.

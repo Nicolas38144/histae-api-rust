@@ -173,7 +173,6 @@ pub enum ModerationReason {
     Insult,
     PersonalContact,
     SexualContent,
-    LegacyUnreviewed,
 }
 
 impl ModerationReason {
@@ -183,7 +182,6 @@ impl ModerationReason {
             Self::Insult => "insult",
             Self::PersonalContact => "personal_contact",
             Self::SexualContent => "sexual_content",
-            Self::LegacyUnreviewed => "legacy_unreviewed",
         }
     }
 
@@ -193,7 +191,6 @@ impl ModerationReason {
             "insult" => Some(Self::Insult),
             "personal_contact" => Some(Self::PersonalContact),
             "sexual_content" => Some(Self::SexualContent),
-            "legacy_unreviewed" => Some(Self::LegacyUnreviewed),
             _ => None,
         }
     }

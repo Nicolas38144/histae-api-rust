@@ -412,33 +412,13 @@ async fn data_rights_require_authentication_but_allow_incomplete_onboarding() {
 #[tokio::test]
 async fn manual_request_details_are_required_bounded_and_returned_to_the_owner() {
     let (app, token) = fixture(RightsStore::default(), true, false, 64 * 1024, 1);
-    for request_type in ["rectification", "restriction", "objection"] {
-        for details in [
-            Value::Null,
-            json!(" \n\t"),
-            json!("🦀".repeat(1001)),
-            json!("bad\0value"),
-        ] {
-            let payload = json!({"type": request_type, "details": details}).to_string();
-            let response = app
-                .clone()
-                .oneshot(request(
-                    "POST",
-                    "/api/users/me/data-subject-requests",
-                    Some(&token),
-                    &payload,
-                ))
-                .await
-                .unwrap_or_else(|_| unreachable!());
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-            assert_eq!(
-                json_body(response).await["error"]["code"],
-                "invalid_data_request"
-            );
-        }
-    }
-    for retired in ["restriction", "objection"] {
-        let payload = json!({"type": retired, "details": "A valid message"}).to_string();
+    for details in [
+        Value::Null,
+        json!(" \n\t"),
+        json!("🦀".repeat(1001)),
+        json!("bad\0value"),
+    ] {
+        let payload = json!({"type": "rectification", "details": details}).to_string();
         let response = app
             .clone()
             .oneshot(request(
@@ -450,6 +430,10 @@ async fn manual_request_details_are_required_bounded_and_returned_to_the_owner()
             .await
             .unwrap_or_else(|_| unreachable!());
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            json_body(response).await["error"]["code"],
+            "invalid_data_request"
+        );
     }
     let details = "🦀".repeat(1_000);
     let payload = json!({"type": "rectification", "details": format!("  {details}  ")}).to_string();

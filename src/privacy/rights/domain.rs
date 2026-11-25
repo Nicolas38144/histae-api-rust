@@ -9,17 +9,11 @@ pub enum DataRequestType {
     Erasure,
     Portability,
     Rectification,
-    Restriction,
-    Objection,
 }
 
 impl DataRequestType {
     pub const fn requires_details(self) -> bool {
         matches!(self, Self::Rectification)
-    }
-
-    pub const fn is_retired(self) -> bool {
-        matches!(self, Self::Restriction | Self::Objection)
     }
 
     pub const fn as_str(self) -> &'static str {
@@ -28,8 +22,6 @@ impl DataRequestType {
             Self::Erasure => "erasure",
             Self::Portability => "portability",
             Self::Rectification => "rectification",
-            Self::Restriction => "restriction",
-            Self::Objection => "objection",
         }
     }
 
@@ -39,8 +31,6 @@ impl DataRequestType {
             "erasure" => Some(Self::Erasure),
             "portability" => Some(Self::Portability),
             "rectification" => Some(Self::Rectification),
-            "restriction" => Some(Self::Restriction),
-            "objection" => Some(Self::Objection),
             _ => None,
         }
     }
@@ -114,9 +104,6 @@ impl RequestReview {
         transition: DataRequestTransition,
         response: Option<&str>,
     ) -> Result<Self, RequestReviewError> {
-        if request_type.is_retired() {
-            return Err(RequestReviewError::InvalidTransition);
-        }
         let requested_status = transition.as_status();
         if request_type.requires_details()
             && matches!(
@@ -162,13 +149,10 @@ pub(super) fn normalized_request_text(value: Option<&str>) -> Option<&str> {
     value.map(javascript_trim).filter(|value| !value.is_empty())
 }
 
-/// Legacy self-service request types may omit details. Manual requests need a
-/// bounded explanation; never put this user-supplied content in operational logs.
+/// Corrections need a bounded explanation. Keep user text out of operational logs.
 pub fn valid_request_details(request_type: DataRequestType, details: Option<&str>) -> bool {
     let nonempty = normalized_request_text(details).is_some();
-    !request_type.is_retired()
-        && (!request_type.requires_details() || nonempty)
-        && valid_request_text(details)
+    (!request_type.requires_details() || nonempty) && valid_request_text(details)
 }
 
 pub fn valid_request_text(value: Option<&str>) -> bool {
@@ -212,8 +196,6 @@ mod tests {
             DataRequestType::Erasure,
             DataRequestType::Portability,
             DataRequestType::Rectification,
-            DataRequestType::Restriction,
-            DataRequestType::Objection,
         ] {
             for current in [
                 DataRequestStatus::Pending,
@@ -227,9 +209,6 @@ mod tests {
                     DataRequestTransition::Rejected,
                 ] {
                     let expected = match (request_type, current, transition) {
-                        (DataRequestType::Restriction | DataRequestType::Objection, _, _) => {
-                            Err(RequestReviewError::InvalidTransition)
-                        }
                         (_, DataRequestStatus::Pending, DataRequestTransition::InProgress) => {
                             Ok(RequestReview::Update(DataRequestStatus::InProgress))
                         }

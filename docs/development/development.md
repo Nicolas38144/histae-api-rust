@@ -178,12 +178,8 @@ les domaines associés. Ne pas activer `postgres-integration` contre la base de 
 
 ## Messages et réponses des demandes RGPD
 
-Le service `migrate` doit s’exécuter avant la nouvelle API sur une base existante. Hors Compose,
-utiliser `cargo run --locked --bin db-migrate` avec la configuration du rôle de migration.
-L’upgrade idempotent ajoute les colonnes facultatives `details` et `response` sans réécrire
-l’historique. Livrer le schéma et l’API avant l’app et le dashboard ; l’API refuse de démarrer
-si les colonnes manquent. Une nouvelle rectification exige un message ; sa clôture ou son refus
-exige une réponse publique non vide. `restriction` et `objection` restent en lecture seule.
+Le schéma applicatif crée les colonnes facultatives `details` et `response`. Une rectification exige
+un message. Sa clôture ou son refus exige une réponse publique.
 
 Les types, la validation Unicode et les transitions sont définis dans
 `src/privacy/rights/domain.rs`. Le service normalise les messages et orchestre le stockage ;
@@ -203,10 +199,8 @@ python3 scripts/verify-continuation-postgres.py --native-migrator target/debug/d
   --test privacy_rights_postgres --test account_erasure_postgres
 ```
 
-Le lanceur crée une base PostgreSQL jetable, vérifie aussi l’upgrade depuis les demandes
-sans messages et sa répétition, puis supprime ses conteneurs et identifiants temporaires.
-Il vérifie la clôture concurrente, les refus sans réponse, les catégories historiques et
-l’absence de notes internes dans l’export. Voir [Validation locale](../../tests/README.md).
+Le lanceur crée une base PostgreSQL jetable et vérifie la clôture concurrente, les refus sans réponse
+et la confidentialité des notes internes. Voir [Validation locale](../../tests/README.md).
 
 ## Suppression des données depuis le site
 

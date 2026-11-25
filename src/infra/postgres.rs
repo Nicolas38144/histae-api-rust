@@ -185,157 +185,8 @@ impl Database {
     pub async fn verify_schema_compatibility(&self) -> Result<(), DatabaseError> {
         let mut connection = self.acquire().await?;
         verify_schema_compatibility_on(&mut connection).await?;
-        let sms_safety_ready: bool = sqlx::query_scalar(
-            "SELECT to_regclass(current_schema() || '.sms_send_control') IS NOT NULL
-                AND to_regclass(current_schema() || '.sms_send_attempt') IS NOT NULL
-                AND to_regclass(current_schema() || '.phone_blocklist_control') IS NOT NULL
-                AND to_regclass(current_schema() || '.phone_blocklist_entry') IS NOT NULL
-                AND to_regclass(current_schema() || '.phone_blocklist_source') IS NOT NULL
-                AND to_regclass(current_schema() || '.phone_blocklist_observation') IS NOT NULL
-                AND to_regclass(current_schema() || '.mobile_otp_request') IS NOT NULL
-                AND to_regclass(current_schema() || '.billing_store_subscription') IS NOT NULL
-                AND to_regclass(current_schema() || '.effective_user_subscription') IS NOT NULL
-                AND to_regclass(current_schema() || '.complimentary_premium_grant') IS NOT NULL
-                AND EXISTS (SELECT 1 FROM pg_attribute
-                  WHERE attrelid=to_regclass(current_schema() || '.refresh_tokens')
-                    AND attname='rotation_request_hash' AND atttypid='text'::regtype AND NOT attisdropped)
-                AND EXISTS (SELECT 1 FROM pg_attribute
-                  WHERE attrelid=to_regclass(current_schema() || '.refresh_tokens')
-                    AND attname='rotation_result' AND atttypid='bytea'::regtype AND NOT attisdropped)
-                AND to_regclass(current_schema() || '.web_account_session') IS NOT NULL",
-        )
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(map_sqlx_error)?;
-        if !sms_safety_ready {
-            return Err(DatabaseError::SchemaObjectsMissing);
-        }
-        let identity_audit_ready: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM pg_constraint
-             WHERE conrelid=to_regclass(current_schema() || '.data_access_log')
-               AND conname='data_access_log_action_check' AND convalidated
-               AND pg_get_constraintdef(oid) LIKE '%admin_correct_profile_identity%'
-               AND pg_get_constraintdef(oid) LIKE '%view_dsr_thread%'
-               AND pg_get_constraintdef(oid) LIKE '%view_dsr_export%'
-               AND pg_get_constraintdef(oid) LIKE '%view_support_case%'
-               AND pg_get_constraintdef(oid) LIKE '%admin_review_support%')",
-        )
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(map_sqlx_error)?;
-        if !identity_audit_ready {
-            return Err(DatabaseError::SchemaObjectsMissing);
-        }
-        let visibility_ready: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM pg_attribute
-             WHERE attrelid=to_regclass(current_schema() || '.user_account')
-               AND attname='discovery_paused' AND atttypid='bool'::regtype
-               AND attnotnull AND NOT attisdropped)",
-        )
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(map_sqlx_error)?;
-        if !visibility_ready {
-            return Err(DatabaseError::SchemaObjectsMissing);
-        }
-        let review_ready: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM pg_attribute
-               WHERE attrelid=to_regclass(current_schema() || '.user_account')
-                 AND attname='is_review_account' AND atttypid='bool'::regtype
-                 AND attnotnull AND NOT attisdropped)
-             AND EXISTS (SELECT 1 FROM pg_constraint
-               WHERE conrelid=to_regclass(current_schema() || '.user_account')
-                 AND conname='user_account_review_role_check' AND convalidated)",
-        )
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(map_sqlx_error)?;
-        if !review_ready {
-            return Err(DatabaseError::SchemaObjectsMissing);
-        }
-        if !swipe_retention_ready_on(&mut connection).await? {
-            return Err(DatabaseError::SchemaObjectsMissing);
-        }
-        let request_details_ready: bool = sqlx::query_scalar(
-            "SELECT (SELECT count(*) = 2 FROM pg_attribute
-             WHERE attrelid=to_regclass(current_schema() || '.data_subject_request')
-               AND attname IN ('details', 'response') AND atttypid='text'::regtype AND NOT attisdropped)
-             AND EXISTS (SELECT 1 FROM pg_attribute
-               WHERE attrelid=to_regclass(current_schema() || '.user_report')
-                 AND attname='public_response' AND atttypid='text'::regtype AND NOT attisdropped)
-             AND to_regclass(current_schema() || '.data_request_message') IS NOT NULL
-             AND to_regclass(current_schema() || '.assisted_data_export') IS NOT NULL
-             AND to_regclass(current_schema() || '.erasure_receipt') IS NOT NULL
-             AND to_regclass(current_schema() || '.support_case') IS NOT NULL
-             AND EXISTS (SELECT 1 FROM pg_trigger
-               WHERE tgrelid=to_regclass(current_schema() || '.data_subject_request')
-                 AND tgname='trg_save_data_request_reply' AND tgenabled='O' AND NOT tgisinternal)",
-        )
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(map_sqlx_error)?;
-        if !request_details_ready {
-            return Err(DatabaseError::SchemaObjectsMissing);
-        }
-        let notification_events_ready: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.match_init') AND attname='photo_reveal_version' AND atttypid='int8'::regtype AND attnotnull AND NOT attisdropped)
-              AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass(current_schema() || '.notification') AND conname='notification_type_check' AND pg_get_constraintdef(oid) LIKE '%first_period_ending%' AND pg_get_constraintdef(oid) LIKE '%new_session%' AND pg_get_constraintdef(oid) LIKE '%data_request_replied%' AND pg_get_constraintdef(oid) LIKE '%photos_revealed%' AND pg_get_constraintdef(oid) LIKE '%conversation_continued%' AND pg_get_constraintdef(oid) LIKE '%continuation_requested%')"
-        )
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(map_sqlx_error)?;
-        if !notification_events_ready {
-            return Err(DatabaseError::SchemaObjectsMissing);
-        }
-        let notification_preferences_ready: bool = sqlx::query_scalar(
-            "SELECT to_regclass(current_schema() || '.user_notification_preference') IS NOT NULL
-                AND to_regclass(current_schema() || '.match_notification_preference') IS NOT NULL",
-        )
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(map_sqlx_error)?;
-        if !notification_preferences_ready {
-            return Err(DatabaseError::SchemaObjectsMissing);
-        }
-        let languages_ready: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.user_account') AND attname='preferred_language' AND atttypid='text'::regtype AND attnotnull AND NOT attisdropped)
-              AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.device_token') AND attname='language' AND NOT attisdropped)
-              AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.user_consent') AND attname='document_language' AND NOT attisdropped)
-              AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.otp_verification') AND attname='language' AND NOT attisdropped)
-              AND to_regclass(current_schema() || '.trait_translation') IS NOT NULL
-              AND to_regclass(current_schema() || '.profile_question_translation') IS NOT NULL
-              AND to_regclass(current_schema() || '.subscription_plan_translation') IS NOT NULL
-              AND to_regclass(current_schema() || '.subscription_plan_feature_translation') IS NOT NULL"
-        ).fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
-        if !languages_ready {
-            return Err(DatabaseError::SchemaObjectsMissing);
-        }
-        let credits_ready: bool = sqlx::query_scalar(
-            "SELECT to_regclass(current_schema() || '.continuation_wallet') IS NOT NULL
-                AND to_regclass(current_schema() || '.continuation_reservation') IS NOT NULL
-                AND to_regclass(current_schema() || '.advertising_reward_intent') IS NOT NULL
-                AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.advertising_reward_intent') AND attname='credited_at' AND atttypid='timestamptz'::regtype AND NOT attisdropped)
-                AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.continuation_wallet') AND attname='week_start' AND atttypid='date'::regtype AND attnotnull AND NOT attisdropped)
-                AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.continuation_usage') AND attname='free_used_count' AND NOT attisdropped)",
-        ).fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
-        if !credits_ready {
-            return Err(DatabaseError::SchemaObjectsMissing);
-        }
-        let inactivity_ready: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='match_init'::regclass
-             AND tgname='trg_match_inactivity' AND tgenabled='O' AND NOT tgisinternal)",
-        )
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(map_sqlx_error)?;
-        if !inactivity_ready {
-            return Err(DatabaseError::SchemaObjectsMissing);
-        }
-        let spatial_ready: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM pg_extension extension
-               JOIN pg_namespace namespace ON namespace.oid = extension.extnamespace
-               WHERE extension.extname = 'postgis' AND namespace.nspname = 'public')
-             AND EXISTS (SELECT 1 FROM pg_index index
+        let spatial_index_ready: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_index index
                JOIN pg_class relation ON relation.oid = index.indexrelid
                JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
                WHERE namespace.nspname = current_schema()
@@ -344,7 +195,7 @@ impl Database {
         .fetch_one(&mut *connection)
         .await
         .map_err(map_sqlx_error)?;
-        if !spatial_ready {
+        if !spatial_index_ready {
             return Err(DatabaseError::SchemaObjectsMissing);
         }
         Ok(())
@@ -424,16 +275,11 @@ pub async fn verify_schema_compatibility_on(
                   AND attname = 'ceremony_state' AND atttypid = 'bytea'::regtype
                   AND NOT attisdropped
             )
-            AND NOT EXISTS (
-                SELECT 1 FROM pg_attribute
-                WHERE attrelid = to_regclass(current_schema() || '.account_erasure')
-                  AND attname = 'scylla_partition' AND NOT attisdropped
-            )
             AND EXISTS (
                 SELECT 1 FROM pg_constraint
                 WHERE conrelid = to_regclass(current_schema() || '.account_erasure')
                   AND conname = 'account_erasure_step_check'
-                  AND pg_get_constraintdef(oid) LIKE '%swipes%'
+                  AND convalidated AND pg_get_constraintdef(oid) LIKE '%swipes%'
             )
             AND EXISTS (
                 SELECT 1 FROM pg_attribute AS attribute
@@ -455,10 +301,167 @@ pub async fn verify_schema_compatibility_on(
     if !objects_present {
         return Err(DatabaseError::SchemaObjectsMissing);
     }
+    let sms_safety_ready: bool = sqlx::query_scalar(
+        "SELECT to_regclass(current_schema() || '.sms_send_control') IS NOT NULL
+            AND to_regclass(current_schema() || '.sms_send_attempt') IS NOT NULL
+            AND to_regclass(current_schema() || '.phone_blocklist_control') IS NOT NULL
+            AND to_regclass(current_schema() || '.phone_blocklist_entry') IS NOT NULL
+            AND to_regclass(current_schema() || '.phone_blocklist_source') IS NOT NULL
+            AND to_regclass(current_schema() || '.phone_blocklist_observation') IS NOT NULL
+            AND to_regclass(current_schema() || '.mobile_otp_request') IS NOT NULL
+            AND to_regclass(current_schema() || '.billing_store_subscription') IS NOT NULL
+            AND to_regclass(current_schema() || '.effective_user_subscription') IS NOT NULL
+            AND to_regclass(current_schema() || '.complimentary_premium_grant') IS NOT NULL
+            AND EXISTS (SELECT 1 FROM pg_attribute
+              WHERE attrelid=to_regclass(current_schema() || '.refresh_tokens')
+                AND attname='rotation_request_hash' AND atttypid='text'::regtype AND NOT attisdropped)
+            AND EXISTS (SELECT 1 FROM pg_attribute
+              WHERE attrelid=to_regclass(current_schema() || '.refresh_tokens')
+                AND attname='rotation_result' AND atttypid='bytea'::regtype AND NOT attisdropped)
+            AND to_regclass(current_schema() || '.web_account_session') IS NOT NULL",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !sms_safety_ready {
+        return Err(DatabaseError::SchemaObjectsMissing);
+    }
+    let identity_audit_ready: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_constraint
+         WHERE conrelid=to_regclass(current_schema() || '.data_access_log')
+           AND conname='data_access_log_action_check' AND convalidated
+           AND pg_get_constraintdef(oid) LIKE '%admin_correct_profile_identity%'
+           AND pg_get_constraintdef(oid) LIKE '%view_dsr_thread%'
+           AND pg_get_constraintdef(oid) LIKE '%view_dsr_export%'
+           AND pg_get_constraintdef(oid) LIKE '%view_support_case%'
+           AND pg_get_constraintdef(oid) LIKE '%admin_review_support%')",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !identity_audit_ready {
+        return Err(DatabaseError::SchemaObjectsMissing);
+    }
+    let visibility_ready: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_attribute
+         WHERE attrelid=to_regclass(current_schema() || '.user_account')
+           AND attname='discovery_paused' AND atttypid='bool'::regtype
+           AND attnotnull AND NOT attisdropped)",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !visibility_ready {
+        return Err(DatabaseError::SchemaObjectsMissing);
+    }
+    let review_ready: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_attribute
+           WHERE attrelid=to_regclass(current_schema() || '.user_account')
+             AND attname='is_review_account' AND atttypid='bool'::regtype
+             AND attnotnull AND NOT attisdropped)
+         AND EXISTS (SELECT 1 FROM pg_constraint
+           WHERE conrelid=to_regclass(current_schema() || '.user_account')
+             AND conname='user_account_review_role_check' AND convalidated)",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !review_ready {
+        return Err(DatabaseError::SchemaObjectsMissing);
+    }
+    if !swipe_retention_ready_on(connection).await? {
+        return Err(DatabaseError::SchemaObjectsMissing);
+    }
+    let request_details_ready: bool = sqlx::query_scalar(
+        "SELECT (SELECT count(*) = 2 FROM pg_attribute
+         WHERE attrelid=to_regclass(current_schema() || '.data_subject_request')
+           AND attname IN ('details', 'response') AND atttypid='text'::regtype AND NOT attisdropped)
+         AND EXISTS (SELECT 1 FROM pg_attribute
+           WHERE attrelid=to_regclass(current_schema() || '.user_report')
+             AND attname='public_response' AND atttypid='text'::regtype AND NOT attisdropped)
+         AND to_regclass(current_schema() || '.data_request_message') IS NOT NULL
+         AND to_regclass(current_schema() || '.assisted_data_export') IS NOT NULL
+         AND to_regclass(current_schema() || '.erasure_receipt') IS NOT NULL
+         AND to_regclass(current_schema() || '.support_case') IS NOT NULL
+         AND EXISTS (SELECT 1 FROM pg_trigger
+           WHERE tgrelid=to_regclass(current_schema() || '.data_subject_request')
+             AND tgname='trg_save_data_request_reply' AND tgenabled='O' AND NOT tgisinternal)",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !request_details_ready {
+        return Err(DatabaseError::SchemaObjectsMissing);
+    }
+    let notification_events_ready: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.match_init') AND attname='photo_reveal_version' AND atttypid='int8'::regtype AND attnotnull AND NOT attisdropped)
+          AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass(current_schema() || '.notification') AND conname='notification_type_check' AND pg_get_constraintdef(oid) LIKE '%first_period_ending%' AND pg_get_constraintdef(oid) LIKE '%new_session%' AND pg_get_constraintdef(oid) LIKE '%data_request_replied%' AND pg_get_constraintdef(oid) LIKE '%photos_revealed%' AND pg_get_constraintdef(oid) LIKE '%conversation_continued%' AND pg_get_constraintdef(oid) LIKE '%continuation_requested%')"
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !notification_events_ready {
+        return Err(DatabaseError::SchemaObjectsMissing);
+    }
+    let notification_preferences_ready: bool = sqlx::query_scalar(
+        "SELECT to_regclass(current_schema() || '.user_notification_preference') IS NOT NULL
+            AND to_regclass(current_schema() || '.match_notification_preference') IS NOT NULL",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !notification_preferences_ready {
+        return Err(DatabaseError::SchemaObjectsMissing);
+    }
+    let languages_ready: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.user_account') AND attname='preferred_language' AND atttypid='text'::regtype AND attnotnull AND NOT attisdropped)
+          AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.device_token') AND attname='language' AND NOT attisdropped)
+          AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.user_consent') AND attname='document_language' AND NOT attisdropped)
+          AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.otp_verification') AND attname='language' AND NOT attisdropped)
+          AND to_regclass(current_schema() || '.trait_translation') IS NOT NULL
+          AND to_regclass(current_schema() || '.profile_question_translation') IS NOT NULL
+          AND to_regclass(current_schema() || '.subscription_plan_translation') IS NOT NULL
+          AND to_regclass(current_schema() || '.subscription_plan_feature_translation') IS NOT NULL"
+    ).fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
+    if !languages_ready {
+        return Err(DatabaseError::SchemaObjectsMissing);
+    }
+    let credits_ready: bool = sqlx::query_scalar(
+        "SELECT to_regclass(current_schema() || '.continuation_wallet') IS NOT NULL
+            AND to_regclass(current_schema() || '.continuation_reservation') IS NOT NULL
+            AND to_regclass(current_schema() || '.advertising_reward_intent') IS NOT NULL
+            AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.advertising_reward_intent') AND attname='credited_at' AND atttypid='timestamptz'::regtype AND NOT attisdropped)
+            AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.continuation_wallet') AND attname='week_start' AND atttypid='date'::regtype AND attnotnull AND NOT attisdropped)
+            AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.continuation_usage') AND attname='free_used_count' AND NOT attisdropped)",
+    ).fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
+    if !credits_ready {
+        return Err(DatabaseError::SchemaObjectsMissing);
+    }
+    let inactivity_ready: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass(current_schema() || '.match_init')
+         AND tgname='trg_match_inactivity' AND tgenabled='O' AND NOT tgisinternal)",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !inactivity_ready {
+        return Err(DatabaseError::SchemaObjectsMissing);
+    }
+    let spatial_ready: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_extension extension
+           JOIN pg_namespace namespace ON namespace.oid = extension.extnamespace
+           WHERE extension.extname = 'postgis' AND namespace.nspname = 'public')",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !spatial_ready {
+        return Err(DatabaseError::SchemaObjectsMissing);
+    }
     Ok(())
 }
 
-pub(super) async fn swipe_retention_ready_on(
+async fn swipe_retention_ready_on(
     connection: &mut PgConnection,
 ) -> Result<bool, DatabaseError> {
     sqlx::query_scalar(

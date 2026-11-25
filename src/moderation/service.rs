@@ -233,7 +233,6 @@ mod tests {
     use super::*;
     use crate::moderation::domain::{ModerationRow, wire_timestamp};
     use crate::moderation::store::{ModerationStore, ModerationStoreFuture};
-    use crate::profiles::domain::ModerationReason;
 
     #[test]
     fn normalizes_and_bounds_audit_reasons() {
@@ -334,7 +333,7 @@ mod tests {
             firstname: Some("Alice".to_owned()),
             content_type: ModerationContentType::Photo,
             status: ModerationStatus::Pending,
-            reason_codes: vec![ModerationReason::LegacyUnreviewed],
+            reason_codes: Vec::new(),
             policy_version: "manual_photo_v1".to_owned(),
             version: 1,
 

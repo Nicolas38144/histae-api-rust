@@ -366,7 +366,7 @@ JOIN ranked_traits ON ranked_traits.position IN (
 )
 ON CONFLICT (user_id, trait_id) DO NOTHING;
 
--- Keep development bios private until reviewed, as the former moderation migration did.
+-- Keep sample bios private until reviewed.
 WITH fake_users AS (
   SELECT uuid_generate_v5('47b99d44-aed4-4b6f-9a2f-66f8655170e1'::uuid,
     'histae-development-fake-user-' || seed_number) AS user_id
@@ -374,7 +374,7 @@ WITH fake_users AS (
   WHERE current_setting('histae.seed_fake_users', true) = 'on'
 )
 INSERT INTO content_moderation_case (user_id, content_type, bio_user_id, status, reason_codes, policy_version)
-SELECT user_id, 'bio', user_id, 'pending', ARRAY['legacy_unreviewed'], 'legacy_import_v1'
+SELECT user_id, 'bio', user_id, 'pending', ARRAY[]::text[], 'development_seed_v1'
 FROM user_profile JOIN fake_users USING (user_id)
 WHERE bio IS NOT NULL AND btrim(bio) <> ''
 ON CONFLICT DO NOTHING;

@@ -65,7 +65,7 @@ Ce budget initial donne une marge pour plusieurs milliers de connexions ; son di
 dépend du nombre de clients connectés et des mesures de ressources, distincts du débit en RPS.
 
 PostgreSQL utilise l’image construite depuis `docker/postgres/Dockerfile` : PostgreSQL 18.7 bookworm
-et PostGIS 3.7.0. Le migrateur installe l’extension et l’index spatial avant la nouvelle API.
+et PostGIS 3.7.0. Le bootstrap installe l’extension. Le schéma crée l’index spatial avant le démarrage de l’API.
 Pour la première mise à jour d’un volume existant, suivre la [procédure PostgreSQL/PostGIS](../database/database.md#postgis-et-mise-a-jour-dune-installation).
 
 Les deux piles préchargent aussi `pg_stat_statements`. Sur un volume neuf, son script d’initialisation

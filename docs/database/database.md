@@ -6,91 +6,38 @@
 
 | Fichier | Usage |
 | --- | --- |
-| [001_schema_postgres.sql](../../db/001_schema_postgres.sql) | Schéma initial : 68 tables applicatives, PostGIS et sa table de référence spatiale, contraintes, fonctions, triggers et index |
-| [002_insert_postgres.sql](../../db/002_insert_postgres.sql) | Catalogue initial ; fixtures fictives conditionnées par `histae.seed_fake_users` |
-| [drop_postgres.sql](../../db/drop_postgres.sql) | Suppression manuelle et destructive du schéma `public` |
-| [migrations.rs](../../src/infra/migrations.rs) | Installation neuve, vérification et mise à niveau d’une base existante |
-| [table_upgrades.sql](../../src/infra/migrations/table_upgrades.sql) | `ALTER TABLE` idempotents réservés aux bases existantes : identifiants, compte de revue, notifications et achats natifs |
-| [query_indexes.rs](../../src/infra/query_indexes.rs) | Installation concurrente des index de performance, dont le GiST géographique et la purge des reprises de session, sur une base existante |
-| [000_bootstrap_postgres.sql](../../db/000_bootstrap_postgres.sql) | Bootstrap administrateur : rôles, extensions, permissions, conversion dev et rétablissement après reset |
-
-Les colonnes, valeurs par défaut et contraintes du schéma initial sont directement définies dans
-les `CREATE TABLE`. `001_schema_postgres.sql` ne contient plus d’`ALTER TABLE` de mise à niveau.
-Les blocs idempotents délimités par `-- BEGIN …` / `-- END …` restent réutilisés par le migrateur
-pour les objets partagés (fonctions, index, tables de politique, triggers).
-Les évolutions de tables sont conservées dans `table_upgrades.sql` et dans les migrations de données Rust.
-Une section incomplète est refusée. Le test PostgreSQL compare colonnes, types, nullabilité, valeurs
-par défaut, contraintes, index et triggers d’une installation neuve avec ceux d’une ancienne structure
-remise à niveau deux fois. L’ordre physique des colonnes est exclu : `ADD COLUMN` ajoute une colonne à la fin.
-
-L’[inventaire des tables](database-usage.md) décrit un accès SQL réel pour chacune des 68 tables applicatives.
-
-Il n’existe plus de ledger `schema_migrations`. Le migrateur retire cette ancienne table si elle est présente.
+| [000_bootstrap_postgres.sql](../../db/000_bootstrap_postgres.sql) | Rôles, extensions et permissions administratives |
+| [001_schema_postgres.sql](../../db/001_schema_postgres.sql) | Schéma de référence, avec contraintes, index et triggers |
+| [002_insert_postgres.sql](../../db/002_insert_postgres.sql) | Catalogue initial et données de démonstration sur demande explicite |
+| [migrations.rs](../../src/infra/migrations.rs) | Initialisation ou contrôle du schéma PostgreSQL |
+| [query_indexes.rs](../../src/infra/query_indexes.rs) | Réparation des index manquants ou invalides |
+| [drop_postgres.sql](../../db/drop_postgres.sql) | Suppression manuelle du schéma de test |
 
 ### Identifiants des événements
 
-Les nouveaux messages (`chat_message.id`), notifications (`notification.id`) et événements outbox
-(`outbox_event.id`) utilisent des UUID v7. Les références de livraison push utilisent le même UUID v7
-que leur événement outbox. Rust emploie `Uuid::now_v7()` ; PostgreSQL fournit `uuidv7()` pour les
-valeurs par défaut et les livraisons créées dans une transaction SQL.
-La section `event identifiers` de `table_upgrades.sql` est appliquée aux bases existantes. Elle change uniquement
-les valeurs par défaut : aucune clé existante n’est réécrite. Les UUID v4 et v7 coexistent, y compris
-dans une conversation et dans la file outbox. Pagination, rétention et traitement continuent de se baser
-sur les horodatages métier et les identifiants de départage, jamais sur la date extraite de l’UUID.
-Les identifiants de comptes, matchs, sessions et challenges restent en v4 ; les clés d’idempotence
-et `X-Request-ID` gardent leur contrat v4, et les identifiants v5 du catalogue restent déterministes.
-
-Reprise de session mobile (4 novembre 2026) : `refresh_tokens.rotation_request_hash text` et
-`rotation_result bytea` contiennent le hash de la tentative et un résultat chiffré. Le migrateur
-les ajoute aux bases existantes ; le démarrage de la nouvelle API exige ces colonnes. L'index
-partiel `idx_refresh_recovery_expiry` sur `(rotated_at, id)` borne la purge des résultats après
-sept jours ; il est installé concurremment sur une base existante. La migration ne renouvelle
-aucune session. Voir [Reprise des sessions](../features/refresh-recovery.md) pour les garanties et la livraison.
-
-Mode pause (19 octobre 2026) : `user_account.discovery_paused boolean NOT NULL DEFAULT false` est créé par le schéma neuf et ajouté de manière idempotente aux bases existantes par `db-migrate`. La vérification de démarrage exige cette colonne booléenne non nullable ; exécuter le migrateur avant la nouvelle API. Les migrations sont vérifiées sur une instance PostgreSQL jetable ; aucune modification de production n’est effectuée par ces tests. Le réglage conserve les matchs, les données et l’abonnement, figure dans l’export propriétaire et est remis à `false` lors de l’anonymisation du compte. Les contrôles de concurrence du swipe et de la création du match utilisent les verrous partagés sur les comptes, compatibles avec la mise à jour du réglage.
+Les messages, notifications et événements outbox utilisent des UUID v7 par défaut. Les références de
+livraison push partagent l’identifiant de leur événement outbox. La pagination et la rétention utilisent
+les horodatages métier. Les comptes, matchs, sessions et challenges gardent des identifiants v4,
+et les identifiants du catalogue sont déterministes.
 
 ### Base vide
 
-Le migrateur applique schéma et catalogue dans une transaction, avec `histae.seed_fake_users=off`.
-Il ne crée pas de comptes de démonstration. Sur un volume Docker neuf, l’entrypoint PostgreSQL prépare
-les rôles, extensions et permissions via `000_bootstrap_postgres.sql` ; le service `migrate` applique
-ensuite le schéma applicatif et le catalogue avec `histae_migrate`.
+Sur un volume neuf, l’entrypoint PostgreSQL applique les rôles, extensions et permissions.
+Le service `migrate` exécute ensuite le schéma et le catalogue dans une transaction avec le rôle
+`histae_migrate` et `histae.seed_fake_users=off`.
 
 ### Base existante
 
-Le migrateur vérifie les objets attendus, ajoute les évolutions prises en charge et retire le ledger obsolète.
-Il met aussi à jour l'ancien tarif annuel Premium de 30 EUR à 48 EUR dans le catalogue, sans modifier
-les autres tarifs personnalisés ni les achats existants ; voir [Configuration](../development/configuration.md#tarifs-du-catalogue-et-achats-natifs).
+`db-migrate` vérifie le schéma de référence. Il répare les index manquants ou invalides avec
+`CONCURRENTLY` en dehors de la transaction de schéma. Un verrou consultatif sérialise ses exécutions.
+Un redéploiement conserve les données et le catalogue de la base.
 
-Le catalogue n'a plus de colonne `subscription_plan.trial_days` ni de contrainte associée dans le
-schéma initial ; le seed et les requêtes sont alignés. Le migrateur retire aussi cette colonne si
-elle existe encore. Les nouvelles souscriptions n'ont aucune période d'essai. Le champ `trial_days` est aussi retiré du
-catalogue HTTP et des modèles clients.
+Pour déployer cette version sur une base de test d’un ancien schéma, repartir d’une base vide.
+Pour une base dont les données doivent être conservées, préparer une migration dédiée à partir d’une sauvegarde.
 
-La mise à niveau exige que le schéma de la base commence déjà les effacements de compte à l’étape
-`photos`. Pour une base antérieure, appliquer d’abord la version intermédiaire du migrateur.
-La section `notification events` de `table_upgrades.sql` aligne la contrainte des types de notification
-sur le schéma actuel.
-Les index de performance sont ensuite construits avec `CONCURRENTLY`, hors de la transaction de schéma.
-Un verrou advisory sérialise les migrateurs. Un index valide est conservé ; un index invalide laissé par une
-interruption est supprimé puis reconstruit au prochain lancement.
-
-Les tables `sms_send_control` et `sms_send_attempt` protègent les envois Sweego. Le migrateur les
-ajoute aux bases existantes, conserve les suspensions lors des redéploiements et importe à leur
-création les tentatives fournisseur encore présentes dans `otp_verification`. Les OTP déjà purgés
-ne permettent pas de reconstituer l’historique antérieur. La comptabilité HMAC, sans code ni numéro
-en clair, reste indépendante des comptes/sessions et expire après 25 heures via la rétention bornée.
-
-Les tables `phone_blocklist_control`, `phone_blocklist_entry`, `phone_blocklist_source` et
-`phone_blocklist_observation` séparent empreinte de contrôle de la clé, décisions administratives,
-statuts d’import et observations horodatées. Leurs définitions sont conservées uniquement dans la
-section `phone blocklist` de `001_schema_postgres.sql`. Sur une base existante, le migrateur extrait
-et rejoue cette section idempotente, sans réexécuter le schéma complet, écraser les décisions ou
-rajeunir les observations. La sauvegarde/restauration doit conserver ces tables et la même
-`PHONE_HASH_KEY` ; une autre clé empêche le démarrage de l’API et l’import. Le rôle dédié n’a aucun
-accès aux comptes et ne modifie pas les exceptions. Voir [politique et rétention](../features/phone-blocklist.md).
-
-<a id="postgis-et-mise-a-jour-dune-installation"></a>
+Les tables de protection SMS conservent les décisions et la comptabilité d’envoi. Lors d’une restauration,
+conserver les tables de blocage téléphonique avec leur `PHONE_HASH_KEY`. Voir les [rôles](postgres-roles.md)
+et la [politique de blocage](../features/phone-blocklist.md).
 
 ### PostGIS et mise à jour d’une installation
 
@@ -128,14 +75,8 @@ si la base a été concernée, reconstruire `idx_user_profile_firstname_trgm` av
 `REINDEX INDEX CONCURRENTLY public.idx_user_profile_firstname_trgm` après mise à jour, hors transaction.
 Les résultats de charge historiques restent associés aux versions utilisées lors de leurs mesures.
 
-Sur une base existante, le migrateur active `postgis` dans `public`, puis construit l’index GiST avec
-`CONCURRENTLY`. L’index porte sur l’expression géographique des centres de zones conservés dans les
-présences. `location_changed_at` borne leurs changements sans empêcher une actualisation dans la même zone.
-À la première migration de confidentialité, les anciennes coordonnées précises sont effacées et les présences
-marquées périmées ; chaque utilisateur doit renvoyer sa position pour retrouver le feed. Les migrations suivantes
-préservent les nouvelles présences. Les exports et DTO conservent leurs champs. L’activation de l’extension
-nécessite un rôle PostgreSQL disposant des droits adaptés ; sur une base gérée extérieurement, faire
-installer PostGIS par son administrateur avant de lancer le migrateur.
+Le bootstrap administrateur installe PostGIS. Le schéma utilise un index GiST sur les centres des zones.
+Sur une base hébergée ailleurs, faire installer PostGIS avant l’initialisation.
 
 Après une sauvegarde, mettre à jour une pile locale avec :
 
@@ -148,10 +89,7 @@ Compose de production. La mise à jour de PostgreSQL implique un bref redémarra
 terminer avant le démarrage de la nouvelle API. Une sauvegarde contenant PostGIS doit être restaurée
 sur un serveur disposant de cette extension. Le schéma actuel comporte 69 tables publiques ; le test de restauration doit retrouver ce nombre.
 
-Le migrateur ne transforme pas automatiquement une base arbitraire. Modifier le fichier de schéma ne suffit
-pas à modifier une base existante : toute évolution doit aussi avoir son chemin de mise à niveau et ses tests.
-Il peut afficher `processed_count=0` sur une base existante tout en ayant installé des index ; cette valeur
-compte l’installation initiale, pas tous les objets modifiés.
+`processed_count=1` indique une initialisation. `processed_count=0` indique le contrôle d’une base déjà initialisée.
 
 ## Exécuter le migrateur
 
@@ -273,7 +211,7 @@ Ne pas relancer un ordonnanceur de maintenance avant la fin de la réinstallatio
 
 ## Wallet et continuation
 
-Le [guide des crédits](../features/continuation-and-rewards.md) définit les invariants et l’upgrade. `continuation_wallet` conserve le stock publicitaire et sa semaine UTC dans `week_start` ; un solde d’une semaine précédente n’est plus utilisable. `continuation_reservation` lie chaque accord à sa source et sa semaine ; `advertising_reward_intent` conserve une intention opaque et une empreinte de transaction unique. `continuation_usage` distingue le total confirmé et les crédits gratuits consommés. Le schéma et les upgrades réutilisent les sections marquées du SQL consolidé, y compris les guards et la fonction d’anonymisation. Les nouvelles tables reçoivent les privilèges applicatifs par les default privileges du rôle migrateur. Aucune table de suivi des migrations n’est réintroduite.
+Le [guide des crédits](../features/continuation-and-rewards.md) décrit les réservations et les débits. `continuation_wallet` garde le solde et sa semaine UTC. `continuation_usage` distingue les continuations confirmées des crédits gratuits consommés.
 
 Les proofs/intents et compteurs hebdomadaires sont purgés au-delà de 90 jours lors de la maintenance bornée ; les réservations périmées sont libérées et purgées. Un stock publicitaire acquis reste conservé pendant la vie du compte. Export et effacement couvrent ces données, avec libération des réservations du partenaire sur les matchs clôturés.
 
@@ -281,8 +219,7 @@ Les proofs/intents et compteurs hebdomadaires sont purgés au-delà de 90 jours 
 
 Le schéma comporte `preferred_language` sur le compte, `language` sur les appareils et tentatives OTP,
 et `document_language` sur les décisions de consentement. Quatre tables de traduction sont liées par
-clés étrangères en cascade aux traits, questions, plans et fonctionnalités. Le migrateur les ajoute aux
-installations existantes et insère les traductions initiales sans remplacer les textes déjà présents.
+clés étrangères en cascade aux traits, questions, plans et fonctionnalités. Le catalogue installe les traductions initiales.
 L’effacement réinitialise la langue du compte ; l’export inclut les préférences et la langue documentaire.
 Voir [Internationalisation](../api/internationalization.md).
 
@@ -292,9 +229,7 @@ Voir [Internationalisation](../api/internationalization.md).
 portent les liaisons et projections natives ; `_notification` est l’inbox dédupliquée, `_finance` les
 lignes financières importées. `effective_subscription_at` et `effective_user_subscription` réunissent les
 sources sans permettre à une projection de supprimer les droits valides d’une autre.
-`web_account_challenge` et `web_account_session` ne créent aucun compte. Le migrateur introduit ces objets
-sur les bases existantes sans réinitialisation. Les mots de passe des rôles PostgreSQL restent inchangés.
-Les nouveaux objets suivent les grants par défaut du migrateur ; le runtime ne possède pas le schéma.
+`web_account_challenge` et `web_account_session` authentifient les comptes existants pour les démarches du site.
 Voir [rétention et effacement](../features/store-billing.md#donnees-personnelles).
 
 ### Horloge des conversations confirmées
@@ -303,20 +238,16 @@ Pour `match_init.status='confirmed'`, `expires_at` est l’échéance des 30 jou
 Le trigger `trg_match_inactivity` la fixe à la confirmation et la renouvelle lors d’un nouveau
 `last_message_at`. Une lecture et un rejeu idempotent ne modifient pas cette horloge. L’index partiel
 `idx_match_init_confirmed_expiry` sert aux avertissements à J23 et aux clôtures à J30.
-L’archivage à J10 est calculé, sans table ni statut supplémentaire. La première migration accorde
-30 jours aux anciens matchs confirmés ; une nouvelle migration ne reporte pas leur échéance.
+La lecture calcule l’archivage à J10.
 
 ### Identité de revue des stores
 
-`user_account.is_review_account` vaut `false` pour tous les comptes ordinaires et toutes les lignes
-existantes lors de la migration. Le parcours mobile de revue crée lui-même son compte avec le marqueur
-`true`, sans adopter un compte existant. La contrainte `user_account_review_role_check` impose le rôle
+`user_account.is_review_account` vaut `false` par défaut. Le parcours mobile de revue crée son compte avec le marqueur `true`. La contrainte `user_account_review_role_check` impose le rôle
 `user` pour cette identité ; la route de promotion refuse aussi l’opération. Création et ouverture de
 session sont transactionnelles, avec refus des bannissements, suppressions et tombstones. Les données
 de profil et les consentements sont ensuite gérés par les routes normales, sans acceptation automatique.
 La fonction `effective_subscription_at` ajoute un droit Premium offert sans expiration pour les comptes
-de revue actifs de rôle `user`. Le marqueur est installé avant cette fonction, sur base neuve comme
-lors d’une mise à niveau. La CTE `complimentary_accounts` isole l’éligibilité du compte ; les candidats
+de revue actifs de rôle `user`. La CTE `complimentary_accounts` isole l’éligibilité du compte ; les candidats
 internes, stores et de revue partagent ensuite une sélection unique avec un ordre de priorité explicite.
 Ce droit couvre aussi les comptes de revue déjà inscrits, sans insérer de
 projection de store ni de facture et sans écraser l’historique fournisseur. Il disparaît du calcul
@@ -334,5 +265,4 @@ non bannis et non supprimés ; un abonnement fournisseur actif conserve sa prior
 La mutation vérifie le superadmin et l’état de la cible dans une transaction et prend les
 mêmes verrous ordonnés de portefeuille que la confirmation d’un match. Les triggers couvrent
 aussi les écritures SQL de l’offre. La suppression physique et l’anonymisation du bénéficiaire
-retirent son offre. Le migrateur installe la table avant la projection et les triggers, et ajoute
-les actions d’audit `admin_grant_premium` / `admin_revoke_premium`, sur installation neuve et existante.
+retirent son offre. Les actions d’audit sont `admin_grant_premium` et `admin_revoke_premium`.

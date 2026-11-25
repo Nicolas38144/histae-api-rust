@@ -556,30 +556,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn correction_details_are_bounded_and_retired_requests_are_rejected() {
+    async fn correction_details_are_bounded() {
         let service = DataRightsService::new(Arc::new(Store::default()));
         let user = Uuid::new_v4();
-        for request_type in [
-            DataRequestType::Rectification,
-            DataRequestType::Restriction,
-            DataRequestType::Objection,
+        for details in [
+            None,
+            Some(" \n\t".to_owned()),
+            Some("a".repeat(FREE_TEXT_MAX_CHARS + 1)),
+            Some("bad\0value".to_owned()),
         ] {
-            for details in [
-                None,
-                Some(" \n\t".to_owned()),
-                Some("a".repeat(FREE_TEXT_MAX_CHARS + 1)),
-                Some("bad\0value".to_owned()),
-            ] {
-                assert_eq!(
-                    service.create_request(user, request_type, details).await,
-                    Err(DataRightsError::InvalidRequest)
-                );
-            }
-        }
-        for retired in [DataRequestType::Restriction, DataRequestType::Objection] {
             assert_eq!(
                 service
-                    .create_request(user, retired, Some("A valid message".to_owned()))
+                    .create_request(user, DataRequestType::Rectification, details)
                     .await,
                 Err(DataRightsError::InvalidRequest)
             );

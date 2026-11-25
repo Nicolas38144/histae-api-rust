@@ -47,7 +47,7 @@ la livraison d’un SMS, d’un push ou la validité d’un achat sur appareil.
 
 Le lanceur crée son propre PostgreSQL/PostGIS sur une adresse loopback et un port aléatoire.
 Il génère des identifiants temporaires, prépare les rôles séparés et lance le migrateur réel sur
-base neuve, structure ancienne et migrations répétées. Il exécute les suites applicatives avec
+une base neuve. Il exécute les suites applicatives avec
 `histae_app`, puis les fixtures qui créent leur propre base avec l’administrateur temporaire.
 La base, les conteneurs et les identifiants temporaires sont supprimés à la fin.
 
@@ -70,24 +70,17 @@ Pour cibler des suites sur un schéma neuf :
 ```bash
 python3 scripts/verify-continuation-postgres.py --sudo-docker \
   --native-migrator target/debug/db-migrate \
-  --skip-legacy-migrations --test matches_postgres --test notifications_postgres
+  --test matches_postgres --test notifications_postgres
 ```
-
-`--skip-legacy-migrations` installe le schéma et le catalogue, puis lance directement les suites
-sélectionnées. Les tests de migration propres à une suite, comme `outbox_postgres`, s’exécutent
-si cette suite est sélectionnée. Pour vérifier la mise à niveau d’une base existante, lancer le script
-sans cette option.
 
 `--postgres-image` sélectionne une autre image locale compatible. Pour tester le migrateur d’une
 image API reconstruite depuis les sources, omettre `--native-migrator` et préciser `--api-image`.
 Le test PostgreSQL de `media_integration` est inclus ; son test S3 nécessite le stockage objet séparément.
 
-`outbox_postgres` compare les colonnes, types, nullabilité, valeurs par défaut, contraintes, index et
-triggers du schéma neuf avec ceux d’une structure ancienne remise à niveau deux fois. L’ordre physique
-des colonnes est exclu. Les tests conservent aussi des données historiques pour vérifier les reprises,
-les migrations de notifications et la coexistence des UUID v4/v7.
+`outbox_postgres` vérifie la stabilité du schéma après deux réexécutions, les identifiants des événements
+et la réparation d’un index invalide.
 
-Pour les privilèges et la conversion des rôles, suivre [Rôles PostgreSQL](../docs/database/postgres-roles.md#verifier-la-separation).
+Pour les privilèges des rôles, suivre [Rôles PostgreSQL](../docs/database/postgres-roles.md#verifier-la-separation).
 
 ## Redis, S3 et codec
 

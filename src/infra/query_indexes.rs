@@ -1,5 +1,5 @@
-//! Index upgrades for populated databases. Keep the empty-schema definitions in
-//! db/001_schema_postgres.sql in sync; both paths are exercised against PostgreSQL.
+//! Repair missing or invalid indexes on an initialized database.
+//! Keep these definitions in sync with db/001_schema_postgres.sql.
 
 use super::postgres::{DatabaseError, map_sqlx_error};
 

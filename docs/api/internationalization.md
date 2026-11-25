@@ -79,7 +79,7 @@ Les libellés, erreurs et textes accessibles du dashboard sont centralisés dans
 - `fr`, si fourni, doit correspondre au champ canonique et ne peut pas être supprimé. Une modification de question peut fournir uniquement des traductions.
 - Les mêmes limites et normalisations que les libellés canoniques s’appliquent ; les textes vides ou les caractères de contrôle sont refusés.
 - Les contrôles de session admin, d’origine et de rôle restent obligatoires. L’écriture du libellé et des traductions est transactionnelle. La réponse de modification d’une question est lue dans cette transaction, sous le même verrou.
-- Les traductions initiales couvrent les traits et questions livrés, les plans et leurs fonctionnalités. Une question personnalisée avant la migration conserve un repli français : aucune traduction du catalogue d’origine n’est attribuée à un autre texte. Le catalogue traduit est initialisé lors de son introduction ; les migrations suivantes préservent aussi les traductions supprimées.
+- Les traductions initiales couvrent les traits et questions livrés, les plans et leurs fonctionnalités. Une question sans traduction utilise le libellé français.
 
 Seuls les catalogues publics sont mis en cache en mémoire, pendant 15 secondes. Les écritures HTTP invalident le cache du processus ; les autres instances convergent après ce délai. Les préférences privées et preuves de consentement ne sont pas mises en cache. La projection de compte déjà lue par le contrôle de session fournit la langue mobile : aucun aller-retour SQL supplémentaire n’est ajouté au feed pour cette préférence.
 

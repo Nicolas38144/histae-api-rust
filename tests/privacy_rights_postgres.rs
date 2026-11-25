@@ -570,42 +570,7 @@ async fn correction_rejections_require_public_replies_and_retired_requests_stay_
         );
         assert!(store.requests_for_user(admin_id).await?.is_empty());
 
-        // Old categories are kept verbatim for history, never silently reclassified.
         let mut connection = database.acquire().await?;
-        for retired in [DataRequestType::Restriction, DataRequestType::Objection] {
-            let request_id: Uuid = sqlx::query_scalar(
-                "INSERT INTO data_subject_request(user_id,type,notes)
-                 VALUES ($1,$2,'Historical internal note') RETURNING id",
-            )
-            .bind(user_id)
-            .bind(retired.as_str())
-            .fetch_one(&mut *connection)
-            .await?;
-            assert_eq!(
-                service
-                    .update_request(update(request_id, DataRequestTransition::InProgress, None))
-                    .await,
-                Err(DataRightsError::InvalidTransition),
-            );
-            assert_eq!(
-                service
-                    .create_request(user_id, retired, Some("Message".to_owned()))
-                    .await,
-                Err(DataRightsError::InvalidRequest),
-            );
-        }
-        let owner_history = service
-            .requests_for_user(user_id)
-            .await
-            .map_err(|_| FixtureError("owner history"))?;
-        for request in owner_history
-            .iter()
-            .filter(|request| request.request_type.is_retired())
-        {
-            assert_eq!(request.status, DataRequestStatus::Pending);
-            assert!(request.details.is_none() && request.response.is_none());
-        }
-        assert_eq!(owner_history.len(), 3);
         let admin_history = service
             .requests_for_admin(None, 100, 0, None)
             .await

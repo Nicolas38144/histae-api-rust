@@ -22,22 +22,6 @@ Une nouvelle zone peut être enregistrée toutes les cinq minutes. La décision 
 instances par PostgreSQL ; les actualisations dans la même zone ne repoussent pas le prochain changement.
 Ce contrôle limite les changements rapides, sans constituer une preuve de localisation réelle.
 
-La migration retire une seule fois les anciennes coordonnées précises et invalide leurs présences,
-sans retirer les consentements. Après déploiement, l’application doit renvoyer la position ; une seconde
-migration ne doit pas effacer la présence déjà minimisée. Les sauvegardes historiques conservent leur
-contenu jusqu’à leur expiration selon la politique de rétention existante.
-
-Pour cette première livraison, arrêter les anciennes instances API avant la migration afin qu’elles ne
-réécrivent pas des positions précises pendant le remplacement des conteneurs. Depuis le dossier parent
-`Histae`, pour la pile de production :
-
-```bash
-sudo docker compose --project-directory histae-api-rust --env-file histae-api-rust/.env \
-  -f histae-api-rust/compose.yaml -f histae-api-rust/compose.production.yaml \
-  -f histae-api-rust/compose.production-observability.yaml stop api
-sudo bash histae-scripts/reset-api.sh --production
-```
-
 Le retrait du consentement supprime la présence et son compteur de changements. Le délai de cinq minutes
 est un frein par présence, pas une protection anti-fraude persistante après retrait/réactivation ; la
 minimisation des coordonnées protège aussi ce cas.

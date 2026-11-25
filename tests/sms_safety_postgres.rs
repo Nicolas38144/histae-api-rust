@@ -110,7 +110,6 @@ async fn check_safety(
     config: &PostgresConfig,
     database: &Database,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    assert_legacy_budget_upgrade(config, database).await?;
     let repository = PgSmsSafetyStore::new(database.clone());
     let policy = SmsSafetyConfig::default();
     let phone = "synthetic-hmac-phone";
@@ -227,7 +226,7 @@ async fn check_safety(
         repository.set_suspended(operator, false, 0).await,
         Err(SmsControlError::Conflict)
     );
-    // Migration and fresh service construction preserve a manual stop and all reservations.
+    // Re-running initialization preserves a manual stop and all reservations.
     migrations::apply(config).await?;
     migrations::apply(config).await?;
     let service = SmsSafetyService::new(
@@ -499,44 +498,5 @@ async fn assert_otp_quota(
         otp.send(canonical, Some(&key)).await,
         Err(OtpError::PhoneRateLimited)
     );
-    Ok(())
-}
-
-async fn assert_legacy_budget_upgrade(
-    config: &PostgresConfig,
-    database: &Database,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let attempt = BeginOtpDelivery {
-        language: histae_api_rust::localization::Language::Fr,
-        id: Uuid::new_v4(),
-        phone_hash: "legacy-budget-fixture".into(),
-        otp_hash: "not-a-code".into(),
-        idempotency_key: Uuid::new_v4(),
-        ttl: Duration::from_secs(600),
-        settlement: Duration::from_secs(35),
-    };
-    OtpRepository::new(database.clone())
-        .begin(attempt.clone())
-        .await?;
-    let mut connection = database.acquire().await?;
-    sqlx::raw_sql("DROP TABLE sms_send_attempt, sms_send_control")
-        .execute(&mut *connection)
-        .await?;
-    drop(connection);
-    migrations::apply(config).await?;
-    migrations::apply(config).await?;
-    let mut connection = database.acquire().await?;
-    let imported: Vec<Uuid> = sqlx::query_scalar("SELECT delivery_id FROM sms_send_attempt")
-        .fetch_all(&mut *connection)
-        .await?;
-    assert_eq!(imported, vec![attempt.id]);
-    sqlx::query("DELETE FROM sms_send_attempt WHERE delivery_id=$1")
-        .bind(attempt.id)
-        .execute(&mut *connection)
-        .await?;
-    sqlx::query("DELETE FROM otp_verification WHERE id=$1")
-        .bind(attempt.id)
-        .execute(&mut *connection)
-        .await?;
     Ok(())
 }

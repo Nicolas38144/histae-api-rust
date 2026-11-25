@@ -320,7 +320,7 @@ Exemple de réponse (URL illustrative) :
 
 Autres erreurs : `400 invalid_idempotency_key`, `400 invalid_photo`, `413 photo_too_large`, `404 profile_not_found`, `409 photo_update_conflict`, `429 photo_rate_limit_exceeded`, `503 photo_processing_unavailable`, `503 photo_storage_unavailable`.
 
-**Modération commune.** Les textes conservent leurs contrôles et motifs automatiques `spam, insult, personal_contact, sexual_content` ; `legacy_unreviewed` identifie un contenu historique. Les photos ne subissent aucune analyse automatique du visage, de la netteté ou du contenu : dès un upload valide, elles sont disponibles (`moderation_status: approved`, motifs vides). Ce statut ne certifie pas une inspection du contenu. La modération manuelle reste possible dans le dashboard ; un rejet retire la photo et programme sa suppression. Les statuts `pending | approved | rejected` restent communs aux contenus.
+**Modération commune.** Les motifs automatiques des textes sont `spam`, `insult`, `personal_contact` et `sexual_content`. Après un upload valide, les photos sont disponibles avec `moderation_status: approved` et des motifs vides. La modération manuelle se fait dans le dashboard. Un rejet retire la photo et programme sa suppression. Les statuts `pending | approved | rejected` sont communs aux contenus.
 
 ### Traits et questions de profil
 
@@ -370,7 +370,7 @@ Les deux routes de réglage exigent le compte mobile avec onboarding terminé, u
 
 Les likes et les profils passés restent valides **30 jours à partir du choix initial**. Une décision de swipe est immuable pendant cette période ; un rejeu ne renouvelle pas son échéance. Après expiration, elle n’exclut plus le profil du feed et un ancien like ne peut plus créer de match. Les autres critères restent appliqués, notamment l’exclusion des matchs déjà enregistrés. Deux likes réciproques valides créent un seul match ; aucun endpoint ne permet de fabriquer directement un match. Erreurs : `409 discovery_not_ready`, `404 discovery_candidate_not_found`, `409 swipe_already_recorded`, `400 invalid_cursor`, `429 swipe_rate_limit_exceeded`, `429 feed_rate_limit_exceeded`, `503 discovery_unavailable`.
 
-Le migrateur ramène également les décisions existantes à `swiped_at + 30 jours`, sans modifier les dates des choix ni les matchs existants. Les anciennes décisions de plus de 30 jours expirent dès cette migration ; leur suppression physique reste confiée à la maintenance. Arrêter les anciennes instances API, appliquer le migrateur puis démarrer la nouvelle version : les anciennes instances calculent encore 365 jours et ne sont pas compatibles avec la nouvelle contrainte PostgreSQL. L’API vérifie cette contrainte au démarrage.
+La maintenance supprime les décisions arrivées à échéance. L’API vérifie la contrainte de rétention au démarrage.
 
 Après perte de réponse, le rejeu du même like conservé retrouve le match `active`, `awaiting_continuation`
 ou `confirmed` encore accessible, sans nouveau match ni notification. Les consentements, positions,
@@ -546,7 +546,7 @@ Onboarding incomplet accepté pour les jetons/effacement, demandes RGPD et expor
 | --- | --- | --- |
 | POST | `/api/users/me/deletion-token` | Aucun corps → `201 { confirmation_token, expires_at }`. |
 | DELETE | `/api/users/me` | `{ confirmation_token }` → `202 { request_id, status: "in_progress" }`. |
-| POST | `/api/users/me/data-subject-requests` | `{ type, details? }` → `201` avec la demande. `rectification` exige une précision non vide ; `restriction` et `objection` sont retirés. |
+| POST | `/api/users/me/data-subject-requests` | `{ type, details? }` → `201` avec la demande. `rectification` exige une précision non vide. |
 | GET | `/api/users/me/data-subject-requests` | `200 { requests: [...] }`. |
 | GET | `/api/users/me/data-export` | `200 application/json` en pièce jointe avec l’export portable du demandeur. |
 | GET | `/api/users/me/blocks` | `200 { blocks: [...] }`, toujours `photo: null`. |
@@ -554,7 +554,7 @@ Onboarding incomplet accepté pour les jetons/effacement, demandes RGPD et expor
 | DELETE | `/api/users/me/blocks/:userId` | UUID → `204`. |
 | POST | `/api/reports` | `{ reported_user_id, match_id?, reason, description? }` → `201` avec le signalement. |
 
-Les champs `details` (message utilisateur) et `response` (réponse visible par l’utilisateur) sont indépendants des notes internes admin. Chaque champ, y compris les notes internes, accepte jusqu’à 1 000 caractères Unicode. Les espaces extérieurs du détail et de la réponse sont retirés et les retours à la ligne sont autorisés. Les anciennes lignes peuvent avoir ces deux champs à `null`. La clôture d’une rectification enregistre un traitement manuel et sa réponse ; elle ne modifie pas automatiquement les données métier. Les types `restriction` et `objection` restent lisibles pour l’historique uniquement.
+Les champs `details` (message utilisateur) et `response` (réponse visible par l’utilisateur) sont distincts des notes internes. Chaque champ accepte jusqu’à 1 000 caractères Unicode. Le détail et la réponse autorisent les retours à la ligne et sont nettoyés des espaces extérieurs. La clôture d’une rectification enregistre le traitement manuel et sa réponse.
 
 **Effacement.** Demander le jeton dédié, puis le transmettre comme reçu (`uuid:secret`). Il remplace le précédent et expire après dix minutes par défaut (`ACCOUNT_DELETION_TOKEN_TTL`, 1–30 min). Exemple de réponse au DELETE :
 
@@ -575,9 +575,8 @@ Le `202` désactive immédiatement le compte ; fermer la session mobile. **Ne pa
 
 Les réponses de signalement sont visibles uniquement pour leur auteur. Le suivi expose `pending | closed`
 et le texte de clôture. Les décisions internes et l’identifiant du compte signalé sont omis. Les échanges
-RGPD sont conservés séparément de la réponse de synthèse de l’ancienne route. Les réponses existantes
-apparaissent dans le fil après migration. Un usager peut ajouter une précision tant que la demande est
-ouverte. Les notes des administrateurs ne figurent ni dans le fil utilisateur ni dans l’export.
+RGPD sont conservés dans le fil de la demande. Un usager peut ajouter une précision tant que la demande
+est ouverte. Les notes des administrateurs restent réservées au dashboard.
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |

@@ -138,9 +138,7 @@ son propre crédit, débité seulement après les deux accords. Un refus ou une 
 réservation. Premium permet des continuations illimitées sans débit de crédit. Voir les
 [règles de continuation et de récompenses](../features/continuation-and-rewards.md) pour le détail des réservations.
 
-Le [catalogue SQL](../../db/002_insert_postgres.sql) initialise une base neuve. Sur une base existante, le
-migrateur remplace l'ancien prix annuel Premium de 3 000 centimes EUR par 4 800 centimes, sans écraser un
-autre tarif personnalisé. Un second passage ne modifie ni le prix ni sa date de mise à jour.
+Le [catalogue SQL](../../db/002_insert_postgres.sql) initialise les tarifs d’une base neuve.
 
 Le montant réellement facturé provient des produits et base plans configurés dans les stores.
 Les SDK natifs affichent leur prix localisé ; modifier le catalogue SQL ne change pas ce prix.
@@ -158,9 +156,7 @@ Déployer les clients et l’API avec le même contrat de catalogue. Aucun trois
 Une réponse `/api/plans` qui n'a toujours pas `offers` après déploiement indique une ancienne
 version de l'API en service. Vérifier les sources présentes sous `HISTAE_ROOT`, puis reconstruire
 et recréer l'API et le dashboard avec `reset-api.sh --production --full` et
-`reset-dashboard.sh --production --full`. Les scripts conservent les volumes. Le schéma initial et le seed n’ont plus de colonne `subscription_plan.trial_days`. Sur une base
-existante, le migrateur retire cette colonne si elle est présente, avec sa contrainte locale, sans
-modifier les abonnements ni leurs échéances. Le champ `trial_days` est aussi retiré du catalogue HTTP. Aucun nouvel essai n’est proposé.
+`reset-dashboard.sh --production --full`. Les scripts conservent les volumes.
 Les offres sont calculées par le code à partir des deux plans. Voir [Achats natifs](../features/store-billing.md).
 
 ### Documents juridiques

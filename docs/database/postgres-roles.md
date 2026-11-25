@@ -55,8 +55,8 @@ le `.env` complet : l'isolation des variables décrite ici concerne les conteneu
 
 L'entrypoint PostgreSQL exécute [init-roles.sh](../../docker/postgres/init-roles.sh) uniquement sur un volume
 vide. Il applique [000_bootstrap_postgres.sql](../../db/000_bootstrap_postgres.sql) comme administrateur.
-Ce fichier regroupe la création des rôles, les extensions, les permissions et la conversion dev. Ses
-modes `install`, `access` et `convert-dev` utilisent les mêmes règles d'accès. Le mode `access` rétablit
+Le mode `install` crée les rôles, prépare les extensions et attribue les permissions.
+Le mode `access` rétablit
 les permissions après un `DROP SCHEMA`. Pour un cluster existant, le reset peut aussi créer le rôle
 `histae_phone_sync` et configurer son mot de passe explicitement fourni ; il ne change pas ceux des
 autres rôles. Le bootstrap refuse un rôle de synchronisation privilégié ou membre d’un autre rôle.
@@ -85,8 +85,8 @@ sudo docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --
 bash scripts/smoke-api.sh
 ```
 
-L'initialisation automatique concerne les volumes neufs. Une ancienne base utilisant encore
-un compte unique nécessite une migration préparée avec sauvegarde et validation des permissions.
+L’initialisation automatique concerne les volumes neufs. Pour conserver une base avec un compte unique,
+préparer sa conversion séparément avec une sauvegarde et une vérification des permissions.
 
 ### Production
 

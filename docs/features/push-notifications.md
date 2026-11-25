@@ -82,16 +82,8 @@ resynchronizes authentication, then rereads the authorized destination. Foregrou
 
 ## Rollout
 
-No new environment variables. Apply the migration with the migration role, then run matching API,
-outbox and maintenance versions. Stop the old worker before the new API produces these event kinds.
-The `notification` and `match_init` tables in `db/001_schema_postgres.sql` define the initial type
-constraint and photo-grant generation directly in `CREATE TABLE`. For existing databases,
-`db-migrate` applies the `notification events` section of `src/infra/migrations/table_upgrades.sql`.
-The idempotent `notification preferences` section creates the two preference tables without
-rewriting any existing device registration or opt-out. Run migration **before** starting the new
-API/worker; readiness rejects the old schema. Deploy both server processes before the updated app.
-Retired trial notifications are removed before restoring the current type constraint; other
-notifications and their deadlines are preserved. Startup rejects a schema that has not been upgraded.
+The schema defines notification types, photo-grant generations and preference tables. Run the API,
+outbox and maintenance from the same release.
 
 ```bash
 cargo run --locked --bin db-migrate
@@ -116,7 +108,7 @@ cargo test --locked --all-targets
 ```
 
 For integration checks, prefer the disposable PostgreSQL launcher. It uses local PostgreSQL/PostGIS,
-generated credentials and loopback, verifies repeated upgrades, then removes its container and
+generated credentials and loopback, then removes its container and
 fixtures. It requires Docker access and the local PostgreSQL image described in [Tests](../../tests/README.md).
 
 ```bash
@@ -130,8 +122,7 @@ python3 scripts/verify-continuation-postgres.py \
 
 The tests cover delivery deadlines, reply retention, changing names, old photo grants, continuation
 replays and recipients, reminder deduplication, request replies without private text and new-session
-exclusion. The upgrade test preserves existing notifications, match deadlines and photo-grant
-generations. Never point these fixture tests at production.
+exclusion. Run these fixture tests on a disposable database.
 
 On devices, verify background/cold-start delivery, four languages, the actual current first name,
 mutual choices, withdrawn grants, resolved alerts, first-period timing, new-session exclusion and
@@ -140,8 +131,7 @@ both privacy destinations. A successful FCM request does not prove OS presentati
 Preference regressions cover filtering at enqueue and delivery, private mutes, expiry, discreet names,
 muted-period job suppression, blocked/banned participants and ended matches. Concurrent partial edits
 preserve unrelated choices; a write waiting behind account erasure cannot recreate deleted settings.
-Exports paginate the requesting participant's choices without exposing the partner's mute. Repeated
-upgrades preserve existing account preferences and both participants' private choices. The HTTP
+Exports paginate the requesting participant's choices without exposing the partner's mute. The HTTP
 inventory and both Postman collections include all four preference routes, for **148 routes** total.
 
 On real devices, also verify cross-device edits, no catch-up after mute expiry, category

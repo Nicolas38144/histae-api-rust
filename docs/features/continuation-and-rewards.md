@@ -43,10 +43,7 @@ en retard. La maintenance traite les suppressions par lots bornés ; elle doit �
 régulièrement. Les signalements suivent leur propre rétention et sont détachés du match supprimé.
 
 Le trigger PostgreSQL `trg_match_inactivity` renouvelle le délai à la confirmation et lors d’un
-nouveau message. À la première migration, les matchs déjà confirmés reçoivent un délai complet
-à partir du déploiement pour permettre le préavis. Les migrations suivantes ne le renouvellent pas.
-Déployer le migrateur avant les nouvelles instances d’écriture ; les anciennes instances ne doivent
-pas continuer à créer des notifications sous l’ancien contrat pendant la mise à jour.
+nouveau message.
 
 ## 2. Crédits Free et Premium
 
@@ -218,13 +215,7 @@ Une intention accepte une récompense gagnée pendant les 15 minutes suivant sa 
 
 Après une vraie récompense, relire le statut de l’intention et le quota. La validation d’URL avec le marqueur ne modifie ni l’intention ni le quota et ne constitue pas une validation du parcours Flutter complet.
 
-## 5. Migration, rétention et validation
-
-La migration ajoute les tables wallet, réservation et intention publicitaire ainsi que `free_used_count` au compteur hebdomadaire. Le schéma neuf et l’upgrade réutilisent les sections du SQL consolidé. Les privilèges restent ceux de `histae_migrate` et `histae_app`.
-
-Avant un upgrade de cette règle de coût, suspendre les anciennes instances API et workers d’écriture. Ne pas faire cohabiter les deux modèles de débit pendant une mise à jour progressive ; appliquer la migration puis démarrer les nouvelles images ensemble.
-
-Sur une ancienne base, l’usage historique est conservé comme crédits gratuits déjà consommés ; les matchs confirmés restent confirmés, sans débit rétroactif de l’autre participant. Les accords legacy en attente, qui ne réservaient aucun crédit et annonçaient un coût pour l’initiateur seul, sont remis à zéro lors du premier upgrade pour demander un accord sous le nouveau contrat. Une nouvelle passe du migrateur ne réinitialise pas les nouveaux accords.
+## 5. Rétention et validation
 
 Le verrou du match, les verrous de comptes/consentements, puis les verrous ordonnés des abonnements et wallets sérialisent les choix, les débits et les changements Premium. Le stock et les récompenses sont partagés entre les instances via PostgreSQL, sans dépendre d’un compteur en mémoire.
 
@@ -233,17 +224,6 @@ Les exports incluent le wallet et sa semaine, l’usage, les réservations et le
 Les textes juridiques du site sont des **brouillons** actualisés. Avant l’activation des publicités, finaliser/valider les prestataires, données SDK, bases juridiques, transferts et choix UMP ; publier les nouvelles versions puis mettre à jour les versions/URL API et une référence de validation juridique réelle. Cette intervention ne fabrique pas de `LEGAL_REVIEW_REFERENCE` ni d’approbation juridique.
 
 Voir [Tests](../../tests/README.md) pour les commandes et [Mise en production](../deployment/production-readiness.md) pour les vérifications sur appareils et fournisseurs.
-
-### Mise à jour de la formule hebdomadaire
-
-Le migrateur ajoute la semaine UTC au wallet et met à jour la formule Free et ses traductions.
-Les soldes antérieurs à cette évolution restent utilisables jusqu’au prochain lundi ; ils ne sont
-jamais renouvelés par une nouvelle passe du migrateur. Les matchs confirmés et les consommations
-historiques restent conservés. Livrer le schéma avant la nouvelle API : le démarrage refuse un
-wallet qui ne possède pas la colonne `week_start`, ou des intentions sans `credited_at`.
-Le migrateur conserve les anciens résultats en copiant `completed_at` vers `credited_at` une
-seule fois. Les preuves antérieures à cette migration ne contiennent pas l’horodatage du gain
-permettant de reconstituer une éventuelle expiration hebdomadaire.
 
 ## Références
 
