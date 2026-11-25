@@ -296,7 +296,10 @@ mesurer le budget, pas de supprimer immédiatement la limite.
 
 Le label `dependency` appartient à la liste fermée `postgres`, `redis`, `object_storage`, `sweego`. Vérifier son healthcheck, réseau, TLS, credentials et quotas sans imprimer de secret. Pour S3 et les achats natifs,
 préserver les traces PostgreSQL et laisser l’outbox/réconciliation reprendre ; ne pas relancer un POST dont l’issue
-est incertaine. Pour Redis, vérifier les mécanismes de reconnexion avant tout redémarrage partagé.
+est incertaine. Pour Redis, contrôler son état et la mémoire du conteneur avant un redémarrage.
+Les commandes de l’application suivent la liste autorisée dans `docker/redis/users.acl`. Une erreur
+d’autorisation peut aussi indiquer que le client et le manifeste Redis proviennent de versions différentes.
+Une panne Redis entraîne un `503` sur les routes qui appliquent un quota.
 
 <a id="postgres-pool"></a>
 

@@ -16,7 +16,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::RedisConfig;
 
-const FIXED_WINDOW_SCRIPT: &str = "local current = redis.call('INCR', KEYS[1]); if current == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]); end; return {current, redis.call('PTTL', KEYS[1])}";
 const MAX_ROOT_CERTIFICATE_BYTES: u64 = 1_048_576;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -126,20 +125,23 @@ impl RedisService {
         let inner = self.inner()?;
         let window_millis = u64::try_from(window.as_millis()).unwrap_or(u64::MAX);
         let mut manager = inner.manager.clone();
-        let result: (u64, i64) = command_with_timeout(inner, async move {
-            redis::cmd("EVAL")
-                .arg(FIXED_WINDOW_SCRIPT)
-                .arg(1)
+        let (count, _, ttl_millis): (u64, bool, i64) = command_with_timeout(inner, async move {
+            // NX assigns a deadline once without extending the current window.
+            redis::pipe()
+                .atomic()
+                .cmd("INCR")
+                .arg(key)
+                .cmd("PEXPIRE")
                 .arg(key)
                 .arg(window_millis)
+                .arg("NX")
+                .cmd("PTTL")
+                .arg(key)
                 .query_async(&mut manager)
                 .await
         })
         .await?;
-        Ok(FixedWindowIncrement {
-            count: result.0,
-            ttl_millis: result.1,
-        })
+        Ok(FixedWindowIncrement { count, ttl_millis })
     }
 
     pub async fn check(&self) -> Result<(), RedisError> {

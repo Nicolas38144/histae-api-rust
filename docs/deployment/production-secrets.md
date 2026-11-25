@@ -250,7 +250,7 @@ Installer ces cinq fichiers depuis la racine API. Adapter `HISTAE_TLS_SOURCE` et
   HISTAE_TLS_PG_ID=$(sudo docker run --rm --pull=never --network none --read-only --cap-drop ALL \
     --entrypoint sh "$HISTAE_TLS_PG_IMAGE" -c 'printf "%s:%s" "$(id -u postgres)" "$(id -g postgres)"')
   HISTAE_TLS_REDIS_ID=$(sudo docker run --rm --pull=never --network none --read-only --cap-drop ALL \
-    --entrypoint sh redis:7.4.2-alpine -c 'printf "%s:%s" "$(id -u redis)" "$(id -g redis)"')
+    --entrypoint sh redis:7.4.12-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe -c 'printf "%s:%s" "$(id -u redis)" "$(id -g redis)"')
   [[ "$HISTAE_TLS_PG_ID" =~ ^[1-9][0-9]*:[0-9]+$ ]]
   [[ "$HISTAE_TLS_REDIS_ID" =~ ^[1-9][0-9]*:[0-9]+$ ]]
 
@@ -682,7 +682,7 @@ depuis la racine API, construire PostgreSQL et télécharger Redis sans démarre
 
 ```bash
 sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml build postgres
-sudo docker pull redis:7.4.2-alpine
+sudo docker compose --env-file .env -f compose.yaml -f compose.production.yaml pull redis
 ```
 
 Puis relancer `sudo bash prepare-production.sh --check` depuis `histae-scripts`.

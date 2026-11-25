@@ -49,7 +49,7 @@ async fn fixed_window_health_and_pubsub_work_against_real_redis() {
         .await
         .expect("first fixed-window increment");
     let second = redis
-        .increment_fixed_window(&key, Duration::from_secs(2))
+        .increment_fixed_window(&key, Duration::from_secs(30))
         .await
         .expect("second fixed-window increment");
     assert_eq!(first.count, 1);

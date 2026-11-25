@@ -35,8 +35,6 @@ x-production-logging: &production-logging
 x-production-dependencies: &production-dependencies
   migrate:
     condition: service_completed_successfully
-  redis:
-    condition: service_healthy
   storage-init:
     condition: service_completed_successfully
 
@@ -139,15 +137,22 @@ services:
 
   # Redis éphémère, TLS et authentification obligatoires, aucune écoute TCP en clair.
   redis:
-    image: redis:7.4.2-alpine
+    image: redis:7.4.12-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     entrypoint: [/bin/sh, -ec]
     command:
-      - exec /usr/local/bin/docker-entrypoint.sh redis-server /etc/redis/histae.conf --requirepass "$$REDIS_PASSWORD"
+      - |
+        umask 077
+        password_hash="$$(printf '%s' "$$REDIS_PASSWORD" | sha256sum)"
+        printf '%s #%s\n' "$$(cat /etc/redis/histae-users.acl)" "$${password_hash%% *}" > /run/redis/users.acl
+        chown redis:redis /run/redis/users.acl
+        unset REDIS_PASSWORD REDISCLI_AUTH
+        exec /usr/local/bin/docker-entrypoint.sh redis-server /etc/redis/histae.conf --aclfile /run/redis/users.acl
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Define REDIS_PASSWORD in .env}
       REDISCLI_AUTH: ${REDIS_PASSWORD:?Define REDIS_PASSWORD in .env}
     volumes:
       - ./docker/redis/redis.conf:/etc/redis/histae.conf:ro
+      - ./docker/redis/users.acl:/etc/redis/histae-users.acl:ro
       - type: bind
         source: ./.secrets/redis
         target: /etc/redis/tls
@@ -155,6 +160,7 @@ services:
         bind:
           create_host_path: false
     secrets: [postgres_ca]
+    tmpfs: ["/run/redis:size=1m,mode=0755,noexec,nosuid,nodev"]
     healthcheck:
       test: [CMD-SHELL, 'redis-cli --tls --cacert /run/secrets/postgres_ca -h redis ping | grep -qx PONG']
       interval: 5s
@@ -165,7 +171,7 @@ services:
     cpus: 0.5
     pids_limit: 128
     logging: *production-logging
-    networks: [backend]
+    networks: [redis-private]
 
   # SeaweedFS server (master, volume, filer et S3), pas le mode mini de développement.
   # Ses interfaces brutes restent sur un réseau dédié, inaccessible à l'API/proxy public.
@@ -297,6 +303,7 @@ services:
     depends_on:
       <<: *production-dependencies
       photo-codec: { condition: service_healthy }
+      redis: { condition: service_healthy }
     environment:
       <<: *production-database-environment
       ENV: production
@@ -313,6 +320,7 @@ services:
     # API et passerelle S3 rejoignent le proxy ; aucun stockage brut n'y est exposé.
     networks:
       backend:
+      redis-private:
       edge:
         aliases:
           - histae-api-production
@@ -320,7 +328,9 @@ services:
   outbox-worker:
     env_file: !override ["${HISTAE_ENV_FILE:-.env}"]
     entrypoint: [/app/bin/outbox]
-    depends_on: *production-dependencies
+    depends_on:
+      <<: *production-dependencies
+      redis: { condition: service_healthy }
     environment:
       <<: *production-database-environment
       ENV: production
@@ -330,6 +340,7 @@ services:
       - postgres_ca
       - store_verifier_ca
     restart: always
+    networks: [backend, redis-private]
 
   phone-blocklist-sync:
     environment:
@@ -370,6 +381,8 @@ secrets:
 
 networks:
   storage:
+    internal: true
+  redis-private:
     internal: true
   # Réseaux créés par l'exploitation avant le déploiement ; aucun port hôte public.
   backend:

@@ -297,11 +297,16 @@ Vérifier les UID avant d’attribuer les permissions, par exemple :
 
 ```bash
 sudo docker run --rm --entrypoint id postgres:18.7-bookworm postgres
-sudo docker run --rm --entrypoint id redis:7.4.2-alpine redis
+sudo docker run --rm --entrypoint id redis:7.4.12-alpine redis
 ```
 
 Les répertoires parents doivent être traversables. Garder la clé privée de l’autorité hors du serveur.
 Les montages de certificats refusent la création automatique d’un dossier manquant.
+
+En production, le réseau interne Redis relie uniquement Redis, l’API et le worker outbox.
+Le mot de passe `REDIS_PASSWORD` sert à créer le fichier ACL en mémoire au démarrage.
+Le compte applicatif peut incrémenter les quotas sous `histae:rate-limit:*` et utiliser le canal
+`histae:mobile-events:v1`. Les quotas fixent leur délai via une transaction Redis.
 
 Exemple de structure `s3.json`, avec des placeholders à remplacer :
 

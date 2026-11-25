@@ -1,0 +1,1 @@
+user default on resetpass resetkeys resetchannels -@all ~histae:rate-limit:* &histae:mobile-events:v1 +auth +ping +select +client|setinfo +multi +exec +discard +incr +pexpire +pttl +publish +subscribe +unsubscribe

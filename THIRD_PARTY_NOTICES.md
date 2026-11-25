@@ -23,7 +23,7 @@ relinking obligations must be evaluated for the chosen licenses and distribution
 Their licenses cannot be replaced with Histae's reuse restrictions.
 
 Container images are separate third-party software, not proprietary Histae code.
-The configured Redis 7.4.2 line uses RSALv2 or SSPLv1; do not describe it as BSD-licensed or
+The configured Redis 7.4 line uses RSALv2 or SSPLv1; do not describe it as BSD-licensed or
 apply the Redis 8 license choices to it. Grafana 13.2.1 uses AGPLv3. PostGIS 3.7.0 has GPL
 terms. Caddy 2.11.7 uses Apache-2.0. Actual deployed images, modifications, distribution and
 network-service obligations require review for the selected license and deployment.

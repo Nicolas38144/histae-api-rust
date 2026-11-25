@@ -134,7 +134,7 @@ services:
 
   # Compteurs de rate limiting et relais Pub/Sub SSE ; aucune donnée métier durable.
   redis:
-    image: redis:7.4.2-alpine
+    image: redis:7.4.12-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     logging: *infrastructure-logging
     command:
       - redis-server
