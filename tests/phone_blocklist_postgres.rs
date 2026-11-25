@@ -1,4 +1,7 @@
 #![cfg(feature = "postgres-integration")]
+
+#[path = "support/postgres_job_role.rs"]
+mod job_role;
 use chrono::Utc;
 use histae_api_rust::{
     config::{PostgresConfig, SecretString, SmsSafetyConfig},
@@ -122,7 +125,10 @@ async fn clean(database: &Database, users: &[Uuid]) -> Result<(), Box<dyn std::e
 #[tokio::test]
 async fn final_guard_and_audited_exceptions_keep_roles_expiry_imports_and_privacy_effective()
 -> Result<(), Box<dyn std::error::Error>> {
-    let database = Database::connect(&local_config()?).await?;
+    let config = local_config()?;
+    let database = Database::connect(&config).await?;
+    let outbox = job_role::connect(&config, "outbox").await?;
+    let maintenance = job_role::connect(&config, "maintenance").await?;
     histae_api_rust::identity::mobile::phone_blocklist::pg::initialize_key(&database, &key())
         .await?;
     let admin = Uuid::new_v4();
@@ -130,7 +136,9 @@ async fn final_guard_and_audited_exceptions_keep_roles_expiry_imports_and_privac
     account(&database, admin, "admin").await?;
     account(&database, superadmin, "superadmin").await?;
     let result:Result<(),Box<dyn std::error::Error>>=async {
-        let guard=PgSmsSafetyStore::new(database.clone());let policy=SmsSafetyConfig::default();
+        pg::check_key(&outbox, &key()).await?;
+        let guard = PgSmsSafetyStore::new(outbox);
+        let policy = SmsSafetyConfig::default();
         sqlx::query("UPDATE phone_blocklist_source SET last_success_at=NULL").execute(database.acquire().await?.as_mut()).await?;
         assert_eq!(guard.reserve(Uuid::new_v4(),phone().hash,policy.clone()).await?,Err(SmsSendRejection::Unavailable));
         let otp=OtpRepository::new(database.clone());
@@ -186,7 +194,8 @@ async fn final_guard_and_audited_exceptions_keep_roles_expiry_imports_and_privac
             .bind(id).execute(database.acquire().await?.as_mut()).await?;
         sqlx::query("UPDATE phone_blocklist_observation SET last_seen_at=clock_timestamp()-INTERVAL '181 days' WHERE entry_id=$1")
             .bind(id).execute(database.acquire().await?.as_mut()).await?;
-        let cleanup=PrivacyMaintenanceRepository::new(database.clone()).run_as_leader(Utc::now(),10).await?.ok_or(FixtureError("privacy_lock"))?;
+        let cleanup = PrivacyMaintenanceRepository::new(maintenance).run_as_leader(Utc::now(), 10)
+            .await?.ok_or(FixtureError("privacy_lock"))?;
         assert_eq!(cleanup.expired_phone_observations,2);assert_eq!(cleanup.expired_phone_policies,1);
         assert!(store.lookup(phone()).await?.id.is_none());
         Ok(())

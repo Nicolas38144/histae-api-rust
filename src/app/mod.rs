@@ -9,7 +9,9 @@ pub mod phone_blocklist;
 
 use std::process::ExitCode;
 
-use crate::config::{AppConfig, MaintenanceMode};
+use crate::config::{
+    AppConfig, ConfigError, Environment, MaintenanceConfig, MaintenanceMode, OutboxConfig,
+};
 use crate::operations::logging;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,18 +39,60 @@ impl Component {
     }
 }
 
+enum ComponentConfig {
+    Api(Box<AppConfig>),
+    Outbox(Box<OutboxConfig>),
+    Maintenance(Box<MaintenanceConfig>),
+}
+
+impl ComponentConfig {
+    fn load(component: Component) -> Result<Self, ConfigError> {
+        Ok(match component {
+            Component::Api => Self::Api(Box::new(AppConfig::from_api_env()?)),
+            Component::Outbox => Self::Outbox(Box::new(OutboxConfig::from_env()?)),
+            Component::Maintenance => Self::Maintenance(Box::new(MaintenanceConfig::from_env()?)),
+        })
+    }
+
+    fn runtime(&self) -> (Environment, MaintenanceMode) {
+        match self {
+            Self::Api(config) => (config.environment, config.maintenance_mode),
+            Self::Outbox(config) => (config.environment, config.maintenance_mode),
+            Self::Maintenance(config) => (config.environment, config.maintenance_mode),
+        }
+    }
+
+    async fn run(self) -> Result<(), &'static str> {
+        match self {
+            Self::Outbox(config) => outbox::run(*config).await,
+            Self::Maintenance(config) => maintenance::run(*config).await,
+            Self::Api(_config) => {
+                #[cfg(feature = "webauthn-probe")]
+                {
+                    api::run(*_config).await
+                }
+                #[cfg(not(feature = "webauthn-probe"))]
+                {
+                    Err("webauthn_feature_required")
+                }
+            }
+        }
+    }
+}
+
 pub async fn binary_main(component: Component) -> ExitCode {
     if logging::init().is_err() {
         return ExitCode::FAILURE;
     }
-    let config = match AppConfig::from_env() {
+    let config = match ComponentConfig::load(component) {
         Ok(config) => config,
         Err(error) => {
             let _ = logging::error(component.failure_event(), Some(error.safe_code()));
             return ExitCode::FAILURE;
         }
     };
-    if requires_worker_mode(component) && config.maintenance_mode != MaintenanceMode::Worker {
+    let (environment, maintenance_mode) = config.runtime();
+    if requires_worker_mode(component) && maintenance_mode != MaintenanceMode::Worker {
         let _ = logging::error(component.failure_event(), Some("invalid_maintenance_mode"));
         return ExitCode::FAILURE;
     }
@@ -64,27 +108,13 @@ pub async fn binary_main(component: Component) -> ExitCode {
                 ),
                 (
                     "environment",
-                    logging::SafeLogValue::String(config.environment.as_str()),
+                    logging::SafeLogValue::String(environment.as_str()),
                 ),
             ],
         );
         return ExitCode::SUCCESS;
     }
-    let result = match component {
-        Component::Outbox => crate::app::outbox::run(config).await,
-        Component::Maintenance => crate::app::maintenance::run(config).await,
-        Component::Api => {
-            #[cfg(feature = "webauthn-probe")]
-            {
-                crate::app::api::run(config).await
-            }
-            #[cfg(not(feature = "webauthn-probe"))]
-            {
-                Err("webauthn_feature_required")
-            }
-        }
-    };
-    match result {
+    match config.run().await {
         Ok(()) => ExitCode::SUCCESS,
         Err(code) => {
             let _ = logging::error(component.failure_event(), Some(code));

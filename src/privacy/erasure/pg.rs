@@ -145,6 +145,18 @@ impl ErasureStore for PgErasureRepository {
         next: ErasureStep,
     ) -> ErasureStoreFuture<'_, bool> {
         Box::pin(async move {
+            if next == ErasureStep::Completed {
+                if current.step != ErasureStep::Postgres {
+                    return Err(DatabaseError::QueryFailed);
+                }
+                return sqlx::query_scalar("SELECT fct_complete_claimed_erasure($1, $2, $3)")
+                    .bind(event_id)
+                    .bind(worker_id)
+                    .bind(current.request_id)
+                    .fetch_one(self.database.pool())
+                    .await
+                    .map_err(map_sqlx_error);
+            }
             self.database
                 .transaction(|connection| {
                     Box::pin(async move {
@@ -164,111 +176,9 @@ impl ErasureStore for PgErasureRepository {
                             return Ok(false);
                         }
 
-                        if next == ErasureStep::Completed {
-                            if current.step != ErasureStep::Postgres {
-                                return Err(DatabaseError::QueryFailed);
-                            }
-                            sqlx::query(
-                                "SELECT id FROM match_init
-                                 WHERE user1_id = $1 OR user2_id = $1
-                                 ORDER BY id FOR UPDATE",
-                            )
-                            .bind(current.user_id)
-                            .fetch_all(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
-                            sqlx::query(
-                                "SELECT user_id FROM user_account WHERE user_id = $1 FOR UPDATE",
-                            )
-                            .bind(current.user_id)
-                            .fetch_optional(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
-                            let request = sqlx::query_scalar::<_, Uuid>(
-                                "SELECT id FROM data_subject_request
-                                 WHERE id = $1 AND user_id = $2 AND status = 'in_progress'
-                                   AND type = 'erasure' FOR UPDATE",
-                            )
-                            .bind(current.request_id)
-                            .bind(current.user_id)
-                            .fetch_optional(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
-                            if request.is_none() {
-                                return Err(DatabaseError::QueryFailed);
-                            }
-                            let photos = sqlx::query_scalar::<_, i32>(
-                                "SELECT 1 FROM user_photo WHERE user_id = $1 LIMIT 1",
-                            )
-                            .bind(current.user_id)
-                            .fetch_optional(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
-                            if photos.is_some() {
-                                return Err(DatabaseError::QueryFailed);
-                            }
-                            let swipes = sqlx::query_scalar::<_, i32>(
-                                "SELECT 1 FROM swipe_decision
-                                 WHERE actor_id = $1 OR target_id = $1 LIMIT 1",
-                            )
-                            .bind(current.user_id)
-                            .fetch_optional(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
-                            if swipes.is_some() {
-                                return Err(DatabaseError::QueryFailed);
-                            }
-                            sqlx::query("DELETE FROM photo_upload_request WHERE user_id = $1")
-                                .bind(current.user_id)
-                                .execute(&mut *connection)
-                                .await
-                                .map_err(map_sqlx_error)?;
-                            sqlx::query("DELETE FROM admin_session WHERE user_id = $1")
-                                .bind(current.user_id)
-                                .execute(&mut *connection)
-                                .await
-                                .map_err(map_sqlx_error)?;
-                            sqlx::query("DELETE FROM admin_webauthn_challenge WHERE user_id = $1")
-                                .bind(current.user_id)
-                                .execute(&mut *connection)
-                                .await
-                                .map_err(map_sqlx_error)?;
-                            sqlx::query("DELETE FROM admin_webauthn_bootstrap WHERE user_id = $1")
-                                .bind(current.user_id)
-                                .execute(&mut *connection)
-                                .await
-                                .map_err(map_sqlx_error)?;
-                            sqlx::query("DELETE FROM admin_webauthn_credential WHERE user_id = $1")
-                                .bind(current.user_id)
-                                .execute(&mut *connection)
-                                .await
-                                .map_err(map_sqlx_error)?;
-                            sqlx::query("DELETE FROM support_case WHERE user_id=$1")
-                                .bind(current.user_id)
-                                .execute(&mut *connection)
-                                .await
-                                .map_err(map_sqlx_error)?;
-                            sqlx::query("SELECT fct_anonymize_user($1)")
-                                .bind(current.user_id)
-                                .execute(&mut *connection)
-                                .await
-                                .map_err(map_sqlx_error)?;
-                            sqlx::query(
-                                "UPDATE data_subject_request
-                                 SET status = 'completed', completed_at = clock_timestamp()
-                                 WHERE id = $1 AND status = 'in_progress'",
-                            )
-                            .bind(current.request_id)
-                            .execute(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?;
-                        }
-
                         sqlx::query(
                             "UPDATE account_erasure SET step = $2,
-                               updated_at = clock_timestamp(),
-                               completed_at = CASE WHEN $2 = 'completed'
-                                 THEN clock_timestamp() END
+                               updated_at = clock_timestamp()
                              WHERE request_id = $1 AND step = $3",
                         )
                         .bind(current.request_id)
@@ -277,9 +187,7 @@ impl ErasureStore for PgErasureRepository {
                         .execute(&mut *connection)
                         .await
                         .map_err(map_sqlx_error)?;
-                        if next != ErasureStep::Completed {
-                            release_for_next_batch(connection, event_id, worker_id, 1).await?;
-                        }
+                        release_for_next_batch(connection, event_id, worker_id, 1).await?;
                         Ok(true)
                     })
                 })

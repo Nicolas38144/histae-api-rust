@@ -88,8 +88,8 @@ Depuis `histae-api-rust`, préparer le nouveau mot de passe sans afficher les se
 python3 scripts/prepare-postgres-roles-env.py .env
 ```
 
-Le préparateur conserve les trois mots de passe existants et ajoute
-`POSTGRES_PHONE_SYNC_PASSWORD`, 64 caractères hexadécimaux aléatoires, distinct des autres. Les
+Le préparateur conserve les mots de passe existants et génère les identifiants manquants.
+`POSTGRES_PHONE_SYNC_PASSWORD` contient 64 caractères hexadécimaux aléatoires. Les
 anciennes bases qui n’ont pas encore adopté les rôles séparés suivent d’abord le guide PostgreSQL.
 
 Avec les dépôts API, dashboard et `histae-scripts` à jour, depuis leur dossier parent :

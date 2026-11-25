@@ -33,6 +33,39 @@ DO $$ BEGIN
     CREATE ROLE histae_phone_sync NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
   END IF;
 END $$;
+DO $$
+DECLARE
+  worker_role name;
+BEGIN
+  FOREACH worker_role IN ARRAY ARRAY['histae_outbox', 'histae_maintenance']::name[] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = worker_role) THEN
+      EXECUTE format(
+        'CREATE ROLE %I NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
+        worker_role
+      );
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM pg_roles AS role
+      WHERE role.rolname = worker_role AND
+        (rolinherit OR rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls
+         OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = role.oid))
+    ) THEN
+      RAISE EXCEPTION 'conflicting privileged worker role';
+    END IF;
+  END LOOP;
+END $$;
+\if :{?outbox_password}
+SELECT length(:'outbox_password') > 0 AS set_outbox_password \gset
+\if :set_outbox_password
+ALTER ROLE histae_outbox LOGIN PASSWORD :'outbox_password';
+\endif
+\endif
+\if :{?maintenance_password}
+SELECT length(:'maintenance_password') > 0 AS set_maintenance_password \gset
+\if :set_maintenance_password
+ALTER ROLE histae_maintenance LOGIN PASSWORD :'maintenance_password';
+\endif
+\endif
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='histae_phone_sync'
       AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls))
@@ -63,7 +96,8 @@ ALTER EXTENSION pg_stat_statements UPDATE;
 
 SELECT current_database() AS database_name \gset
 REVOKE ALL ON DATABASE :"database_name" FROM PUBLIC;
-GRANT CONNECT ON DATABASE :"database_name" TO histae_migrate, histae_app, histae_phone_sync;
+GRANT CONNECT ON DATABASE :"database_name"
+  TO histae_migrate, histae_app, histae_phone_sync, histae_outbox, histae_maintenance;
 -- This instance is dedicated to Histae. Runtime roles cannot use another DB
 -- to obtain the default PUBLIC CONNECT/TEMPORARY privileges.
 REVOKE CONNECT, TEMPORARY ON DATABASE postgres FROM PUBLIC;
@@ -73,6 +107,9 @@ ALTER SCHEMA public OWNER TO histae_migrate;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO histae_app;
 GRANT USAGE ON SCHEMA public TO histae_phone_sync;
+GRANT USAGE ON SCHEMA public TO histae_outbox, histae_maintenance;
+ALTER ROLE histae_outbox SET search_path = public, pg_catalog;
+ALTER ROLE histae_maintenance SET search_path = public, pg_catalog;
 ALTER ROLE histae_phone_sync SET search_path = public, pg_catalog;
 DO $$ BEGIN
   IF to_regclass('public.phone_blocklist_entry') IS NOT NULL THEN

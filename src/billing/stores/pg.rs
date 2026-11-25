@@ -30,11 +30,11 @@ ELSE google_account_id=$2 END
 "#;
 
 const LOCK_OWNER_SQL: &str = r#"
-SELECT user_id FROM user_account WHERE user_id=$1 AND deleted_at IS NULL FOR SHARE
+SELECT * FROM fct_lock_live_account($1, true)
 "#;
 
 const LOCK_ACCOUNT_SQL: &str = r#"
-SELECT id FROM billing_store_account WHERE user_id=$1 FOR SHARE
+SELECT * FROM fct_lock_billing_store_account($1)
 "#;
 
 const LINKED_OWNER_CONFLICT_SQL: &str = r#"
@@ -93,16 +93,6 @@ UPDATE billing_store_notification SET processed_at=clock_timestamp(),reference_e
 
 const ACKNOWLEDGED_SQL: &str = r#"
 UPDATE billing_store_subscription SET acknowledged=true WHERE id=$1
-"#;
-
-const DUE_SUBSCRIPTIONS_SQL: &str = r#"
-SELECT id FROM billing_store_subscription WHERE user_id IS NOT NULL AND NOT superseded AND
-next_check_at<=clock_timestamp() AND (expires_at>clock_timestamp()-interval '60 days' OR
-NOT acknowledged) ORDER BY next_check_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
-"#;
-
-const RESCHEDULE_SQL: &str = r#"
-UPDATE billing_store_subscription SET next_check_at=clock_timestamp()+interval '6 hours' WHERE id=ANY($1)
 "#;
 
 const ENQUEUE_SQL: &str = r#"
@@ -336,26 +326,12 @@ impl StoreRepository {
             .map_err(map_sqlx_error)?;
         Ok(())
     }
-    pub async fn schedule(&self) -> Result<u64, StoreError> {
-        self.database
-            .transaction(|connection| {
-                Box::pin(async move {
-                    let ids = sqlx::query_scalar::<_, Uuid>(DUE_SUBSCRIPTIONS_SQL)
-                        .fetch_all(&mut *connection)
-                        .await
-                        .map_err(map_sqlx_error)?;
-                    for id in &ids {
-                        enqueue(connection, "billing.store.reconcile", *id).await?;
-                    }
-                    sqlx::query(RESCHEDULE_SQL)
-                        .bind(&ids)
-                        .execute(&mut *connection)
-                        .await
-                        .map_err(map_sqlx_error)?;
-                    Ok(ids.len() as u64)
-                })
-            })
+    pub async fn schedule(database: &Database) -> Result<u64, StoreError> {
+        let scheduled: i64 = sqlx::query_scalar("SELECT fct_schedule_store_reconciliation()")
+            .fetch_one(database.pool())
             .await
+            .map_err(map_sqlx_error)?;
+        Ok(scheduled as u64)
     }
 }
 

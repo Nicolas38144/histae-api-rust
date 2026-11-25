@@ -7,6 +7,7 @@ mod error;
 mod loader;
 mod object_storage;
 mod play_review;
+mod runtime;
 mod stores;
 mod types;
 mod validation;
@@ -14,6 +15,7 @@ mod web_account;
 
 pub use environment::EnvironmentSource;
 pub use error::{ConfigError, ConfigErrorKind};
+pub use runtime::{MaintenanceConfig, MigrationConfig, OutboxConfig};
 pub use types::*;
 
 #[cfg(test)]

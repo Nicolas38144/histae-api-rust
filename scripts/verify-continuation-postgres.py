@@ -37,6 +37,7 @@ def main():
     parser.add_argument("--postgres-image", default="histae-postgres:18.7-postgis3.7.0")
     parser.add_argument("--test", action="append", choices=TESTS + ADMIN_TESTS + tuple(POSTGRES_FILTERS))
     parser.add_argument("--native-migrator", type=Path, help="Use a freshly built local db-migrate binary over the published loopback port")
+    parser.add_argument("--native-maintenance", type=Path, help="Smoke the maintenance binary with its restricted PostgreSQL login")
     parser.add_argument("--native-phone-sync", type=Path, help="Optional live public-feed smoke after isolated tests; never sends SMS")
     parser.add_argument("--sudo-docker", action="store_true", help="Use sudo for Docker only, keep Cargo unprivileged")
     args = parser.parse_args()
@@ -78,12 +79,17 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="histae-continuation-") as temporary:
         directory = Path(temporary)
-        admin_password, migrate_password, app_password, sync_password = [secrets.token_hex(32) for _ in range(4)]
+        admin_password, migrate_password, app_password, sync_password, outbox_password, maintenance_password = [
+            secrets.token_hex(32) for _ in range(6)
+        ]
         postgres = dict(POSTGRES_DB="histae-dev", POSTGRES_USER="histae_admin",
                         POSTGRES_PASSWORD=admin_password,
                         POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256",
                         HISTAE_BOOTSTRAP_MIGRATE_PASSWORD=migrate_password,
-                        HISTAE_BOOTSTRAP_APP_PASSWORD=app_password, HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD=sync_password)
+                        HISTAE_BOOTSTRAP_APP_PASSWORD=app_password,
+                        HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD=sync_password,
+                        HISTAE_BOOTSTRAP_OUTBOX_PASSWORD=outbox_password,
+                        HISTAE_BOOTSTRAP_MAINTENANCE_PASSWORD=maintenance_password)
         runtime = dict(GOOGLE_PLAY_REVIEW_ENABLED="false", ENV="development", POSTGRES_HOST="127.0.0.1", POSTGRES_PORT="5432",
                        POSTGRES_DB="histae-dev", POSTGRES_USER="histae_migrate",
                        POSTGRES_PASSWORD=migrate_password, POSTGRES_SSLMODE="disable",
@@ -120,9 +126,11 @@ def main():
             port = docker("port", name, "5432/tcp").split(":")[-1]
             def migrate():
                 if args.native_migrator:
-                    environment = os.environ.copy()
-                    environment.update(runtime, POSTGRES_PORT=port)
-                    result = subprocess.run([str(args.native_migrator.resolve())], cwd=ROOT, env=environment)
+                    environment = {
+                        key: value for key, value in runtime.items() if key.startswith("POSTGRES_")
+                    }
+                    environment.update(ENV="test", PHONE_HASH_KEY=runtime["PHONE_HASH_KEY"], POSTGRES_PORT=port)
+                    result = subprocess.run([str(args.native_migrator.resolve())], cwd=directory, env=environment)
                     if result.returncode:
                         raise VerificationError("Native migration verification failed")
                 else:
@@ -133,6 +141,32 @@ def main():
                            failure_message=f"Migration with local API image {args.api_image} failed")
             migrate()
 
+            for job in ("outbox", "maintenance"):
+                docker(
+                    "exec", "-i", name, "sh", "-ec",
+                    'case "$1" in outbox) PGPASSWORD="$HISTAE_BOOTSTRAP_OUTBOX_PASSWORD";; '
+                    'maintenance) PGPASSWORD="$HISTAE_BOOTSTRAP_MAINTENANCE_PASSWORD";; *) exit 2;; esac; '
+                    'export PGPASSWORD; exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "histae_$1" -d histae-dev',
+                    "sh", job, input_text=(ROOT / "tests/postgres_job_roles.sql").read_text(),
+                    failure_message=f"PostgreSQL {job} privilege verification failed",
+                )
+            print("PostgreSQL job roles refused cross-role operations.", flush=True)
+
+            if args.native_maintenance:
+                maintenance = {
+                    key: value for key, value in runtime.items() if key.startswith("POSTGRES_")
+                }
+                maintenance.update(
+                    ENV="test", POSTGRES_PORT=port, POSTGRES_USER="histae_maintenance",
+                    POSTGRES_PASSWORD=maintenance_password, MAINTENANCE_MODE="worker",
+                    APP_STORE_ENABLED="true",
+                )
+                result = subprocess.run(
+                    [str(args.native_maintenance.resolve())], cwd=directory, env=maintenance,
+                )
+                if result.returncode:
+                    raise VerificationError("Restricted maintenance smoke failed")
+
             def query(statement):
                 return docker("exec", "-i", name, "sh", "-ec",
                     'export PGPASSWORD="$HISTAE_BOOTSTRAP_APP_PASSWORD"; exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U histae_app -d histae-dev',
@@ -141,7 +175,11 @@ def main():
             runtime.update(POSTGRES_PORT=port, POSTGRES_USER="histae_app", POSTGRES_PASSWORD=app_password)
             environment = os.environ.copy()
             environment.update(runtime)
-            environment.update(HISTAE_PHONE_BLOCKLIST_TEST_ISOLATED="true", PHONE_SYNC_TEST_PASSWORD=sync_password)
+            environment.update(
+                HISTAE_PHONE_BLOCKLIST_TEST_ISOLATED="true", PHONE_SYNC_TEST_PASSWORD=sync_password,
+                HISTAE_TEST_OUTBOX_PASSWORD=outbox_password,
+                HISTAE_TEST_MAINTENANCE_PASSWORD=maintenance_password,
+            )
             environment.setdefault("CARGO_BUILD_JOBS", "2")
             selected = args.test or (TESTS + ADMIN_TESTS + tuple(POSTGRES_FILTERS))
             for administrator_fixture in (False, True):

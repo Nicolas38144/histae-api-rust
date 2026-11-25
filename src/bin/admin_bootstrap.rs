@@ -44,7 +44,7 @@ async fn run() -> Result<(), &'static str> {
     if !(1..=8).contains(&user_id.get_version_num()) || user_id.get_variant() != Variant::RFC4122 {
         return Err("invalid_admin_bootstrap_argument");
     }
-    let config = AppConfig::from_env().map_err(|_| "configuration_invalid")?;
+    let config = AppConfig::from_api_env().map_err(|_| "configuration_invalid")?;
     let database = Database::connect(&config.postgres)
         .await
         .map_err(|_| "postgres_unavailable")?;

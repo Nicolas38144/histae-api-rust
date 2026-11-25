@@ -9,7 +9,7 @@ pub const ACCOUNT_NOTIFICATION_ELIGIBLE_SQL: &str = r#"
           AND message.request_id=request.id AND message.author='team'
       ) ELSE request.status=(n.payload->>'response_status')
         AND request.status IN ('pending','in_progress','completed','rejected')
-        AND nullif(btrim(request.response),'') IS NOT NULL END)
+        AND fct_data_request_has_reply(request.id) END)
   )) OR (n.type = 'new_session' AND EXISTS (
     SELECT 1 FROM refresh_token_family opened_session
     WHERE opened_session.id=(n.payload->>'session_id')::uuid

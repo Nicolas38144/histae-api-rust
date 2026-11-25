@@ -17,6 +17,15 @@ impl std::fmt::Debug for EnvironmentSource {
 }
 
 impl EnvironmentSource {
+    pub(super) fn runtime() -> Self {
+        // A production process receives an explicit environment from its supervisor.
+        if !std::env::var("ENV").is_ok_and(|value| value.trim().eq_ignore_ascii_case("production"))
+        {
+            let _ = dotenvy::dotenv();
+        }
+        Self::from_pairs(std::env::vars_os())
+    }
+
     pub fn from_pairs<I, K, V>(pairs: I) -> Self
     where
         I: IntoIterator<Item = (K, V)>,

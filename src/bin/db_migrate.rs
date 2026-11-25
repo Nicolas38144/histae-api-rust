@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use histae_api_rust::config::AppConfig;
+use histae_api_rust::config::MigrationConfig;
 use histae_api_rust::infra::migrations;
 use histae_api_rust::operations::logging::{self, SafeLogValue};
 
@@ -9,7 +9,7 @@ async fn main() -> ExitCode {
     if logging::init().is_err() {
         return ExitCode::FAILURE;
     }
-    let config = match AppConfig::from_env() {
+    let config = match MigrationConfig::from_env() {
         Ok(config) => config,
         Err(error) => {
             let _ = logging::error("postgres_migration_failed", Some(error.safe_code()));
@@ -29,7 +29,7 @@ async fn main() -> ExitCode {
                 };
             let binding = histae_api_rust::identity::mobile::phone_blocklist::pg::initialize_key(
                 &database,
-                &config.phone.hash_key,
+                &config.phone_hash_key,
             )
             .await;
             database.close().await;

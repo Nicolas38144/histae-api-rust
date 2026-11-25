@@ -5,12 +5,18 @@ use url::Url;
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, ConfigError> {
-        // Loading dotenv is best effort; required variables below still fail closed.
-        let _ = dotenvy::dotenv();
-        Self::from_source(&EnvironmentSource::from_pairs(std::env::vars_os()))
+        Self::from_source(&EnvironmentSource::runtime())
+    }
+
+    pub fn from_api_env() -> Result<Self, ConfigError> {
+        Self::load(&EnvironmentSource::runtime(), false)
     }
 
     pub fn from_source(source: &EnvironmentSource) -> Result<Self, ConfigError> {
+        Self::load(source, true)
+    }
+
+    fn load(source: &EnvironmentSource, delivery: bool) -> Result<Self, ConfigError> {
         let environment = parse_environment(source.value("ENV")?.as_deref())?;
         let port = integer(&source.or("PORT", "8080")?, "PORT", 1, 65_535)? as u16;
 
@@ -171,132 +177,7 @@ impl AppConfig {
             hash_key: SecretString::new(hash_raw),
         };
 
-        let sms_provider = match source
-            .or(
-                "SMS_PROVIDER",
-                if environment == Environment::Production {
-                    "sweego"
-                } else {
-                    "disabled"
-                },
-            )?
-            .as_str()
-        {
-            "disabled" => SmsProvider::Disabled,
-            "sweego" => SmsProvider::Sweego,
-            _ => return Err(ConfigError::invalid("SMS_PROVIDER")),
-        };
-        if environment == Environment::Production && sms_provider != SmsProvider::Sweego {
-            return Err(ConfigError::invalid("SMS_PROVIDER"));
-        }
-        let sms_api_key = source.or("SWEEGO_API_KEY", "")?;
-        let sms_sender = source.or("SWEEGO_SMS_SENDER_ID", "")?;
-        if sms_provider == SmsProvider::Sweego && (sms_api_key.is_empty() || sms_sender.is_empty())
-        {
-            return Err(ConfigError::missing("SWEEGO_CREDENTIALS"));
-        }
-        if !sms_sender.is_empty()
-            && !Regex::new(r"^[A-Za-z0-9]{3,11}$")
-                .map_err(|_| ConfigError::invalid("SWEEGO_SMS_SENDER_ID"))?
-                .is_match(&sms_sender)
-        {
-            return Err(ConfigError::invalid("SWEEGO_SMS_SENDER_ID"));
-        }
-        let sms_region = source.or("SWEEGO_SMS_REGION", "FR")?.to_ascii_uppercase();
-        if sms_region != "FR" {
-            return Err(ConfigError::invalid("SWEEGO_SMS_REGION"));
-        }
-        let sms_timeout = duration(&source.or("SWEEGO_TIMEOUT", "10s")?, "SWEEGO_TIMEOUT")?;
-        if sms_timeout > Duration::from_secs(30) {
-            return Err(ConfigError::invalid("SWEEGO_TIMEOUT"));
-        }
-        let otp_ttl = duration(&source.or("OTP_TTL", "10m")?, "OTP_TTL")?;
-        ensure_duration(
-            otp_ttl,
-            Duration::from_secs(60),
-            Duration::from_secs(1_800),
-            "OTP_TTL",
-        )?;
-        let webhook_secret = source.or("SWEEGO_WEBHOOK_SECRET", "")?;
-        let resend_cooldown = duration(
-            &source.or("OTP_RESEND_COOLDOWN", "60s")?,
-            "OTP_RESEND_COOLDOWN",
-        )?;
-        ensure_duration(
-            resend_cooldown,
-            Duration::from_secs(60),
-            Duration::from_secs(300),
-            "OTP_RESEND_COOLDOWN",
-        )?;
-        if resend_cooldown > otp_ttl {
-            return Err(ConfigError::invalid("OTP_RESEND_COOLDOWN"));
-        }
-        if !webhook_secret.is_empty()
-            && (webhook_secret.len() != 64
-                || !webhook_secret
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'+' || byte == b'/'))
-        {
-            return Err(ConfigError::invalid("SWEEGO_WEBHOOK_SECRET"));
-        }
-        let sms = SmsConfig {
-            provider: sms_provider,
-            endpoint: https_url(
-                &source.or("SWEEGO_API_URL", "https://api.sweego.io/send")?,
-                "SWEEGO_API_URL",
-            )?,
-            api_key: SecretString::new(sms_api_key),
-            sender_id: sms_sender,
-            region: sms_region,
-            timeout: sms_timeout,
-            otp_ttl,
-            resend_cooldown,
-            webhook_secret: SecretString::new(webhook_secret),
-            safety: SmsSafetyConfig {
-                hourly_global: integer(
-                    &source.or("SMS_MAX_GLOBAL_HOUR", "100")?,
-                    "SMS_MAX_GLOBAL_HOUR",
-                    1,
-                    1000000,
-                )? as u32,
-                daily_global: integer(
-                    &source.or("SMS_MAX_GLOBAL_DAY", "500")?,
-                    "SMS_MAX_GLOBAL_DAY",
-                    1,
-                    10000000,
-                )? as u32,
-                hourly_per_phone: integer(
-                    &source.or("SMS_MAX_PER_PHONE_HOUR", "5")?,
-                    "SMS_MAX_PER_PHONE_HOUR",
-                    1,
-                    1000,
-                )? as u32,
-                daily_per_phone: integer(
-                    &source.or("SMS_MAX_PER_PHONE_DAY", "10")?,
-                    "SMS_MAX_PER_PHONE_DAY",
-                    1,
-                    10000,
-                )? as u32,
-                spike_per_5_minutes: integer(
-                    &source.or("SMS_ALERT_SPIKE_5M", "20")?,
-                    "SMS_ALERT_SPIKE_5M",
-                    1,
-                    1000000,
-                )? as u32,
-                suspended: boolean(
-                    source.value("SMS_SENDING_SUSPENDED")?.as_deref(),
-                    false,
-                    "SMS_SENDING_SUSPENDED",
-                )?,
-            },
-        };
-        if sms.safety.daily_per_phone < sms.safety.hourly_per_phone {
-            return Err(ConfigError::invalid("SMS_MAX_PER_PHONE_DAY"));
-        }
-        if sms.safety.daily_global < sms.safety.hourly_global {
-            return Err(ConfigError::invalid("SMS_MAX_GLOBAL_DAY"));
-        }
-
+        let sms = super::runtime::sms(source, environment, delivery, true)?;
         let legal = legal_config(source, environment)?;
         let legal_translations = legal_translations_config(source, environment)?;
         let trust_proxy = trust_proxy(&source.or("TRUST_PROXY", "false")?, environment)?;
@@ -311,99 +192,8 @@ impl AppConfig {
             )?,
             environment,
         )?;
-        let maintenance_mode = match source
-            .or(
-                "MAINTENANCE_MODE",
-                if environment == Environment::Production {
-                    "disabled"
-                } else {
-                    "api"
-                },
-            )?
-            .as_str()
-        {
-            "api" => MaintenanceMode::Api,
-            "worker" => MaintenanceMode::Worker,
-            "disabled" => MaintenanceMode::Disabled,
-            _ => return Err(ConfigError::invalid("MAINTENANCE_MODE")),
-        };
-        let workloads = WorkloadConfig {
-            match_maintenance_batch_size: integer(
-                &source.or("MATCH_MAINTENANCE_BATCH_SIZE", "500")?,
-                "MATCH_MAINTENANCE_BATCH_SIZE",
-                1,
-                5_000,
-            )? as u32,
-            match_maintenance_max_batches: integer(
-                &source.or("MATCH_MAINTENANCE_MAX_BATCHES", "20")?,
-                "MATCH_MAINTENANCE_MAX_BATCHES",
-                1,
-                1_000,
-            )? as u32,
-            outbox_purge_batch_size: integer(
-                &source.or("OUTBOX_PURGE_BATCH_SIZE", "500")?,
-                "OUTBOX_PURGE_BATCH_SIZE",
-                1,
-                5_000,
-            )? as u32,
-            outbox_purge_max_batches: integer(
-                &source.or("OUTBOX_PURGE_MAX_BATCHES", "20")?,
-                "OUTBOX_PURGE_MAX_BATCHES",
-                1,
-                1_000,
-            )? as u32,
-            data_export_page_size: integer(
-                &source.or("DATA_EXPORT_PAGE_SIZE", "250")?,
-                "DATA_EXPORT_PAGE_SIZE",
-                10,
-                2_000,
-            )? as u32,
-            data_export_max_bytes: integer(
-                &source.or("DATA_EXPORT_MAX_BYTES", "536870912")?,
-                "DATA_EXPORT_MAX_BYTES",
-                1_048_576,
-                2_147_483_647,
-            )?,
-            data_export_max_concurrency: integer(
-                &source.or("DATA_EXPORT_MAX_CONCURRENCY", "2")?,
-                "DATA_EXPORT_MAX_CONCURRENCY",
-                1,
-                16,
-            )? as u8,
-            data_export_spool_dir: source
-                .value("DATA_EXPORT_SPOOL_DIR")?
-                .filter(|path| !path.is_empty())
-                .map(PathBuf::from),
-            data_export_download_timeout: duration(
-                &source.or("DATA_EXPORT_DOWNLOAD_TIMEOUT", "5m")?,
-                "DATA_EXPORT_DOWNLOAD_TIMEOUT",
-            )?,
-        };
-        let spool_bytes = integer(
-            &source.or("DATA_EXPORT_SPOOL_BYTES", "2147483648")?,
-            "DATA_EXPORT_SPOOL_BYTES",
-            1_048_576,
-            64 * 1024 * 1024 * 1024,
-        )?;
-        if assisted_export_max_bytes(workloads.data_export_max_bytes)
-            * u64::from(workloads.data_export_max_concurrency)
-            > spool_bytes
-        {
-            return Err(ConfigError::invalid("DATA_EXPORT_SPOOL_BYTES"));
-        }
-        if workloads
-            .data_export_spool_dir
-            .as_ref()
-            .is_some_and(|path| !path.is_absolute())
-        {
-            return Err(ConfigError::invalid("DATA_EXPORT_SPOOL_DIR"));
-        }
-        ensure_duration(
-            workloads.data_export_download_timeout,
-            Duration::from_secs(5),
-            Duration::from_secs(1800),
-            "DATA_EXPORT_DOWNLOAD_TIMEOUT",
-        )?;
+        let maintenance_mode = super::runtime::maintenance_mode(source, environment)?;
+        let workloads = super::runtime::workloads(source)?;
 
         let metrics_enabled = boolean(
             source.value("METRICS_ENABLED")?.as_deref(),
@@ -468,80 +258,12 @@ impl AppConfig {
         if environment == Environment::Production && rate_store != RateLimitStore::Redis {
             return Err(ConfigError::invalid("RATE_LIMIT_STORE"));
         }
-        let configured_redis_address = source.or("REDIS_ADDR", "")?;
-        if rate_store == RateLimitStore::Redis && configured_redis_address.is_empty() {
-            return Err(ConfigError::missing("REDIS_ADDR"));
-        }
-        let redis_address = if configured_redis_address.is_empty() {
-            "localhost:6379".to_owned()
+        let redis =
+            super::runtime::redis(source, environment, rate_store == RateLimitStore::Redis)?;
+        let push = if delivery {
+            super::runtime::push(source)?
         } else {
-            configured_redis_address
-        };
-        let redis_regex = Regex::new(r"^[a-zA-Z0-9._-]+:\d{1,5}$")
-            .map_err(|_| ConfigError::invalid("REDIS_ADDR"))?;
-        if !redis_regex.is_match(&redis_address) {
-            return Err(ConfigError::invalid("REDIS_ADDR"));
-        }
-        let redis_password = source.raw_value("REDIS_PASSWORD")?.unwrap_or_default();
-        let redis_tls = boolean(source.value("REDIS_TLS")?.as_deref(), false, "REDIS_TLS")?;
-        if environment == Environment::Production && (!redis_tls || redis_password.is_empty()) {
-            return Err(ConfigError::invalid("REDIS_SECURITY"));
-        }
-        let redis = RedisConfig {
-            address: redis_address,
-            password: SecretString::new(redis_password),
-            db: integer(&source.or("REDIS_DB", "0")?, "REDIS_DB", 0, 15)? as u8,
-            tls: redis_tls,
-            connect_timeout: duration(
-                &source.or("REDIS_CONNECT_TIMEOUT", "5s")?,
-                "REDIS_CONNECT_TIMEOUT",
-            )?,
-            command_timeout: duration(
-                &source.or("REDIS_COMMAND_TIMEOUT", "1s")?,
-                "REDIS_COMMAND_TIMEOUT",
-            )?,
-            root_certificate: source
-                .value("NODE_EXTRA_CA_CERTS")?
-                .filter(|value| !value.trim().is_empty())
-                .map(PathBuf::from),
-        };
-
-        let push_provider = match source
-            .or("PUSH_PROVIDER", "disabled")?
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "disabled" => PushProvider::Disabled,
-            "fcm" => PushProvider::Fcm,
-            _ => return Err(ConfigError::invalid("PUSH_PROVIDER")),
-        };
-        let project_id = source.or("FIREBASE_PROJECT_ID", "")?;
-        let client_email = source.or("FIREBASE_CLIENT_EMAIL", "")?;
-        let private_key = source
-            .value("FIREBASE_PRIVATE_KEY")?
-            .unwrap_or_default()
-            .replace("\\n", "\n")
-            .trim()
-            .to_owned();
-        if push_provider == PushProvider::Fcm
-            && (project_id.is_empty() || client_email.is_empty() || private_key.is_empty())
-        {
-            return Err(ConfigError::missing("FIREBASE_SERVICE_ACCOUNT"));
-        }
-        let push_timeout = duration(&source.or("PUSH_TIMEOUT", "5s")?, "PUSH_TIMEOUT")?;
-        if push_timeout > Duration::from_secs(30) {
-            return Err(ConfigError::invalid("PUSH_TIMEOUT"));
-        }
-        let push = PushConfig {
-            provider: push_provider,
-            project_id,
-            client_email,
-            private_key: SecretString::new(private_key),
-            token_uri: https_url(
-                &source.or("FIREBASE_TOKEN_URI", "https://oauth2.googleapis.com/token")?,
-                "FIREBASE_TOKEN_URI",
-            )?,
-            timeout: push_timeout,
+            super::runtime::push(&EnvironmentSource::default())?
         };
 
         let advertising_provider = source.or("ADVERTISING_PROVIDER", "disabled")?;

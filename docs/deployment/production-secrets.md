@@ -2,7 +2,7 @@
 
 [Index](../README.md) · [Déploiement](container-deployment.md#certificats-et-stockage) · [Mise en production](production-readiness.md)
 
-Dernière mise à jour : **15 octobre 2026**. Ce guide rassemble la préparation des secrets,
+Dernière mise à jour le **25 novembre 2026**. Ce guide rassemble la préparation des secrets,
 les choix de domaines Cloudflare, les certificats, leur renouvellement et la procédure de lancement.
 
 Ces commandes répondent aux fichiers et valeurs manquants signalés par `prepare-production.sh`.
@@ -25,6 +25,33 @@ Un chemin comme `/histae-scripts/…` ne convient que si le dépôt existe réel
 Le dossier local `.secrets/` contient un modèle S3 avec des valeurs fictives et des indications pour
 les certificats. Il est ignoré et exclu du contexte Docker : préparer les fichiers sur le serveur
 ou les transférer explicitement. Les clés privées et secrets réels ne doivent jamais être committés.
+
+## Distribution et rotation des secrets
+
+Avant la première initialisation du volume PostgreSQL, ajouter les mots de passe des rôles
+à la configuration de production.
+
+```bash
+python3 scripts/prepare-postgres-roles-env.py .env
+```
+
+Le préparateur conserve les mots de passe valides et génère les valeurs manquantes.
+`POSTGRES_OUTBOX_PASSWORD` appartient au rôle `histae_outbox` et `POSTGRES_MAINTENANCE_PASSWORD` au
+rôle `histae_maintenance`. Les conteneurs de production reçoivent les variables listées dans
+[compose.production.yaml](../../compose.production.yaml).
+
+| Catégorie | Procédure de rotation |
+| --- | --- |
+| PostgreSQL | Changer un rôle à la fois avec la commande interactive `\password <rôle>` de psql en session administrateur. Reporter la valeur dans la variable correspondante de `.env`, recréer son client et vérifier une nouvelle connexion. Terminer les anciennes connexions du rôle si le secret a été compromis. La rotation du rôle administrateur concerne PostgreSQL et les outils d’exploitation. |
+| JWT | Générer un nouveau `JWT_SECRET`, sélectionner un nouveau `JWT_ACTIVE_KID` et recréer l’API. Pour une rotation planifiée, garder l’ancienne clé sous son ancien identifiant dans `JWT_PREVIOUS_KEYS` jusqu’à l’expiration des jetons d’accès signés avec elle. En cas de compromission, retirer immédiatement la clé concernée. |
+| Clés téléphone | `PHONE_HASH_KEY` lie l’API, l’outbox, le migrateur et la synchronisation des numéros aux empreintes stockées. Sa rotation sur une base conservée nécessite une procédure de recalcul et de réconciliation des empreintes et des sessions liées. `PHONE_ENCRYPTION_KEY` est utilisée par l’API et l’outbox pour les données chiffrées et les références d’achat. Rechiffrer les données concernées avec une procédure dédiée avant de retirer l’ancienne clé. Un démarrage sur une base neuve permet de générer les deux clés indépendamment. |
+| Redis et S3 | Coordonner Redis avec l’API et l’outbox. Pour S3, mettre à jour l’identité SeaweedFS et recréer ses clients applicatifs, qui partagent les accès au bucket. Vérifier une lecture signée et les opérations de nettoyage. |
+| Sweego et Firebase | Renouveler la clé d’envoi Sweego et le compte Firebase dans l’outbox, puis valider les envois avant de révoquer les anciennes clés. Renouveler le secret de webhook Sweego côté fournisseur et côté API. |
+| App Store, Google Play et vérificateur | Renouveler les clés de fournisseur dans `store-verifier`. Renouveler le jeton de liaison avec le vérificateur, l’API et l’outbox lors du même déploiement. |
+| Supervision et accès de revue Google Play | Synchroniser `METRICS_TOKEN` entre l’API et Prometheus. Changer le mot de passe Grafana depuis Grafana et gérer sa valeur d’initialisation séparément. Pour la revue Google Play, coordonner le nouveau code et sa date d’expiration avec la fiche Play Console avant de recréer l’API. |
+
+Les identités partagées suivent les dépendances des services. Les mots de passe PostgreSQL, le JWT,
+les secrets de fournisseurs et le token des métriques doivent avoir des valeurs distinctes.
 
 ### Fichiers à préparer et permissions
 

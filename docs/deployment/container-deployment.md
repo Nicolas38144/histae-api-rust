@@ -238,7 +238,7 @@ Les scripts de [déploiement](../../../histae-scripts/README.md) valident les co
 ## Production
 
 Pour une installation neuve, préparer `.env` selon [Configuration](../development/configuration.md), compléter
-les valeurs de production et préparer les quatre mots de passe avec
+les valeurs de production et préparer les six mots de passe avec
 `python3 scripts/prepare-postgres-roles-env.py .env`. Les [rôles PostgreSQL](../database/postgres-roles.md)
 sont créés automatiquement sur le volume vide ; aucun identifiant administrateur n'est injecté dans l'API.
 
@@ -248,7 +248,6 @@ Préparer `.env` à partir des groupes de [Configuration](../development/configu
 
 ```dotenv
 ENV=production
-HISTAE_ENV_FILE=.env
 HISTAE_API_IMAGE=histae-api:REPLACE_RELEASE_TAG
 HISTAE_POSTGRES_IMAGE=histae-postgres:18.7-postgis3.7.0
 HISTAE_BACKEND_NETWORK=histae-backend

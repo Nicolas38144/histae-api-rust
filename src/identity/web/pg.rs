@@ -110,17 +110,11 @@ impl WebAccountRepository {
         &self,
         id: Uuid,
     ) -> Result<Option<(Vec<u8>, String, String)>, DatabaseError> {
-        sqlx::query_as(
-            "SELECT a.phone_number_encrypted, c.phone_hash, c.language
-             FROM web_account_challenge c JOIN user_account a ON a.user_id=c.user_id
-             WHERE c.id=$1 AND NOT c.consumed AND c.attempts<5 AND c.expires_at>clock_timestamp()
-               AND a.phone_number_hash=c.phone_hash
-               AND a.deleted_at IS NULL AND NOT a.is_banned AND NOT a.is_review_account",
-        )
-        .bind(id)
-        .fetch_optional(self.database.pool())
-        .await
-        .map_err(map_sqlx_error)
+        sqlx::query_as("SELECT * FROM fct_pending_web_otp($1)")
+            .bind(id)
+            .fetch_optional(self.database.pool())
+            .await
+            .map_err(map_sqlx_error)
     }
     pub async fn begin_verify(
         &self,

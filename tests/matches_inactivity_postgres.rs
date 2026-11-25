@@ -1,5 +1,8 @@
 #![cfg(feature = "postgres-integration")]
 
+#[path = "support/postgres_job_role.rs"]
+mod job_role;
+
 use chrono::{DateTime, TimeDelta, Utc};
 use histae_api_rust::{
     config::{AppConfig, Environment},
@@ -25,6 +28,8 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 struct Fixture {
     database: Database,
+    maintenance: Database,
+    outbox: Database,
     matches: PgMatchRepository,
     messages: PgMatchMessageRepository,
     users: [Uuid; 2],
@@ -41,6 +46,8 @@ impl Fixture {
             "localhost" | "127.0.0.1" | "::1"
         ));
         let database = Database::connect(&config.postgres).await?;
+        let maintenance = job_role::connect(&config.postgres, "maintenance").await?;
+        let outbox = job_role::connect(&config.postgres, "outbox").await?;
         let users = [Uuid::new_v4(), Uuid::new_v4()];
         let mut connection = database.acquire().await?;
         let mut transaction = connection.begin().await?;
@@ -102,6 +109,8 @@ impl Fixture {
             ContinuationResult::Confirmed
         );
         Ok(Self {
+            maintenance,
+            outbox,
             messages: PgMatchMessageRepository::new(database.clone()),
             matches,
             database,
@@ -150,7 +159,7 @@ impl Fixture {
         batch_size: u32,
         max_batches: u32,
     ) -> TestResult<MatchMaintenanceResult> {
-        Ok(MatchMaintenanceRepository::new(self.database.clone())
+        Ok(MatchMaintenanceRepository::new(self.maintenance.clone())
             .run_as_leader(now, batch_size, max_batches)
             .await?
             .expect("isolated test owns the leadership lock"))
@@ -262,7 +271,7 @@ async fn archived_matches_reopen_only_on_new_messages_without_charging_again() -
 async fn inactivity_warnings_are_deduplicated_and_obsolete_pushes_are_suppressed() -> TestResult {
     let fixture = Fixture::new(false).await?;
     let result: TestResult = async {
-        let delivery = PgNotificationDeliveryStore::new(fixture.database.clone());
+        let delivery = PgNotificationDeliveryStore::new(fixture.outbox.clone());
         let deadline = Utc::now() + TimeDelta::days(7) - TimeDelta::seconds(2);
         fixture.set_expiry(deadline).await?;
         let warning_at = deadline - TimeDelta::days(7);

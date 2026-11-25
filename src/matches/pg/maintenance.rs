@@ -162,25 +162,13 @@ async fn delete_expired_messages(
     now: DateTime<Utc>,
     limit: i64,
 ) -> Result<u64, DatabaseError> {
-    sqlx::query(
-        "WITH candidates AS MATERIALIZED (
-           SELECT message.id FROM match_init AS match_record
-           JOIN chat_message AS message ON message.match_id = match_record.id
-           WHERE match_record.status IN ('expired', 'ended')
-             AND match_record.purge_after <= $1
-           ORDER BY match_record.purge_after, match_record.id,
-                    message.created_at, message.id
-           LIMIT $2 FOR UPDATE OF message SKIP LOCKED
-         )
-         DELETE FROM chat_message AS message USING candidates
-         WHERE message.id = candidates.id",
-    )
-    .bind(now)
-    .bind(limit)
-    .execute(&mut *connection)
-    .await
-    .map(|result| result.rows_affected())
-    .map_err(map_sqlx_error)
+    sqlx::query_scalar::<_, i64>("SELECT fct_purge_expired_match_messages($1, $2)")
+        .bind(now)
+        .bind(limit)
+        .fetch_one(&mut *connection)
+        .await
+        .map(|count| count as u64)
+        .map_err(map_sqlx_error)
 }
 
 async fn detach_expired_reports(
@@ -214,27 +202,13 @@ async fn delete_expired_notifications(
     now: DateTime<Utc>,
     limit: i64,
 ) -> Result<u64, DatabaseError> {
-    sqlx::query(
-        "WITH candidates AS MATERIALIZED (
-           SELECT notification.id FROM match_init AS match_record
-           JOIN notification
-             ON notification.user_id IN (match_record.user1_id, match_record.user2_id)
-            AND notification.payload->>'match_id' = match_record.id::text
-           WHERE match_record.status IN ('expired', 'ended')
-             AND match_record.purge_after <= $1
-           ORDER BY match_record.purge_after, match_record.id,
-                    notification.created_at, notification.id
-           LIMIT $2 FOR UPDATE OF notification SKIP LOCKED
-         )
-         DELETE FROM notification USING candidates
-         WHERE notification.id = candidates.id",
-    )
-    .bind(now)
-    .bind(limit)
-    .execute(&mut *connection)
-    .await
-    .map(|result| result.rows_affected())
-    .map_err(map_sqlx_error)
+    sqlx::query_scalar::<_, i64>("SELECT fct_purge_expired_match_notifications($1, $2)")
+        .bind(now)
+        .bind(limit)
+        .fetch_one(&mut *connection)
+        .await
+        .map(|count| count as u64)
+        .map_err(map_sqlx_error)
 }
 
 async fn purge_expired_matches(

@@ -39,7 +39,7 @@ use crate::identity::mobile::otp::{
     OtpRepository, OtpRequestService, OtpService, PgOtpRequestStore,
 };
 use crate::identity::mobile::service::MobileAuthService;
-use crate::identity::mobile::sweego::{SmsDelivery, SweegoSmsService, SweegoWebhookService};
+use crate::identity::mobile::sweego::{DisabledSmsDelivery, SweegoWebhookService};
 use crate::identity::mobile::tokens::TokenService;
 use crate::matches::http::{MatchHttpState, routes as match_routes};
 use crate::matches::pg::{PgMatchMessageRepository, PgMatchRepository};
@@ -119,14 +119,9 @@ impl ApiResources {
             config.sms.otp_ttl,
             config.sms.resend_cooldown,
         );
-        let sms: Arc<dyn SmsDelivery> = Arc::new(
-            SweegoSmsService::new(config.sms.clone(), Arc::new(self.sms_safety.clone()))
-                .map_err(|_| "sms_client_invalid")?
-                .with_metrics(Arc::clone(&self.metrics)),
-        );
         let otp = OtpService::new(
             otp_repository.clone(),
-            sms,
+            Arc::new(DisabledSmsDelivery),
             config.phone.hash_key.clone(),
             config.sms.region.clone(),
             config.sms.timeout,

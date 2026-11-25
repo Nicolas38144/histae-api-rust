@@ -27,6 +27,8 @@ umask 077
   printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 32)"
   printf 'HISTAE_BOOTSTRAP_MIGRATE_PASSWORD=%s\n' "$(openssl rand -hex 32)"
   printf 'HISTAE_BOOTSTRAP_APP_PASSWORD=%s\n' "$(openssl rand -hex 32)"
+  printf 'HISTAE_BOOTSTRAP_OUTBOX_PASSWORD=%s\n' "$(openssl rand -hex 32)"
+  printf 'HISTAE_BOOTSTRAP_MAINTENANCE_PASSWORD=%s\n' "$(openssl rand -hex 32)"
 } > "$ROLE_TEST_DIRECTORY/postgres.env"
 
 docker run -d --name "$ROLE_TEST_CONTAINER" --network none \
@@ -57,6 +59,8 @@ as_role() {
       histae_admin) export PGPASSWORD="$POSTGRES_PASSWORD" ;;
       histae_migrate) export PGPASSWORD="$HISTAE_BOOTSTRAP_MIGRATE_PASSWORD" ;;
       histae_app) export PGPASSWORD="$HISTAE_BOOTSTRAP_APP_PASSWORD" ;;
+      histae_outbox) export PGPASSWORD="$HISTAE_BOOTSTRAP_OUTBOX_PASSWORD" ;;
+      histae_maintenance) export PGPASSWORD="$HISTAE_BOOTSTRAP_MAINTENANCE_PASSWORD" ;;
       *) exit 2 ;;
     esac
     exec psql -X -q --set ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d histae-roles-test
@@ -68,11 +72,7 @@ as_role() {
   printf 'ENV=test\nPOSTGRES_HOST=127.0.0.1\nPOSTGRES_PORT=5432\nPOSTGRES_DB=histae-roles-test\n'
   printf 'POSTGRES_USER=histae_migrate\nPOSTGRES_SSLMODE=disable\nPOSTGRES_POOL_MAX=1\n'
   printf 'POSTGRES_PASSWORD=%s\n' "$(sed -n 's/^HISTAE_BOOTSTRAP_MIGRATE_PASSWORD=//p' "$ROLE_TEST_DIRECTORY/postgres.env")"
-  printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)"
-  printf 'PHONE_ENCRYPTION_KEY=%s\n' "$(openssl rand -hex 32)"
   printf 'PHONE_HASH_KEY=%s\n' "$(openssl rand -hex 32)"
-  printf 'RATE_LIMIT_STORE=memory\nSMS_PROVIDER=disabled\n'
-  printf 'PUSH_PROVIDER=disabled\nMETRICS_ENABLED=false\n'
 } > "$ROLE_TEST_DIRECTORY/migrate.env"
 migrate() {
   local phase=$1
@@ -88,6 +88,13 @@ migrate() {
 }
 migrate initial
 migrate upgrade
+verify_job_roles() {
+  local role
+  for role in histae_outbox histae_maintenance; do
+    as_role "$role" < "$PROJECT_DIR/tests/postgres_job_roles.sql" >/dev/null
+  done
+}
+verify_job_roles
 as_role histae_migrate >/dev/null <<'SQL'
 CREATE TABLE public.role_permission_probe (id integer PRIMARY KEY, value text);
 CREATE SEQUENCE public.role_sequence_probe;
@@ -102,6 +109,7 @@ SQL
 as_role histae_admin < "$PROJECT_DIR/db/drop_postgres.sql" >/dev/null 2>&1
 { printf '\\set bootstrap_mode access\n'; cat "$PROJECT_DIR/db/000_bootstrap_postgres.sql"; } | as_role histae_admin >/dev/null
 migrate reset
+verify_job_roles
 as_role histae_migrate >/dev/null <<'SQL'
 CREATE TABLE public.role_permission_probe (id integer PRIMARY KEY, value text);
 CREATE SEQUENCE public.role_sequence_probe;

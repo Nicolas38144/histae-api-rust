@@ -2,34 +2,40 @@
 
 [Index](../README.md) · [Configuration](../development/configuration.md) · [Déploiement](../deployment/container-deployment.md)
 
-Les piles Docker dev et production utilisent la même séparation. Les rôles PostgreSQL sont indépendants
-des rôles métier `user`, `admin` et `superadmin` de Histae.
+Les rôles PostgreSQL sont indépendants des rôles métier `user`, `admin` et `superadmin` de Histae.
 
 | Rôle PostgreSQL | Services | Permissions |
 | --- | --- | --- |
 | `histae_admin` | PostgreSQL et administration manuelle | Superuser ; initialise les rôles et les extensions |
 | `histae_migrate` | `migrate` | Propriétaire du schéma `public` et des objets applicatifs ; aucun privilège superuser, création de base ou de rôle |
 | `histae_phone_sync` | `phone-blocklist-sync` | Lecture des quatre tables de politique ; insertion des empreintes et mise à jour des observations et statuts ; aucun accès aux comptes ou aux décisions manuelles |
-| `histae_app` | API, outbox et maintenance en production | Connexion, usage du schéma, DML applicatif, séquences et fonctions nécessaires ; aucun DDL ou rôle privilégié |
+| `histae_app` | API | DML applicatif, séquences et fonctions métier |
+| `histae_outbox` | Outbox de production | Traitement de la file et accès ciblés pour les photos, les SMS, les notifications push, les achats et les effacements déjà acceptés |
+| `histae_maintenance` | Maintenance de production | Échéances de conversations, rappels et nettoyage photo. La rétention et la planification des réconciliations passent par des fonctions SQL bornées |
 
 Le migrateur crée les tables et fonctions ; leurs privilèges par défaut donnent les accès nécessaires à
 l'application, y compris pour les futurs objets. Les objets des extensions restent possédés par
 l'administrateur. `spatial_ref_sys` est accessible en lecture seulement. L'application n'a aucun droit
 `CREATE`, `TEMPORARY`, `TRUNCATE`, `TRIGGER` ou `REFERENCES`, ni appartenance aux rôles privilégiés.
-Les fonctions applicatives s'exécutent avec les droits de l'appelant, sans `SECURITY DEFINER`.
+Les rôles des jobs reçoivent des droits explicites dans le schéma initial. Les fonctions
+`SECURITY DEFINER` accessibles aux jobs vérifient la portée des opérations, utilisent un
+`search_path` fixe et réservent leur exécution aux rôles concernés. Le développement natif et
+Compose dev continuent à utiliser `histae_app` pour les jobs.
 
 Cette séparation limite les capacités SQL du processus applicatif. Les autorisations entre utilisateurs
 restent vérifiées par l'API ; `histae_app` dispose des données nécessaires à tous ses parcours métier.
 
 ## Mots de passe dans le fichier d'environnement
 
-Les deux modes utilisent le même fichier `.env`, avec quatre mots de passe indépendants :
+Le fichier `.env` de production contient six mots de passe indépendants.
 
 ```dotenv
 POSTGRES_ADMIN_PASSWORD=<64-caracteres-hexadecimaux-aleatoires>
 POSTGRES_MIGRATE_PASSWORD=<64-autres-caracteres-hexadecimaux-aleatoires>
 POSTGRES_APP_PASSWORD=<64-autres-caracteres-hexadecimaux-aleatoires>
 POSTGRES_PHONE_SYNC_PASSWORD=<64-autres-caracteres-hexadecimaux-aleatoires>
+POSTGRES_OUTBOX_PASSWORD=<64-autres-caracteres-hexadecimaux-aleatoires>
+POSTGRES_MAINTENANCE_PASSWORD=<64-autres-caracteres-hexadecimaux-aleatoires>
 ```
 
 Chaque valeur doit être différente, générée avec 32 octets aléatoires. Pour préparer le fichier sans
@@ -42,24 +48,24 @@ python3 scripts/prepare-postgres-roles-env.py .env
 Le fichier doit déjà exister. Le script conserve les autres réglages, remplace les placeholders de mots
 de passe PostgreSQL, refuse les doublons ou valeurs invalides et écrit le fichier en `0600`.
 Il configure aussi l'accès natif avec `POSTGRES_USER=histae_app` et
-`POSTGRES_PASSWORD=${POSTGRES_APP_PASSWORD}`. Dans Compose, `environment` impose le rôle approprié à
-chaque service et vide les quatre variables sources dans les conteneurs applicatifs. L'API et les workers
-ne reçoivent que le mot de passe applicatif ; le migrateur ne reçoit que son mot de passe.
-Le job d’import ne reçoit que son mot de passe dédié. PostgreSQL reçoit les quatre pour initialiser les rôles. Aucun fichier `.env` n'est monté dans ces conteneurs.
+`POSTGRES_PASSWORD=${POSTGRES_APP_PASSWORD}`.
 
-Le fichier réel est ignoré par Git et exclu des images. Il reste sensible sur l'hôte ; le protéger et
-ne pas afficher la sortie complète de `docker compose config`. L'exécution native depuis le dépôt charge
-le `.env` complet : l'isolation des variables décrite ici concerne les conteneurs Compose.
+En production, chaque client reçoit son propre identifiant sous `POSTGRES_USER` et son mot de passe
+sous `POSTGRES_PASSWORD`. PostgreSQL reçoit les six mots de passe pour l’initialisation du cluster.
+Compose lit `.env` sur l’hôte et injecte uniquement les variables déclarées par service. En
+développement, Compose et les binaires natifs peuvent charger le fichier d’environnement partagé.
+
+Le fichier réel est ignoré par Git et exclu des images. Conserver ses permissions en `0600` et
+utiliser `docker compose config --quiet` pour valider la configuration.
 
 ## Installation neuve
 
 L'entrypoint PostgreSQL exécute [init-roles.sh](../../docker/postgres/init-roles.sh) uniquement sur un volume
 vide. Il applique [000_bootstrap_postgres.sql](../../db/000_bootstrap_postgres.sql) comme administrateur.
 Le mode `install` crée les rôles, prépare les extensions et attribue les permissions.
-Le mode `access` rétablit
-les permissions après un `DROP SCHEMA`. Pour un cluster existant, le reset peut aussi créer le rôle
-`histae_phone_sync` et configurer son mot de passe explicitement fourni ; il ne change pas ceux des
-autres rôles. Le bootstrap refuse un rôle de synchronisation privilégié ou membre d’un autre rôle.
+Le mode `access` rétablit les permissions après un `DROP SCHEMA`. Il prépare les rôles de synchronisation
+et de jobs si nécessaire. Un mot de passe explicitement fourni active la connexion du rôle correspondant.
+Le bootstrap refuse les rôles de jobs privilégiés ou membres d’un autre rôle.
 
 Le schéma [001_schema_postgres.sql](../../db/001_schema_postgres.sql) est ensuite exécuté par le migrateur
 limité. Fusionner ces deux étapes imposerait au migrateur les droits d'administration du cluster ;
@@ -132,11 +138,16 @@ sudo bash scripts/verify-postgres-roles.sh
 
 `HISTAE_POSTGRES_IMAGE` et `HISTAE_API_IMAGE` permettent de sélectionner les images de la livraison.
 Le script crée un PostgreSQL sans réseau externe et sans volume persistant, utilise le vrai migrateur
-deux fois, puis vérifie les droits présents et futurs, les refus DDL/changement de rôle, PostGIS, les
-triggers et l'effacement. Il vérifie aussi un reset de schéma suivi du rétablissement des permissions et
+deux fois, puis vérifie les droits présents et futurs, les refus DDL et inter-rôles, PostGIS, les
+triggers et l’effacement. Il vérifie aussi un reset de schéma suivi du rétablissement des permissions et
 d'une nouvelle migration. Il supprime son conteneur et ses fichiers temporaires, même après échec.
 Il ne teste pas TLS ni l'ensemble des routes HTTP ou fournisseurs ; ces validations restent requises
 sur la livraison réelle. Il n'accède pas à la base dev en service.
+
+Le script `verify-continuation-postgres.py` exécute également les refus inter-rôles. Ses fixtures
+utilisent les rôles dédiés pour tester l’effacement, les rappels push, les achats et le contrôle
+des envois SMS. L’option `--native-maintenance target/debug/maintenance` lance le binaire compilé
+localement avec les seuls paramètres du job.
 
 ### Contrôle sur la pile déployée
 

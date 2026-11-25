@@ -30,7 +30,7 @@ impl SmsSafetyStore for PgSmsSafetyStore {
             self.database.transaction(|connection| Box::pin(async move {
                 // Serialize the global budget with suspension and per-phone
                 // reservations; no two instances may consume the last slot.
-                let suspended: bool = sqlx::query_scalar("SELECT suspended FROM sms_send_control WHERE singleton FOR UPDATE")
+                let suspended: bool = sqlx::query_scalar("SELECT fct_lock_sms_send_control()")
                     .fetch_one(&mut *connection).await.map_err(map_sqlx_error)?;
                 if suspended { return Ok(Err(SmsSendRejection::Suspended)); }
                 if let Err(reason)=crate::identity::mobile::phone_blocklist::pg::permit_on(connection,&phone_hash).await? {return Ok(Err(reason));}

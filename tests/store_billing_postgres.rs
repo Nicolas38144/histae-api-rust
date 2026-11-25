@@ -1,4 +1,8 @@
 #![cfg(feature = "postgres-integration")]
+
+#[path = "support/postgres_job_role.rs"]
+mod job_role;
+
 use chrono::{TimeDelta, Utc};
 use histae_api_rust::identity::web::WebAccountRepository;
 use histae_api_rust::{
@@ -138,7 +142,10 @@ async fn authenticated_notification_is_retained_and_retried_on_its_reserved_veri
         atomic::{AtomicUsize, Ordering},
     };
 
-    let db = Database::connect(&postgres_config()?).await?;
+    let postgres = postgres_config()?;
+    let db = Database::connect(&postgres).await?;
+    let worker_database = job_role::connect(&postgres, "outbox").await?;
+    let maintenance = job_role::connect(&postgres, "maintenance").await?;
     let user_id = Uuid::new_v4();
     insert_user(&db, user_id).await?;
     let stores = StoreRepository::new(db.clone(), SecretString::new("01".repeat(32)));
@@ -187,6 +194,11 @@ async fn authenticated_notification_is_retained_and_retried_on_its_reserved_veri
     let service = StoreBillingService::new(
         stores.clone(),
         Arc::new(StoreVerifier::new(config.clone())?),
+        config.clone(),
+    );
+    let worker = StoreBillingService::new(
+        StoreRepository::new(worker_database, SecretString::new("01".repeat(32))),
+        Arc::new(StoreVerifier::new(config.clone())?),
         config,
     );
     let server = tokio::spawn(async move { axum::serve(listener, app).await });
@@ -199,15 +211,36 @@ async fn authenticated_notification_is_retained_and_retried_on_its_reserved_veri
              WHERE n.provider=$1 AND n.provider_event_id=$2",
         ).bind(provider.as_str()).bind(event.to_string()).fetch_one(&mut *connection).await?;
         let delivery_kind = "billing.store.notification";
-        assert_eq!(service.process(delivery_kind, id).await, Err(StoreError::Unavailable));
+        assert_eq!(worker.process(delivery_kind, id).await, Err(StoreError::Unavailable));
         assert_eq!(attempts.load(Ordering::Relaxed), 1);
         assert!(stores.reference(id, true).await?.is_some());
 
         let retry_started = std::time::Instant::now();
-        service.process(delivery_kind, id).await?;
+        worker.process(delivery_kind, id).await?;
         let retry_elapsed = retry_started.elapsed();
         assert_eq!(attempts.load(Ordering::Relaxed), 2);
         assert!(stores.reference(id, true).await?.is_none());
+        let subscription_id: Uuid = sqlx::query_scalar(
+            "UPDATE billing_store_subscription SET next_check_at = clock_timestamp()
+             WHERE user_id = $1 RETURNING id",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *connection)
+        .await?;
+        assert!(StoreRepository::schedule(&maintenance).await? >= 1);
+        let scheduled: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM outbox_event WHERE event_type = 'billing.store.reconcile'
+             AND aggregate_id = $1 AND status = 'pending')",
+        )
+        .bind(subscription_id)
+        .fetch_one(&mut *connection)
+        .await?;
+        assert!(scheduled);
+        sqlx::query("DELETE FROM outbox_event WHERE event_type = 'billing.store.reconcile' AND aggregate_id = $1")
+            .bind(subscription_id)
+            .execute(&mut *connection)
+            .await?;
+
         let elapsed_seconds: f64 = sqlx::query_scalar(
             "SELECT extract(epoch FROM processed_at - received_at)::float8
              FROM billing_store_notification WHERE id=$1",
@@ -670,10 +703,19 @@ async fn website_service_keeps_identity_otp_and_session_authorization_together()
     use std::sync::Arc;
     let config = postgres_config()?;
     let db = Database::connect(&config).await?;
+    let worker_database = job_role::connect(&config, "outbox").await?;
     let sms = Arc::new(SyntheticSms::default());
     let phone_key = SecretString::new(sha256_hex(Uuid::new_v4().as_bytes()));
     let otp = OtpService::new(
         Arc::new(OtpRepository::new(db.clone())),
+        sms.clone(),
+        phone_key.clone(),
+        "fr".into(),
+        Duration::from_secs(2),
+        Duration::from_secs(300),
+    );
+    let delivery_otp = OtpService::new(
+        Arc::new(OtpRepository::new(worker_database.clone())),
         sms.clone(),
         phone_key.clone(),
         "fr".into(),
@@ -686,8 +728,12 @@ async fn website_service_keeps_identity_otp_and_session_authorization_together()
         privacy_version: "web-refactor-test".into(),
         ..legal()
     };
-    let repository = WebAccountRepository::new(db.clone(), legal);
-    let worker = WebOtpHandler::new(repository.clone(), otp.clone(), phone_key.clone());
+    let repository = WebAccountRepository::new(db.clone(), legal.clone());
+    let worker = WebOtpHandler::new(
+        WebAccountRepository::new(worker_database, legal),
+        delivery_otp,
+        phone_key.clone(),
+    );
     let service = WebAccountService::new(repository, otp.clone());
     let phone = "+33600000002";
     let hash = service.phone_key(phone).unwrap();

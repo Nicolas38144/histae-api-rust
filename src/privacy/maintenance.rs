@@ -3,7 +3,6 @@ use chrono::{DateTime, Utc};
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 use crate::operations::maintenance::{MaintenanceJobName, MaintenanceProgress, MaintenanceTracker};
 
-const PRIVACY_MAINTENANCE_LOCK: i64 = 61_202_608;
 pub const PRIVACY_MAINTENANCE_BATCH_SIZE: u32 = 1_000;
 pub const PRIVACY_MAINTENANCE_MAX_BATCHES: u32 = 100;
 
@@ -204,190 +203,55 @@ impl PrivacyMaintenanceRepository {
         now: DateTime<Utc>,
         batch_size: u32,
     ) -> Result<Option<PrivacyMaintenanceResult>, DatabaseError> {
-        self.database
-            .transaction(|connection| {
-                Box::pin(async move {
-                    let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
-                        .bind(PRIVACY_MAINTENANCE_LOCK)
-                        .fetch_one(&mut *connection)
-                        .await
-                        .map_err(map_sqlx_error)?;
-                    if !acquired {
-                        return Ok(None);
-                    }
-                    sqlx::query("SELECT pg_advisory_xact_lock_shared($1)")
-                        .bind(crate::identity::mobile::phone_blocklist::domain::POLICY_LOCK)
-                        .execute(&mut *connection)
-                        .await
-                        .map_err(map_sqlx_error)?;
-                    let limit = i64::from(batch_size);
-                    let mut counts = [0_u64; RETENTION_QUERIES.len()];
-                    for (index, statement) in RETENTION_QUERIES.iter().enumerate() {
-                        counts[index] = sqlx::query(statement)
-                            .bind(now)
-                            .bind(limit)
-                            .execute(&mut *connection)
-                            .await
-                            .map_err(map_sqlx_error)?
-                            .rows_affected();
-                    }
-                    Ok(Some(PrivacyMaintenanceResult {
-                        stale_presences: counts[0],
-                        expired_presences: counts[1],
-                        expired_swipes: counts[2],
-                        expired_phone_observations: counts[29],
-                        expired_phone_policies: counts[30],
-                        expired_support_cases: counts[31],
-                        expired_erasure_receipts: counts[32],
-                        expired_assisted_exports: counts[33],
-                        expired_otps: counts[3],
-                        expired_mobile_otp_requests: counts[27],
-                        expired_refresh_tokens: counts[4],
-                        expired_refresh_recoveries: counts[28],
-                        expired_notifications: counts[5],
-                        expired_consents: counts[6],
-                        expired_data_subject_requests: counts[7],
-                        expired_data_access_logs: counts[8],
-                        expired_reports: counts[9],
-                        expired_account_tombstones: counts[10],
-                        expired_account_deletion_tokens: counts[11],
-                        expired_admin_webauthn_challenges: counts[12],
-                        expired_admin_webauthn_bootstraps: counts[13],
-                        expired_admin_sessions: counts[14],
-                        expired_admin_auth_events: counts[15],
-                        expired_outbox_operator_actions: counts[16],
-                        expired_mobile_sessions: counts[17],
-                        expired_reward_intents: counts[18],
-                        expired_continuation_reservations: counts[19],
-                        expired_continuation_usage: counts[20],
-                        expired_sms_attempts: counts[21],
-                        expired_web_challenges: counts[22],
-                        expired_web_sessions: counts[23],
-                        expired_store_notifications: counts[24],
-                        expired_store_subscriptions: counts[25],
-                        expired_store_accounts: counts[26],
-                    }))
-                })
-            })
-            .await
+        let counts: Option<Vec<i64>> =
+            sqlx::query_scalar("SELECT fct_run_privacy_retention($1, $2)")
+                .bind(now)
+                .bind(i64::from(batch_size))
+                .fetch_one(self.database.pool())
+                .await
+                .map_err(map_sqlx_error)?;
+        let Some(counts) = counts else {
+            return Ok(None);
+        };
+        let counts: [i64; 34] = counts.try_into().map_err(|_| DatabaseError::QueryFailed)?;
+        Ok(Some(PrivacyMaintenanceResult {
+            stale_presences: counts[0] as u64,
+            expired_presences: counts[1] as u64,
+            expired_swipes: counts[2] as u64,
+            expired_phone_observations: counts[29] as u64,
+            expired_phone_policies: counts[30] as u64,
+            expired_support_cases: counts[31] as u64,
+            expired_erasure_receipts: counts[32] as u64,
+            expired_assisted_exports: counts[33] as u64,
+            expired_otps: counts[3] as u64,
+            expired_mobile_otp_requests: counts[27] as u64,
+            expired_refresh_tokens: counts[4] as u64,
+            expired_refresh_recoveries: counts[28] as u64,
+            expired_notifications: counts[5] as u64,
+            expired_consents: counts[6] as u64,
+            expired_data_subject_requests: counts[7] as u64,
+            expired_data_access_logs: counts[8] as u64,
+            expired_reports: counts[9] as u64,
+            expired_account_tombstones: counts[10] as u64,
+            expired_account_deletion_tokens: counts[11] as u64,
+            expired_admin_webauthn_challenges: counts[12] as u64,
+            expired_admin_webauthn_bootstraps: counts[13] as u64,
+            expired_admin_sessions: counts[14] as u64,
+            expired_admin_auth_events: counts[15] as u64,
+            expired_outbox_operator_actions: counts[16] as u64,
+            expired_mobile_sessions: counts[17] as u64,
+            expired_reward_intents: counts[18] as u64,
+            expired_continuation_reservations: counts[19] as u64,
+            expired_continuation_usage: counts[20] as u64,
+            expired_sms_attempts: counts[21] as u64,
+            expired_web_challenges: counts[22] as u64,
+            expired_web_sessions: counts[23] as u64,
+            expired_store_notifications: counts[24] as u64,
+            expired_store_subscriptions: counts[25] as u64,
+            expired_store_accounts: counts[26] as u64,
+        }))
     }
 }
-
-const RETENTION_QUERIES: [&str; 34] = [
-    "WITH stale AS (
-       SELECT user_id FROM user_presence
-       WHERE is_location_fresh = true AND updated_at <= $1 - INTERVAL '1 hour'
-       ORDER BY updated_at LIMIT $2
-     ) UPDATE user_presence SET is_location_fresh = false
-       WHERE user_id IN (SELECT user_id FROM stale)",
-    "DELETE FROM user_presence WHERE user_id IN (
-       SELECT user_id FROM user_presence WHERE updated_at <= $1 - INTERVAL '24 hours'
-       ORDER BY updated_at LIMIT $2)",
-    "DELETE FROM swipe_decision WHERE (actor_id, target_id) IN (
-       SELECT actor_id, target_id FROM swipe_decision WHERE expires_at <= $1
-       ORDER BY expires_at, actor_id, target_id LIMIT $2)",
-    "DELETE FROM otp_verification WHERE id IN (
-       SELECT id FROM otp_verification WHERE expires_at <= $1 ORDER BY expires_at LIMIT $2)",
-    "DELETE FROM refresh_tokens WHERE id IN (
-       SELECT id FROM refresh_tokens WHERE expires_at <= $1
-         AND NOT (rotation_result IS NOT NULL AND rotated_at > $1 - INTERVAL '7 days')
-       ORDER BY expires_at,id LIMIT $2 FOR UPDATE SKIP LOCKED)",
-    "DELETE FROM notification WHERE id IN (
-       SELECT id FROM notification WHERE expires_at <= $1 ORDER BY expires_at LIMIT $2)",
-    "DELETE FROM user_consent WHERE id IN (
-       SELECT id FROM user_consent
-       WHERE withdrawn_at IS NOT NULL AND withdrawn_at <= $1 - INTERVAL '5 years'
-       ORDER BY withdrawn_at LIMIT $2)",
-    "DELETE FROM data_subject_request WHERE id IN (
-       SELECT id FROM data_subject_request
-       WHERE status IN ('completed', 'rejected') AND completed_at IS NOT NULL
-         AND completed_at <= $1 - INTERVAL '5 years'
-       ORDER BY completed_at LIMIT $2)",
-    "DELETE FROM data_access_log WHERE id IN (
-       SELECT id FROM data_access_log WHERE accessed_at <= $1 - INTERVAL '1 year'
-       ORDER BY accessed_at LIMIT $2)",
-    "DELETE FROM user_report WHERE id IN (
-       SELECT id FROM user_report
-       WHERE status IN ('reviewed', 'dismissed') AND resolved_at IS NOT NULL
-         AND resolved_at <= $1 - INTERVAL '3 years'
-       ORDER BY resolved_at LIMIT $2)",
-    "DELETE FROM account_tombstone WHERE phone_number_hash IN (
-       SELECT phone_number_hash FROM account_tombstone WHERE expires_at <= $1
-       ORDER BY expires_at LIMIT $2)",
-    "DELETE FROM account_deletion_token WHERE id IN (
-       SELECT id FROM account_deletion_token WHERE expires_at <= $1
-       ORDER BY expires_at LIMIT $2)",
-    "DELETE FROM admin_webauthn_challenge WHERE id IN (
-       SELECT id FROM (
-         (SELECT id, expires_at FROM admin_webauthn_challenge
-          WHERE consumed_at IS NOT NULL ORDER BY expires_at, id LIMIT $2)
-         UNION ALL
-         (SELECT id, expires_at FROM admin_webauthn_challenge
-          WHERE consumed_at IS NULL AND expires_at <= $1
-          ORDER BY expires_at, id LIMIT $2)
-       ) AS candidates ORDER BY expires_at, id LIMIT $2)",
-    "DELETE FROM admin_webauthn_bootstrap WHERE id IN (
-       SELECT id FROM (
-         (SELECT id, expires_at FROM admin_webauthn_bootstrap
-          WHERE consumed_at IS NOT NULL ORDER BY expires_at, id LIMIT $2)
-         UNION ALL
-         (SELECT id, expires_at FROM admin_webauthn_bootstrap
-          WHERE consumed_at IS NULL AND expires_at <= $1
-          ORDER BY expires_at, id LIMIT $2)
-       ) AS candidates ORDER BY expires_at, id LIMIT $2)",
-    "DELETE FROM admin_session WHERE id IN (
-       SELECT id FROM (
-         (SELECT id, absolute_expires_at AS cleanup_at FROM admin_session
-          WHERE absolute_expires_at <= $1 ORDER BY absolute_expires_at, id LIMIT $2)
-         UNION ALL
-         (SELECT id, revoked_at AS cleanup_at FROM admin_session
-          WHERE revoked_at <= $1 - INTERVAL '24 hours' AND absolute_expires_at > $1
-          ORDER BY revoked_at, id LIMIT $2)
-       ) AS candidates ORDER BY cleanup_at, id LIMIT $2)",
-    "DELETE FROM admin_auth_event WHERE id IN (
-       SELECT id FROM admin_auth_event WHERE created_at <= $1 - INTERVAL '1 year'
-       ORDER BY created_at LIMIT $2)",
-    "DELETE FROM outbox_operator_action WHERE id IN (
-       SELECT id FROM outbox_operator_action WHERE created_at <= $1 - INTERVAL '1 year'
-       ORDER BY created_at LIMIT $2)",
-    "DELETE FROM refresh_token_family WHERE id IN (
-       SELECT family.id FROM refresh_token_family AS family
-       WHERE family.expires_at <= $1
-         AND NOT EXISTS (SELECT 1 FROM refresh_tokens WHERE family_id = family.id)
-       ORDER BY family.expires_at, family.id LIMIT $2)",
-    "DELETE FROM advertising_reward_intent WHERE id IN (SELECT id FROM advertising_reward_intent WHERE created_at <= $1 - INTERVAL '90 days' ORDER BY created_at,id LIMIT $2)",
-    "DELETE FROM continuation_reservation WHERE (match_id,user_id) IN (SELECT r.match_id,r.user_id FROM continuation_reservation r JOIN match_init m ON m.id=r.match_id WHERE m.status<>'awaiting_continuation' OR m.expires_at<=$1 ORDER BY m.expires_at,r.match_id,r.user_id LIMIT $2 FOR UPDATE OF m SKIP LOCKED)",
-    "DELETE FROM continuation_usage WHERE (user_id,week_start) IN (SELECT u.user_id,u.week_start FROM continuation_usage u WHERE u.week_start < ($1 AT TIME ZONE 'UTC')::date - 90 AND NOT EXISTS(SELECT 1 FROM continuation_reservation r WHERE r.user_id=u.user_id AND r.week_start=u.week_start) ORDER BY u.week_start,u.user_id LIMIT $2)",
-    "DELETE FROM sms_send_attempt WHERE delivery_id IN (
-       SELECT delivery_id FROM sms_send_attempt WHERE reserved_at <= $1 - interval '25 hours'
-       ORDER BY reserved_at LIMIT $2)",
-    "DELETE FROM web_account_challenge WHERE id IN (SELECT id FROM web_account_challenge WHERE expires_at <= $1 ORDER BY expires_at,id LIMIT $2)",
-    "DELETE FROM web_account_session WHERE token_hash IN (SELECT token_hash FROM web_account_session WHERE expires_at <= $1 ORDER BY expires_at,token_hash LIMIT $2)",
-    "DELETE FROM billing_store_notification WHERE id IN (SELECT id FROM billing_store_notification WHERE processed_at <= $1 - interval '7 days' OR received_at <= $1 - interval '90 days' ORDER BY received_at,id LIMIT $2)",
-    "DELETE FROM billing_store_subscription WHERE id IN (SELECT id FROM billing_store_subscription WHERE expires_at <= $1 - interval '400 days' AND next_check_at <= $1 ORDER BY expires_at,id LIMIT $2)",
-    "DELETE FROM billing_store_account WHERE id IN (SELECT a.id FROM billing_store_account a WHERE a.user_id IS NULL AND a.created_at <= $1 - interval '400 days' AND NOT EXISTS(SELECT 1 FROM billing_store_subscription s WHERE s.account_id=a.id) ORDER BY a.created_at,a.id LIMIT $2)",
-    "DELETE FROM mobile_otp_request WHERE id IN (
-       SELECT id FROM mobile_otp_request WHERE expires_at <= $1 AND resend_at <= $1
-       ORDER BY expires_at,id LIMIT $2)",
-    "UPDATE refresh_tokens SET rotation_result=NULL WHERE id IN (
-       SELECT id FROM refresh_tokens WHERE rotation_result IS NOT NULL
-         AND rotated_at <= $1 - INTERVAL '7 days'
-       ORDER BY rotated_at,id LIMIT $2 FOR UPDATE SKIP LOCKED)",
-    "DELETE FROM phone_blocklist_observation WHERE (entry_id,source) IN (
-       SELECT entry_id,source FROM phone_blocklist_observation WHERE last_seen_at<=$1-INTERVAL '180 days'
-       ORDER BY last_seen_at,entry_id LIMIT $2 FOR UPDATE SKIP LOCKED)",
-    "DELETE FROM phone_blocklist_entry WHERE id IN (
-       SELECT e.id FROM phone_blocklist_entry e WHERE e.updated_at<=$1-INTERVAL '180 days'
-         AND (e.decision_until IS NULL OR e.decision_until<=$1)
-         AND NOT EXISTS(SELECT 1 FROM phone_blocklist_observation o WHERE o.entry_id=e.id)
-       ORDER BY e.created_at,e.id LIMIT $2 FOR UPDATE SKIP LOCKED)",
-    "DELETE FROM support_case WHERE id IN (
-       SELECT id FROM support_case WHERE expires_at <= $1 ORDER BY expires_at,id LIMIT $2 FOR UPDATE SKIP LOCKED)",
-    "DELETE FROM erasure_receipt WHERE user_id IN (
-       SELECT user_id FROM erasure_receipt WHERE expires_at <= $1 ORDER BY expires_at,user_id LIMIT $2 FOR UPDATE SKIP LOCKED)",
-    "DELETE FROM assisted_data_export WHERE request_id IN (
-       SELECT request_id FROM assisted_data_export WHERE expires_at <= $1 ORDER BY expires_at,request_id LIMIT $2 FOR UPDATE SKIP LOCKED)",
-];
 
 #[derive(Clone)]
 pub struct PrivacyMaintenanceService {

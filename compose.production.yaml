@@ -3,29 +3,79 @@
 # Certificat serveur et CA à préparer selon docs/deployment/container-deployment.md.
 name: histae-api-production
 
+# .env supplies Compose interpolation only. Each process gets the keys below.
 x-production-database-environment: &production-database-environment
+  ENV: production
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:?Define POSTGRES_DB in .env}
   POSTGRES_SSLMODE: verify-full
-  POSTGRES_USER: histae_app
-  POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:?Define POSTGRES_APP_PASSWORD in .env}
-  # env_file also contains Compose inputs. Clear the three source variables so
-  # runtime containers receive only their own password under POSTGRES_PASSWORD.
-  POSTGRES_ADMIN_PASSWORD: ""
-  POSTGRES_MIGRATE_PASSWORD: ""
-  POSTGRES_APP_PASSWORD: ""
-  HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ""
-  POSTGRES_PHONE_SYNC_PASSWORD: ""
-  HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ""
-  HISTAE_BOOTSTRAP_APP_PASSWORD: ""
   NODE_EXTRA_CA_CERTS: /run/secrets/postgres_ca
-  RATE_LIMIT_STORE: redis
-  REDIS_ADDR: redis:6379
-  REDIS_TLS: "true"
+  POSTGRES_CONNECT_TIMEOUT: ${POSTGRES_CONNECT_TIMEOUT:-}
+  POSTGRES_IDLE_TIMEOUT: ${POSTGRES_IDLE_TIMEOUT:-}
+  POSTGRES_STATEMENT_TIMEOUT: ${POSTGRES_STATEMENT_TIMEOUT:-}
+  POSTGRES_IDLE_TRANSACTION_TIMEOUT: ${POSTGRES_IDLE_TRANSACTION_TIMEOUT:-}
+
+x-production-storage-environment: &production-storage-environment
   OBJECT_STORAGE_ENDPOINT: https://${HISTAE_STORAGE_HOST:?Define the public S3 hostname in HISTAE_STORAGE_HOST}
   OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
+  OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-}
+  OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-}
+  OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:-}
+  OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:-}
+
+x-production-redis-environment: &production-redis-environment
+  REDIS_ADDR: redis:6379
+  REDIS_TLS: "true"
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?Define REDIS_PASSWORD in .env}
+  REDIS_DB: ${REDIS_DB:-}
+  REDIS_CONNECT_TIMEOUT: ${REDIS_CONNECT_TIMEOUT:-}
+  REDIS_COMMAND_TIMEOUT: ${REDIS_COMMAND_TIMEOUT:-}
+
+x-production-phone-environment: &production-phone-environment
+  PHONE_HASH_KEY: ${PHONE_HASH_KEY:?Define PHONE_HASH_KEY in .env}
+  PHONE_ENCRYPTION_KEY: ${PHONE_ENCRYPTION_KEY:?Define PHONE_ENCRYPTION_KEY in .env}
+  SMS_PROVIDER: ${SMS_PROVIDER:-}
+  SWEEGO_SMS_REGION: ${SWEEGO_SMS_REGION:-}
+  SWEEGO_TIMEOUT: ${SWEEGO_TIMEOUT:-}
+  OTP_TTL: ${OTP_TTL:-}
+  OTP_RESEND_COOLDOWN: ${OTP_RESEND_COOLDOWN:-}
+  SMS_MAX_GLOBAL_HOUR: ${SMS_MAX_GLOBAL_HOUR:-}
+  SMS_MAX_GLOBAL_DAY: ${SMS_MAX_GLOBAL_DAY:-}
+  SMS_MAX_PER_PHONE_HOUR: ${SMS_MAX_PER_PHONE_HOUR:-}
+  SMS_MAX_PER_PHONE_DAY: ${SMS_MAX_PER_PHONE_DAY:-}
+  SMS_ALERT_SPIKE_5M: ${SMS_ALERT_SPIKE_5M:-}
+  SMS_SENDING_SUSPENDED: ${SMS_SENDING_SUSPENDED:-}
+
+x-production-store-flags: &production-store-flags
+  APP_STORE_ENABLED: ${APP_STORE_ENABLED:-}
+  GOOGLE_PLAY_ENABLED: ${GOOGLE_PLAY_ENABLED:-}
+
+x-production-stores-environment: &production-stores-environment
+  <<: *production-store-flags
   STORE_VERIFIER_URL: https://store-verifier:8080
   STORE_VERIFIER_CA_FILE: /run/secrets/store_verifier_ca
+  STORE_VERIFIER_TOKEN: ${STORE_VERIFIER_TOKEN:-}
+  APP_STORE_PREMIUM_MONTHLY_PRODUCT_ID: ${APP_STORE_PREMIUM_MONTHLY_PRODUCT_ID:-}
+  APP_STORE_PREMIUM_ANNUAL_PRODUCT_ID: ${APP_STORE_PREMIUM_ANNUAL_PRODUCT_ID:-}
+  GOOGLE_PLAY_PREMIUM_PRODUCT_ID: ${GOOGLE_PLAY_PREMIUM_PRODUCT_ID:-}
+  GOOGLE_PLAY_MONTHLY_BASE_PLAN_ID: ${GOOGLE_PLAY_MONTHLY_BASE_PLAN_ID:-}
+  GOOGLE_PLAY_ANNUAL_BASE_PLAN_ID: ${GOOGLE_PLAY_ANNUAL_BASE_PLAN_ID:-}
+
+x-production-legal-environment: &production-legal-environment
+  LEGAL_REVIEW_REFERENCE: ${LEGAL_REVIEW_REFERENCE:-}
+  TERMS_OF_SERVICE_URL: ${TERMS_OF_SERVICE_URL:-}
+  TERMS_OF_SERVICE_VERSION: ${TERMS_OF_SERVICE_VERSION:-}
+  TERMS_OF_SERVICE_DOCUMENT_DATE: ${TERMS_OF_SERVICE_DOCUMENT_DATE:-}
+  PRIVACY_POLICY_URL: ${PRIVACY_POLICY_URL:-}
+  PRIVACY_POLICY_VERSION: ${PRIVACY_POLICY_VERSION:-}
+  PRIVACY_POLICY_DOCUMENT_DATE: ${PRIVACY_POLICY_DOCUMENT_DATE:-}
+  SENSITIVE_DATA_CONSENT_URL: ${SENSITIVE_DATA_CONSENT_URL:-}
+  SENSITIVE_DATA_CONSENT_VERSION: ${SENSITIVE_DATA_CONSENT_VERSION:-}
+  SENSITIVE_DATA_CONSENT_DOCUMENT_DATE: ${SENSITIVE_DATA_CONSENT_DOCUMENT_DATE:-}
+  LOCATION_CONSENT_URL: ${LOCATION_CONSENT_URL:-}
+  LOCATION_CONSENT_VERSION: ${LOCATION_CONSENT_VERSION:-}
+  LOCATION_CONSENT_DOCUMENT_DATE: ${LOCATION_CONSENT_DOCUMENT_DATE:-}
 
 x-production-logging: &production-logging
   driver: json-file
@@ -81,6 +131,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Define POSTGRES_ADMIN_PASSWORD in .env}
       HISTAE_BOOTSTRAP_MIGRATE_PASSWORD: ${POSTGRES_MIGRATE_PASSWORD:?Define POSTGRES_MIGRATE_PASSWORD in .env}
       HISTAE_BOOTSTRAP_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Define POSTGRES_APP_PASSWORD in .env}
+      HISTAE_BOOTSTRAP_MAINTENANCE_PASSWORD: ${POSTGRES_MAINTENANCE_PASSWORD:?Define POSTGRES_MAINTENANCE_PASSWORD in .env}
+      HISTAE_BOOTSTRAP_OUTBOX_PASSWORD: ${POSTGRES_OUTBOX_PASSWORD:?Define POSTGRES_OUTBOX_PASSWORD in .env}
       HISTAE_BOOTSTRAP_PHONE_SYNC_PASSWORD: ${POSTGRES_PHONE_SYNC_PASSWORD:?Define POSTGRES_PHONE_SYNC_PASSWORD in .env}
       POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
       PGDATA: /var/lib/postgresql/18/docker
@@ -318,13 +370,14 @@ services:
         condition: service_healthy
 
   migrate:
-    env_file: !override ["${HISTAE_ENV_FILE:-.env}"]
+    env_file: !reset []
     entrypoint: [/app/bin/db-migrate]
-    environment:
+    environment: !override
       <<: *production-database-environment
-      ENV: production
       POSTGRES_USER: histae_migrate
       POSTGRES_PASSWORD: ${POSTGRES_MIGRATE_PASSWORD:?Define POSTGRES_MIGRATE_PASSWORD in .env}
+      POSTGRES_POOL_MAX: ${POSTGRES_POOL_MAX:-}
+      PHONE_HASH_KEY: ${PHONE_HASH_KEY:?Define PHONE_HASH_KEY in .env}
     secrets:
       - postgres_ca
     depends_on:
@@ -334,21 +387,96 @@ services:
   api:
     # Cloudflare/Caddy reaches the API on edge; never publish a host port here.
     ports: !reset []
-    env_file: !override ["${HISTAE_ENV_FILE:-.env}"]
+    env_file: !reset []
     entrypoint: [/app/bin/api]
     depends_on:
       <<: *production-dependencies
       photo-codec: { condition: service_healthy }
       redis: { condition: service_healthy }
-    environment:
-      <<: *production-database-environment
-      ENV: production
+    environment: !override
+      <<: [*production-database-environment, *production-storage-environment, *production-redis-environment, *production-phone-environment, *production-stores-environment, *production-legal-environment]
+      POSTGRES_USER: histae_app
+      POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:?Define POSTGRES_APP_PASSWORD in .env}
       PORT: "8080"
+      RATE_LIMIT_STORE: redis
       MAINTENANCE_MODE: disabled
       METRICS_HOST: 0.0.0.0
-      # The fixed proxy addresses match ../histae-reverse-proxy/docker-compose.yml.
-      # A local TRUST_PROXY=false must not collapse all tunnel clients into one IP.
+      PHOTO_CODEC_SOCKET: /run/histae-photo-codec/codec.sock
+      DATA_EXPORT_SPOOL_DIR: /var/lib/histae-exports
+      POSTGRES_POOL_MAX: ${HISTAE_API_POSTGRES_POOL_MAX:-30}
+      # Only the fixed ingress proxies can provide the client address.
       TRUST_PROXY: "172.30.0.3/32,172.30.0.4/32"
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-}
+      JWT_PREVIOUS_KEYS: ${JWT_PREVIOUS_KEYS:-}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-}
+      ACCOUNT_DELETION_TOKEN_TTL: ${ACCOUNT_DELETION_TOKEN_TTL:-}
+      GOOGLE_PLAY_REVIEW_ENABLED: ${GOOGLE_PLAY_REVIEW_ENABLED:-}
+      GOOGLE_PLAY_REVIEW_PHONE_NUMBER: ${GOOGLE_PLAY_REVIEW_PHONE_NUMBER:-}
+      GOOGLE_PLAY_REVIEW_OTP: ${GOOGLE_PLAY_REVIEW_OTP:-}
+      GOOGLE_PLAY_REVIEW_EXPIRES_AT: ${GOOGLE_PLAY_REVIEW_EXPIRES_AT:-}
+      ADMIN_WEBAUTHN_ORIGIN: ${ADMIN_WEBAUTHN_ORIGIN:-}
+      ADMIN_WEBAUTHN_RP_ID: ${ADMIN_WEBAUTHN_RP_ID:-}
+      ADMIN_WEBAUTHN_RP_NAME: ${ADMIN_WEBAUTHN_RP_NAME:-}
+      ADMIN_WEBAUTHN_CHALLENGE_TTL: ${ADMIN_WEBAUTHN_CHALLENGE_TTL:-}
+      ADMIN_WEBAUTHN_BOOTSTRAP_TTL: ${ADMIN_WEBAUTHN_BOOTSTRAP_TTL:-}
+      ADMIN_SESSION_IDLE_TTL: ${ADMIN_SESSION_IDLE_TTL:-}
+      ADMIN_SESSION_ABSOLUTE_TTL: ${ADMIN_SESSION_ABSOLUTE_TTL:-}
+      ADMIN_RECENT_AUTH_TTL: ${ADMIN_RECENT_AUTH_TTL:-}
+      SWEEGO_WEBHOOK_SECRET: ${SWEEGO_WEBHOOK_SECRET:-}
+      WEB_ACCOUNT_ORIGIN: ${WEB_ACCOUNT_ORIGIN:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      ADVERTISING_PROVIDER: ${ADVERTISING_PROVIDER:-}
+      ADMOB_ANDROID_REWARDED_AD_UNIT: ${ADMOB_ANDROID_REWARDED_AD_UNIT:-}
+      ADMOB_IOS_REWARDED_AD_UNIT: ${ADMOB_IOS_REWARDED_AD_UNIT:-}
+      ADMOB_REWARD_ITEM: ${ADMOB_REWARD_ITEM:-}
+      METRICS_ENABLED: ${METRICS_ENABLED:-}
+      METRICS_PORT: ${METRICS_PORT:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      DATA_EXPORT_PAGE_SIZE: ${DATA_EXPORT_PAGE_SIZE:-}
+      DATA_EXPORT_MAX_BYTES: ${DATA_EXPORT_MAX_BYTES:-}
+      DATA_EXPORT_MAX_CONCURRENCY: ${DATA_EXPORT_MAX_CONCURRENCY:-}
+      DATA_EXPORT_SPOOL_BYTES: ${DATA_EXPORT_SPOOL_BYTES:-}
+      DATA_EXPORT_DOWNLOAD_TIMEOUT: ${DATA_EXPORT_DOWNLOAD_TIMEOUT:-}
+      RATE_LIMIT_GLOBAL: ${RATE_LIMIT_GLOBAL:-}
+      RATE_LIMIT_GLOBAL_WINDOW: ${RATE_LIMIT_GLOBAL_WINDOW:-}
+      RATE_LIMIT_OTP: ${RATE_LIMIT_OTP:-}
+      RATE_LIMIT_OTP_WINDOW: ${RATE_LIMIT_OTP_WINDOW:-}
+      RATE_LIMIT_REFRESH: ${RATE_LIMIT_REFRESH:-}
+      RATE_LIMIT_REFRESH_WINDOW: ${RATE_LIMIT_REFRESH_WINDOW:-}
+      RATE_LIMIT_FEED: ${RATE_LIMIT_FEED:-}
+      RATE_LIMIT_FEED_WINDOW: ${RATE_LIMIT_FEED_WINDOW:-}
+      RATE_LIMIT_MESSAGE: ${RATE_LIMIT_MESSAGE:-}
+      RATE_LIMIT_MESSAGE_WINDOW: ${RATE_LIMIT_MESSAGE_WINDOW:-}
+      RATE_LIMIT_DATA_EXPORT: ${RATE_LIMIT_DATA_EXPORT:-}
+      RATE_LIMIT_DATA_EXPORT_WINDOW: ${RATE_LIMIT_DATA_EXPORT_WINDOW:-}
+      RATE_LIMIT_REPORT: ${RATE_LIMIT_REPORT:-}
+      RATE_LIMIT_REPORT_WINDOW: ${RATE_LIMIT_REPORT_WINDOW:-}
+      RATE_LIMIT_PHOTO: ${RATE_LIMIT_PHOTO:-}
+      RATE_LIMIT_PHOTO_WINDOW: ${RATE_LIMIT_PHOTO_WINDOW:-}
+      RATE_LIMIT_SWIPE: ${RATE_LIMIT_SWIPE:-}
+      RATE_LIMIT_SWIPE_WINDOW: ${RATE_LIMIT_SWIPE_WINDOW:-}
+      RATE_LIMIT_BILLING: ${RATE_LIMIT_BILLING:-}
+      RATE_LIMIT_BILLING_WINDOW: ${RATE_LIMIT_BILLING_WINDOW:-}
+      RATE_LIMIT_BILLING_WEBHOOK: ${RATE_LIMIT_BILLING_WEBHOOK:-}
+      RATE_LIMIT_BILLING_WEBHOOK_WINDOW: ${RATE_LIMIT_BILLING_WEBHOOK_WINDOW:-}
+      RATE_LIMIT_SMS_WEBHOOK: ${RATE_LIMIT_SMS_WEBHOOK:-}
+      RATE_LIMIT_SMS_WEBHOOK_WINDOW: ${RATE_LIMIT_SMS_WEBHOOK_WINDOW:-}
+      RATE_LIMIT_ADMIN_AUTH: ${RATE_LIMIT_ADMIN_AUTH:-}
+      RATE_LIMIT_ADMIN_AUTH_WINDOW: ${RATE_LIMIT_ADMIN_AUTH_WINDOW:-}
+      TERMS_OF_SERVICE_URL_EN: ${TERMS_OF_SERVICE_URL_EN:-}
+      TERMS_OF_SERVICE_URL_ES: ${TERMS_OF_SERVICE_URL_ES:-}
+      TERMS_OF_SERVICE_URL_IT: ${TERMS_OF_SERVICE_URL_IT:-}
+      PRIVACY_POLICY_URL_EN: ${PRIVACY_POLICY_URL_EN:-}
+      PRIVACY_POLICY_URL_ES: ${PRIVACY_POLICY_URL_ES:-}
+      PRIVACY_POLICY_URL_IT: ${PRIVACY_POLICY_URL_IT:-}
+      SENSITIVE_DATA_CONSENT_URL_EN: ${SENSITIVE_DATA_CONSENT_URL_EN:-}
+      SENSITIVE_DATA_CONSENT_URL_ES: ${SENSITIVE_DATA_CONSENT_URL_ES:-}
+      SENSITIVE_DATA_CONSENT_URL_IT: ${SENSITIVE_DATA_CONSENT_URL_IT:-}
+      LOCATION_CONSENT_URL_EN: ${LOCATION_CONSENT_URL_EN:-}
+      LOCATION_CONSENT_URL_ES: ${LOCATION_CONSENT_URL_ES:-}
+      LOCATION_CONSENT_URL_IT: ${LOCATION_CONSENT_URL_IT:-}
     secrets:
       - postgres_ca
       - store_verifier_ca
@@ -362,16 +490,28 @@ services:
           - histae-api-production
 
   outbox-worker:
-    env_file: !override ["${HISTAE_ENV_FILE:-.env}"]
+    env_file: !reset []
     entrypoint: [/app/bin/outbox]
     depends_on:
       <<: *production-dependencies
       redis: { condition: service_healthy }
-    environment:
-      <<: *production-database-environment
-      ENV: production
+    environment: !override
+      <<: [*production-database-environment, *production-storage-environment, *production-redis-environment, *production-phone-environment, *production-stores-environment, *production-legal-environment]
+      POSTGRES_USER: histae_outbox
+      POSTGRES_PASSWORD: ${POSTGRES_OUTBOX_PASSWORD:?Define POSTGRES_OUTBOX_PASSWORD in .env}
       MAINTENANCE_MODE: worker
-      METRICS_ENABLED: "false"
+      POSTGRES_POOL_MAX: ${POSTGRES_POOL_MAX:-}
+      SWEEGO_API_KEY: ${SWEEGO_API_KEY:-}
+      SWEEGO_SMS_SENDER_ID: ${SWEEGO_SMS_SENDER_ID:-}
+      SWEEGO_API_URL: ${SWEEGO_API_URL:-}
+      PUSH_PROVIDER: ${PUSH_PROVIDER:-}
+      PUSH_TIMEOUT: ${PUSH_TIMEOUT:-}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL:-}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY:-}
+      FIREBASE_TOKEN_URI: ${FIREBASE_TOKEN_URI:-}
+      OUTBOX_PURGE_BATCH_SIZE: ${OUTBOX_PURGE_BATCH_SIZE:-}
+      OUTBOX_PURGE_MAX_BATCHES: ${OUTBOX_PURGE_MAX_BATCHES:-}
     secrets:
       - postgres_ca
       - store_verifier_ca
@@ -387,14 +527,17 @@ services:
       - postgres_ca
 
   maintenance:
-    env_file: !override ["${HISTAE_ENV_FILE:-.env}"]
+    env_file: !reset []
     entrypoint: [/app/bin/maintenance]
     depends_on: *production-dependencies
-    environment:
-      <<: *production-database-environment
-      ENV: production
+    environment: !override
+      <<: [*production-database-environment, *production-storage-environment, *production-store-flags]
+      POSTGRES_USER: histae_maintenance
+      POSTGRES_PASSWORD: ${POSTGRES_MAINTENANCE_PASSWORD:?Define POSTGRES_MAINTENANCE_PASSWORD in .env}
       MAINTENANCE_MODE: worker
-      METRICS_ENABLED: "false"
+      POSTGRES_POOL_MAX: ${POSTGRES_POOL_MAX:-}
+      MATCH_MAINTENANCE_BATCH_SIZE: ${MATCH_MAINTENANCE_BATCH_SIZE:-}
+      MATCH_MAINTENANCE_MAX_BATCHES: ${MATCH_MAINTENANCE_MAX_BATCHES:-}
     secrets:
       - postgres_ca
     networks: [backend, storage-clients]

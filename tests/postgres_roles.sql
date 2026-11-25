@@ -64,7 +64,9 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname LIKE 'fct_%'
-    AND (p.proowner <> 'histae_migrate'::regrole OR p.prosecdef
+    AND (p.proowner <> 'histae_migrate'::regrole
+      OR (p.prosecdef AND NOT COALESCE(
+        p.proconfig @> ARRAY['search_path=pg_catalog, public, pg_temp'], false))
       OR NOT has_function_privilege(current_user, p.oid, 'EXECUTE'))) THEN
     RAISE EXCEPTION 'unexpected application function privileges';
   END IF;
@@ -88,6 +90,8 @@ BEGIN
     'TRUNCATE public.role_permission_probe',
     'SET ROLE histae_migrate',
     'SET ROLE histae_admin',
+    'SET ROLE histae_outbox',
+    'SET ROLE histae_maintenance',
     'CREATE ROLE forbidden_role',
     'COPY (SELECT 1) TO ''/tmp/forbidden-role-write'''
   ] LOOP

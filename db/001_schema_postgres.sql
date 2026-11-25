@@ -1392,7 +1392,8 @@ END;
 $$;
 
 CREATE FUNCTION fct_require_live_account() RETURNS trigger
-    LANGUAGE plpgsql
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path = pg_catalog, public, pg_temp
     AS $$
 DECLARE
   account_ids UUID[] := '{}';
@@ -1415,7 +1416,8 @@ END;
 $$;
 
 CREATE FUNCTION fct_require_live_match() RETURNS trigger
-    LANGUAGE plpgsql
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path = pg_catalog, public, pg_temp
     AS $$
 DECLARE participant RECORD;
 BEGIN
@@ -1645,3 +1647,591 @@ $$;
 CREATE TRIGGER trg_save_data_request_reply AFTER UPDATE OF response ON data_subject_request
 FOR EACH ROW EXECUTE FUNCTION fct_save_data_request_reply();
 -- END customer cases
+
+
+-- The maintenance role runs bounded retention without direct access to secrets
+-- or permission to delete active authentication, billing or privacy records.
+CREATE FUNCTION fct_run_privacy_retention(p_now timestamptz, p_limit bigint)
+RETURNS bigint[] LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  cutoff timestamptz := LEAST(p_now, clock_timestamp());
+  affected bigint;
+  counts bigint[] := ARRAY[]::bigint[];
+BEGIN
+  IF p_now IS NULL OR p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 1000 THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid retention batch';
+  END IF;
+  -- Shared with the privacy maintenance leader and phone blocklist policy, respectively.
+  IF NOT pg_try_advisory_xact_lock(61202608) THEN
+    RETURN NULL;
+  END IF;
+  PERFORM pg_advisory_xact_lock_shared(86302016);
+
+  -- Stale presences.
+  WITH stale AS (
+    SELECT user_id FROM user_presence
+    WHERE is_location_fresh = true AND updated_at <= cutoff - INTERVAL '1 hour'
+    ORDER BY updated_at LIMIT p_limit
+  ) UPDATE user_presence SET is_location_fresh = false
+    WHERE user_id IN (SELECT user_id FROM stale);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired presences.
+  DELETE FROM user_presence WHERE user_id IN (
+    SELECT user_id FROM user_presence WHERE updated_at <= cutoff - INTERVAL '24 hours'
+    ORDER BY updated_at LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired swipes.
+  DELETE FROM swipe_decision WHERE (actor_id, target_id) IN (
+    SELECT actor_id, target_id FROM swipe_decision WHERE expires_at <= cutoff
+    ORDER BY expires_at, actor_id, target_id LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired OTPs.
+  DELETE FROM otp_verification WHERE id IN (
+    SELECT id FROM otp_verification WHERE expires_at <= cutoff ORDER BY expires_at LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired refresh tokens.
+  DELETE FROM refresh_tokens WHERE id IN (
+    SELECT id FROM refresh_tokens WHERE expires_at <= cutoff
+      AND NOT (rotation_result IS NOT NULL AND rotated_at > cutoff - INTERVAL '7 days')
+    ORDER BY expires_at,id LIMIT p_limit FOR UPDATE SKIP LOCKED);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired notifications.
+  DELETE FROM notification WHERE id IN (
+    SELECT id FROM notification WHERE expires_at <= cutoff ORDER BY expires_at LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired consents.
+  DELETE FROM user_consent WHERE id IN (
+    SELECT id FROM user_consent
+    WHERE withdrawn_at IS NOT NULL AND withdrawn_at <= cutoff - INTERVAL '5 years'
+    ORDER BY withdrawn_at LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired data subject requests.
+  DELETE FROM data_subject_request WHERE id IN (
+    SELECT id FROM data_subject_request
+    WHERE status IN ('completed', 'rejected') AND completed_at IS NOT NULL
+      AND completed_at <= cutoff - INTERVAL '5 years'
+    ORDER BY completed_at LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired data access logs.
+  DELETE FROM data_access_log WHERE id IN (
+    SELECT id FROM data_access_log WHERE accessed_at <= cutoff - INTERVAL '1 year'
+    ORDER BY accessed_at LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired reports.
+  DELETE FROM user_report WHERE id IN (
+    SELECT id FROM user_report
+    WHERE status IN ('reviewed', 'dismissed') AND resolved_at IS NOT NULL
+      AND resolved_at <= cutoff - INTERVAL '3 years'
+    ORDER BY resolved_at LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired account tombstones.
+  DELETE FROM account_tombstone WHERE phone_number_hash IN (
+    SELECT phone_number_hash FROM account_tombstone WHERE expires_at <= cutoff
+    ORDER BY expires_at LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired account deletion tokens.
+  DELETE FROM account_deletion_token WHERE id IN (
+    SELECT id FROM account_deletion_token WHERE expires_at <= cutoff
+    ORDER BY expires_at LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired admin webauthn challenges.
+  DELETE FROM admin_webauthn_challenge WHERE id IN (
+    SELECT id FROM (
+      (SELECT id, expires_at FROM admin_webauthn_challenge
+       WHERE consumed_at IS NOT NULL ORDER BY expires_at, id LIMIT p_limit)
+      UNION ALL
+      (SELECT id, expires_at FROM admin_webauthn_challenge
+       WHERE consumed_at IS NULL AND expires_at <= cutoff
+       ORDER BY expires_at, id LIMIT p_limit)
+    ) AS candidates ORDER BY expires_at, id LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired admin webauthn bootstraps.
+  DELETE FROM admin_webauthn_bootstrap WHERE id IN (
+    SELECT id FROM (
+      (SELECT id, expires_at FROM admin_webauthn_bootstrap
+       WHERE consumed_at IS NOT NULL ORDER BY expires_at, id LIMIT p_limit)
+      UNION ALL
+      (SELECT id, expires_at FROM admin_webauthn_bootstrap
+       WHERE consumed_at IS NULL AND expires_at <= cutoff
+       ORDER BY expires_at, id LIMIT p_limit)
+    ) AS candidates ORDER BY expires_at, id LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired admin sessions.
+  DELETE FROM admin_session WHERE id IN (
+    SELECT id FROM (
+      (SELECT id, absolute_expires_at AS cleanup_at FROM admin_session
+       WHERE absolute_expires_at <= cutoff ORDER BY absolute_expires_at, id LIMIT p_limit)
+      UNION ALL
+      (SELECT id, revoked_at AS cleanup_at FROM admin_session
+       WHERE revoked_at <= cutoff - INTERVAL '24 hours' AND absolute_expires_at > cutoff
+       ORDER BY revoked_at, id LIMIT p_limit)
+    ) AS candidates ORDER BY cleanup_at, id LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired admin auth events.
+  DELETE FROM admin_auth_event WHERE id IN (
+    SELECT id FROM admin_auth_event WHERE created_at <= cutoff - INTERVAL '1 year'
+    ORDER BY created_at LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired outbox operator actions.
+  DELETE FROM outbox_operator_action WHERE id IN (
+    SELECT id FROM outbox_operator_action WHERE created_at <= cutoff - INTERVAL '1 year'
+    ORDER BY created_at LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired mobile sessions.
+  DELETE FROM refresh_token_family WHERE id IN (
+    SELECT family.id FROM refresh_token_family AS family
+    WHERE family.expires_at <= cutoff
+      AND NOT EXISTS (SELECT 1 FROM refresh_tokens WHERE family_id = family.id)
+    ORDER BY family.expires_at, family.id LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired reward intents.
+  DELETE FROM advertising_reward_intent WHERE id IN (SELECT id FROM advertising_reward_intent WHERE created_at <= cutoff - INTERVAL '90 days' ORDER BY created_at,id LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired continuation reservations.
+  DELETE FROM continuation_reservation WHERE (match_id,user_id) IN (SELECT r.match_id,r.user_id FROM continuation_reservation r JOIN match_init m ON m.id=r.match_id WHERE m.status<>'awaiting_continuation' OR m.expires_at<=cutoff ORDER BY m.expires_at,r.match_id,r.user_id LIMIT p_limit FOR UPDATE OF m SKIP LOCKED);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired continuation usage.
+  DELETE FROM continuation_usage WHERE (user_id,week_start) IN (SELECT u.user_id,u.week_start FROM continuation_usage u WHERE u.week_start < (cutoff AT TIME ZONE 'UTC')::date - 90 AND NOT EXISTS(SELECT 1 FROM continuation_reservation r WHERE r.user_id=u.user_id AND r.week_start=u.week_start) ORDER BY u.week_start,u.user_id LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired sms attempts.
+  DELETE FROM sms_send_attempt WHERE delivery_id IN (
+    SELECT delivery_id FROM sms_send_attempt WHERE reserved_at <= cutoff - interval '25 hours'
+    ORDER BY reserved_at LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired web challenges.
+  DELETE FROM web_account_challenge WHERE id IN (SELECT id FROM web_account_challenge WHERE expires_at <= cutoff ORDER BY expires_at,id LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired web sessions.
+  DELETE FROM web_account_session WHERE token_hash IN (SELECT token_hash FROM web_account_session WHERE expires_at <= cutoff ORDER BY expires_at,token_hash LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired store notifications.
+  DELETE FROM billing_store_notification WHERE id IN (SELECT id FROM billing_store_notification WHERE processed_at <= cutoff - interval '7 days' OR received_at <= cutoff - interval '90 days' ORDER BY received_at,id LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired store subscriptions.
+  DELETE FROM billing_store_subscription WHERE id IN (SELECT id FROM billing_store_subscription WHERE expires_at <= cutoff - interval '400 days' AND next_check_at <= cutoff ORDER BY expires_at,id LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired store accounts.
+  DELETE FROM billing_store_account WHERE id IN (SELECT a.id FROM billing_store_account a WHERE a.user_id IS NULL AND a.created_at <= cutoff - interval '400 days' AND NOT EXISTS(SELECT 1 FROM billing_store_subscription s WHERE s.account_id=a.id) ORDER BY a.created_at,a.id LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired mobile OTP requests.
+  DELETE FROM mobile_otp_request WHERE id IN (
+    SELECT id FROM mobile_otp_request WHERE expires_at <= cutoff AND resend_at <= cutoff
+    ORDER BY expires_at,id LIMIT p_limit);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired refresh recoveries.
+  UPDATE refresh_tokens SET rotation_result=NULL WHERE id IN (
+    SELECT id FROM refresh_tokens WHERE rotation_result IS NOT NULL
+      AND rotated_at <= cutoff - INTERVAL '7 days'
+    ORDER BY rotated_at,id LIMIT p_limit FOR UPDATE SKIP LOCKED);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired phone observations.
+  DELETE FROM phone_blocklist_observation WHERE (entry_id,source) IN (
+    SELECT entry_id,source FROM phone_blocklist_observation WHERE last_seen_at<=cutoff-INTERVAL '180 days'
+    ORDER BY last_seen_at,entry_id LIMIT p_limit FOR UPDATE SKIP LOCKED);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired phone policies.
+  DELETE FROM phone_blocklist_entry WHERE id IN (
+    SELECT e.id FROM phone_blocklist_entry e WHERE e.updated_at<=cutoff-INTERVAL '180 days'
+      AND (e.decision_until IS NULL OR e.decision_until<=cutoff)
+      AND NOT EXISTS(SELECT 1 FROM phone_blocklist_observation o WHERE o.entry_id=e.id)
+    ORDER BY e.created_at,e.id LIMIT p_limit FOR UPDATE SKIP LOCKED);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired support cases.
+  DELETE FROM support_case WHERE id IN (
+    SELECT id FROM support_case WHERE expires_at <= cutoff ORDER BY expires_at,id LIMIT p_limit FOR UPDATE SKIP LOCKED);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired erasure receipts.
+  DELETE FROM erasure_receipt WHERE user_id IN (
+    SELECT user_id FROM erasure_receipt WHERE expires_at <= cutoff ORDER BY expires_at,user_id LIMIT p_limit FOR UPDATE SKIP LOCKED);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  -- Expired assisted exports.
+  DELETE FROM assisted_data_export WHERE request_id IN (
+    SELECT request_id FROM assisted_data_export WHERE expires_at <= cutoff ORDER BY expires_at,request_id LIMIT p_limit FOR UPDATE SKIP LOCKED);
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  counts := array_append(counts, affected);
+
+  RETURN counts;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION fct_run_privacy_retention(timestamptz, bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fct_run_privacy_retention(timestamptz, bigint) TO histae_maintenance;
+
+-- Narrow row locks preserve synchronization without granting UPDATE on accounts.
+CREATE FUNCTION fct_lock_live_account(p_user_id uuid, p_allow_banned boolean)
+RETURNS SETOF uuid LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT user_id FROM user_account
+  WHERE user_id = p_user_id AND deleted_at IS NULL AND (p_allow_banned OR NOT is_banned)
+  FOR SHARE
+$$;
+REVOKE EXECUTE ON FUNCTION fct_lock_live_account(uuid, boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fct_lock_live_account(uuid, boolean) TO histae_outbox, histae_maintenance;
+
+CREATE FUNCTION fct_lock_billing_store_account(p_user_id uuid)
+RETURNS SETOF uuid LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT id FROM billing_store_account WHERE user_id = p_user_id FOR SHARE
+$$;
+REVOKE EXECUTE ON FUNCTION fct_lock_billing_store_account(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fct_lock_billing_store_account(uuid) TO histae_outbox;
+
+CREATE FUNCTION fct_lock_sms_send_control()
+RETURNS boolean LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT suspended FROM sms_send_control WHERE singleton FOR UPDATE
+$$;
+REVOKE EXECUTE ON FUNCTION fct_lock_sms_send_control() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fct_lock_sms_send_control() TO histae_outbox;
+
+CREATE FUNCTION fct_data_request_has_reply(p_request_id uuid)
+RETURNS boolean LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM data_subject_request WHERE id = p_request_id AND nullif(btrim(response), '') IS NOT NULL
+  )
+$$;
+REVOKE EXECUTE ON FUNCTION fct_data_request_has_reply(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fct_data_request_has_reply(uuid) TO histae_outbox, histae_maintenance;
+
+CREATE FUNCTION fct_pending_web_otp(p_challenge_id uuid)
+RETURNS TABLE (encrypted_phone bytea, phone_hash text, language text)
+LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT a.phone_number_encrypted, c.phone_hash, c.language
+  FROM web_account_challenge c
+  JOIN user_account a ON a.user_id = c.user_id
+  WHERE c.id = p_challenge_id AND NOT c.consumed AND c.attempts < 5 AND c.expires_at > clock_timestamp()
+    AND a.phone_number_hash = c.phone_hash
+    AND a.deleted_at IS NULL AND NOT a.is_banned AND NOT a.is_review_account
+    AND EXISTS (
+      SELECT 1 FROM outbox_event e WHERE e.event_type = 'identity.web_otp.send'
+        AND e.aggregate_id = c.id AND e.status IN ('pending', 'processing')
+    )
+$$;
+REVOKE EXECUTE ON FUNCTION fct_pending_web_otp(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fct_pending_web_otp(uuid) TO histae_outbox;
+
+CREATE FUNCTION fct_complete_claimed_erasure(p_event_id uuid, p_worker_id uuid, p_request_id uuid)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  target_user_id uuid;
+BEGIN
+  PERFORM 1 FROM outbox_event
+    WHERE id = p_event_id AND aggregate_id = p_request_id AND event_type = 'account.erase'
+      AND status = 'processing' AND locked_by = p_worker_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+  SELECT user_id INTO target_user_id FROM account_erasure
+    WHERE request_id = p_request_id AND step = 'postgres' FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+
+  PERFORM id FROM match_init WHERE user1_id = target_user_id OR user2_id = target_user_id
+    ORDER BY id FOR UPDATE;
+  PERFORM 1 FROM user_account WHERE user_id = target_user_id AND deleted_at IS NOT NULL FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'account erasure requires a deleted account';
+  END IF;
+  PERFORM 1 FROM data_subject_request
+    WHERE id = p_request_id AND user_id = target_user_id AND status = 'in_progress' AND type = 'erasure'
+    FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'account erasure request is unavailable';
+  END IF;
+  IF EXISTS (SELECT 1 FROM user_photo WHERE user_id = target_user_id)
+    OR EXISTS (SELECT 1 FROM swipe_decision WHERE actor_id = target_user_id OR target_id = target_user_id) THEN
+    RAISE EXCEPTION 'account erasure has pending cleanup';
+  END IF;
+
+  DELETE FROM photo_upload_request WHERE user_id = target_user_id;
+  DELETE FROM admin_session WHERE user_id = target_user_id;
+  DELETE FROM admin_webauthn_challenge WHERE user_id = target_user_id;
+  DELETE FROM admin_webauthn_bootstrap WHERE user_id = target_user_id;
+  DELETE FROM admin_webauthn_credential WHERE user_id = target_user_id;
+  DELETE FROM support_case WHERE user_id = target_user_id;
+  PERFORM fct_anonymize_user(target_user_id);
+
+  UPDATE data_subject_request SET status = 'completed', completed_at = clock_timestamp()
+    WHERE id = p_request_id;
+  UPDATE account_erasure SET step = 'completed', updated_at = clock_timestamp(), completed_at = clock_timestamp()
+    WHERE request_id = p_request_id;
+  RETURN true;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION fct_complete_claimed_erasure(uuid, uuid, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fct_complete_claimed_erasure(uuid, uuid, uuid) TO histae_outbox;
+
+
+CREATE FUNCTION fct_purge_expired_match_messages(p_now timestamptz, p_limit bigint)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE deleted bigint;
+BEGIN
+  IF p_now IS NULL OR p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 5000 THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid match cleanup batch';
+  END IF;
+  WITH candidates AS MATERIALIZED (
+           SELECT message.id FROM match_init AS match_record
+           JOIN chat_message AS message ON message.match_id = match_record.id
+           WHERE match_record.status IN ('expired', 'ended')
+             AND match_record.purge_after <= LEAST(p_now, statement_timestamp())
+           ORDER BY match_record.purge_after, match_record.id,
+                    message.created_at, message.id
+           LIMIT p_limit FOR UPDATE OF message SKIP LOCKED
+         )
+         DELETE FROM chat_message AS message USING candidates
+         WHERE message.id = candidates.id;
+  GET DIAGNOSTICS deleted = ROW_COUNT;
+  RETURN deleted;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION fct_purge_expired_match_messages(timestamptz, bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fct_purge_expired_match_messages(timestamptz, bigint) TO histae_maintenance;
+
+
+CREATE FUNCTION fct_purge_expired_match_notifications(p_now timestamptz, p_limit bigint)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE deleted bigint;
+BEGIN
+  IF p_now IS NULL OR p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 5000 THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid match cleanup batch';
+  END IF;
+  WITH candidates AS MATERIALIZED (
+           SELECT notification.id FROM match_init AS match_record
+           JOIN notification
+             ON notification.user_id IN (match_record.user1_id, match_record.user2_id)
+            AND notification.payload->>'match_id' = match_record.id::text
+           WHERE match_record.status IN ('expired', 'ended')
+             AND match_record.purge_after <= LEAST(p_now, statement_timestamp())
+           ORDER BY match_record.purge_after, match_record.id,
+                    notification.created_at, notification.id
+           LIMIT p_limit FOR UPDATE OF notification SKIP LOCKED
+         )
+         DELETE FROM notification USING candidates
+         WHERE notification.id = candidates.id;
+  GET DIAGNOSTICS deleted = ROW_COUNT;
+  RETURN deleted;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION fct_purge_expired_match_notifications(timestamptz, bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fct_purge_expired_match_notifications(timestamptz, bigint) TO histae_maintenance;
+
+-- Workers have no default privileges. Keep these grants aligned with their
+-- repository queries and leave account, credential and financial writes to the API.
+GRANT SELECT (job_name, run_id, started_at, last_succeeded_at),
+  INSERT (job_name, run_id, status, started_at),
+  UPDATE (run_id, status, started_at, finished_at, last_succeeded_at, duration_ms,
+          processed_count, batch_count, work_remaining, last_error_code, updated_at)
+  ON maintenance_job_status TO histae_outbox, histae_maintenance;
+
+GRANT SELECT (user_id, deleted_at, is_banned) ON user_account TO histae_outbox, histae_maintenance;
+GRANT SELECT (blocker_id, blocked_id) ON user_block TO histae_outbox, histae_maintenance;
+GRANT SELECT (id, user_id, type, payload, expires_at) ON notification TO histae_outbox, histae_maintenance;
+GRANT SELECT (user_id, last_used_at, id, session_id) ON device_token TO histae_outbox, histae_maintenance;
+GRANT SELECT (id, user_id, revoked_at, expires_at) ON refresh_token_family TO histae_outbox, histae_maintenance;
+GRANT SELECT (id, user_id, status) ON data_subject_request TO histae_outbox, histae_maintenance;
+GRANT SELECT (id, request_id, author) ON data_request_message TO histae_outbox, histae_maintenance;
+GRANT SELECT ON user_notification_preference, match_notification_preference TO histae_outbox, histae_maintenance;
+GRANT SELECT (id, user1_id, user2_id, status, expires_at) ON match_init TO histae_outbox, histae_maintenance;
+
+GRANT SELECT (id, user_id, object_key, status, updated_at), UPDATE (status, updated_at), DELETE
+  ON user_photo TO histae_outbox, histae_maintenance;
+GRANT SELECT (photo_id), UPDATE (status, photo_id, updated_at)
+  ON photo_upload_request TO histae_outbox, histae_maintenance;
+GRANT INSERT (id, event_type, aggregate_id, payload) ON outbox_event TO histae_outbox, histae_maintenance;
+
+-- Durable delivery, leases, retries and cleanup.
+GRANT SELECT (id, event_type, aggregate_id, payload, status, attempts, available_at,
+              locked_at, locked_by, created_at, processed_at, resolved_at),
+  UPDATE (status, attempts, available_at, locked_at, locked_by, processed_at, last_error_code,
+          dead_lettered_at, resolved_at, resolved_by, resolution_reason), DELETE
+  ON outbox_event TO histae_outbox;
+GRANT SELECT (request_id, user_id, step), UPDATE (step, updated_at) ON account_erasure TO histae_outbox;
+GRANT SELECT (actor_id, target_id), DELETE ON swipe_decision TO histae_outbox;
+
+-- SMS delivery can write an OTP digest, while reading it is reserved for verification.
+GRANT SELECT (id, phone_hash, encrypted_phone, registration, language, challenge_id, expires_at, created_at),
+  UPDATE (encrypted_phone) ON mobile_otp_request TO histae_outbox;
+GRANT SELECT (id, phone_number_hash, idempotency_key, expires_at, settlement_deadline, language, channel,
+              delivery_status, delivery_error_code, provider_transaction_id, provider_message_id,
+              attempt_number, used, sent_at, failed_at),
+  INSERT (id, phone_number_hash, otp_hash, idempotency_key, expires_at, settlement_deadline, language, channel),
+  UPDATE (delivery_status, delivery_error_code, provider_transaction_id, provider_message_id, sent_at, failed_at, used)
+  ON otp_verification TO histae_outbox;
+GRANT SELECT (delivery_id, phone_hash, reserved_at), INSERT (delivery_id, phone_hash, reserved_at),
+  UPDATE (reserved_at), DELETE ON sms_send_attempt TO histae_outbox;
+GRANT SELECT (singleton, key_fingerprint) ON phone_blocklist_control TO histae_outbox;
+GRANT SELECT (id, phone_hash, decision, decision_until) ON phone_blocklist_entry TO histae_outbox;
+GRANT SELECT (entry_id, last_seen_at) ON phone_blocklist_observation TO histae_outbox;
+GRANT SELECT (last_success_at) ON phone_blocklist_source TO histae_outbox;
+
+-- Push requires device registrations and notification context.
+GRANT SELECT (preferred_language, is_review_account, phone_number_hash) ON user_account TO histae_outbox;
+GRANT SELECT (user_id, firstname) ON user_profile TO histae_outbox;
+GRANT SELECT (token, language), DELETE ON device_token TO histae_outbox;
+GRANT SELECT (read_at) ON notification TO histae_outbox;
+GRANT SELECT (id, notification_id, device_id, session_id) ON notification_push_delivery TO histae_outbox;
+GRANT SELECT (photo_reveal_version) ON match_init TO histae_outbox;
+GRANT SELECT (match_id, user_id, continued, revealed) ON match_state TO histae_outbox;
+GRANT SELECT (match_id, user_id, source, week_start) ON continuation_reservation TO histae_outbox;
+GRANT SELECT (id, match_id, sender_id, read_at) ON chat_message TO histae_outbox;
+GRANT SELECT (photo_id, status) ON content_moderation_case TO histae_outbox;
+
+-- The outbox processes existing store notifications and verified subscriptions.
+GRANT SELECT (id, user_id, google_account_id) ON billing_store_account TO histae_outbox;
+GRANT SELECT (id, user_id, account_id, provider, environment, original_id, reference_encrypted,
+              product_id, base_plan_id, transaction_id, billing_period, status, starts_at,
+              expires_at, auto_renew, acknowledged, verified_at, next_check_at, superseded),
+  INSERT (user_id, account_id, provider, original_id, reference_encrypted, environment, product_id,
+          base_plan_id, transaction_id, billing_period, status, starts_at, expires_at, auto_renew,
+          acknowledged, verified_at, next_check_at),
+  UPDATE (reference_encrypted, product_id, base_plan_id, transaction_id, billing_period, status,
+          starts_at, expires_at, auto_renew, acknowledged, verified_at, next_check_at, superseded)
+  ON billing_store_subscription TO histae_outbox;
+GRANT SELECT (id, provider, reference_encrypted, processed_at),
+  UPDATE (processed_at, reference_encrypted) ON billing_store_notification TO histae_outbox;
+
+-- Maintenance advances match deadlines, creates reminders and schedules reconciliation.
+GRANT SELECT (purge_after), UPDATE (status, expires_at, purge_after), DELETE ON match_init TO histae_maintenance;
+GRANT SELECT (match_id) ON chat_message TO histae_maintenance;
+GRANT SELECT (id, match_id, created_at), UPDATE (match_id) ON user_report TO histae_maintenance;
+GRANT SELECT (deduplication_key), INSERT (id, user_id, type, payload, deduplication_key, expires_at)
+  ON notification TO histae_maintenance;
+-- PostgreSQL row locks also require UPDATE on at least one column.
+GRANT UPDATE (last_used_at) ON device_token TO histae_maintenance;
+GRANT INSERT (id, notification_id, device_id, session_id) ON notification_push_delivery TO histae_maintenance;
+GRANT SELECT (id) ON outbox_event TO histae_maintenance;
+GRANT SELECT (user_id, idempotency_key, expires_at), DELETE ON photo_upload_request TO histae_maintenance;
+
+-- Scheduling may only queue due subscriptions and move their reconciliation date.
+CREATE FUNCTION fct_schedule_store_reconciliation()
+RETURNS bigint LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  WITH due AS MATERIALIZED (
+    SELECT id FROM billing_store_subscription
+    WHERE user_id IS NOT NULL AND NOT superseded AND next_check_at <= clock_timestamp()
+      AND (expires_at > clock_timestamp() - INTERVAL '60 days' OR NOT acknowledged)
+    ORDER BY next_check_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
+  ), queued AS (
+    INSERT INTO outbox_event (id, event_type, aggregate_id, payload)
+    SELECT uuidv7(), 'billing.store.reconcile', id, '{}'::jsonb FROM due
+    ON CONFLICT (event_type, aggregate_id) DO UPDATE
+      SET status = 'pending', attempts = 0, available_at = clock_timestamp(),
+          processed_at = NULL, last_error_code = NULL
+      WHERE outbox_event.status = 'completed'
+  ), rescheduled AS (
+    UPDATE billing_store_subscription s SET next_check_at = clock_timestamp() + INTERVAL '6 hours'
+    FROM due WHERE s.id = due.id RETURNING s.id
+  )
+  SELECT count(*) FROM rescheduled
+$$;
+REVOKE EXECUTE ON FUNCTION fct_schedule_store_reconciliation() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fct_schedule_store_reconciliation() TO histae_maintenance;
+
+CREATE FUNCTION fct_require_worker_outbox_event_type() RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF (current_user = 'histae_maintenance' AND new.event_type <> 'notification.push')
+    OR (current_user = 'histae_outbox' AND new.event_type NOT IN ('photo.delete', 'billing.store.acknowledge')) THEN
+    RAISE insufficient_privilege USING MESSAGE = 'outbox event type is reserved for another workload';
+  END IF;
+  RETURN new;
+END;
+$$;
+CREATE TRIGGER trg_worker_outbox_event_type BEFORE INSERT ON outbox_event
+FOR EACH ROW EXECUTE FUNCTION fct_require_worker_outbox_event_type();
+
+CREATE FUNCTION fct_require_worker_notification_type() RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF current_user = 'histae_maintenance' AND new.type NOT IN ('match_expiring', 'first_period_ending') THEN
+    RAISE insufficient_privilege USING MESSAGE = 'notification type is reserved for another workload';
+  END IF;
+  RETURN new;
+END;
+$$;
+CREATE TRIGGER trg_worker_notification_type BEFORE INSERT ON notification
+FOR EACH ROW EXECUTE FUNCTION fct_require_worker_notification_type();

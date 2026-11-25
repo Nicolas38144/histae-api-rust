@@ -62,9 +62,7 @@ fn enqueue_sql() -> &'static str {
         [
             r#"
             WITH account AS MATERIALIZED (
-              SELECT user_id FROM user_account
-              WHERE user_id = $2 AND deleted_at IS NULL AND NOT is_banned
-              FOR SHARE
+              SELECT user_id FROM fct_lock_live_account($2, false) AS account(user_id)
             ), candidate AS (
               SELECT $1::uuid AS id, user_id, $3::text AS type, $4::jsonb AS payload,
                 $5::text AS deduplication_key

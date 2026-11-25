@@ -145,6 +145,14 @@ pub trait SmsDelivery: Send + Sync {
     fn send_otp(&self, message: SmsMessage) -> SmsDeliveryFuture<'_>;
 }
 
+pub(crate) struct DisabledSmsDelivery;
+
+impl SmsDelivery for DisabledSmsDelivery {
+    fn send_otp(&self, _message: SmsMessage) -> SmsDeliveryFuture<'_> {
+        Box::pin(async { Err(SmsDeliveryError::failed(SmsFailureReason::NotConfigured)) })
+    }
+}
+
 #[derive(Clone)]
 pub struct SweegoSmsService {
     metrics: crate::operations::metrics::DependencyMetrics,

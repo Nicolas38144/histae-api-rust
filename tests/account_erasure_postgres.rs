@@ -1,5 +1,8 @@
 #![cfg(feature = "postgres-integration")]
 
+#[path = "support/postgres_job_role.rs"]
+mod job_role;
+
 use std::env;
 use std::fmt;
 use std::path::PathBuf;
@@ -206,6 +209,7 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
     let database = Database::connect(&config)
         .await
         .map_err(|error| FixtureError(error.safe_code()))?;
+    let worker_database = job_role::connect(&config, "outbox").await?;
     let activity = AccountActivityPool::connect(&config).await?;
     let user_id = Uuid::new_v4();
     let other_id = Uuid::new_v4();
@@ -306,8 +310,8 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
             deleted: deleted_objects.clone(),
         });
         let photo_repository = Arc::new(PgPhotoRepository::new(
-            database.clone(),
-            PgOutboxRepository::new(database.clone()),
+            worker_database.clone(),
+            PgOutboxRepository::new(worker_database.clone()),
         ));
         let photos = Arc::new(PhotoService::new(
             photo_repository,
@@ -319,7 +323,9 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
         let worker_id = Uuid::new_v4();
         claim(&database, event_id, worker_id).await?;
         let wrong_worker = Uuid::new_v4();
-        let service = ErasureService::new(repository.clone(), activity.clone(), photos.clone());
+        let worker_repository = Arc::new(PgErasureRepository::new(worker_database.clone()));
+        let service =
+            ErasureService::new(worker_repository.clone(), activity.clone(), photos.clone());
         let mut blocker = database.acquire().await?;
         let shared_lock: bool = sqlx::query_scalar(
             "SELECT pg_try_advisory_lock_shared(hashtextextended($1, 13092026))",
@@ -346,7 +352,7 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
             Err(ErasureStepError::new("erasure_invalid_state"))
         );
 
-        let restarted = ErasureService::new(repository.clone(), activity.clone(), photos.clone());
+        let restarted = ErasureService::new(worker_repository, activity.clone(), photos.clone());
         assert!(!restarted.process(event_id, worker_id).await?);
         assert_eq!(step(&database, accepted.request_id).await?, "swipes");
         claim(&database, event_id, worker_id).await?;
@@ -394,7 +400,7 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
         assert_eq!(audits, 1);
         assert_eq!(deleted_objects.load(Ordering::Relaxed), 1);
 
-        let outbox = PgOutboxRepository::new(database.clone());
+        let outbox = PgOutboxRepository::new(worker_database.clone());
         assert!(outbox.complete(event_id, worker_id, Utc::now()).await?);
         let event_status: String =
             sqlx::query_scalar("SELECT status FROM outbox_event WHERE id = $1")
@@ -408,6 +414,7 @@ async fn token_acceptance_and_checkpointed_erasure_are_atomic_and_resumable()
 
     let cleanup_result = cleanup(&database, &users).await;
     activity.close().await;
+    worker_database.close().await;
     database.close().await;
     result?;
     cleanup_result?;

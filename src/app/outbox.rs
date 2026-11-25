@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::app::{BootstrapError, TaskSupervisor, wait_for_shutdown_signal};
-use crate::config::{AppConfig, SmsProvider};
+use crate::config::{OutboxConfig, SmsProvider};
 use crate::identity::mobile::account::MobileAccountRepository;
 use crate::identity::mobile::otp::{
     OtpRepository, OtpRequestHandler, OtpService, PgOtpRequestStore,
@@ -31,7 +31,7 @@ use crate::privacy::erasure::pg::PgErasureRepository;
 
 const WORKER_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 
-pub async fn run(config: AppConfig) -> Result<(), &'static str> {
+pub async fn run(config: OutboxConfig) -> Result<(), &'static str> {
     let database = Database::connect(&config.postgres)
         .await
         .map_err(|_| "postgres_connection_failed")?;
@@ -50,7 +50,7 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
     );
     let outbox = Arc::new(PgOutboxRepository::new(database.clone()));
     let otp_requests = Arc::new(PgOtpRequestStore::new(database.clone()));
-    crate::identity::mobile::phone_blocklist::pg::initialize_key(&database, &config.phone.hash_key)
+    crate::identity::mobile::phone_blocklist::pg::check_key(&database, &config.phone.hash_key)
         .await
         .map_err(|error| error.safe_code())?;
     let sms_safety = SmsSafetyService::new(

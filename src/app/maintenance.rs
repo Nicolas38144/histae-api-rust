@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use crate::config::AppConfig;
+use crate::config::MaintenanceConfig;
 use crate::infra::postgres::Database;
 use crate::matches::maintenance::{MatchMaintenanceRepository, MatchMaintenanceService};
 use crate::media::maintenance::{PhotoMaintenanceService, PhotoMaintenanceStore};
@@ -14,7 +14,7 @@ use crate::operations::maintenance::{MaintenanceTracker, PgMaintenanceStatusRepo
 use crate::outbox::pg::PgOutboxRepository;
 use crate::privacy::maintenance::{PrivacyMaintenanceRepository, PrivacyMaintenanceService};
 
-pub async fn run(config: AppConfig) -> Result<(), &'static str> {
+pub async fn run(config: MaintenanceConfig) -> Result<(), &'static str> {
     let database = Database::connect(&config.postgres)
         .await
         .map_err(|_| "postgres_connection_failed")?;
@@ -42,14 +42,10 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
         );
         let photos =
             PhotoMaintenanceService::new(photo_maintenance_store, storage, tracker.clone());
-        if config.store_billing.apple_enabled || config.store_billing.google_enabled {
-            crate::billing::stores::pg::StoreRepository::new(
-                database.clone(),
-                config.phone.encryption_key.clone(),
-            )
-            .schedule()
-            .await
-            .map_err(|_| "store_reconciliation_schedule_failed")?;
+        if config.schedule_store_reconciliation {
+            crate::billing::stores::pg::StoreRepository::schedule(&database)
+                .await
+                .map_err(|_| "store_reconciliation_schedule_failed")?;
         }
         let now = Utc::now();
         let (match_result, privacy_result, photo_result) =
