@@ -1,4 +1,5 @@
 use crate::config::{AppConfig, RateLimitStore, SmsProvider};
+use crate::identity::mobile::pg::MobileSessionRepository;
 use crate::identity::mobile::sms_safety::{PgSmsSafetyStore, SmsSafetyService};
 use crate::identity::mobile::sweego::SweegoWebhookMetrics;
 use crate::infra::{postgres::Database, postgres_locks::AccountActivityPool, redis::RedisService};
@@ -13,6 +14,7 @@ use std::{sync::Arc, time::Duration};
 
 pub(super) struct ApiResources {
     pub(super) database: Database,
+    pub(super) sessions: Arc<MobileSessionRepository>,
     pub(super) activity: AccountActivityPool,
     pub(super) redis: RedisService,
     pub(super) storage: Arc<S3ObjectStorage>,
@@ -59,6 +61,18 @@ impl ApiResources {
             config.phone.hash_key.clone(),
             config.sms.provider == SmsProvider::Sweego,
         );
+        let sessions = Arc::new(
+            MobileSessionRepository::new(database.clone()).with_review_cycle(
+                config
+                    .play_review
+                    .as_ref()
+                    .map(|review| review.cycle_hash.clone()),
+            ),
+        );
+        sessions
+            .revoke_closed_review_sessions()
+            .await
+            .map_err(|error| error.safe_code())?;
         let persistent_status = Arc::new(PgOperationalStatus::new(
             database.clone(),
             Arc::clone(&callbacks),
@@ -68,6 +82,7 @@ impl ApiResources {
         ));
         Ok(Self {
             database,
+            sessions,
             activity,
             redis,
             storage,
@@ -92,6 +107,7 @@ impl ApiResources {
     pub(super) async fn close(self) {
         let Self {
             database,
+            sessions,
             activity,
             redis,
             storage,
@@ -102,6 +118,7 @@ impl ApiResources {
             sms_safety,
         } = self;
         drop((
+            sessions,
             redis,
             storage,
             metrics,

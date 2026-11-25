@@ -96,6 +96,7 @@ impl MobileSessionStore for FakeStore {
         let session_id = session_id();
         Box::pin(async move {
             Ok(Some(MobileSessionIdentity {
+                review_expires_at: None,
                 user_id,
                 session_id,
             }))
@@ -390,6 +391,7 @@ async fn auth_precedes_body_validation_and_refresh_is_strict() {
 async fn refresh_recovery_requires_a_single_matching_uuid_key() {
     let store = FakeStore::new(account());
     store.state.lock().expect("state").rotation = RotationOutcome::Rotated(MobileSessionIdentity {
+        review_expires_at: None,
         user_id: user_id(),
         session_id: session_id(),
     });

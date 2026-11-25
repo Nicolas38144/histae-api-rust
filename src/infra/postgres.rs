@@ -372,7 +372,14 @@ pub async fn verify_schema_compatibility_on(
              AND attnotnull AND NOT attisdropped)
          AND EXISTS (SELECT 1 FROM pg_constraint
            WHERE conrelid=to_regclass(current_schema() || '.user_account')
-             AND conname='user_account_review_role_check' AND convalidated)",
+             AND conname='user_account_review_role_check' AND convalidated)
+         AND EXISTS (SELECT 1 FROM pg_attribute
+           WHERE attrelid=to_regclass(current_schema() || '.refresh_token_family')
+             AND attname='review_cycle_hash' AND atttypid='text'::regtype AND NOT attisdropped)
+         AND EXISTS (SELECT 1 FROM pg_constraint
+           WHERE conrelid=to_regclass(current_schema() || '.refresh_token_family')
+             AND conname='chk_refresh_family_revocation' AND convalidated
+             AND pg_get_constraintdef(oid) LIKE '%review_closed%')",
     )
     .fetch_one(&mut *connection)
     .await

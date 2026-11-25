@@ -147,7 +147,7 @@ Pour lier un code à sa demande, envoyer `challenge_bound: true` et conserver en
 
 Le challenge est obligatoire en production. Sans `challenge_bound: true` à l’envoi ou sans `challenge_id` à la vérification, l’API renvoie `400 otp_challenge_required`. En développement et en test, définir `MOBILE_OTP_REQUIRE_CHALLENGE=true` pour reproduire ce comportement.
 
-Exception mobile explicite : le [compte de revue Google Play](../features/google-play-review.md), désactivé par défaut, utilise un code réutilisable pour un seul numéro fictif configuré. Son `/send` conserve le délai de renvoi et enregistre une intention sans téléphone chiffré ni SMS/outbox. La première création exige `registration: true` dans la dernière intention encore valide ; une simple connexion ne crée aucun compte. Les quotas et validations restent actifs ; cette exception n’authentifie ni un compte réel existant ni un administrateur.
+Le compte de revue Google Play utilise un code réutilisable pour un seul numéro fictif pendant la fenêtre configurée. Son `/send` conserve le délai de renvoi et enregistre une intention sans téléphone chiffré ni SMS/outbox. La première création exige `registration: true` dans la dernière intention encore valide. La date de fin borne aussi les sessions existantes. Les quotas et validations s’appliquent aux comptes de revue. [Accès de revue Google Play](../features/google-play-review.md)
 
 Pour une inscription, le client envoie `registration: true`. Les deux parcours répondent de manière générique : un numéro déjà enregistré en inscription, ou inconnu en connexion, ouvre le même écran de code, mais ne reçoit aucun SMS. Aucun renseignement sur l’existence du compte ni sur la livraison n’est exposé par cette route.
 

@@ -1,4 +1,5 @@
 //! Reusable, opt-in credentials for the dedicated mobile store review account.
+use chrono::{DateTime, Utc};
 use subtle::ConstantTimeEq as _;
 use uuid::Uuid;
 
@@ -13,6 +14,8 @@ pub struct NewReviewAccount {
     pub user_id: Uuid,
     pub phone_hash: String,
     pub encrypted_phone: Vec<u8>,
+    pub expires_at: DateTime<Utc>,
+    pub cycle_hash: SecretString,
 }
 
 #[derive(Clone)]
@@ -46,7 +49,7 @@ impl PlayReviewAccess {
     }
 
     pub(super) fn authorize(&self, phone: &str, code: &str) -> Result<NewReviewAccount, OtpError> {
-        if !self.matches_phone(phone) {
+        if !self.matches_phone(phone) || self.config.expires_at <= Utc::now() {
             return Err(OtpError::InvalidOtp);
         }
         if code.len() != 6 || !code.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -64,6 +67,8 @@ impl PlayReviewAccess {
             phone_hash: hmac_sha256(phone, &self.hash_key).map_err(|_| OtpError::Internal)?,
             encrypted_phone: encrypt_phone(phone, &self.encryption_key)
                 .map_err(|_| OtpError::Internal)?,
+            expires_at: self.config.expires_at,
+            cycle_hash: self.config.cycle_hash.clone(),
         })
     }
 }

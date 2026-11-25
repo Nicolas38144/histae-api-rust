@@ -10,6 +10,7 @@ use std::time::Duration;
 use histae_api_rust::config::{JwtConfig, PostgresConfig, SecretString};
 use histae_api_rust::identity::mobile::domain::RotationOutcome;
 use histae_api_rust::identity::mobile::pg::MobileSessionRepository;
+use histae_api_rust::identity::mobile::play_review::NewReviewAccount;
 use histae_api_rust::identity::mobile::service::{MobileAuthError, MobileAuthService};
 use histae_api_rust::identity::mobile::store::MobileSessionStore;
 use histae_api_rust::identity::mobile::tokens::{TokenService, VerifiedAccessToken};
@@ -109,6 +110,84 @@ async fn cleanup(database: &Database, user_id: Uuid) -> Result<(), DatabaseError
         .await
         .map_err(histae_api_rust::infra::postgres::map_sqlx_error)?;
     Ok(())
+}
+
+#[tokio::test]
+async fn review_sessions_cannot_outlive_the_window_or_a_closed_cycle()
+-> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect(&local_config()?).await?;
+    let tokens = token_service();
+    let mut account = NewReviewAccount {
+        user_id: Uuid::new_v4(),
+        phone_hash: format!("review-{}", Uuid::new_v4()),
+        encrypted_phone: vec![1, 2, 3],
+        expires_at: chrono::Utc::now() + chrono::TimeDelta::minutes(5),
+        cycle_hash: SecretString::new("a".repeat(64)),
+    };
+    let user_id = account.user_id;
+    let repository = MobileSessionRepository::new(database.clone());
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        sqlx::query("INSERT INTO user_account (user_id,phone_number_hash,phone_number_encrypted,is_review_account)
+            VALUES ($1,$2,$3,true)")
+            .bind(user_id).bind(&account.phone_hash).bind(&account.encrypted_phone)
+            .execute(database.acquire().await?.as_mut()).await?;
+        assert!(repository.create(user_id, tokens.new_refresh_token()?).await?.is_none());
+        let open = Arc::new(repository.clone().with_review_cycle(Some(account.cycle_hash.clone())));
+        let auth = MobileAuthService::new(tokens.clone(), open.clone(), "terms-v1".into(), "privacy-v1".into());
+        let refresh = tokens.new_refresh_token()?;
+        let original_refresh = refresh.plain.clone();
+        let session = open.create_review_session(account.clone(), refresh).await?
+            .ok_or(FixtureError("review session"))?;
+        assert_eq!(session.review_expires_at, Some(account.expires_at));
+        let attempt_id = Uuid::new_v4();
+        let pair = auth.refresh_with_attempt(&original_refresh, Some(attempt_id)).await?;
+        let recovered = auth.refresh_with_attempt(&original_refresh, Some(attempt_id)).await?;
+        assert_eq!(pair.refresh_token, recovered.refresh_token);
+        let bearer = tokens.verify_access_token(&pair.access_token)?;
+        assert_eq!(bearer.expires_at_seconds, u64::try_from(account.expires_at.timestamp())?);
+        assert!(auth.authenticate(&pair.access_token).await.is_ok());
+        assert_eq!(open.list(user_id, 1, None).await?[0].expires_at.timestamp(), account.expires_at.timestamp());
+
+        sqlx::query("UPDATE refresh_token_family SET expires_at = clock_timestamp() WHERE id = $1")
+            .bind(session.session_id).execute(database.acquire().await?.as_mut()).await?;
+        assert!(!open.is_active(user_id, session.session_id).await?);
+        assert!(auth.authenticate(&pair.access_token).await.is_err());
+        assert_eq!(auth.refresh(&pair.refresh_token).await, Err(MobileAuthError::InvalidRefreshToken));
+        assert_eq!(auth.refresh_with_attempt(&original_refresh, Some(attempt_id)).await,
+            Err(MobileAuthError::InvalidRefreshToken));
+        let mut past = account.clone();
+        past.expires_at = chrono::Utc::now() - chrono::TimeDelta::seconds(1);
+        assert!(open.create_review_session(past, tokens.new_refresh_token()?).await?.is_none());
+
+        let refresh = tokens.new_refresh_token()?;
+        let old_refresh = refresh.plain.clone();
+        let old_session = open.create_review_session(account.clone(), refresh).await?
+            .ok_or(FixtureError("session before credential change"))?;
+        sqlx::query("INSERT INTO device_token (user_id,session_id,token,platform) VALUES ($1,$2,$3,'ios')")
+            .bind(user_id).bind(old_session.session_id).bind(format!("review-device-{user_id}"))
+            .execute(database.acquire().await?.as_mut()).await?;
+        account.cycle_hash = SecretString::new("b".repeat(64));
+        let next = repository.clone().with_review_cycle(Some(account.cycle_hash.clone()));
+        assert!(!next.is_active(user_id, old_session.session_id).await?);
+        next.revoke_closed_review_sessions().await?;
+        assert!(!open.is_active(user_id, old_session.session_id).await?);
+        assert_eq!(auth.refresh(&old_refresh).await, Err(MobileAuthError::InvalidRefreshToken));
+        let (reason, devices): (String, i64) = sqlx::query_as(
+            "SELECT family.revocation_reason, (SELECT count(*) FROM device_token WHERE session_id = family.id)
+             FROM refresh_token_family family WHERE family.id = $1",
+        ).bind(old_session.session_id).fetch_one(database.acquire().await?.as_mut()).await?;
+        assert_eq!((reason.as_str(), devices), ("review_closed", 0));
+
+        let current = next.create_review_session(account, tokens.new_refresh_token()?).await?
+            .ok_or(FixtureError("session after credential change"))?;
+        assert!(next.is_active(user_id, current.session_id).await?);
+        repository.revoke_closed_review_sessions().await?;
+        assert!(!next.is_active(user_id, current.session_id).await?);
+        assert!(repository.list(user_id, 50, None).await?.is_empty());
+        Ok(())
+    }.await;
+    cleanup(&database, user_id).await?;
+    result
 }
 
 #[tokio::test]

@@ -47,7 +47,17 @@ fn review_account() -> NewReviewAccount {
         user_id: Uuid::new_v4(),
         phone_hash: format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple()),
         encrypted_phone: vec![1, 2, 3],
+        expires_at: chrono::Utc::now() + chrono::TimeDelta::minutes(20),
+        cycle_hash: review_cycle(),
     }
+}
+
+fn review_cycle() -> histae_api_rust::config::SecretString {
+    histae_api_rust::config::SecretString::new("a".repeat(64))
+}
+
+fn review_sessions(database: &Database) -> MobileSessionRepository {
+    MobileSessionRepository::new(database.clone()).with_review_cycle(Some(review_cycle()))
 }
 
 async fn signup_intent(
@@ -91,7 +101,7 @@ async fn remove(database: &Database, phone_hash: &str) -> TestResult {
 async fn concurrent_review_logins_share_one_dedicated_account_and_keep_distinct_sessions()
 -> TestResult {
     let (database, tokens) = database().await?;
-    let sessions = MobileSessionRepository::new(database.clone());
+    let sessions = review_sessions(&database);
     let first = review_account();
     signup_intent(&database, &first, true).await?;
     let second = NewReviewAccount {
@@ -124,7 +134,7 @@ async fn concurrent_review_logins_share_one_dedicated_account_and_keep_distinct_
 #[tokio::test]
 async fn review_login_never_adopts_an_existing_real_or_privileged_account() -> TestResult {
     let (database, tokens) = database().await?;
-    let sessions = MobileSessionRepository::new(database.clone());
+    let sessions = review_sessions(&database);
     // A superadmin may already exist in a shared local test database.
     for role in ["user", "admin"] {
         let account = review_account();
@@ -167,7 +177,7 @@ async fn review_login_never_adopts_an_existing_real_or_privileged_account() -> T
 #[tokio::test]
 async fn review_accounts_keep_bans_deletions_and_tombstones_effective() -> TestResult {
     let (database, tokens) = database().await?;
-    let sessions = MobileSessionRepository::new(database.clone());
+    let sessions = review_sessions(&database);
     for state in ["banned", "deleted", "tombstone"] {
         let account = review_account();
         let result: TestResult = async {
@@ -200,7 +210,7 @@ async fn superadmin_promotion_api_refuses_a_review_account() -> TestResult {
     let (database, tokens) = database().await?;
     let account = review_account();
     signup_intent(&database, &account, true).await?;
-    let session = MobileSessionRepository::new(database.clone())
+    let session = review_sessions(&database)
         .create_review_session(account.clone(), tokens.new_refresh_token()?)
         .await?
         .expect("review account");
@@ -238,7 +248,7 @@ async fn a_deletion_committing_during_review_creation_cannot_bypass_its_tombston
 
     let (database, tokens) = database().await?;
     let account = review_account();
-    let sessions = MobileSessionRepository::new(database.clone());
+    let sessions = review_sessions(&database);
     signup_intent(&database, &account, true).await?;
     sessions
         .create_review_session(account.clone(), tokens.new_refresh_token()?)
@@ -280,7 +290,7 @@ async fn a_deletion_committing_during_review_creation_cannot_bypass_its_tombston
 async fn only_a_current_signup_intent_can_create_a_review_account_without_sms() -> TestResult {
     let (database, tokens) = database().await?;
     let account = review_account();
-    let sessions = MobileSessionRepository::new(database.clone());
+    let sessions = review_sessions(&database);
     let result: TestResult = async {
         assert!(sessions.create_review_session(account.clone(), tokens.new_refresh_token()?).await?.is_none());
         signup_intent(&database, &account, false).await?;
@@ -320,7 +330,7 @@ async fn expired_signup_intents_cannot_create_a_review_account() -> TestResult {
         signup_intent(&database, &account, true).await?;
         sqlx::query("UPDATE mobile_otp_request SET created_at=clock_timestamp()-INTERVAL '1 hour',expires_at=clock_timestamp()-INTERVAL '50 minutes',resend_at=clock_timestamp()-INTERVAL '59 minutes' WHERE phone_hash=$1")
             .bind(&account.phone_hash).execute(database.acquire().await?.as_mut()).await?;
-        assert!(MobileSessionRepository::new(database.clone()).create_review_session(account.clone(), tokens.new_refresh_token()?).await?.is_none());
+        assert!(review_sessions(&database).create_review_session(account.clone(), tokens.new_refresh_token()?).await?.is_none());
         Ok(())
     }.await;
     remove(&database, &account.phone_hash).await?;

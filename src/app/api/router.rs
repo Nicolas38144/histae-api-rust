@@ -38,7 +38,6 @@ use crate::identity::mobile::http::{
 use crate::identity::mobile::otp::{
     OtpRepository, OtpRequestService, OtpService, PgOtpRequestStore,
 };
-use crate::identity::mobile::pg::MobileSessionRepository;
 use crate::identity::mobile::service::MobileAuthService;
 use crate::identity::mobile::sweego::{SmsDelivery, SweegoSmsService, SweegoWebhookService};
 use crate::identity::mobile::tokens::TokenService;
@@ -99,7 +98,7 @@ impl ApiResources {
         let clock: Arc<dyn Clock> = Arc::new(SystemClock);
         let outbox = PgOutboxRepository::new(self.database.clone());
 
-        let sessions = Arc::new(MobileSessionRepository::new(self.database.clone()));
+        let sessions = self.sessions.clone();
         let token_service = TokenService::new(config.jwt.clone());
         let mobile_service = MobileAuthService::new(
             token_service,

@@ -37,6 +37,7 @@ pub struct ActiveAccount {
 pub struct MobileSessionIdentity {
     pub user_id: Uuid,
     pub session_id: Uuid,
+    pub review_expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

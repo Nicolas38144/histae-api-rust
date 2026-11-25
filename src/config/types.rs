@@ -104,6 +104,8 @@ pub struct PhoneConfig {
 pub struct PlayReviewConfig {
     pub phone_number: SecretString,
     pub otp: SecretString,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub cycle_hash: SecretString,
 }
 
 #[derive(Clone, Debug)]

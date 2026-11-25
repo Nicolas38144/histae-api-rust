@@ -159,9 +159,11 @@ impl MobileAuthService {
     ) -> Result<TokenPair, MobileAuthError> {
         let session = session.ok_or(MobileAuthError::AccountUnavailable)?;
         Ok(TokenPair {
-            access_token: self
-                .tokens
-                .access_token(session.user_id, session.session_id)?,
+            access_token: self.tokens.access_token_with_deadline(
+                session.user_id,
+                session.session_id,
+                session.review_expires_at,
+            )?,
             refresh_token,
         })
     }
@@ -199,9 +201,11 @@ impl MobileAuthService {
             }
         };
         Ok(TokenPair {
-            access_token: self
-                .tokens
-                .access_token(session.user_id, session.session_id)?,
+            access_token: self.tokens.access_token_with_deadline(
+                session.user_id,
+                session.session_id,
+                session.review_expires_at,
+            )?,
             refresh_token,
         })
     }

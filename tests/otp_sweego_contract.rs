@@ -369,6 +369,7 @@ impl MobileSessionStore for FakeSessions {
                 *user = Some(account.user_id);
             }
             Ok(Some(MobileSessionIdentity {
+                review_expires_at: Some(account.expires_at.min(token.expires_at)),
                 user_id: user.expect("registered reviewer"),
                 session_id: token.id,
             }))
@@ -382,6 +383,7 @@ impl MobileSessionStore for FakeSessions {
     ) -> SessionStoreFuture<'_, Option<MobileSessionIdentity>> {
         Box::pin(async move {
             Ok(Some(MobileSessionIdentity {
+                review_expires_at: None,
                 user_id,
                 session_id: token.id,
             }))
@@ -1401,6 +1403,8 @@ fn review_config() -> histae_api_rust::config::PlayReviewConfig {
     histae_api_rust::config::PlayReviewConfig {
         phone_number: SecretString::new("+33639981234".into()),
         otp: SecretString::new("482951".into()),
+        expires_at: Utc::now() + chrono::TimeDelta::hours(1),
+        cycle_hash: SecretString::new("a".repeat(64)),
     }
 }
 

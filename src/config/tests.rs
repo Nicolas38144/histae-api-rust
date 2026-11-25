@@ -60,12 +60,35 @@ fn play_review_is_explicit_fails_closed_and_redacts_both_credentials() {
         ("GOOGLE_PLAY_REVIEW_ENABLED", "true"),
         ("GOOGLE_PLAY_REVIEW_PHONE_NUMBER", phone),
         ("GOOGLE_PLAY_REVIEW_OTP", code),
+        ("GOOGLE_PLAY_REVIEW_EXPIRES_AT", "2030-04-01T12:00:00Z"),
     ]))
     .expect("valid review configuration");
     assert!(config.play_review.is_some());
     let debug = format!("{config:?}");
     assert!(!debug.contains(phone));
     assert!(!debug.contains(code));
+    let review = config.play_review.as_ref().expect("configured");
+    assert!(!debug.contains(review.cycle_hash.expose_secret()));
+    let rotated = AppConfig::from_source(&base(&[
+        ("GOOGLE_PLAY_REVIEW_ENABLED", "true"),
+        ("GOOGLE_PLAY_REVIEW_PHONE_NUMBER", phone),
+        ("GOOGLE_PLAY_REVIEW_OTP", "591682"),
+        ("GOOGLE_PLAY_REVIEW_EXPIRES_AT", "2030-04-01T12:00:00Z"),
+    ]))
+    .expect("valid rotated credentials")
+    .play_review
+    .expect("configured");
+    assert!(review.cycle_hash.expose_secret() != rotated.cycle_hash.expose_secret());
+    for expiry in ["", "2030-04-01", "2030-04-01T12:00:00"] {
+        let error = AppConfig::from_source(&base(&[
+            ("GOOGLE_PLAY_REVIEW_ENABLED", "true"),
+            ("GOOGLE_PLAY_REVIEW_PHONE_NUMBER", phone),
+            ("GOOGLE_PLAY_REVIEW_OTP", code),
+            ("GOOGLE_PLAY_REVIEW_EXPIRES_AT", expiry),
+        ]))
+        .expect_err("expiry with timezone required");
+        assert_eq!(error.variable, "GOOGLE_PLAY_REVIEW_EXPIRES_AT");
+    }
     for (phone, code, variable) in [
         ("+33612345678", code, "GOOGLE_PLAY_REVIEW_PHONE_NUMBER"),
         ("+3363998123", code, "GOOGLE_PLAY_REVIEW_PHONE_NUMBER"),

@@ -159,7 +159,8 @@ CREATE TABLE refresh_token_family (
     expires_at timestamp with time zone NOT NULL,
     revoked_at timestamp with time zone,
     revocation_reason text,
-    CONSTRAINT chk_refresh_family_revocation CHECK ((((revoked_at IS NULL) AND (revocation_reason IS NULL)) OR ((revoked_at IS NOT NULL) AND (revocation_reason IS NOT NULL) AND (revocation_reason = ANY (ARRAY['replay'::text, 'logout'::text, 'logout_all'::text, 'user_revoked'::text, 'banned'::text]))))),
+    review_cycle_hash text CHECK (review_cycle_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT chk_refresh_family_revocation CHECK ((((revoked_at IS NULL) AND (revocation_reason IS NULL)) OR ((revoked_at IS NOT NULL) AND (revocation_reason IS NOT NULL) AND (revocation_reason = ANY (ARRAY['replay'::text, 'logout'::text, 'logout_all'::text, 'user_revoked'::text, 'banned'::text, 'review_closed'::text]))))),
     CONSTRAINT refresh_token_family_id_user_id_key UNIQUE (id, user_id),
     CONSTRAINT refresh_token_family_pkey PRIMARY KEY (id),
     CONSTRAINT refresh_token_family_user_id_fkey FOREIGN KEY (user_id) REFERENCES user_account(user_id) ON DELETE CASCADE

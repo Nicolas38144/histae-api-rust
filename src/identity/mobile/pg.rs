@@ -8,6 +8,7 @@ use sqlx::PgConnection;
 use subtle::ConstantTimeEq as _;
 use uuid::Uuid;
 
+use crate::config::SecretString;
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
 
 use super::domain::{
@@ -22,11 +23,26 @@ use super::store::{MobileSessionStore, SessionStoreFuture};
 #[derive(Clone)]
 pub struct MobileSessionRepository {
     database: Database,
+    review_cycle_hash: Option<SecretString>,
 }
 
 impl MobileSessionRepository {
     pub fn new(database: Database) -> Self {
-        Self { database }
+        Self {
+            database,
+            review_cycle_hash: None,
+        }
+    }
+
+    pub fn with_review_cycle(mut self, cycle_hash: Option<SecretString>) -> Self {
+        self.review_cycle_hash = cycle_hash;
+        self
+    }
+
+    fn review_cycle_hash(&self) -> Option<&str> {
+        self.review_cycle_hash
+            .as_ref()
+            .map(SecretString::expose_secret)
     }
 
     pub async fn create(
@@ -37,10 +53,12 @@ impl MobileSessionRepository {
         self.database
             .transaction(|connection| {
                 Box::pin(async move {
-                    if !lock_active_account(connection, user_id).await? {
+                    if lock_active_account(connection, user_id).await? != Some(false) {
                         return Ok(None);
                     }
-                    insert_session(connection, user_id, &token).await.map(Some)
+                    insert_session(connection, user_id, &token, None)
+                        .await
+                        .map(Some)
                 })
             })
             .await
@@ -54,6 +72,7 @@ impl MobileSessionRepository {
         hash: String,
         device_id: Option<Uuid>,
     ) -> Result<bool, DatabaseError> {
+        let review_cycle_hash = self.review_cycle_hash.clone();
         self.database
             .transaction(|connection| {
                 Box::pin(async move {
@@ -63,7 +82,14 @@ impl MobileSessionRepository {
                         return Ok(false);
                     };
                     if token.family_id != session_id
-                        || !active_family(connection, user_id, session_id).await?
+                        || active_family(
+                            connection,
+                            user_id,
+                            session_id,
+                            review_cycle_hash.as_ref().map(SecretString::expose_secret),
+                        )
+                        .await?
+                        .is_none()
                     {
                         return Ok(false);
                     }
@@ -100,6 +126,7 @@ impl MobileSessionRepository {
              FROM refresh_token_family
              WHERE user_id = $1 AND revoked_at IS NULL
                AND expires_at > statement_timestamp()
+               AND (review_cycle_hash IS NULL OR review_cycle_hash = $5)
                AND ($3::timestamptz IS NULL OR (created_at, id) < ($3::timestamptz, $4::uuid))
              ORDER BY created_at DESC, id DESC LIMIT $2",
         )
@@ -107,6 +134,7 @@ impl MobileSessionRepository {
         .bind(i64::from(limit))
         .bind(cursor.map(|cursor| cursor.at.as_str()))
         .bind(cursor.map(|cursor| cursor.id))
+        .bind(self.review_cycle_hash())
         .fetch_all(self.database.pool())
         .await
         .map_err(map_sqlx_error)?;
@@ -130,11 +158,19 @@ impl MobileSessionRepository {
         current_session_id: Uuid,
         target_id: Option<Uuid>,
     ) -> Result<Option<u64>, DatabaseError> {
+        let review_cycle_hash = self.review_cycle_hash.clone();
         self.database
             .transaction(|connection| {
                 Box::pin(async move {
-                    if !lock_active_account(connection, user_id).await?
-                        || !active_family(connection, user_id, current_session_id).await?
+                    if lock_active_account(connection, user_id).await?.is_none()
+                        || active_family(
+                            connection,
+                            user_id,
+                            current_session_id,
+                            review_cycle_hash.as_ref().map(SecretString::expose_secret),
+                        )
+                        .await?
+                        .is_none()
                     {
                         return Ok(None);
                     }
@@ -176,10 +212,12 @@ impl MobileSessionRepository {
              WHERE family.id = $1 AND family.user_id = $2
                AND family.revoked_at IS NULL
                AND family.expires_at > statement_timestamp()
+               AND (NOT account.is_review_account OR family.review_cycle_hash = $3)
                AND account.deleted_at IS NULL AND NOT account.is_banned",
         )
         .bind(session_id)
         .bind(user_id)
+        .bind(self.review_cycle_hash())
         .fetch_optional(self.database.pool())
         .await
         .map_err(map_sqlx_error)?;
@@ -221,12 +259,14 @@ impl MobileSessionRepository {
                  WHERE session.id = $4 AND session.user_id = account.user_id
                    AND session.revoked_at IS NULL
                    AND session.expires_at > statement_timestamp()
+                   AND (NOT account.is_review_account OR session.review_cycle_hash = $5)
                )",
         )
         .bind(user_id)
         .bind(terms_version)
         .bind(privacy_version)
         .bind(session_id)
+        .bind(self.review_cycle_hash())
         .fetch_optional(self.database.pool())
         .await
         .map_err(map_sqlx_error)?;
@@ -403,7 +443,10 @@ async fn lock_token(
     {
         return Ok(None);
     }
-    if !lock_active_account(connection, candidate.user_id).await? {
+    if lock_active_account(connection, candidate.user_id)
+        .await?
+        .is_none()
+    {
         return Ok(None);
     }
     let row = sqlx::query_as::<_, (Uuid, Uuid, String, Uuid, bool, Option<DateTime<Utc>>)>(
@@ -434,56 +477,69 @@ async fn lock_token(
 async fn lock_active_account(
     connection: &mut PgConnection,
     user_id: Uuid,
-) -> Result<bool, DatabaseError> {
-    Ok(sqlx::query_scalar::<_, Uuid>(
-        "SELECT user_id FROM user_account
+) -> Result<Option<bool>, DatabaseError> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT is_review_account FROM user_account
          WHERE user_id = $1 AND deleted_at IS NULL AND NOT is_banned
          FOR UPDATE",
     )
     .bind(user_id)
     .fetch_optional(connection)
     .await
-    .map_err(map_sqlx_error)?
-    .is_some())
+    .map_err(map_sqlx_error)
+}
+
+struct ActiveFamily {
+    review_expires_at: Option<DateTime<Utc>>,
 }
 
 async fn active_family(
     connection: &mut PgConnection,
     user_id: Uuid,
     session_id: Uuid,
-) -> Result<bool, DatabaseError> {
-    Ok(sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM refresh_token_family
-         WHERE id = $1 AND user_id = $2
-           AND revoked_at IS NULL AND expires_at > clock_timestamp()
-         FOR UPDATE",
+    review_cycle_hash: Option<&str>,
+) -> Result<Option<ActiveFamily>, DatabaseError> {
+    let row = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
+        "SELECT CASE WHEN account.is_review_account THEN family.expires_at END AS review_expires_at
+         FROM refresh_token_family family JOIN user_account account ON account.user_id = family.user_id
+         WHERE family.id = $1 AND family.user_id = $2
+           AND family.revoked_at IS NULL AND family.expires_at > clock_timestamp()
+           AND (NOT account.is_review_account OR family.review_cycle_hash = $3)
+         FOR UPDATE OF family",
     )
     .bind(session_id)
     .bind(user_id)
+    .bind(review_cycle_hash)
     .fetch_optional(connection)
     .await
-    .map_err(map_sqlx_error)?
-    .is_some())
+    .map_err(map_sqlx_error)?;
+    Ok(row.map(|review_expires_at| ActiveFamily { review_expires_at }))
 }
 
 async fn insert_session(
     connection: &mut PgConnection,
     user_id: Uuid,
     token: &NewRefreshToken,
+    review_cycle_hash: Option<&str>,
 ) -> Result<MobileSessionIdentity, DatabaseError> {
     let session_id = random_uuid_v4();
-    sqlx::query(
+    let inserted = sqlx::query(
         "INSERT INTO refresh_token_family
-         (id, user_id, created_at, last_refreshed_at, expires_at)
-         VALUES ($1, $2, $3, $3, $4)",
+         (id, user_id, created_at, last_refreshed_at, expires_at, review_cycle_hash)
+         SELECT $1, $2, $3, $3, $4, $5
+         WHERE $5::text IS NULL OR $4 > clock_timestamp()",
     )
     .bind(session_id)
     .bind(user_id)
     .bind(token.created_at)
     .bind(token.expires_at)
+    .bind(review_cycle_hash)
     .execute(&mut *connection)
     .await
     .map_err(map_sqlx_error)?;
+    if inserted.rows_affected() == 0 {
+        return Err(DatabaseError::AccountUnavailable);
+    }
     insert_token(connection, user_id, session_id, token, None).await?;
     crate::notifications::enqueue_notification(
         connection,
@@ -495,6 +551,7 @@ async fn insert_session(
     Ok(MobileSessionIdentity {
         user_id,
         session_id,
+        review_expires_at: review_cycle_hash.map(|_| token.expires_at),
     })
 }
 

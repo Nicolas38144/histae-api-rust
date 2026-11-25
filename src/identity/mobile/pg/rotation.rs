@@ -8,6 +8,7 @@ use super::{
     lock_token, revoke_families, same_hash,
 };
 use crate::{
+    config::SecretString,
     identity::mobile::{
         domain::{MobileSessionIdentity, RotationOutcome},
         refresh_recovery::{RefreshRecovery, RefreshRotation},
@@ -43,9 +44,10 @@ impl MobileSessionRepository {
         &self,
         jti: Uuid,
         hash: String,
-        next: NewRefreshToken,
+        mut next: NewRefreshToken,
         recovery: Option<RefreshRecovery>,
     ) -> Result<RefreshRotation, DatabaseError> {
+        let review_cycle_hash = self.review_cycle_hash.clone();
         self.database
             .transaction(|connection| {
                 Box::pin(async move {
@@ -55,9 +57,16 @@ impl MobileSessionRepository {
                     else {
                         return Ok(RefreshRotation::outcome(RotationOutcome::Invalid));
                     };
-                    if !active_family(connection, token.user_id, token.family_id).await? {
+                    let Some(family) = active_family(
+                        connection,
+                        token.user_id,
+                        token.family_id,
+                        review_cycle_hash.as_ref().map(SecretString::expose_secret),
+                    )
+                    .await?
+                    else {
                         return Ok(RefreshRotation::outcome(RotationOutcome::Invalid));
-                    }
+                    };
                     if token.revoked {
                         if let Some(receipt) = recovery.as_ref() {
                             let stored_hash: Option<String> = sqlx::query_scalar(
@@ -71,7 +80,13 @@ impl MobileSessionRepository {
                                 .as_deref()
                                 .is_some_and(|stored| same_hash(stored, receipt.request_hash()))
                             {
-                                return recover_rotation(connection, &token, receipt).await;
+                                return recover_rotation(
+                                    connection,
+                                    &token,
+                                    receipt,
+                                    family.review_expires_at,
+                                )
+                                .await;
                             }
                         }
                         if token.rotated_at.is_some() {
@@ -85,6 +100,9 @@ impl MobileSessionRepository {
                             return Ok(RefreshRotation::outcome(RotationOutcome::ReplayRevoked));
                         }
                         return Ok(RefreshRotation::outcome(RotationOutcome::Invalid));
+                    }
+                    if let Some(deadline) = family.review_expires_at {
+                        next.expires_at = next.expires_at.min(deadline);
                     }
                     sqlx::query(
                         "UPDATE refresh_tokens
@@ -120,6 +138,7 @@ impl MobileSessionRepository {
                         MobileSessionIdentity {
                             user_id: token.user_id,
                             session_id: token.family_id,
+                            review_expires_at: family.review_expires_at.map(|_| next.expires_at),
                         },
                     )))
                 })
@@ -132,6 +151,7 @@ async fn recover_rotation(
     connection: &mut PgConnection,
     parent: &StoredRefreshToken,
     recovery: &RefreshRecovery,
+    review_expires_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Result<RefreshRotation, DatabaseError> {
     // Account, family and parent locks are already held by rotate_inner. The
     // account lock also serializes child rotation and administrative revocation.
@@ -163,6 +183,7 @@ async fn recover_rotation(
         MobileSessionIdentity {
             user_id: parent.user_id,
             session_id: parent.family_id,
+            review_expires_at,
         },
         raw,
     ))

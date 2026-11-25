@@ -5,25 +5,27 @@ instructions en anglais : [exigences officielles](https://support.google.com/goo
 
 ## Configuration serveur
 
-L’accès est **désactivé par défaut**. Les trois variables suivantes sont exclusivement serveur :
+L’accès est **désactivé par défaut**. La configuration se fait côté serveur.
 
 ```dotenv
 GOOGLE_PLAY_REVIEW_ENABLED=false
 GOOGLE_PLAY_REVIEW_PHONE_NUMBER=
 GOOGLE_PLAY_REVIEW_OTP=
+GOOGLE_PLAY_REVIEW_EXPIRES_AT=
 ```
 
-Pour l’activer, définir `true`, un numéro E.164 de la tranche fictive `+3363998XXXX` et un code
-secret de six chiffres aléatoires. Cette tranche sans abonné réel provient du
+Pour l’activer, définir `true`, un numéro E.164 de la tranche fictive `+3363998XXXX`, un code
+secret de six chiffres aléatoires et la date de fin au format RFC 3339 avec fuseau horaire, comme
+`2030-04-01T12:00:00Z`. L’activation exige une date de fin valide. Cette tranche sans abonné réel provient du
 [plan national de numérotation de l’Arcep](https://www.arcep.fr/uploads/tx_gsavis/18-0881.pdf), section
 « Numéros pour œuvres audiovisuelles ». Le numéro sert uniquement d’identifiant applicatif ;
 aucun appel ou SMS ne doit être envoyé dessus.
 
-Les valeurs réelles restent dans `.env`, ignoré par Git et exclu de l’image Docker. Les recopier
-séparément dans le `.env` du serveur de production puis reconstruire l’API avec le script de
-réinitialisation habituel : les migrations sont nécessaires. La configuration Compose transmet
-ces identifiants à l’API uniquement et les masque dans les autres services du runtime.
-Ne pas les intégrer dans Flutter, Postman partagé, un commit ou une capture publique.
+Les valeurs réelles restent dans le `.env` du serveur, ignoré par Git et exclu de l’image Docker.
+Au premier déploiement de H10, la base vierge utilise le schéma SQL initial mis à jour. Pour appliquer
+une nouvelle configuration de revue, recréer toutes les instances de l’API. La configuration Compose
+transmet ces identifiants à l’API et les masque dans les autres services du runtime.
+Garder les identifiants de revue dans la configuration serveur et dans Play Console.
 
 ## Préparer le compte dans l’app
 
@@ -42,8 +44,7 @@ Ne pas les intégrer dans Flutter, Postman partagé, un commit ou une capture pu
 7. Dans Play Console → **Contenu de l’application → Accès à l’application**, renseigner le numéro,
    le code et les instructions ci-dessous en remplaçant les deux champs entre chevrons.
 
-L’app transmet déjà `registration: true` depuis le bouton d’inscription ; aucune modification
-de Flutter n’est nécessaire.
+En production, l’app transmet `challenge_bound: true` à l’envoi et renvoie le `challenge_id` à la vérification.
 L’accès Premium offert est calculé à partir du marqueur serveur `is_review_account` par la projection
 centrale des droits : aucun achat, facture ou abonnement fournisseur n’est créé. Un compte de revue
 déjà inscrit bénéficie aussi de cet accès après la migration ; actualiser la page d’abonnement ou
@@ -55,7 +56,7 @@ se reconnecter dans l’app pour rafraîchir son affichage. Le profil et les con
 Open the app and choose Sign in. Select France (+33) and enter <REVIEW_PHONE_NUMBER>.
 Request a verification code, then enter <REVIEW_OTP>.
 This is a dedicated review account. No SMS or access to a physical phone is required.
-The same credentials can be reused for subsequent sign-ins and do not expire.
+The same credentials can be reused for subsequent sign-ins.
 Complimentary Premium access is already included. No purchase is required.
 The account profile has been prepared for review.
 ```
@@ -80,8 +81,8 @@ Ne conserver la dernière phrase qu’après avoir effectivement préparé le co
   pendant l’insertion fait aussi annuler la création. Compte banni, supprimé ou
   téléphone couvert par un tombstone : refus. Une contrainte PostgreSQL interdit les rôles
   `admin` et `superadmin`, et la route de promotion renvoie son refus habituel.
-- Les sessions, leur expiration et leur révocation restent celles de l’authentification mobile.
-  Le code fixe sert au parcours de revue mobile. Les parcours SMS ordinaires conservent leur traitement habituel.
+- La date de fin borne la connexion et la durée des sessions de revue. Un rafraîchissement ou une
+  reprise de rafraîchissement conserve cette limite. Le JWT d’accès est également plafonné à cette date.
 - La découverte, les swipes et les conversations n’autorisent que des interactions entre comptes du
   même groupe. Le compte de revue affiche un feed vide tant qu’aucun autre profil de revue éligible
   n’existe. Prévoir des profils fictifs de revue pour présenter les interactions à Google.
@@ -92,11 +93,12 @@ Ne conserver la dernière phrase qu’après avoir effectivement préparé le co
   Les abonnements fournisseurs existants restent intacts ; un abonnement payant actif conserve
   sa projection habituelle et l’accès offert prend le relais s’il ne donne plus accès à Premium.
   Aucun revenu fictif n’est ajouté aux statistiques.
-- Désactiver `GOOGLE_PLAY_REVIEW_ENABLED` ou changer le code puis recréer l’API arrête les nouvelles
-  connexions avec ces identifiants. Révoquer aussi les sessions du compte si l’on veut couper les
-  sessions déjà ouvertes. Pour une revue en cours, les identifiants fournis à Google doivent rester valides.
-  Ce réglage d’authentification ne retire pas le Premium offert ; celui-ci dépend du marqueur
-  `is_review_account`, qui n’est modifiable par aucune route utilisateur.
+- Pour fermer l’accès avant l’échéance, désactiver `GOOGLE_PLAY_REVIEW_ENABLED` et recréer les instances
+  de l’API. Au démarrage, l’API révoque les sessions du cycle fermé et efface leurs inscriptions push.
+  Un changement de numéro, de code ou d’échéance ouvre un autre cycle et révoque les sessions du précédent.
+- Renouveler le code à chaque cycle. Si Google doit continuer à accéder au compte, renouveler la fenêtre
+  et les identifiants dans Play Console avant l’échéance. Google demande un accès disponible à tout
+  moment. [Exigences Google Play](https://support.google.com/googleplay/android-developer/answer/15748846?hl=en)
 
 ## Vérification
 

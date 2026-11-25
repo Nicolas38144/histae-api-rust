@@ -59,6 +59,7 @@ impl MobileSessionStore for AuthStore {
     ) -> SessionStoreFuture<'_, Option<MobileSessionIdentity>> {
         Box::pin(async move {
             Ok(Some(MobileSessionIdentity {
+                review_expires_at: None,
                 user_id,
                 session_id: session_id(),
             }))

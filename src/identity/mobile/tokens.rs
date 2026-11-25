@@ -138,9 +138,18 @@ impl TokenService {
     }
 
     pub fn access_token(&self, user_id: Uuid, session_id: Uuid) -> Result<String, TokenError> {
+        self.access_token_with_deadline(user_id, session_id, None)
+    }
+
+    pub(super) fn access_token_with_deadline(
+        &self,
+        user_id: Uuid,
+        session_id: Uuid,
+        deadline: Option<DateTime<Utc>>,
+    ) -> Result<String, TokenError> {
         let now = self.clock.now().timestamp();
         let issued_at = u64::try_from(now).map_err(|_| TokenError::TimeOutOfRange)?;
-        self.access_token_at(user_id, session_id, issued_at)
+        self.sign_access_token(user_id, session_id, issued_at, deadline)
     }
 
     pub fn access_token_at(
@@ -149,11 +158,25 @@ impl TokenService {
         session_id: Uuid,
         issued_at: u64,
     ) -> Result<String, TokenError> {
+        self.sign_access_token(user_id, session_id, issued_at, None)
+    }
+
+    fn sign_access_token(
+        &self,
+        user_id: Uuid,
+        session_id: Uuid,
+        issued_at: u64,
+        deadline: Option<DateTime<Utc>>,
+    ) -> Result<String, TokenError> {
         let ttl = self.config.access_ttl.as_secs();
-        let exp = issued_at
+        let mut exp = issued_at
             .checked_add(ttl)
             .ok_or(TokenError::TimeOutOfRange)?;
-        if exp > 9_007_199_254_740_991 {
+        if let Some(deadline) = deadline {
+            exp = exp
+                .min(u64::try_from(deadline.timestamp()).map_err(|_| TokenError::TimeOutOfRange)?);
+        }
+        if exp <= issued_at || exp > 9_007_199_254_740_991 {
             return Err(TokenError::TimeOutOfRange);
         }
         let mut header = Header::new(Algorithm::HS256);

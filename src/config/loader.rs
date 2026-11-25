@@ -609,8 +609,8 @@ impl AppConfig {
             postgres,
             jwt,
             account_deletion_token_ttl,
+            play_review: super::play_review::load(source, &phone.hash_key)?,
             phone,
-            play_review: super::play_review::load(source)?,
             mobile_otp_require_challenge: boolean(
                 source.value("MOBILE_OTP_REQUIRE_CHALLENGE")?.as_deref(),
                 false,

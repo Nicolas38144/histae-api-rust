@@ -12,15 +12,14 @@ use histae_api_rust::{
     },
     config::SecretString,
     identity::mobile::{
-        pg::MobileSessionRepository, play_review::NewReviewAccount, store::MobileSessionStore,
-        tokens::TokenService,
+        play_review::NewReviewAccount, store::MobileSessionStore, tokens::TokenService,
     },
     infra::postgres::Database,
     matches::{pg::PgMatchRepository, store::MatchStore},
 };
 use uuid::Uuid;
 
-use super::{TestResult, database, remove, review_account, signup_intent};
+use super::{TestResult, database, remove, review_account, review_sessions, signup_intent};
 
 async fn register_review_account(
     database: &Database,
@@ -28,7 +27,7 @@ async fn register_review_account(
     account: &NewReviewAccount,
 ) -> TestResult<Uuid> {
     signup_intent(database, account, true).await?;
-    Ok(MobileSessionRepository::new(database.clone())
+    Ok(review_sessions(database)
         .create_review_session(account.clone(), tokens.new_refresh_token()?)
         .await?
         .expect("review signup")
@@ -69,7 +68,7 @@ async fn new_and_existing_reviewers_receive_complimentary_premium_without_a_purc
 {
     let (database, tokens) = database().await?;
     let billing = PgBillingRepository::new(database.clone());
-    let sessions = MobileSessionRepository::new(database.clone());
+    let sessions = review_sessions(&database);
 
     for already_registered in [false, true] {
         let account = review_account();
