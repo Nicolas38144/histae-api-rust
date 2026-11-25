@@ -6,9 +6,12 @@ use histae_api_rust::{
         domain::{BillingPeriod, SubscriptionProvider},
         pg::PgBillingRepository,
         store::BillingStore,
-        stores::{StoreError, StoreProvider, StoreSnapshot, pg::StoreRepository},
+        stores::{
+            StoreBillingService, StoreError, StoreProvider, StoreSnapshot, StoreVerifier,
+            pg::StoreRepository,
+        },
     },
-    config::{LegalConfig, PostgresConfig, SecretString},
+    config::{LegalConfig, PostgresConfig, SecretString, StoreBillingConfig},
     infra::postgres::{Database, DatabaseError, map_sqlx_error},
 };
 use std::{env, fmt, path::PathBuf, time::Duration};
@@ -125,6 +128,116 @@ fn snapshot(provider: StoreProvider, binding: String, original: String) -> Store
         linked_reference_hash: None,
     }
 }
+
+#[tokio::test]
+async fn authenticated_notification_is_retained_and_retried_on_its_reserved_verifier_route()
+-> Result<(), Box<dyn std::error::Error>> {
+    use axum::{Json, Router, http::StatusCode, response::IntoResponse, routing::post};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    let db = Database::connect(&postgres_config()?).await?;
+    let user_id = Uuid::new_v4();
+    insert_user(&db, user_id).await?;
+    let stores = StoreRepository::new(db.clone(), SecretString::new("01".repeat(32)));
+    let provider = StoreProvider::AppStore;
+    let event = Uuid::new_v4();
+    let snapshot = snapshot(
+        provider,
+        stores.account(user_id).await?.id.to_string(),
+        "100".into(),
+    );
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let app = Router::new()
+        .route(
+            "/notification/app_store",
+            post(move || async move {
+                Json(serde_json::json!({ "event_id": event.to_string(), "reference": "100" }))
+            }),
+        )
+        .route(
+            "/verify-notification/app_store",
+            post({
+                let attempts = attempts.clone();
+                move || async move {
+                    if attempts.fetch_add(1, Ordering::Relaxed) == 0 {
+                        StatusCode::SERVICE_UNAVAILABLE.into_response()
+                    } else {
+                        Json(snapshot).into_response()
+                    }
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let config = StoreBillingConfig {
+        apple_enabled: true,
+        google_enabled: false,
+        apple_monthly_product: "premium".into(),
+        apple_annual_product: "premium.annual".into(),
+        google_product: String::new(),
+        google_monthly_plan: String::new(),
+        google_annual_plan: String::new(),
+        verifier_url: Url::parse(&format!("http://{}/", listener.local_addr()?))?,
+        verifier_ca_file: None,
+        verifier_token: SecretString::new("synthetic-verifier-token".into()),
+        production: false,
+    };
+    let service = StoreBillingService::new(
+        stores.clone(),
+        Arc::new(StoreVerifier::new(config.clone())?),
+        config,
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        service.notification(provider, serde_json::json!({}), None).await?;
+        let mut connection = db.acquire().await?;
+        let id: Uuid = sqlx::query_scalar(
+            "SELECT n.id FROM billing_store_notification n JOIN outbox_event o
+             ON o.event_type='billing.store.notification' AND o.aggregate_id=n.id
+             WHERE n.provider=$1 AND n.provider_event_id=$2",
+        ).bind(provider.as_str()).bind(event.to_string()).fetch_one(&mut *connection).await?;
+        let delivery_kind = "billing.store.notification";
+        assert_eq!(service.process(delivery_kind, id).await, Err(StoreError::Unavailable));
+        assert_eq!(attempts.load(Ordering::Relaxed), 1);
+        assert!(stores.reference(id, true).await?.is_some());
+
+        let retry_started = std::time::Instant::now();
+        service.process(delivery_kind, id).await?;
+        let retry_elapsed = retry_started.elapsed();
+        assert_eq!(attempts.load(Ordering::Relaxed), 2);
+        assert!(stores.reference(id, true).await?.is_none());
+        let elapsed_seconds: f64 = sqlx::query_scalar(
+            "SELECT extract(epoch FROM processed_at - received_at)::float8
+             FROM billing_store_notification WHERE id=$1",
+        ).bind(id).fetch_one(&mut *connection).await?;
+        println!("Synthetic Apple notification: durable receipt to processing {elapsed_seconds:.3} s, retry {:.3} s", retry_elapsed.as_secs_f64());
+        Ok(())
+    }.await;
+    server.abort();
+    let mut connection = db.acquire().await?;
+    sqlx::query(
+        "DELETE FROM outbox_event o USING billing_store_notification n
+         WHERE o.event_type='billing.store.notification' AND o.aggregate_id=n.id
+           AND n.provider=$1 AND n.provider_event_id=$2",
+    )
+    .bind(provider.as_str())
+    .bind(event.to_string())
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query(
+        "DELETE FROM billing_store_notification WHERE provider=$1 AND provider_event_id=$2",
+    )
+    .bind(provider.as_str())
+    .bind(event.to_string())
+    .execute(&mut *connection)
+    .await?;
+    drop(connection);
+    cleanup(&db, &[user_id]).await?;
+    result
+}
+
 #[tokio::test]
 async fn providers_ownership_ordering_ack_and_erasure_are_independent()
 -> Result<(), Box<dyn std::error::Error>> {

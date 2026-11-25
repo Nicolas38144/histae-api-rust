@@ -7,10 +7,13 @@ import { providers, StoreError } from './providers.mjs';
 
 export function server(config, gateway, tls) {
   const capacity = new Map([
-    ['/notification', { active: 0, max: 3 }],
-    ['/verify', { active: 0, max: 4 }],
-    ['/acknowledge', { active: 0, max: 1 }],
+    ['/verify', { operation: 'verify', active: 0, max: 4 }],
+    ['/acknowledge', { operation: 'acknowledge', active: 0, max: 1 }],
   ]);
+  for (const provider of ['app_store', 'google_play']) {
+    capacity.set(`/notification/${provider}`, { operation: 'notification', provider, active: 0, max: 2 });
+    capacity.set(`/verify-notification/${provider}`, { operation: 'verify', provider, active: 0, max: 1 });
+  }
   if (config.production && !tls) throw new Error('Store verifier TLS is required');
   const handle = async (request, response) => {
     response.setHeader('Content-Type', 'application/json');
@@ -33,9 +36,9 @@ export function server(config, gateway, tls) {
         chunks.push(chunk);
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      if (request.url === '/verify') return send(200, await gateway.verify(body.provider, body.reference));
-      if (request.url === '/notification') return send(200, await gateway.notification(body.provider, body.body, body.authorization));
-      if (request.url === '/acknowledge' && body.provider === 'google_play') {
+      if (budget.operation === 'verify') return send(200, await gateway.verify(budget.provider ?? body.provider, body.reference));
+      if (budget.operation === 'notification') return send(200, await gateway.notification(budget.provider, body.body, body.authorization));
+      if (budget.operation === 'acknowledge' && body.provider === 'google_play') {
         await gateway.acknowledge(body.reference);
         return send(200, { acknowledged: true });
       }

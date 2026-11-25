@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { generateKeyPairSync } from 'node:crypto';
 import assert from 'node:assert/strict';
-import { appleSnapshot, googleSnapshot, digest, providers } from './providers.mjs';
+import { appleSnapshot, googleSnapshot, digest, providers, StoreError } from './providers.mjs';
 import { server } from './server.mjs';
 const binding = '10000000-0000-4000-8000-000000000001';
 const apple = { bundleId: 'com.histae.app', environment: 'Sandbox', monthly: 'monthly', annual: 'annual' };
@@ -47,38 +47,88 @@ test('private bridge authenticates, caps bodies, redacts errors and dispatches o
   assert.equal((await request({}, undefined, '/unknown')).status, 404);
 });
 
-test('notification load leaves capacity for purchase verification and acknowledgement', async (t) => {
-  const done = Promise.withResolvers();
-  const admitted = Promise.withResolvers();
-  let opened = 0;
+test('provider degradation preserves independent webhook and authenticated event capacity', { timeout: 12000 }, async (t) => {
+  const release = Promise.withResolvers();
+  const webhooksAdmitted = Promise.withResolvers();
+  const purchasesAdmitted = Promise.withResolvers();
+  const notificationAdmitted = Promise.withResolvers();
+  let googleWebhooks = 0;
+  let purchases = 0;
+  let googleRecovered = false;
   const app = server({ token: 'test-token' }, {
-    async notification() {
-      if (++opened === 3) admitted.resolve();
-      await done.promise;
-      return { event_id: 'test-event' };
+    async notification(provider) {
+      if (provider === 'google_play' && !googleRecovered) {
+        if (++googleWebhooks === 2) webhooksAdmitted.resolve();
+        await release.promise;
+        throw new StoreError('store_unavailable', 503);
+      }
+      return { event_id: provider };
     },
-    async verify() { return { status: 'active' }; },
+    async verify(provider, reference) {
+      if (reference === 'purchase') {
+        if (++purchases === 4) purchasesAdmitted.resolve();
+        await release.promise;
+      } else if (provider === 'google_play' && !googleRecovered) {
+        notificationAdmitted.resolve();
+        await release.promise;
+        throw new StoreError('store_unavailable', 503);
+      }
+      return { provider, status: 'active' };
+    },
     async acknowledge() {},
   });
   await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => app.close(resolve)));
   const url = `http://127.0.0.1:${app.address().port}`;
-  const request = (path) => fetch(url + path, {
-    method: 'POST',
-    headers: { authorization: 'Bearer test-token' },
-    body: JSON.stringify({ provider: 'google_play', reference: 'test' }),
-    signal: AbortSignal.timeout(5000),
-  });
-  const pending = Promise.all(Array.from({ length: 3 }, () => request('/notification')));
+  const request = async (path, reference = 'notification') => {
+    const start = performance.now();
+    const response = await fetch(url + path, {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-token' },
+      body: JSON.stringify({ provider: 'google_play', reference }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const body = await response.json();
+    return { status: response.status, body, elapsed: performance.now() - start };
+  };
+  const webhooks = Promise.all(Array.from({ length: 2 }, () => request('/notification/google_play')));
+  const verifications = Promise.all(Array.from({ length: 4 }, () => request('/verify', 'purchase')));
+  let notification;
+  let results;
   try {
-    await Promise.race([admitted.promise, pending]);
-    assert.equal((await request('/notification')).status, 503);
-    assert.equal((await request('/verify')).status, 200);
-    assert.equal((await request('/acknowledge')).status, 200);
+    await Promise.race([Promise.all([webhooksAdmitted.promise, purchasesAdmitted.promise]), webhooks, verifications]);
+    assert.equal((await request('/notification/google_play')).status, 503);
+    assert.equal((await request('/verify', 'purchase')).status, 503);
+
+    notification = request('/verify-notification/google_play');
+    await Promise.race([notificationAdmitted.promise, notification]);
+    assert.equal((await request('/verify-notification/google_play')).status, 503);
+
+    const [appleWebhook, appleNotification, ack] = await Promise.all([
+      request('/notification/app_store'),
+      request('/verify-notification/app_store'),
+      request('/acknowledge'),
+    ]);
+    assert.equal(appleWebhook.status, 200);
+    assert.equal(appleWebhook.body.event_id, 'app_store');
+    assert.equal(appleNotification.status, 200);
+    assert.equal(appleNotification.body.provider, 'app_store');
+    assert.equal(ack.status, 200);
+    t.diagnostic(`Apple during simulated Google stalls: webhook ${appleWebhook.elapsed.toFixed(1)} ms, authenticated event ${appleNotification.elapsed.toFixed(1)} ms`);
   } finally {
-    done.resolve();
-    await pending;
+    release.resolve();
+    results = await Promise.all([webhooks, verifications, notification]);
   }
+  assert.deepEqual(results[0].map(({ status }) => status), [503, 503]);
+  assert.deepEqual(results[1].map(({ status }) => status), [200, 200, 200, 200]);
+  assert.equal(results[2].status, 503);
+  googleRecovered = true;
+  const [webhookRetry, notificationRetry] = await Promise.all([
+    request('/notification/google_play'), request('/verify-notification/google_play'),
+  ]);
+  assert.equal(webhookRetry.status, 200);
+  assert.equal(notificationRetry.status, 200);
+  t.diagnostic(`Google after simulated recovery: webhook retry ${webhookRetry.elapsed.toFixed(1)} ms, authenticated event retry ${notificationRetry.elapsed.toFixed(1)} ms`);
 });
 
 test('enabled Apple verifier rejects forged JWS using the official trust anchors without granting access', async () => {

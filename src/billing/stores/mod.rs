@@ -9,6 +9,6 @@ mod store;
 pub mod worker;
 
 pub use domain::*;
-pub use gateway::{StoreGateway, StoreVerifier};
+pub use gateway::{StoreGateway, StoreVerifier, VerificationSource};
 pub use service::StoreBillingService;
 pub use store::StorePersistence;

@@ -106,6 +106,19 @@ Les notifications authentifiées sont dédupliquées puis traitées via l’outb
 courante** chez le fournisseur, pas une confiance aveugle dans une notification ancienne.
 Une observation commencée avant une observation plus récente ne réécrit pas sa projection.
 
+Le quota `RATE_LIMIT_BILLING_WEBHOOK` s’applique par IP et par fournisseur. Le vérificateur privé accepte
+deux authentifications de webhook en parallèle par fournisseur et réserve au worker de l’outbox une place
+par fournisseur pour relire les notifications déjà authentifiées. Les achats et le rapprochement périodique
+partagent quatre places, et l’acquittement utilise sa propre place. Un budget saturé renvoie `503`.
+Déployer le vérificateur, l’API et le worker avec les mêmes versions du protocole interne.
+
+Pour mesurer une dégradation simulée, comparer `histae_http_request_duration_seconds` et les réponses
+`429` et `5xx` sur les deux routes webhook. Suivre `histae_outbox_queue_events` et
+`histae_outbox_queue_oldest_pending_age_seconds` pour `queue="store_billing"`. En préproduction, la différence
+`processed_at - received_at` dans `billing_store_notification`, groupée par `provider`, mesure le délai
+entre réception durable et traitement. Les lignes avec `processed_at IS NULL` indiquent le retard encore
+à résorber et doivent être suivies jusqu’au retour au niveau nominal.
+
 Prometheus : file `store_billing`, `histae_store_billing_unacknowledged`, `histae_store_billing_stale`.
 Alertes : acquittement Google en attente quinze minutes, droits non revérifiés depuis douze heures,
 travaux en dead letter. Vérifier le service privé, ses credentials et les accès réseau fournisseur,

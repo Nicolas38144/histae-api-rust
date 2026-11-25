@@ -7,8 +7,20 @@ use std::{fs::File, io::Read as _};
 
 const MAX_CA_BYTES: usize = 64 * 1024;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VerificationSource {
+    Purchase,
+    Notification,
+    Reconciliation,
+}
+
 pub trait StoreGateway: Send + Sync {
-    fn verify(&self, provider: StoreProvider, reference: String) -> StoreFuture<'_, StoreSnapshot>;
+    fn verify(
+        &self,
+        provider: StoreProvider,
+        reference: String,
+        source: VerificationSource,
+    ) -> StoreFuture<'_, StoreSnapshot>;
     fn notification(
         &self,
         provider: StoreProvider,
@@ -93,10 +105,24 @@ impl StoreVerifier {
     }
 }
 impl StoreGateway for StoreVerifier {
-    fn verify(&self, provider: StoreProvider, reference: String) -> StoreFuture<'_, StoreSnapshot> {
+    fn verify(
+        &self,
+        provider: StoreProvider,
+        reference: String,
+        source: VerificationSource,
+    ) -> StoreFuture<'_, StoreSnapshot> {
         Box::pin(async move {
-            self.call("verify", json!({"provider":provider,"reference":reference}))
-                .await
+            let body = json!({"provider":provider,"reference":reference});
+            match source {
+                // The worker chooses this only for persisted, authenticated events.
+                VerificationSource::Notification => {
+                    self.call(&format!("verify-notification/{}", provider.as_str()), body)
+                        .await
+                }
+                VerificationSource::Purchase | VerificationSource::Reconciliation => {
+                    self.call("verify", body).await
+                }
+            }
         })
     }
     fn notification(
@@ -107,8 +133,8 @@ impl StoreGateway for StoreVerifier {
     ) -> StoreFuture<'_, StoreNotification> {
         Box::pin(async move {
             self.call(
-                "notification",
-                json!({"provider":provider,"body":body,"authorization":authorization}),
+                &format!("notification/{}", provider.as_str()),
+                json!({"body":body,"authorization":authorization}),
             )
             .await
         })

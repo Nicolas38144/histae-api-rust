@@ -1,6 +1,6 @@
 use super::{
     PurchaseIntent, StoreError, StoreEvents, StoreGateway, StoreOffer, StorePersistence,
-    StoreProvider, StoreSnapshot,
+    StoreProvider, StoreSnapshot, VerificationSource,
 };
 use crate::{
     billing::domain::BillingPeriod, config::StoreBillingConfig, infra::crypto::sha256_hex,
@@ -100,12 +100,25 @@ impl StoreBillingService {
         provider: StoreProvider,
         reference: String,
     ) -> Result<(), StoreError> {
+        self.refresh(user, provider, reference, VerificationSource::Purchase)
+            .await
+    }
+    async fn refresh(
+        &self,
+        user: Option<Uuid>,
+        provider: StoreProvider,
+        reference: String,
+        source: VerificationSource,
+    ) -> Result<(), StoreError> {
         self.enabled(provider)?;
         if reference.is_empty() || reference.len() > 4096 {
             return Err(StoreError::Invalid);
         }
         let observed = self.repository.observed_at().await?;
-        let snapshot = self.gateway.verify(provider, reference.clone()).await?;
+        let snapshot = self
+            .gateway
+            .verify(provider, reference.clone(), source)
+            .await?;
         self.validate(&snapshot, provider, &reference)?;
         if let Some(owner) = self
             .repository
@@ -190,7 +203,12 @@ impl StoreBillingService {
             if !notification && user.is_none() {
                 return Ok(());
             }
-            self.verify(user, provider, reference).await?;
+            let source = if notification {
+                VerificationSource::Notification
+            } else {
+                VerificationSource::Reconciliation
+            };
+            self.refresh(user, provider, reference, source).await?;
             if notification {
                 self.repository.complete_notification(id).await?;
             }
@@ -256,6 +274,7 @@ mod tests {
             &self,
             _provider: StoreProvider,
             _reference: String,
+            _source: VerificationSource,
         ) -> StoreFuture<'_, StoreSnapshot> {
             let snapshot = self.0.clone();
             Box::pin(async { Ok(snapshot) })

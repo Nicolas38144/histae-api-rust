@@ -159,10 +159,14 @@ async fn notification(
     body: Value,
     provider: StoreProvider,
 ) -> Result<Json<Value>, ApiError> {
+    let quota = match provider {
+        StoreProvider::AppStore => "store-webhook-apple",
+        StoreProvider::GooglePlay => "store-webhook-google-play",
+    };
     state
         .limiter
         .enforce(
-            "store-webhook",
+            quota,
             &ip.to_string(),
             &state.webhook_policy,
             "billing_webhook_rate_limit_exceeded",
