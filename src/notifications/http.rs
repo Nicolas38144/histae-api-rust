@@ -135,6 +135,11 @@ fn device_error(error: DeviceError) -> ApiError {
             "device_limit_reached",
             "The account already has the maximum number of push devices.",
         ),
+        DeviceError::TokenConflict => ApiError::new(
+            StatusCode::CONFLICT,
+            "device_token_conflict",
+            "The push token cannot be registered. Obtain a new token or release the previous registration.",
+        ),
         DeviceError::InvalidRegistration => ApiError::new(
             StatusCode::BAD_REQUEST,
             RegisterDeviceBody::ERROR_CODE,

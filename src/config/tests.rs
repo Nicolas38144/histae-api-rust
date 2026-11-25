@@ -241,6 +241,7 @@ fn validates_bounds_and_url_origins() {
 fn accepts_the_complete_production_provider_configuration() {
     let source = base(&[
         ("ENV", "production"),
+        ("MOBILE_OTP_REQUIRE_CHALLENGE", "false"),
         ("POSTGRES_SSLMODE", "require"),
         ("RATE_LIMIT_STORE", "redis"),
         ("REDIS_ADDR", "redis.internal:6379"),
@@ -270,6 +271,7 @@ fn accepts_the_complete_production_provider_configuration() {
     let config = AppConfig::from_source(&source)
         .unwrap_or_else(|error| panic!("unexpected safe production failure: {error}"));
     assert_eq!(config.environment, Environment::Production);
+    assert!(config.mobile_otp_require_challenge);
     assert!(config.postgres.tls);
     assert_eq!(config.sms.provider, SmsProvider::Sweego);
     assert_eq!(config.rate_limit.store, RateLimitStore::Redis);

@@ -54,8 +54,9 @@ résolues avant l’envoi. Après les essais, supprimer les tokens/cookies/jeton
 
 ### OTP et idempotence
 
-La collection utilise `{{$guid}}` pour une nouvelle intention d’envoi. Le mobile reçoit un `202`
-générique avec `resend_after_seconds` après mise en file durable. Le worker outbox doit tourner.
+La collection utilise `{{$guid}}` pour une nouvelle intention d’envoi et transmet `challenge_bound: true`.
+Le mobile reçoit un `202` générique avec `resend_after_seconds` et `challenge_id` après mise en file durable.
+La collection mémorise le challenge pour l’envoyer à la vérification. Le worker outbox doit tourner.
 Un numéro déjà connu en inscription (`registration: true`), ou inconnu en connexion, ne reçoit aucun
 SMS et garde la même réponse publique. La vérification reste nécessaire pour ouvrir une session.
 

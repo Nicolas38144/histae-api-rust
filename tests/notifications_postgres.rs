@@ -458,12 +458,26 @@ async fn push_device_limits_and_binding_changes_apply_to_queued_deliveries()
         let transferred_job = job_for(initial[0].id)?;
         let previous = delivery.find_deliverable(transferred_job).await?
             .ok_or(FixtureError("original_delivery"))?;
+        let other_device = devices.register(other_user, other_session, registration(5)).await?
+            .ok_or(FixtureError("other_device"))?;
+        assert_eq!(devices.register(other_user, other_session, registration(0)).await,
+            Err(DeviceError::TokenConflict));
+        assert_eq!(devices.list(other_user).await?[0].id, other_device.id);
+        assert!(delivery.find_deliverable(transferred_job).await?.is_some());
+        assert!(!devices.remove(other_user, previous.device_id).await?);
+
+        let moved = devices.register(user_id, opened_session, registration(0)).await?
+            .ok_or(FixtureError("same_account_device"))?;
+        assert_ne!(moved.id, previous.device_id);
+        assert!(delivery.find_deliverable(transferred_job).await?.is_none());
+        assert!(devices.remove(user_id, moved.id).await?);
         let transferred = devices.register(other_user, other_session, registration(0)).await?
             .ok_or(FixtureError("transferred_device"))?;
         assert_ne!(transferred.id, previous.device_id);
         assert!(delivery.find_deliverable(transferred_job).await?.is_none());
         delivery.remove_registration(previous.device_id, &previous.token).await?;
         assert_eq!(devices.list(other_user).await?[0].id, transferred.id);
+        assert!(devices.remove(other_user, transferred.id).await?);
         let returned = devices.register(user_id, sessions[0], registration(0)).await?
             .ok_or(FixtureError("returned_device"))?;
         assert_ne!(returned.id, previous.device_id);
@@ -480,6 +494,14 @@ async fn push_device_limits_and_binding_changes_apply_to_queued_deliveries()
         let active_devices = devices.list(user_id).await?;
         assert_eq!(active_devices.len(), 3);
         assert!(active_devices.iter().all(|device| device.id != third_device.id));
+
+        let (first_claim, other_claim) = tokio::join!(
+            devices.register(user_id, sessions[0], registration(6)),
+            devices.register(other_user, other_session, registration(6)),
+        );
+        assert!(matches!((first_claim, other_claim),
+            (Ok(Some(_)), Err(DeviceError::TokenConflict)) |
+            (Err(DeviceError::TokenConflict), Ok(Some(_)))));
         Ok(())
     }.await;
 

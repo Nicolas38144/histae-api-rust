@@ -429,21 +429,24 @@ async fn distinguishes_invalid_ids_unknown_devices_stale_sessions_and_full_accou
         json!({"error":{"code":"authentication_required","message":"A valid mobile session is required."}})
     );
 
-    store.state.lock().expect("state").register_error = Some(DeviceError::AccountLimitReached);
-    let full = app
-        .oneshot(request(
-            "POST",
-            "/api/users/me/devices",
-            Some(&token),
-            registration_body,
-        ))
-        .await
-        .expect("response");
-    assert_eq!(full.status(), StatusCode::CONFLICT);
-    assert_eq!(
-        json_body(full).await["error"]["code"],
-        "device_limit_reached"
-    );
+    for (error, code) in [
+        (DeviceError::AccountLimitReached, "device_limit_reached"),
+        (DeviceError::TokenConflict, "device_token_conflict"),
+    ] {
+        store.state.lock().expect("state").register_error = Some(error);
+        let response = app
+            .clone()
+            .oneshot(request(
+                "POST",
+                "/api/users/me/devices",
+                Some(&token),
+                registration_body,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(json_body(response).await["error"]["code"], code);
+    }
 }
 
 #[tokio::test]

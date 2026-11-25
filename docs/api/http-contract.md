@@ -127,8 +127,8 @@ Il n’existe pas de mécanisme de retry universel.
 
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
-| POST | `/api/auth/otp/send` | `{ phone_number, registration?: boolean, challenge_bound?: boolean }` + clé d’idempotence → `202 { message, resend_after_seconds, challenge_id? }`. Les deux booléens valent `false` par défaut. |
-| POST | `/api/auth/otp/verify` | `{ phone_number, otp, challenge_id?: UUIDv4 }` → `200 { access_token, refresh_token }`. |
+| POST | `/api/auth/otp/send` | `{ phone_number, registration?: boolean, challenge_bound: true }` + clé d’idempotence → `202 { message, resend_after_seconds, challenge_id }`. |
+| POST | `/api/auth/otp/verify` | `{ phone_number, otp, challenge_id: UUIDv4 }` → `200 { access_token, refresh_token }`. |
 | POST | `/api/auth/refresh` | `{ refresh_token, recovery_id? }` + `Idempotency-Key` facultatif → `200 { access_token, refresh_token }`. |
 | GET | `/api/plans` | `200 { plans: [...], offers: [...] }` ; trois offres commerciales et leurs plans de droits, avec quotas et fonctionnalités. |
 | GET | `/api/legal/documents` | `200 { documents: [{ consent_type, required_document_version, document_url, document_language, document_date }] }` ; quatre documents courants, publics et localisés selon `Accept-Language`, sans compte ni preuve de consentement. `Cache-Control: no-store`. |
@@ -145,7 +145,7 @@ public n’expose aucune preuve de consentement ni date utilisateur.
 
 Pour lier un code à sa demande, envoyer `challenge_bound: true` et conserver en mémoire le `challenge_id` aléatoire renvoyé par le serveur. Utiliser ce même identifiant dans `/verify`. Un rejeu de `/send` restitue le même challenge. Cinq codes erronés épuisent uniquement ce challenge. Le téléphone et l’identifiant doivent correspondre à une demande dont le SMS a été accepté. La réponse `401 invalid_or_expired_otp` couvre aussi un challenge inconnu, épuisé ou consommé.
 
-Les clients historiques peuvent continuer à envoyer et vérifier avec leur format actuel. Cinq codes erronés épuisent alors le code mobile historique actif. Un nouvel envoi accepté ouvre un nouveau budget. Une fois les clients migrés, `MOBILE_OTP_REQUIRE_CHALLENGE=true` exige `challenge_bound: true` à l’envoi et `challenge_id` à la vérification. Le refus de l’ancien format renvoie `400 otp_challenge_required`.
+Le challenge est obligatoire en production. Sans `challenge_bound: true` à l’envoi ou sans `challenge_id` à la vérification, l’API renvoie `400 otp_challenge_required`. En développement et en test, définir `MOBILE_OTP_REQUIRE_CHALLENGE=true` pour reproduire ce comportement.
 
 Exception mobile explicite : le [compte de revue Google Play](../features/google-play-review.md), désactivé par défaut, utilise un code réutilisable pour un seul numéro fictif configuré. Son `/send` conserve le délai de renvoi et enregistre une intention sans téléphone chiffré ni SMS/outbox. La première création exige `registration: true` dans la dernière intention encore valide ; une simple connexion ne crée aucun compte. Les quotas et validations restent actifs ; cette exception n’authentifie ni un compte réel existant ni un administrateur.
 
@@ -446,7 +446,9 @@ Erreurs : `400 invalid_reward_request`, `400 invalid_reward_id`, `400 invalid_ad
 | PUT | `/api/matches/:id/notification-preferences` | `{ muted, muted_until? }` → `200` avec le choix privé ; `false`/`null` réactive, `true`/`null` désactive sans échéance, une date future doit être à 31 jours maximum. |
 | GET | `/api/users/me/events` | Flux SSE authentifié `text/event-stream`. |
 
-L’appareil expose UUID, `session_id`, plateforme, version et dates d’usage. La session vient du Bearer. Une session a un seul appareil push. Un nouveau token remplace l’ancien pour cette session. Réinscrire le même token dans la même session conserve l’UUID. Le transférer vers une autre session ou un autre compte crée une nouvelle liaison et invalide les livraisons en file pour l’ancienne.
+L’appareil expose UUID, `session_id`, plateforme, version et dates d’usage. La session vient du Bearer. Une session a un seul appareil push. Un nouveau jeton remplace l’ancien pour cette session. Réinscrire le même jeton dans la même session conserve l’UUID. Le réinscrire sous une autre session du même compte crée une nouvelle liaison et invalide les livraisons en file pour l’ancienne.
+
+Un jeton déjà lié à un autre compte est refusé avec `409 device_token_conflict`. Pour changer de compte sur le même appareil, fermer la session précédente via `/api/auth/logout` ou supprimer son appareil avant de réinscrire le jeton. Un nouveau jeton FCM permet aussi d’inscrire l’appareil sous le nouveau compte.
 
 Un compte peut enregistrer jusqu’à trois appareils. Une inscription qui dépasserait ce plafond renvoie `409 device_limit_reached`. Les appareils dont la session a expiré ou a été révoquée sont purgés lors d’une inscription réussie. Une liaison historique peut avoir `session_id: null` et compte dans le plafond. Le listage renvoie au plus trois appareils, classés par dernier usage connu. Chaque notification crée au plus trois livraisons, en privilégiant les appareils éligibles les plus récemment utilisés.
 

@@ -56,20 +56,17 @@ impl PgNotificationRepository {
         self.database
             .transaction(|connection| {
                 Box::pin(async move {
-                    // Lock both accounts in the same order for transfers. Enqueue takes a
-                    // share lock on the recipient, so it cannot queue against an old binding.
-                    let accounts = sqlx::query_as::<_, (Uuid, bool)>(
-                        "SELECT user_id, deleted_at IS NULL AND NOT is_banned
-                         FROM user_account
-                         WHERE user_id = $1 OR user_id = (SELECT user_id FROM device_token WHERE token = $2)
-                         ORDER BY user_id FOR UPDATE",
+                    // Serialize registrations and notification enqueue for this account.
+                    let account = sqlx::query_scalar::<_, Uuid>(
+                        "SELECT user_id FROM user_account
+                         WHERE user_id = $1 AND deleted_at IS NULL AND NOT is_banned
+                         FOR UPDATE",
                     )
                     .bind(user_id)
-                    .bind(&registration.token)
-                    .fetch_all(&mut *connection)
+                    .fetch_optional(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;
-                    if !accounts.contains(&(user_id, true)) {
+                    if account.is_none() {
                         return Ok(None);
                     }
                     let session = sqlx::query_scalar::<_, Uuid>(
@@ -122,23 +119,20 @@ impl PgNotificationRepository {
                         .await
                         .map_err(map_sqlx_error)?;
 
-                    let locked_ids: Vec<_> = accounts.into_iter().map(|(id, _)| id).collect();
                     let row = sqlx::query_as::<_, DeviceTuple>(
                         "WITH registered AS (
                            INSERT INTO device_token
                              (id, user_id, session_id, token, platform, app_version, created_at, last_used_at, language)
                            VALUES ($1, $2, $3, $4, $5, $6, clock_timestamp(), clock_timestamp(), $7)
                            ON CONFLICT (token) DO UPDATE SET
-                             id = CASE WHEN device_token.user_id = EXCLUDED.user_id
-                               AND device_token.session_id IS NOT DISTINCT FROM EXCLUDED.session_id
+                             id = CASE WHEN device_token.session_id IS NOT DISTINCT FROM EXCLUDED.session_id
                                THEN device_token.id ELSE EXCLUDED.id END,
-                             user_id = EXCLUDED.user_id,
                              session_id = EXCLUDED.session_id,
                              platform = EXCLUDED.platform,
                              app_version = EXCLUDED.app_version,
                              language = EXCLUDED.language,
                              last_used_at = clock_timestamp()
-                           WHERE device_token.user_id = ANY($8::uuid[])
+                           WHERE device_token.user_id = EXCLUDED.user_id
                            RETURNING id, session_id, platform, app_version, created_at, last_used_at, language,
                              OLD.id AS previous_id
                          ), discarded_deliveries AS (
@@ -154,12 +148,12 @@ impl PgNotificationRepository {
                     .bind(registration.platform.as_str())
                     .bind(registration.app_version)
                     .bind(registration.language.map(|language| language.as_str()))
-                    .bind(&locked_ids)
                     .fetch_optional(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?
-                    // Another request bound the token to an account outside our lock set.
-                    .ok_or(DatabaseError::SerializationFailure)?;
+                    // The unique token is already owned by another account. Roll
+                    // back any changes to the caller's existing registration.
+                    .ok_or(DeviceError::TokenConflict)?;
                     Ok(Some(map_device(row)?))
                 })
             })

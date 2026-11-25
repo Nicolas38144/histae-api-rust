@@ -40,16 +40,30 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"registration\": true\n}",
+                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"registration\": true,\n  \"challenge_bound\": true\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "Both registration and sign-in return generic 202 {message, resend_after_seconds}. A known number in registration, or an unknown number in sign-in, receives no SMS. HTTP queues the encrypted request without looking up accounts or calling Sweego; the outbox worker is required. A new UUID before the shared 60-second cooldown returns 429 otp_resend_too_soon with Retry-After. Replay the same UUID, phone, language and registration flag after a lost response; no duplicate SMS and no deadline extension. Explicit resend requires a new UUID. Phone/IP quotas apply to every request; provider and membership outcomes are never exposed.\n\nOptional Google Play review: only the configured dedicated fictional phone accepts the server-side reusable code. First sign-up requires registration=true on the latest unexpired intent; sign-in cannot create an account. Send stores a phone-free intent without an SMS/outbox job and keeps cooldown, idempotency and IP/phone limits. No real credentials belong in this collection. See docs/features/google-play-review.md."
+                "description": "Both registration and sign-in return generic 202 {message, resend_after_seconds, challenge_id}. A known number in registration, or an unknown number in sign-in, receives no SMS. HTTP queues the encrypted request without looking up accounts or calling Sweego; the outbox worker is required. A new UUID before the shared 60-second cooldown returns 429 otp_resend_too_soon with Retry-After. Replay the same UUID, phone, language and registration flag after a lost response; no duplicate SMS and no deadline extension. Explicit resend requires a new UUID. Phone/IP quotas apply to every request; provider and membership outcomes are never exposed.\n\nOptional Google Play review: only the configured dedicated fictional phone accepts the server-side reusable code. First sign-up requires registration=true on the latest unexpired intent; sign-in cannot create an account. Send stores a phone-free intent without an SMS/outbox job and keeps cooldown, idempotency and IP/phone limits. No real credentials belong in this collection. See docs/features/google-play-review.md."
               },
-              "response": []
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 202) {",
+                      "  const data = pm.response.json();",
+                      "  if (data.challenge_id) pm.collectionVariables.set(\"mobileOtpChallengeId\", data.challenge_id);",
+                      "}"
+                    ]
+                  }
+                }
+              ]
             },
             {
               "name": "POST /api/auth/otp/verify",
@@ -71,14 +85,14 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"otp\": \"{{otp}}\"\n}",
+                  "raw": "{\n  \"phone_number\": \"{{phoneNumber}}\",\n  \"otp\": \"{{otp}}\",\n  \"challenge_id\": \"{{mobileOtpChallengeId}}\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "description": "{ phone_number, otp } → 200 { access_token, refresh_token }.\n\nOptional Google Play review: only the configured dedicated fictional phone accepts the server-side reusable code. First sign-up requires registration=true on the latest unexpired intent; sign-in cannot create an account. Send stores a phone-free intent without an SMS/outbox job and keeps cooldown, idempotency and IP/phone limits. No real credentials belong in this collection. See docs/features/google-play-review.md."
+                "description": "{ phone_number, otp, challenge_id } → 200 { access_token, refresh_token }.\n\nOptional Google Play review: only the configured dedicated fictional phone accepts the server-side reusable code. First sign-up requires registration=true on the latest unexpired intent; sign-in cannot create an account. Send stores a phone-free intent without an SMS/outbox job and keeps cooldown, idempotency and IP/phone limits. No real credentials belong in this collection. See docs/features/google-play-review.md."
               },
               "response": [],
               "event": [
@@ -91,6 +105,7 @@
                       "  const data = pm.response.json();",
                       "  if (data.access_token) pm.collectionVariables.set(\"accessToken\", data.access_token);",
                       "  if (data.refresh_token) pm.collectionVariables.set(\"refreshToken\", data.refresh_token);",
+                      "  pm.collectionVariables.unset(\"mobileOtpChallengeId\");",
                       "}"
                     ]
                   }
@@ -1819,7 +1834,7 @@
                     }
                   }
                 },
-                "description": "{ push_token, platform: ios or android, app_version? } → 201 with the public device record."
+                "description": "{ push_token, platform: ios or android, app_version? } → 201 with the public device record. A token linked to another account returns 409 device_token_conflict."
               },
               "response": []
             },
@@ -5247,6 +5262,11 @@
     },
     {
       "key": "otp",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "mobileOtpChallengeId",
       "value": "",
       "type": "string"
     },

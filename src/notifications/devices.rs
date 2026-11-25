@@ -118,6 +118,7 @@ impl DeviceService {
 pub enum DeviceError {
     AuthenticationRequired,
     AccountLimitReached,
+    TokenConflict,
     InvalidRegistration,
     NotFound,
     Database(DatabaseError),
@@ -128,6 +129,7 @@ impl fmt::Display for DeviceError {
         formatter.write_str(match self {
             Self::AuthenticationRequired => "authentication_required",
             Self::AccountLimitReached => "device_limit_reached",
+            Self::TokenConflict => "device_token_conflict",
             Self::InvalidRegistration => "invalid_device_payload",
             Self::NotFound => "device_not_found",
             Self::Database(error) => error.safe_code(),

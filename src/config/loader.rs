@@ -615,7 +615,7 @@ impl AppConfig {
                 source.value("MOBILE_OTP_REQUIRE_CHALLENGE")?.as_deref(),
                 false,
                 "MOBILE_OTP_REQUIRE_CHALLENGE",
-            )?,
+            )? || environment == Environment::Production,
             sms,
             redis,
             push,
