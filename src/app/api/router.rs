@@ -238,7 +238,6 @@ impl ApiResources {
             service: native_billing,
             limiter: limiter.clone(),
             policy: config.rate_limit.billing.clone(),
-            webhook_policy: config.rate_limit.billing_webhook.clone(),
         };
         let web_state = crate::identity::web::http::WebAccountState {
             service: crate::identity::web::WebAccountService::new(
@@ -540,6 +539,7 @@ impl ApiResources {
             ])),
         )
         .map_err(|_| "http_configuration_invalid")?
+        .with_store_webhook_policy(config.rate_limit.billing_webhook.clone())
         .with_localization(localization);
         Ok(build_router(routes, http_state))
     }

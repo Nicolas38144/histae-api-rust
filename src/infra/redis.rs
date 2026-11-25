@@ -1,5 +1,4 @@
 use std::fmt;
-use std::fs;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,6 +13,7 @@ use tokio::task::JoinHandle;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
+use super::tls::read_certificate_bundle;
 use crate::config::RedisConfig;
 
 const MAX_ROOT_CERTIFICATE_BYTES: u64 = 1_048_576;
@@ -290,11 +290,8 @@ fn build_client(config: &RedisConfig) -> Result<Client, RedisError> {
             .root_certificate
             .as_ref()
             .map(|path| {
-                let metadata = fs::metadata(path).map_err(|_| RedisError::InvalidConfiguration)?;
-                if metadata.len() > MAX_ROOT_CERTIFICATE_BYTES {
-                    return Err(RedisError::InvalidConfiguration);
-                }
-                fs::read(path).map_err(|_| RedisError::InvalidConfiguration)
+                read_certificate_bundle(path, MAX_ROOT_CERTIFICATE_BYTES)
+                    .map_err(|_| RedisError::InvalidConfiguration)
             })
             .transpose()?;
         Client::build_with_tls(

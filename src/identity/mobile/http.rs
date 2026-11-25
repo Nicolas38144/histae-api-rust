@@ -16,6 +16,7 @@ use super::service::{AuthenticatedMobile as AuthenticatedIdentity, MobileAuthErr
 use super::service::{MobileAuthService, MobileSessionPage, TokenPair};
 use super::sweego::{SweegoWebhookError, SweegoWebhookHeaders, SweegoWebhookService};
 use crate::config::LimitPolicy;
+use crate::http::callbacks::SWEEGO_WEBHOOK;
 use crate::http::error::ApiError;
 use crate::http::extract::{ApiDto, ValidatedJson, ValidatedPath, ValidatedQuery};
 use crate::http::lifecycle::ClientIp;
@@ -114,7 +115,7 @@ impl SweegoHttpState {
 
 pub fn sweego_routes(state: SweegoHttpState) -> Router<HttpState> {
     Router::new()
-        .route("/api/auth/sweego/webhook", post(sweego_webhook))
+        .route(SWEEGO_WEBHOOK, post(sweego_webhook))
         .layer(Extension(state))
 }
 

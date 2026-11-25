@@ -84,7 +84,7 @@ pub async fn run(config: AppConfig) -> Result<(), &'static str> {
     let photo_store: Arc<dyn PhotoStore> = photos.clone();
     let photo_handler = Arc::new(PhotoDeletionHandler::new(photo_store, Arc::clone(&storage)));
     let push_store = Arc::new(PgNotificationDeliveryStore::new(database.clone()));
-    let push_sender = Arc::new(PushService::new(config.push.clone(), push_store.clone()));
+    let push_sender = Arc::new(PushService::new(config.push.clone()));
     let push_handler = Arc::new(NotificationPushHandler::new(push_store, push_sender));
     let erasure_store = Arc::new(PgErasureRepository::new(database.clone()));
     let erasure = Arc::new(ErasureService::new(

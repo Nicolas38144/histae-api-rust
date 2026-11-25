@@ -148,20 +148,18 @@ impl NotificationDeliveryStore for PgNotificationDeliveryStore {
         Box::pin(self.pending(id))
     }
 
-    fn remove_token<'a>(
+    fn remove_registration<'a>(
         &'a self,
+        device_id: Uuid,
         token: &'a str,
-        device_id: Option<Uuid>,
     ) -> DeliveryStoreFuture<'a, ()> {
         Box::pin(async move {
-            sqlx::query(
-                "DELETE FROM device_token WHERE token = $1 AND ($2::uuid IS NULL OR id = $2)",
-            )
-            .bind(token)
-            .bind(device_id)
-            .execute(self.database.pool())
-            .await
-            .map_err(map_sqlx_error)?;
+            sqlx::query("DELETE FROM device_token WHERE id = $1 AND token = $2")
+                .bind(device_id)
+                .bind(token)
+                .execute(self.database.pool())
+                .await
+                .map_err(map_sqlx_error)?;
             Ok(())
         })
     }

@@ -41,7 +41,7 @@ pub struct DeviceRecord {
     pub last_used_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 pub struct DeviceRegistration {
     pub token: String,
     pub platform: DevicePlatform,

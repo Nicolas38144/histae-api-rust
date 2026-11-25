@@ -139,21 +139,19 @@ services:
   # Redis éphémère, TLS et authentification obligatoires, aucune écoute TCP en clair.
   redis:
     image: redis:7.4.12-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
-    entrypoint: [/bin/sh, -ec]
-    command:
-      - |
-        umask 077
-        password_hash="$$(printf '%s' "$$REDIS_PASSWORD" | sha256sum)"
-        printf '%s #%s\n' "$$(cat /etc/redis/histae-users.acl)" "$${password_hash%% *}" > /run/redis/users.acl
-        chown redis:redis /run/redis/users.acl
-        unset REDIS_PASSWORD REDISCLI_AUTH
-        exec /usr/local/bin/docker-entrypoint.sh redis-server /etc/redis/histae.conf --aclfile /run/redis/users.acl
+    entrypoint: [/bin/sh, /etc/redis/histae-entrypoint.sh]
+    command: []
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Define REDIS_PASSWORD in .env}
-      REDISCLI_AUTH: ${REDIS_PASSWORD:?Define REDIS_PASSWORD in .env}
     volumes:
       - ./docker/redis/redis.conf:/etc/redis/histae.conf:ro
       - ./docker/redis/users.acl:/etc/redis/histae-users.acl:ro
+      - type: bind
+        source: ./docker/redis/entrypoint.sh
+        target: /etc/redis/histae-entrypoint.sh
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: ./.secrets/redis
         target: /etc/redis/tls
@@ -163,7 +161,7 @@ services:
     secrets: [postgres_ca]
     tmpfs: ["/run/redis:size=1m,mode=0755,noexec,nosuid,nodev"]
     healthcheck:
-      test: [CMD-SHELL, 'redis-cli --tls --cacert /run/secrets/postgres_ca -h redis ping | grep -qx PONG']
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli --tls --cacert /run/secrets/postgres_ca -h redis ping | grep -qx PONG']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -250,6 +248,13 @@ services:
     security_opt: [no-new-privileges:true]
     volumes:
       - ./docker/storage-gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+      - &storage-gateway-common
+        type: bind
+        source: ./docker/storage-gateway/common.caddy
+        target: /etc/caddy/common.caddy
+        read_only: true
+        bind:
+          create_host_path: false
       - &storage-gateway-tls
         type: bind
         source: ./.secrets/storage-gateway
@@ -277,6 +282,7 @@ services:
     <<: *storage-gateway
     volumes:
       - ./docker/storage-gateway/internal.Caddyfile:/etc/caddy/Caddyfile:ro
+      - *storage-gateway-common
       - *storage-gateway-tls
       - *storage-gateway-socket
     networks:

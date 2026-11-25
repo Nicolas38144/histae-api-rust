@@ -106,7 +106,8 @@ Les notifications authentifiées sont dédupliquées puis traitées via l’outb
 courante** chez le fournisseur, pas une confiance aveugle dans une notification ancienne.
 Une observation commencée avant une observation plus récente ne réécrit pas sa projection.
 
-Le quota `RATE_LIMIT_BILLING_WEBHOOK` s’applique par IP et par fournisseur. Le vérificateur privé accepte
+L’API applique `RATE_LIMIT_BILLING_WEBHOOK` par IP et par fournisseur avant de lire le corps. Chaque
+fournisseur dispose de six requêtes simultanées, dont quatre lectures de corps en parallèle. Le vérificateur privé accepte
 deux authentifications de webhook en parallèle par fournisseur et réserve au worker de l’outbox une place
 par fournisseur pour relire les notifications déjà authentifiées. Les achats et le rapprochement périodique
 partagent quatre places, et l’acquittement utilise sa propre place. Un budget saturé renvoie `503`.

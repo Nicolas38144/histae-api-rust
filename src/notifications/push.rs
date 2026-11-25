@@ -5,6 +5,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use super::domain::NotificationType;
+use crate::config::{PushConfig, PushProvider};
+use crate::shared::clock::{Clock, SystemClock};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use futures_util::StreamExt as _;
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
@@ -13,12 +16,6 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 use url::Url;
-use uuid::Uuid;
-
-use super::delivery::{NotificationDeliveryStore, PendingPush};
-use super::domain::NotificationType;
-use crate::config::{PushConfig, PushProvider};
-use crate::shared::clock::{Clock, SystemClock};
 
 const FCM_RESPONSE_LIMIT: usize = 64 * 1024;
 const OAUTH_SCOPE: &str = "https://www.googleapis.com/auth/firebase.messaging";
@@ -34,38 +31,26 @@ impl fmt::Display for PushDeliveryError {
 
 impl std::error::Error for PushDeliveryError {}
 
-pub type PushFuture<'a> = Pin<Box<dyn Future<Output = Result<(), PushDeliveryError>> + Send + 'a>>;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PushOutcome {
+    Completed,
+    Unregistered,
+}
+
+pub struct PushMessage<'a> {
+    pub token: &'a str,
+    pub kind: NotificationType,
+    pub data: BTreeMap<String, String>,
+    pub language: Language,
+    pub firstname: Option<&'a str>,
+    pub expires_at: DateTime<Utc>,
+}
+
+pub type PushFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<PushOutcome, PushDeliveryError>> + Send + 'a>>;
 
 pub trait PushSender: Send + Sync {
-    fn send<'a>(
-        &'a self,
-        token: &'a str,
-        kind: NotificationType,
-        data: BTreeMap<String, String>,
-    ) -> PushFuture<'a>;
-
-    fn send_in<'a>(
-        &'a self,
-        token: &'a str,
-        kind: NotificationType,
-        data: BTreeMap<String, String>,
-        _language: Language,
-    ) -> PushFuture<'a> {
-        self.send(token, kind, data)
-    }
-
-    fn send_personalized<'a>(
-        &'a self,
-        pending: &'a PendingPush,
-        data: BTreeMap<String, String>,
-    ) -> PushFuture<'a> {
-        self.send_in(
-            &pending.token,
-            pending.notification_type,
-            data,
-            pending.language,
-        )
-    }
+    fn send<'a>(&'a self, message: PushMessage<'a>) -> PushFuture<'a>;
 }
 
 #[derive(Clone, Debug)]
@@ -181,7 +166,6 @@ pub struct PushService {
 
 struct PushInner {
     config: PushConfig,
-    store: Arc<dyn NotificationDeliveryStore>,
     transport: Arc<dyn PushTransport>,
     signer: Arc<dyn OAuthAssertionSigner>,
     clock: Arc<dyn Clock>,
@@ -193,16 +177,10 @@ struct AccessToken {
     expires_at: DateTime<Utc>,
 }
 
-struct PushTarget<'a> {
-    token: &'a str,
-    device_id: Option<Uuid>,
-}
-
 impl PushService {
-    pub fn new(config: PushConfig, store: Arc<dyn NotificationDeliveryStore>) -> Self {
+    pub fn new(config: PushConfig) -> Self {
         Self::with_dependencies(
             config,
-            store,
             Arc::new(ReqwestPushTransport::new()),
             Arc::new(RsaOAuthAssertionSigner),
             Arc::new(SystemClock),
@@ -211,7 +189,6 @@ impl PushService {
 
     pub fn with_dependencies(
         config: PushConfig,
-        store: Arc<dyn NotificationDeliveryStore>,
         transport: Arc<dyn PushTransport>,
         signer: Arc<dyn OAuthAssertionSigner>,
         clock: Arc<dyn Clock>,
@@ -219,7 +196,6 @@ impl PushService {
         Self {
             inner: Arc::new(PushInner {
                 config,
-                store,
                 transport,
                 signer,
                 clock,
@@ -228,39 +204,31 @@ impl PushService {
         }
     }
 
-    async fn send_inner(
-        &self,
-        target: PushTarget<'_>,
-        kind: NotificationType,
-        data: BTreeMap<String, String>,
-        language: Language,
-        firstname: Option<&str>,
-        expires_at: DateTime<Utc>,
-    ) -> Result<(), PushDeliveryError> {
-        if self.inner.config.provider == PushProvider::Disabled {
-            return Ok(());
-        }
-        if expires_at <= self.inner.clock.now() {
-            return Ok(());
+    async fn send_inner(&self, message: PushMessage<'_>) -> Result<PushOutcome, PushDeliveryError> {
+        if self.inner.config.provider == PushProvider::Disabled
+            || message.expires_at <= self.inner.clock.now()
+        {
+            return Ok(PushOutcome::Completed);
         }
         let access_token = self.google_access_token().await?;
         let now = self.inner.clock.now();
-        let delivery_deadline = expires_at.min(now + ChronoDuration::days(1));
+        let delivery_deadline = message.expires_at.min(now + ChronoDuration::days(1));
         let ttl = (delivery_deadline - now).num_seconds();
         if ttl <= 0 {
-            return Ok(());
+            return Ok(PushOutcome::Completed);
         }
-        let (title, message) = copy::personalized_notification(language, kind, firstname);
-        let mut public_data = data;
-        public_data.insert("type".to_owned(), kind.as_str().to_owned());
+        let (title, text) =
+            copy::personalized_notification(message.language, message.kind, message.firstname);
+        let mut public_data = message.data;
+        public_data.insert("type".to_owned(), message.kind.as_str().to_owned());
         let request = json!({
             "message": {
-                "token": target.token,
-                "notification": { "title": title, "body": message },
+                "token": message.token,
+                "notification": { "title": title, "body": text },
                 "data": public_data,
                 "android": {
                     "ttl": format!("{ttl}s"),
-                    "notification": { "channel_id": kind.channel_id() }
+                    "notification": { "channel_id": message.kind.channel_id() }
                 },
                 "apns": { "headers": { "apns-expiration": delivery_deadline.timestamp().to_string() } },
             }
@@ -276,15 +244,12 @@ impl PushService {
             .post_json(&url, &access_token, &request, self.inner.config.timeout)
             .await?;
         if (200..300).contains(&response.status) {
-            return Ok(());
+            return Ok(PushOutcome::Completed);
         }
-        if explicitly_unregistered(response.body.as_ref()) {
-            self.inner
-                .store
-                .remove_token(target.token, target.device_id)
-                .await
-                .map_err(|_| PushDeliveryError)?;
-            return Ok(());
+        if response.status == StatusCode::NOT_FOUND.as_u16()
+            && explicitly_unregistered(response.body.as_ref())
+        {
+            return Ok(PushOutcome::Unregistered);
         }
         if response.status == StatusCode::UNAUTHORIZED.as_u16() {
             *self.inner.access_token.lock().await = None;
@@ -342,61 +307,8 @@ impl PushService {
 }
 
 impl PushSender for PushService {
-    fn send<'a>(
-        &'a self,
-        token: &'a str,
-        kind: NotificationType,
-        data: BTreeMap<String, String>,
-    ) -> PushFuture<'a> {
-        Box::pin(self.send_inner(
-            PushTarget {
-                token,
-                device_id: None,
-            },
-            kind,
-            data,
-            Language::Fr,
-            None,
-            self.inner.clock.now() + ChronoDuration::days(1),
-        ))
-    }
-
-    fn send_in<'a>(
-        &'a self,
-        token: &'a str,
-        kind: NotificationType,
-        data: BTreeMap<String, String>,
-        language: Language,
-    ) -> PushFuture<'a> {
-        Box::pin(self.send_inner(
-            PushTarget {
-                token,
-                device_id: None,
-            },
-            kind,
-            data,
-            language,
-            None,
-            self.inner.clock.now() + ChronoDuration::days(1),
-        ))
-    }
-
-    fn send_personalized<'a>(
-        &'a self,
-        pending: &'a PendingPush,
-        data: BTreeMap<String, String>,
-    ) -> PushFuture<'a> {
-        Box::pin(self.send_inner(
-            PushTarget {
-                token: &pending.token,
-                device_id: Some(pending.device_id),
-            },
-            pending.notification_type,
-            data,
-            pending.language,
-            pending.partner_firstname.as_deref(),
-            pending.expires_at,
-        ))
+    fn send<'a>(&'a self, message: PushMessage<'a>) -> PushFuture<'a> {
+        Box::pin(self.send_inner(message))
     }
 }
 
@@ -451,38 +363,17 @@ fn encode_path_segment(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::config::SecretString;
-    use crate::infra::postgres::DatabaseError;
     use chrono::TimeZone as _;
     use std::sync::Mutex as StdMutex;
 
-    #[derive(Default)]
-    struct Store {
-        removed: StdMutex<Vec<String>>,
-    }
-
-    impl NotificationDeliveryStore for Store {
-        fn find_deliverable(
-            &self,
-            _id: uuid::Uuid,
-        ) -> super::super::delivery::DeliveryStoreFuture<
-            '_,
-            Option<super::super::delivery::PendingPush>,
-        > {
-            Box::pin(async { Ok(None) })
-        }
-
-        fn remove_token<'a>(
-            &'a self,
-            token: &'a str,
-            _device_id: Option<Uuid>,
-        ) -> super::super::delivery::DeliveryStoreFuture<'a, ()> {
-            Box::pin(async move {
-                self.removed
-                    .lock()
-                    .map_err(|_| DatabaseError::QueryFailed)?
-                    .push(token.to_owned());
-                Ok(())
-            })
+    fn fixture_message(kind: NotificationType, now: DateTime<Utc>) -> PushMessage<'static> {
+        PushMessage {
+            token: "generated-token",
+            kind,
+            data: BTreeMap::new(),
+            language: Language::Fr,
+            firstname: None,
+            expires_at: now + ChronoDuration::days(1),
         }
     }
 
@@ -598,34 +489,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn disabled_push_performs_no_network_or_storage_operation() {
-        let store = Arc::new(Store::default());
+    async fn disabled_push_performs_no_network_operation() {
         let transport = Arc::new(Transport::default());
         let service = PushService::with_dependencies(
             config(PushProvider::Disabled),
-            store.clone(),
             transport.clone(),
             Arc::new(Signer),
             Arc::new(FixedClock(Utc::now())),
         );
         service
-            .send(
-                "generated-token",
-                NotificationType::NewMessage,
-                BTreeMap::new(),
-            )
+            .send(fixture_message(NotificationType::NewMessage, Utc::now()))
             .await
             .unwrap_or_else(|_| unreachable!());
         assert!(
             transport
                 .forms
-                .lock()
-                .unwrap_or_else(|_| unreachable!())
-                .is_empty()
-        );
-        assert!(
-            store
-                .removed
                 .lock()
                 .unwrap_or_else(|_| unreachable!())
                 .is_empty()
@@ -646,18 +524,13 @@ mod tests {
                 ));
             let service = PushService::with_dependencies(
                 config(PushProvider::Fcm),
-                Arc::new(Store::default()),
                 transport.clone(),
                 Arc::new(Signer),
                 Arc::new(FixedClock(Utc::now())),
             );
             assert_eq!(
                 service
-                    .send(
-                        "fixture-device",
-                        NotificationType::NewMessage,
-                        BTreeMap::new()
-                    )
+                    .send(fixture_message(NotificationType::NewMessage, Utc::now()))
                     .await,
                 Err(PushDeliveryError)
             );
@@ -667,7 +540,6 @@ mod tests {
 
     #[tokio::test]
     async fn caches_oauth_and_sends_only_the_given_metadata() {
-        let store = Arc::new(Store::default());
         let transport = Arc::new(Transport::default());
         transport
             .token_responses
@@ -688,7 +560,6 @@ mod tests {
             .unwrap_or_else(|| unreachable!());
         let service = PushService::with_dependencies(
             config(PushProvider::Fcm),
-            store,
             transport.clone(),
             Arc::new(Signer),
             Arc::new(FixedClock(now)),
@@ -698,20 +569,18 @@ mod tests {
             uuid::Uuid::new_v4().to_string(),
         )]);
         service
-            .send(
-                "generated-token",
-                NotificationType::NewMessage,
-                data.clone(),
-            )
+            .send(PushMessage {
+                data: data.clone(),
+                ..fixture_message(NotificationType::NewMessage, now)
+            })
             .await
             .unwrap_or_else(|_| unreachable!());
         service
-            .send_in(
-                "generated-token",
-                NotificationType::NewMessage,
+            .send(PushMessage {
                 data,
-                Language::It,
-            )
+                language: Language::It,
+                ..fixture_message(NotificationType::NewMessage, now)
+            })
             .await
             .unwrap_or_else(|_| unreachable!());
         assert_eq!(
@@ -771,7 +640,6 @@ mod tests {
             .unwrap_or_else(|| unreachable!());
         let service = PushService::with_dependencies(
             config(PushProvider::Fcm),
-            Arc::new(Store::default()),
             transport.clone(),
             Arc::new(Signer),
             Arc::new(FixedClock(now)),
@@ -784,19 +652,12 @@ mod tests {
             ("match_id".to_owned(), uuid::Uuid::new_v4().to_string()),
         ]);
         service
-            .send_personalized(
-                &PendingPush {
-                    notification_id: Uuid::new_v4(),
-                    device_id: Uuid::new_v4(),
-                    token: "generated-token".to_owned(),
-                    notification_type: NotificationType::ContinuationRequested,
-                    language: Language::Fr,
-                    partner_firstname: Some("Lucas".to_owned()),
-                    expires_at: now + ChronoDuration::minutes(10),
-                    payload: serde_json::Map::new(),
-                },
-                data,
-            )
+            .send(PushMessage {
+                firstname: Some("Lucas"),
+                expires_at: now + ChronoDuration::minutes(10),
+                data: data,
+                ..fixture_message(NotificationType::ContinuationRequested, now)
+            })
             .await
             .unwrap_or_else(|_| unreachable!());
         let sent = transport.json.lock().unwrap_or_else(|_| unreachable!());
@@ -845,25 +706,17 @@ mod tests {
         let now = Utc::now();
         let service = PushService::with_dependencies(
             config(PushProvider::Fcm),
-            Arc::new(Store::default()),
             transport.clone(),
             Arc::new(Signer),
             Arc::new(FixedClock(now)),
         );
         service
-            .send_personalized(
-                &PendingPush {
-                    notification_id: Uuid::new_v4(),
-                    device_id: Uuid::new_v4(),
-                    token: "generated-token".to_owned(),
-                    notification_type: NotificationType::FirstPeriodEnding,
-                    language: Language::Fr,
-                    partner_firstname: Some("Lucas".to_owned()),
-                    expires_at: now,
-                    payload: serde_json::Map::new(),
-                },
-                BTreeMap::new(),
-            )
+            .send(PushMessage {
+                firstname: Some("Lucas"),
+                expires_at: now,
+                data: BTreeMap::new(),
+                ..fixture_message(NotificationType::FirstPeriodEnding, now)
+            })
             .await
             .unwrap_or_else(|_| unreachable!());
         assert!(
@@ -883,8 +736,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deletes_only_explicitly_unregistered_tokens() {
-        let store = Arc::new(Store::default());
+    async fn reports_explicitly_unregistered_tokens() {
         let transport = Arc::new(Transport::default());
         transport
             .token_responses
@@ -901,32 +753,20 @@ mod tests {
             ));
         let service = PushService::with_dependencies(
             config(PushProvider::Fcm),
-            store.clone(),
             transport,
             Arc::new(Signer),
             Arc::new(FixedClock(Utc::now())),
         );
-        service
-            .send(
-                "generated-token",
-                NotificationType::NewMatch,
-                BTreeMap::new(),
-            )
-            .await
-            .unwrap_or_else(|_| unreachable!());
         assert_eq!(
-            store
-                .removed
-                .lock()
-                .unwrap_or_else(|_| unreachable!())
-                .as_slice(),
-            ["generated-token"]
+            service
+                .send(fixture_message(NotificationType::NewMatch, Utc::now()))
+                .await,
+            Ok(PushOutcome::Unregistered)
         );
     }
 
     #[tokio::test]
-    async fn an_ordinary_not_found_is_retryable_and_keeps_the_device() {
-        let store = Arc::new(Store::default());
+    async fn an_ordinary_not_found_is_retryable() {
         let transport = Arc::new(Transport::default());
         transport
             .token_responses
@@ -943,33 +783,20 @@ mod tests {
             ));
         let service = PushService::with_dependencies(
             config(PushProvider::Fcm),
-            store.clone(),
             transport,
             Arc::new(Signer),
             Arc::new(FixedClock(Utc::now())),
         );
         assert_eq!(
             service
-                .send(
-                    "generated-token",
-                    NotificationType::NewMatch,
-                    BTreeMap::new()
-                )
+                .send(fixture_message(NotificationType::NewMatch, Utc::now()))
                 .await,
             Err(PushDeliveryError)
-        );
-        assert!(
-            store
-                .removed
-                .lock()
-                .unwrap_or_else(|_| unreachable!())
-                .is_empty()
         );
     }
 
     #[tokio::test]
     async fn unauthorized_delivery_invalidates_the_cached_oauth_token() {
-        let store = Arc::new(Store::default());
         let transport = Arc::new(Transport::default());
         transport
             .token_responses
@@ -986,27 +813,18 @@ mod tests {
             .extend([response(401, json!({})), response(200, json!({}))]);
         let service = PushService::with_dependencies(
             config(PushProvider::Fcm),
-            store,
             transport.clone(),
             Arc::new(Signer),
             Arc::new(FixedClock(Utc::now())),
         );
         assert_eq!(
             service
-                .send(
-                    "generated-token",
-                    NotificationType::NewMatch,
-                    BTreeMap::new()
-                )
+                .send(fixture_message(NotificationType::NewMatch, Utc::now()))
                 .await,
             Err(PushDeliveryError)
         );
         service
-            .send(
-                "generated-token",
-                NotificationType::NewMatch,
-                BTreeMap::new(),
-            )
+            .send(fixture_message(NotificationType::NewMatch, Utc::now()))
             .await
             .unwrap_or_else(|_| unreachable!());
         assert_eq!(

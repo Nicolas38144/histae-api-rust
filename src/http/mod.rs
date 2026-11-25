@@ -1,4 +1,5 @@
 mod body;
+pub(crate) mod callbacks;
 pub mod error;
 pub mod extract;
 pub mod health;

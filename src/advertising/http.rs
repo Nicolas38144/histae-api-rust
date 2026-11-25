@@ -7,6 +7,7 @@ use super::{
 use crate::{
     config::LimitPolicy,
     http::{
+        callbacks::ADMOB_WEBHOOK,
         error::ApiError,
         extract::{ApiDto, ValidatedJson, ValidatedPath},
         lifecycle::ClientIp,
@@ -59,7 +60,7 @@ pub fn routes(state: AdvertisingHttpState, auth: MobileAuthState) -> Router<Http
             "/api/users/me/advertising-rewards/{id}",
             get(status).delete(cancel),
         )
-        .route("/api/auth/admob/webhook", get(webhook))
+        .route(ADMOB_WEBHOOK, get(webhook))
         .layer(Extension(state))
         .layer(Extension(auth))
 }

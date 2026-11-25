@@ -18,22 +18,12 @@ use crate::config::{Environment, LimitPolicy, TrustProxy};
 use crate::operations::logging::{self, SafeLogValue};
 
 use super::ApiError;
+use super::callbacks::{Callback, CallbackSlots};
 use super::rate_limit::RateLimiter;
 
-const ADMOB_WEBHOOK: &str = "/api/auth/admob/webhook";
-const SWEEGO_WEBHOOK: &str = "/api/auth/sweego/webhook";
 const MAX_ACTIVE_REQUESTS: usize = 256;
-const MAX_ACTIVE_CALLBACKS: usize = 24;
-
-pub(super) fn provider_callback(path: &str) -> bool {
-    matches!(
-        path,
-        ADMOB_WEBHOOK
-            | SWEEGO_WEBHOOK
-            | "/api/billing/apple/webhook"
-            | "/api/billing/google-play/webhook"
-    )
-}
+const MAX_ACTIVE_CALLBACKS_PER_STORE: usize = 6;
+const MAX_ACTIVE_OTHER_CALLBACKS: usize = 12;
 
 #[derive(Clone)]
 pub struct LifecycleState {
@@ -41,9 +31,10 @@ pub struct LifecycleState {
     trust_proxy: TrustedProxies,
     limiter: RateLimiter,
     global_policy: LimitPolicy,
+    store_webhook_policy: LimitPolicy,
     observer: Arc<dyn HttpObserver>,
     requests: Arc<Semaphore>,
-    callbacks: Arc<Semaphore>,
+    callbacks: Arc<CallbackSlots>,
 }
 
 impl LifecycleState {
@@ -58,11 +49,43 @@ impl LifecycleState {
             environment,
             trust_proxy: TrustedProxies::new(trust_proxy)?,
             limiter,
+            store_webhook_policy: global_policy.clone(),
             global_policy,
             observer,
             requests: Arc::new(Semaphore::new(MAX_ACTIVE_REQUESTS)),
-            callbacks: Arc::new(Semaphore::new(MAX_ACTIVE_CALLBACKS)),
+            callbacks: Arc::new(CallbackSlots::new(
+                MAX_ACTIVE_CALLBACKS_PER_STORE,
+                MAX_ACTIVE_OTHER_CALLBACKS,
+            )),
         })
+    }
+
+    pub(super) fn set_store_webhook_policy(&mut self, policy: LimitPolicy) {
+        self.store_webhook_policy = policy;
+    }
+
+    async fn enforce_rate_limit(
+        &self,
+        callback: Option<Callback>,
+        client_ip: IpAddr,
+    ) -> Result<(), ApiError> {
+        let (name, policy, error_code) = match callback {
+            Some(callback) => {
+                let Some(name) = callback.store_quota() else {
+                    // AdMob and Sweego enforce their own dedicated quotas.
+                    return Ok(());
+                };
+                (
+                    name,
+                    &self.store_webhook_policy,
+                    "billing_webhook_rate_limit_exceeded",
+                )
+            }
+            None => ("global", &self.global_policy, "rate_limit_exceeded"),
+        };
+        self.limiter
+            .enforce(name, &client_ip.to_string(), policy, error_code)
+            .await
     }
 }
 
@@ -226,7 +249,9 @@ pub async fn middleware(
         .get::<RoutedRequest>()
         .and_then(|_| request.extensions().get::<MatchedPath>().cloned());
     let method = normalized_method(request.method());
-    let path = request.uri().path().to_owned();
+    let callback = route
+        .as_ref()
+        .and_then(|path| Callback::for_route(path.as_str()));
     let remote = request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
@@ -240,33 +265,19 @@ pub async fn middleware(
         .extensions_mut()
         .insert(RequestId(request_id.clone()));
     request.extensions_mut().insert(ClientIp(client_ip));
+    if let Some(callback) = callback {
+        request.extensions_mut().insert(callback);
+    }
 
-    let admission = if provider_callback(&path) {
-        &state.callbacks
-    } else {
-        &state.requests
-    };
+    let admission = callback.map_or(state.requests.as_ref(), |callback| {
+        state.callbacks.for_callback(callback)
+    });
     let mut response = match admission.try_acquire() {
         Err(_) => ApiError::busy("request_capacity_reached").into_response(),
-        Ok(_slot) => {
-            let limit = if matches!(path.as_str(), SWEEGO_WEBHOOK | ADMOB_WEBHOOK) {
-                Ok(())
-            } else {
-                state
-                    .limiter
-                    .enforce(
-                        "global",
-                        &client_ip.to_string(),
-                        &state.global_policy,
-                        "rate_limit_exceeded",
-                    )
-                    .await
-            };
-            match limit {
-                Ok(()) => next.run(request).await,
-                Err(error) => error.into_response(),
-            }
-        }
+        Ok(_slot) => match state.enforce_rate_limit(callback, client_ip).await {
+            Ok(()) => next.run(request).await,
+            Err(error) => error.into_response(),
+        },
     };
     apply_security_headers(response.headers_mut(), state.environment);
     if response

@@ -135,6 +135,11 @@ fn device_error(error: DeviceError) -> ApiError {
             "device_limit_reached",
             "The account already has the maximum number of push devices.",
         ),
+        DeviceError::InvalidRegistration => ApiError::new(
+            StatusCode::BAD_REQUEST,
+            RegisterDeviceBody::ERROR_CODE,
+            RegisterDeviceBody::ERROR_MESSAGE,
+        ),
         DeviceError::NotFound => ApiError::new(
             StatusCode::NOT_FOUND,
             "device_not_found",

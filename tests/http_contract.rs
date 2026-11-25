@@ -463,32 +463,134 @@ async fn redis_failure_fails_closed_and_webhook_paths_skip_only_the_global_limit
         json!({ "error": { "code": "rate_limit_unavailable", "message": "Request protection is temporarily unavailable." } })
     );
 
-    let (failed, _) = app(
-        None,
+    let (readiness, _) = readiness(None);
+    let state = HttpState::with_observer(
+        readiness,
         Environment::Test,
+        &TrustProxy::Disabled,
         &[],
         RateLimiter::with_store(&hash_key(), Arc::new(FailingStore)),
-        100,
+        policy(100),
         observer,
+    )
+    .expect("valid state");
+    let app = build_router(
+        Router::new().route(
+            "/api/auth/sweego/webhook",
+            post(|| async { StatusCode::NO_CONTENT }),
+        ),
+        state,
     );
-    for path in ["/api/auth/sweego/webhook"] {
-        let response = failed
+    for (method, expected) in [
+        (Method::POST, StatusCode::NO_CONTENT),
+        (Method::PUT, StatusCode::SERVICE_UNAVAILABLE),
+    ] {
+        let response = app
             .clone()
             .oneshot(
                 Request::builder()
-                    .method(Method::POST)
-                    .uri(path)
+                    .method(method)
+                    .uri("/api/auth/sweego/webhook")
                     .body(Body::empty())
                     .expect("request"),
             )
             .await
             .expect("response");
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), expected);
+    }
+}
+
+#[tokio::test]
+async fn store_webhooks_have_separate_body_slots_and_ip_quotas() {
+    let (readiness, _) = readiness(None);
+    let state = HttpState::new(
+        readiness,
+        Environment::Test,
+        &TrustProxy::Disabled,
+        &[],
+        RateLimiter::memory(&hash_key()),
+        policy(1),
+    )
+    .expect("valid state")
+    .with_store_webhook_policy(policy(5));
+    let apple = "/api/billing/apple/webhook";
+    let google = "/api/billing/google-play/webhook";
+    let handler = || async { StatusCode::NO_CONTENT };
+    let app = build_router(
+        health_routes()
+            .route(apple, post(handler))
+            .route(google, post(handler)),
+        state,
+    );
+    let request = |path, body| {
+        Request::post(path)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body)
+            .expect("webhook request")
+    };
+
+    let (started, mut reads) = tokio::sync::mpsc::channel(4);
+    let release = Arc::new(tokio::sync::Semaphore::new(0));
+    let mut pending = Vec::new();
+    for _ in 0..4 {
+        let started = started.clone();
+        let release = release.clone();
+        let body = Body::from_stream(futures_util::stream::once(async move {
+            started.send(()).await.expect("test reading body starts");
+            let _permit = release.acquire().await.expect("release body read");
+            Ok::<_, std::convert::Infallible>(axum::body::Bytes::from_static(b"{}"))
+        }));
+        pending.push(tokio::spawn(app.clone().oneshot(request(apple, body))));
+    }
+    for _ in 0..4 {
+        tokio::time::timeout(Duration::from_secs(2), reads.recv())
+            .await
+            .expect("Apple body reading started");
+    }
+
+    let blocked = app
+        .clone()
+        .oneshot(request(apple, Body::from("{}")))
+        .await
+        .expect("response");
+    assert_eq!(blocked.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        response_json(blocked).await["error"]["code"],
+        "request_body_capacity_reached"
+    );
+    let allowed = app
+        .clone()
+        .oneshot(request(google, Body::from("{}")))
+        .await
+        .expect("response");
+    assert_eq!(allowed.status(), StatusCode::NO_CONTENT);
+
+    release.add_permits(4);
+    for response in pending {
         assert_eq!(
-            response_json(response).await["error"]["code"],
-            "route_not_found"
+            response.await.expect("joined").expect("response").status(),
+            StatusCode::NO_CONTENT
         );
     }
+    let rate_limited = app
+        .clone()
+        .oneshot(request(apple, Body::from("{")))
+        .await
+        .expect("response");
+    assert_eq!(rate_limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        response_json(rate_limited).await["error"]["code"],
+        "billing_webhook_rate_limit_exceeded"
+    );
+    let general = app
+        .oneshot(
+            Request::get("/health/live")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(general.status(), StatusCode::OK);
 }
 
 #[tokio::test]

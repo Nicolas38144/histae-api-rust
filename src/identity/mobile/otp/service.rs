@@ -107,12 +107,8 @@ impl OtpService {
     }
 
     fn code_hash(&self, code: &str) -> Result<String, OtpError> {
-        let input = match self.scope {
-            OtpScope::Mobile => code.to_owned(),
-            OtpScope::MobileChallenge(id) => format!("mobile-otp:{id}:{code}"),
-            OtpScope::WebChallenge(id) => format!("web-billing:{id}:{code}"),
-        };
-        hmac_sha256(&input, &self.hash_key).map_err(|_| OtpError::Internal)
+        hmac_sha256(&self.scope.code_hash_input(code), &self.hash_key)
+            .map_err(|_| OtpError::Internal)
     }
 
     pub async fn send(

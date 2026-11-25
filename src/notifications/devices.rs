@@ -11,6 +11,8 @@ use crate::infra::postgres::DatabaseError;
 use crate::shared::text::javascript_trim;
 
 pub(super) const MAX_DEVICES_PER_ACCOUNT: i64 = 3;
+const MAX_PUSH_TOKEN_BYTES: usize = 2048;
+const MAX_APP_VERSION_BYTES: usize = 50;
 
 pub type DeviceStoreFuture<'a, T, E = DatabaseError> =
     Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'a>>;
@@ -70,6 +72,14 @@ impl DeviceService {
         let app_version = raw_app_version
             .map(|value| javascript_trim(&value).to_owned())
             .filter(|value| !value.is_empty());
+        if !(20..=MAX_PUSH_TOKEN_BYTES).contains(&token.len())
+            || token.chars().any(char::is_control)
+            || app_version.as_ref().is_some_and(|value| {
+                value.len() > MAX_APP_VERSION_BYTES || value.chars().any(char::is_control)
+            })
+        {
+            return Err(DeviceError::InvalidRegistration);
+        }
         let device = self
             .store
             .register(
@@ -108,6 +118,7 @@ impl DeviceService {
 pub enum DeviceError {
     AuthenticationRequired,
     AccountLimitReached,
+    InvalidRegistration,
     NotFound,
     Database(DatabaseError),
 }
@@ -117,6 +128,7 @@ impl fmt::Display for DeviceError {
         formatter.write_str(match self {
             Self::AuthenticationRequired => "authentication_required",
             Self::AccountLimitReached => "device_limit_reached",
+            Self::InvalidRegistration => "invalid_device_payload",
             Self::NotFound => "device_not_found",
             Self::Database(error) => error.safe_code(),
         })

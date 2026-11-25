@@ -1,0 +1,41 @@
+{
+	admin off
+	auto_https off
+	persist_config off
+	# Signed URLs must not appear in request-error logs either.
+	log default {
+		output stderr
+		level ERROR
+		exclude http.log.access http.log.error
+	}
+}
+
+http://:8080 {
+	bind 127.0.0.1
+	header -Server
+	handle /health/live {
+		respond 200
+	}
+	handle {
+		respond 404
+	}
+}
+
+(storage_https) {
+	tls /etc/caddy/tls/server.crt /etc/caddy/tls/server.key
+	header -Server
+	request_body {
+		max_size 1048576
+	}
+}
+
+(seaweed_s3) {
+	# SeaweedFS verifies SigV4 against the original Host, path and query.
+	reverse_proxy unix//run/seaweedfs/s3.sock {
+		header_up Host {hostport}
+		transport http {
+			versions 1.1
+			compression off
+		}
+	}
+}

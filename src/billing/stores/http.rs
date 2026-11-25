@@ -2,9 +2,9 @@ use super::{PurchaseIntent, StoreBillingService, StoreError, StoreProvider};
 use crate::{
     config::LimitPolicy,
     http::{
+        callbacks::{APPLE_WEBHOOK, GOOGLE_PLAY_WEBHOOK},
         error::ApiError,
         extract::{ApiDto, ValidatedJson, ValidatedQuery},
-        lifecycle::ClientIp,
         rate_limit::RateLimiter,
         router::HttpState,
     },
@@ -24,7 +24,6 @@ pub struct StoreHttpState {
     pub service: StoreBillingService,
     pub limiter: RateLimiter,
     pub policy: LimitPolicy,
-    pub webhook_policy: LimitPolicy,
 }
 pub fn routes(state: StoreHttpState, auth: MobileAuthState) -> Router<HttpState> {
     Router::new()
@@ -40,11 +39,8 @@ pub fn routes(state: StoreHttpState, auth: MobileAuthState) -> Router<HttpState>
 pub fn webhook_routes(state: StoreHttpState) -> Router<HttpState> {
     Router::new()
         .route("/api/billing/store-products", get(products))
-        .route("/api/billing/apple/webhook", post(apple_notification))
-        .route(
-            "/api/billing/google-play/webhook",
-            post(google_notification),
-        )
+        .route(APPLE_WEBHOOK, post(apple_notification))
+        .route(GOOGLE_PLAY_WEBHOOK, post(google_notification))
         .layer(Extension(state))
 }
 #[derive(Deserialize)]
@@ -138,43 +134,26 @@ impl ApiDto for NotificationBody {
 }
 async fn apple_notification(
     state: Extension<StoreHttpState>,
-    ip: Extension<ClientIp>,
-    headers: HeaderMap,
     ValidatedJson(NotificationBody(body)): ValidatedJson<NotificationBody>,
 ) -> Result<Json<Value>, ApiError> {
-    notification(state, ip, headers, body, StoreProvider::AppStore).await
+    notification(state, StoreProvider::AppStore, body, None).await
 }
 async fn google_notification(
     state: Extension<StoreHttpState>,
-    ip: Extension<ClientIp>,
     headers: HeaderMap,
     ValidatedJson(NotificationBody(body)): ValidatedJson<NotificationBody>,
 ) -> Result<Json<Value>, ApiError> {
-    notification(state, ip, headers, body, StoreProvider::GooglePlay).await
-}
-async fn notification(
-    Extension(state): Extension<StoreHttpState>,
-    Extension(ClientIp(ip)): Extension<ClientIp>,
-    headers: HeaderMap,
-    body: Value,
-    provider: StoreProvider,
-) -> Result<Json<Value>, ApiError> {
-    let quota = match provider {
-        StoreProvider::AppStore => "store-webhook-apple",
-        StoreProvider::GooglePlay => "store-webhook-google-play",
-    };
-    state
-        .limiter
-        .enforce(
-            quota,
-            &ip.to_string(),
-            &state.webhook_policy,
-            "billing_webhook_rate_limit_exceeded",
-        )
-        .await?;
     let authorization = headers
         .get("authorization")
         .and_then(|value| value.to_str().ok());
+    notification(state, StoreProvider::GooglePlay, body, authorization).await
+}
+async fn notification(
+    Extension(state): Extension<StoreHttpState>,
+    provider: StoreProvider,
+    body: Value,
+    authorization: Option<&str>,
+) -> Result<Json<Value>, ApiError> {
     let valid = match provider {
         StoreProvider::AppStore => body
             .get("signedPayload")

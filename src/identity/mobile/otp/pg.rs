@@ -9,6 +9,8 @@ use crate::{
 use std::time::Duration;
 use uuid::Uuid;
 
+const MAX_MOBILE_VERIFICATION_ATTEMPTS: i32 = 5;
+
 #[derive(Clone)]
 pub struct OtpRepository {
     database: Database,
@@ -262,13 +264,14 @@ impl OtpRepository {
                            AND ($4::uuid IS NULL OR idempotency_key = $4)
                            AND delivery_status IN ('accepted', 'sent')
                            AND used = false AND expires_at > clock_timestamp()
-                           AND CASE WHEN channel = 'web' THEN otp_hash = $2 ELSE verification_attempts < 5 END
+                           AND CASE WHEN channel = 'web' THEN otp_hash = $2 ELSE verification_attempts < $5 END
                          RETURNING used",
                     )
                     .bind(phone_hash)
                     .bind(otp_hash)
                     .bind(scope.channel().as_str())
                     .bind(scope.challenge_id())
+                    .bind(MAX_MOBILE_VERIFICATION_ATTEMPTS)
                     .fetch_optional(&mut *connection)
                     .await
                     .map_err(map_sqlx_error)?;

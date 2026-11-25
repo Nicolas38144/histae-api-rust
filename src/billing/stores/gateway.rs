@@ -1,11 +1,11 @@
 use super::{StoreError, StoreFuture, StoreNotification, StoreProvider, StoreSnapshot};
 use crate::config::StoreBillingConfig;
+use crate::infra::tls::read_certificate_bundle;
 use futures_util::StreamExt;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
-use std::{fs::File, io::Read as _};
 
-const MAX_CA_BYTES: usize = 64 * 1024;
+const MAX_CA_BYTES: u64 = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VerificationSource {
@@ -49,15 +49,8 @@ impl StoreVerifier {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(20));
         if let Some(path) = config.verifier_ca_file.as_ref().filter(|_| enabled) {
-            let mut pem = Vec::new();
-            File::open(path)
-                .map_err(|_| StoreError::Unavailable)?
-                .take((MAX_CA_BYTES + 1) as u64)
-                .read_to_end(&mut pem)
-                .map_err(|_| StoreError::Unavailable)?;
-            if pem.len() > MAX_CA_BYTES {
-                return Err(StoreError::Unavailable);
-            }
+            let pem =
+                read_certificate_bundle(path, MAX_CA_BYTES).map_err(|_| StoreError::Unavailable)?;
             let roots =
                 reqwest::Certificate::from_pem_bundle(&pem).map_err(|_| StoreError::Unavailable)?;
             if roots.is_empty() {

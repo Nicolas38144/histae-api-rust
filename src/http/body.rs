@@ -1,6 +1,7 @@
 //! Parse and bound request bodies before invoking handlers, including handlers
 //! which intentionally do not extract a body. Preserve raw bytes for signatures.
 use super::ApiError;
+use super::callbacks::{Callback, CallbackSlots};
 use axum::{
     RequestExt,
     body::{Body, Bytes},
@@ -17,7 +18,7 @@ const BODY_READ_TIMEOUT: Duration = Duration::from_secs(10);
 pub(super) struct BodySlots {
     general: Arc<Semaphore>,
     photos: Arc<Semaphore>,
-    callbacks: Arc<Semaphore>,
+    callbacks: Arc<CallbackSlots>,
 }
 
 impl Default for BodySlots {
@@ -25,7 +26,7 @@ impl Default for BodySlots {
         Self {
             general: Arc::new(Semaphore::new(64)),
             photos: Arc::new(Semaphore::new(8)),
-            callbacks: Arc::new(Semaphore::new(16)),
+            callbacks: Arc::new(CallbackSlots::new(4, 8)),
         }
     }
 }
@@ -34,10 +35,14 @@ pub async fn middleware(State(slots): State<BodySlots>, request: Request, next: 
     if matches!(*request.method(), Method::GET | Method::HEAD) {
         return next.run(request).await;
     }
-    let slots = match (request.method(), request.uri().path()) {
-        (&Method::PUT, "/api/users/me/photo") => &slots.photos,
-        (&Method::POST, path) if super::lifecycle::provider_callback(path) => &slots.callbacks,
-        _ => &slots.general,
+    let slots = match request.extensions().get::<Callback>() {
+        Some(callback) => slots.callbacks.for_callback(*callback),
+        None if request.method() == Method::PUT
+            && request.uri().path() == "/api/users/me/photo" =>
+        {
+            &slots.photos
+        }
+        None => &slots.general,
     };
     let Ok(slot) = slots.try_acquire() else {
         return ApiError::busy("request_body_capacity_reached").into_response();

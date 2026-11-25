@@ -450,6 +450,8 @@ L’appareil expose UUID, `session_id`, plateforme, version et dates d’usage. 
 
 Un compte peut enregistrer jusqu’à trois appareils. Une inscription qui dépasserait ce plafond renvoie `409 device_limit_reached`. Les appareils dont la session a expiré ou a été révoquée sont purgés lors d’une inscription réussie. Une liaison historique peut avoir `session_id: null` et compte dans le plafond. Le listage renvoie au plus trois appareils, classés par dernier usage connu. Chaque notification crée au plus trois livraisons, en privilégiant les appareils éligibles les plus récemment utilisés.
 
+Après suppression des espaces en bordure, le jeton doit faire entre 20 et 2 048 octets et la version de l’app au plus 50 octets. Les caractères de contrôle sont refusés. Une valeur invalide renvoie `400 invalid_device_payload`.
+
 Les préférences exigent une session mobile avec onboarding terminé. Les sourdines ne sont accessibles
 qu’au participant demandeur, pour un match ouvert et non expiré, sans blocage entre comptes actifs.
 Un tiers reçoit le même `404 notification_settings_unavailable` qu’un match absent ou inaccessible.

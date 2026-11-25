@@ -1,6 +1,7 @@
 use crate::infra::postgres::DatabaseError;
 use crate::localization::Language;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -81,6 +82,14 @@ impl OtpScope {
         match self {
             Self::Mobile => None,
             Self::MobileChallenge(id) | Self::WebChallenge(id) => Some(id),
+        }
+    }
+
+    pub(super) fn code_hash_input(self, code: &str) -> Cow<'_, str> {
+        match self {
+            Self::Mobile => Cow::Borrowed(code),
+            Self::MobileChallenge(id) => Cow::Owned(format!("mobile-otp:{id}:{code}")),
+            Self::WebChallenge(id) => Cow::Owned(format!("web-billing:{id}:{code}")),
         }
     }
 }

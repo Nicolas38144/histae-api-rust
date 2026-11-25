@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -176,14 +176,26 @@ fn documented_routes(path: &Path) -> BTreeSet<Route> {
 fn registered_routes(root: &Path) -> BTreeSet<Route> {
     let mut files = Vec::new();
     collect_rust_files(root, &mut files);
+    let sources: Vec<_> = files
+        .into_iter()
+        .map(|file| fs::read_to_string(file).expect("Rust source must be readable"))
+        .collect();
+    let constants: BTreeMap<_, _> = sources
+        .iter()
+        .flat_map(|source| source.lines())
+        .filter_map(route_path_constant)
+        .collect();
     let mut routes = BTreeSet::new();
-    for file in files {
-        let source = fs::read_to_string(&file).expect("Rust source must be readable");
-        for (path, handlers) in route_calls(&source) {
+    for source in &sources {
+        for (argument, handlers) in route_calls(source) {
+            let Some(path) = string_literal(argument).or_else(|| constants.get(argument).copied())
+            else {
+                continue;
+            };
             if !(path.starts_with("/api/") || path.starts_with("/health/")) {
                 continue;
             }
-            let normalized = normalize_axum_path(&path);
+            let normalized = normalize_axum_path(path);
             for (method, function) in [
                 ("GET", "get"),
                 ("POST", "post"),
@@ -191,7 +203,7 @@ fn registered_routes(root: &Path) -> BTreeSet<Route> {
                 ("PATCH", "patch"),
                 ("DELETE", "delete"),
             ] {
-                if contains_call(&handlers, function) {
+                if contains_call(handlers, function) {
                     routes.insert(Route {
                         method: method.to_owned(),
                         path: normalized.clone(),
@@ -201,6 +213,28 @@ fn registered_routes(root: &Path) -> BTreeSet<Route> {
         }
     }
     routes
+}
+
+fn route_path_constant(line: &str) -> Option<(&str, &str)> {
+    let line = line.trim();
+    let declaration = line
+        .strip_prefix("pub(crate) ")
+        .unwrap_or(line)
+        .strip_prefix("const ")?;
+    let (name, value) = declaration.split_once(':')?;
+    let literal = value
+        .trim()
+        .strip_prefix("&str")?
+        .trim_start()
+        .strip_prefix('=')?
+        .trim()
+        .strip_suffix(';')?;
+    let path = string_literal(literal)?;
+    path.starts_with('/').then_some((name.trim(), path))
+}
+
+fn string_literal(value: &str) -> Option<&str> {
+    value.strip_prefix('"')?.strip_suffix('"')
 }
 
 fn collect_rust_files(directory: &Path, files: &mut Vec<PathBuf>) {
@@ -214,7 +248,7 @@ fn collect_rust_files(directory: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-fn route_calls(source: &str) -> Vec<(String, String)> {
+fn route_calls(source: &str) -> Vec<(&str, &str)> {
     let mut calls = Vec::new();
     let mut cursor = 0;
     while let Some(offset) = source[cursor..].find(".route(") {
@@ -224,13 +258,7 @@ fn route_calls(source: &str) -> Vec<(String, String)> {
         };
         let arguments = &source[start..end];
         if let Some(comma) = top_level_comma(arguments) {
-            let path = arguments[..comma].trim();
-            if let Some(path) = path
-                .strip_prefix('"')
-                .and_then(|value| value.strip_suffix('"'))
-            {
-                calls.push((path.to_owned(), arguments[comma + 1..].to_owned()));
-            }
+            calls.push((arguments[..comma].trim(), &arguments[comma + 1..]));
         }
         cursor = end + 1;
     }

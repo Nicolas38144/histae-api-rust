@@ -178,7 +178,7 @@ le proxy, l’override et les listes de confiance. Voir [Administration](../feat
 | Site | `../histae-site/Caddyfile` | Export statique, langues et redirections juridiques |
 | Dashboard | `../histae-dashboard/Caddyfile` | SPA React, proxy `/api/*`, protections navigateur |
 | Reverse proxy | `../histae-reverse-proxy/Caddyfile` | Domaines publics et routage Docker |
-| Passerelles S3 production | `docker/storage-gateway/Caddyfile` et `docker/storage-gateway/internal.Caddyfile` | TLS, téléchargements publics présignés et écritures internes |
+| Passerelles S3 production | `docker/storage-gateway/Caddyfile`, `internal.Caddyfile` et `common.caddy` | TLS et journalisation communs, téléchargements publics et écritures internes séparés |
 
 L’API Rust est servie par Axum. Le tunnel cible `http://reverse-proxy:80` ; Cloudflare termine le
 HTTPS public. Le Caddy edge écoute sur `:80`, sans HTTPS automatique ni API d’administration.

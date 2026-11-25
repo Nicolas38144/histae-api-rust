@@ -347,13 +347,23 @@ async fn lists_and_removes_devices_after_completed_onboarding() {
 #[tokio::test]
 async fn rejects_invalid_and_privileged_payload_fields_with_the_nest_error() {
     for body in [
-        r#"{"push_token":"short","platform":"ios"}"#,
-        r#"{"push_token":"provider-token-with-enough-characters","platform":"web"}"#,
-        r#"{"push_token":"provider-token-with-enough-characters","platform":"ios","user_id":"forbidden"}"#,
+        json!({"push_token":"short","platform":"ios"}),
+        json!({"push_token":"provider-token-with-enough-characters","platform":"web"}),
+        json!({"push_token":"provider-token-with-enough-characters","platform":"ios","user_id":"forbidden"}),
+        json!({"push_token":" ".repeat(20),"platform":"ios"}),
+        json!({"push_token":"x".repeat(2049),"platform":"ios"}),
+        json!({"push_token":"provider-token\0with-enough-characters","platform":"ios"}),
+        json!({"push_token":"provider-token-with-enough-characters","platform":"ios","app_version":"é".repeat(26)}),
     ] {
-        let (app, token) = app(FakeDeviceStore::default(), true);
+        let store = FakeDeviceStore::default();
+        let (app, token) = app(store.clone(), true);
         let response = app
-            .oneshot(request("POST", "/api/users/me/devices", Some(&token), body))
+            .oneshot(request(
+                "POST",
+                "/api/users/me/devices",
+                Some(&token),
+                &body.to_string(),
+            ))
             .await
             .expect("response");
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -361,6 +371,7 @@ async fn rejects_invalid_and_privileged_payload_fields_with_the_nest_error() {
             json_body(response).await,
             json!({"error":{"code":"invalid_device_payload","message":"The device registration request body is invalid."}})
         );
+        assert!(store.state.lock().expect("state").registration.is_none());
     }
 }
 

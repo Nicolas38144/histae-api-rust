@@ -462,7 +462,7 @@ async fn push_device_limits_and_binding_changes_apply_to_queued_deliveries()
             .ok_or(FixtureError("transferred_device"))?;
         assert_ne!(transferred.id, previous.device_id);
         assert!(delivery.find_deliverable(transferred_job).await?.is_none());
-        delivery.remove_token(&previous.token, Some(previous.device_id)).await?;
+        delivery.remove_registration(previous.device_id, &previous.token).await?;
         assert_eq!(devices.list(other_user).await?[0].id, transferred.id);
         let returned = devices.register(user_id, sessions[0], registration(0)).await?
             .ok_or(FixtureError("returned_device"))?;

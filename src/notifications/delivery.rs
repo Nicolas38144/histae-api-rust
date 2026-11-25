@@ -12,7 +12,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::domain::NotificationType;
-use super::push::{PushDeliveryError, PushSender};
+use super::push::{PushDeliveryError, PushMessage, PushOutcome, PushSender};
 use super::sse::{MobileEventType, RealtimeService};
 use crate::infra::postgres::DatabaseError;
 use crate::matches::domain::{PublicMatch, PublicMessage};
@@ -20,7 +20,7 @@ use crate::matches::service::{MatchEventFuture, MatchEventPublisher, MatchUpdate
 use crate::outbox::types::{DispatchFailure, DispatchOutcome, OutboxEvent};
 use crate::outbox::worker::{DispatchFuture, OutboxHandler};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 pub struct PendingPush {
     pub notification_id: Uuid,
     pub device_id: Uuid,
@@ -37,10 +37,10 @@ pub type DeliveryStoreFuture<'a, T> =
 
 pub trait NotificationDeliveryStore: Send + Sync {
     fn find_deliverable(&self, id: Uuid) -> DeliveryStoreFuture<'_, Option<PendingPush>>;
-    fn remove_token<'a>(
+    fn remove_registration<'a>(
         &'a self,
+        device_id: Uuid,
         token: &'a str,
-        device_id: Option<Uuid>,
     ) -> DeliveryStoreFuture<'a, ()>;
 }
 
@@ -64,8 +64,24 @@ impl NotificationPushHandler {
         else {
             return Ok(());
         };
-        let data = allowlisted_data(&pending)?;
-        self.push.send_personalized(&pending, data).await
+        let outcome = self
+            .push
+            .send(PushMessage {
+                token: &pending.token,
+                kind: pending.notification_type,
+                language: pending.language,
+                firstname: pending.partner_firstname.as_deref(),
+                expires_at: pending.expires_at,
+                data: allowlisted_data(&pending)?,
+            })
+            .await?;
+        if outcome == PushOutcome::Unregistered {
+            self.store
+                .remove_registration(pending.device_id, &pending.token)
+                .await
+                .map_err(|_| PushDeliveryError)?;
+        }
+        Ok(())
     }
 }
 
@@ -265,9 +281,9 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    #[derive(Clone)]
     struct Store {
         pending: Option<PendingPush>,
+        removed: Mutex<Vec<Uuid>>,
     }
 
     impl NotificationDeliveryStore for Store {
@@ -276,12 +292,25 @@ mod tests {
             Box::pin(async move { Ok(pending) })
         }
 
-        fn remove_token<'a>(
+        fn remove_registration<'a>(
             &'a self,
-            _token: &'a str,
-            _device_id: Option<Uuid>,
+            device_id: Uuid,
+            token: &'a str,
         ) -> DeliveryStoreFuture<'a, ()> {
-            Box::pin(async { Ok(()) })
+            Box::pin(async move {
+                if !self
+                    .pending
+                    .as_ref()
+                    .is_some_and(|pending| pending.device_id == device_id && pending.token == token)
+                {
+                    return Err(DatabaseError::QueryFailed);
+                }
+                self.removed
+                    .lock()
+                    .map_err(|_| DatabaseError::QueryFailed)?
+                    .push(device_id);
+                Ok(())
+            })
         }
     }
 
@@ -291,22 +320,21 @@ mod tests {
     }
 
     impl PushSender for Sender {
-        fn send<'a>(
-            &'a self,
-            _token: &'a str,
-            _kind: NotificationType,
-            data: BTreeMap<String, String>,
-        ) -> super::super::push::PushFuture<'a> {
+        fn send<'a>(&'a self, message: PushMessage<'a>) -> super::super::push::PushFuture<'a> {
             Box::pin(async move {
-                self.calls.lock().map_err(|_| PushDeliveryError)?.push(data);
-                Ok(())
+                self.calls
+                    .lock()
+                    .map_err(|_| PushDeliveryError)?
+                    .push(message.data);
+                Ok(PushOutcome::Unregistered)
             })
         }
     }
 
     #[tokio::test]
-    async fn forwards_only_stable_public_metadata() {
+    async fn forwards_public_metadata_and_removes_the_unregistered_device() {
         let notification_id = Uuid::new_v4();
+        let device_id = Uuid::new_v4();
         let mut payload = serde_json::Map::new();
         payload.insert(
             "match_id".to_owned(),
@@ -322,21 +350,20 @@ mod tests {
         );
         payload.insert("content".to_owned(), Value::String("private".to_owned()));
         let sender = Arc::new(Sender::default());
-        let handler = NotificationPushHandler::new(
-            Arc::new(Store {
-                pending: Some(PendingPush {
-                    device_id: Uuid::new_v4(),
-                    language: crate::localization::Language::Fr,
-                    notification_id,
-                    token: "generated-device-token".to_owned(),
-                    notification_type: NotificationType::NewMessage,
-                    partner_firstname: None,
-                    expires_at: Utc::now() + chrono::Duration::minutes(10),
-                    payload,
-                }),
+        let store = Arc::new(Store {
+            pending: Some(PendingPush {
+                device_id,
+                language: crate::localization::Language::Fr,
+                notification_id,
+                token: "generated-device-token".to_owned(),
+                notification_type: NotificationType::NewMessage,
+                partner_firstname: None,
+                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                payload,
             }),
-            sender.clone(),
-        );
+            removed: Mutex::default(),
+        });
+        let handler = NotificationPushHandler::new(store.clone(), sender.clone());
         handler
             .deliver(Uuid::new_v4())
             .await
@@ -348,13 +375,22 @@ mod tests {
             Some(&notification_id.to_string())
         );
         assert!(!calls[0].contains_key("content"));
+        assert_eq!(
+            *store.removed.lock().expect("removed registrations"),
+            [device_id]
+        );
     }
 
     #[tokio::test]
     async fn acknowledges_missing_or_ineligible_deliveries_without_network() {
         let sender = Arc::new(Sender::default());
-        let handler =
-            NotificationPushHandler::new(Arc::new(Store { pending: None }), sender.clone());
+        let handler = NotificationPushHandler::new(
+            Arc::new(Store {
+                pending: None,
+                removed: Mutex::default(),
+            }),
+            sender.clone(),
+        );
         handler
             .deliver(Uuid::new_v4())
             .await

@@ -32,6 +32,11 @@ pub struct HttpState {
 }
 
 impl HttpState {
+    pub fn with_store_webhook_policy(mut self, policy: LimitPolicy) -> Self {
+        self.lifecycle.set_store_webhook_policy(policy);
+        self
+    }
+
     pub fn with_localization(
         mut self,
         localization: crate::localization::LocalizationService,

@@ -1,41 +1,10 @@
-{
-	admin off
-	auto_https off
-	persist_config off
-	log default {
-		output stderr
-		level ERROR
-		exclude http.log.access http.log.error
-	}
-}
-
-http://:8080 {
-	bind 127.0.0.1
-	header -Server
-	handle /health/live {
-		respond 200
-	}
-	handle {
-		respond 404
-	}
-}
+import common.caddy
 
 https://:443 {
-	tls /etc/caddy/tls/server.crt /etc/caddy/tls/server.key
-	header -Server
-	request_body {
-		max_size 1048576
-	}
+	import storage_https
 	@s3_operation method HEAD PUT DELETE
 	handle @s3_operation {
-		# Preserve the original Host used by the API to sign the request.
-		reverse_proxy unix//run/seaweedfs/s3.sock {
-			header_up Host {hostport}
-			transport http {
-				versions 1.1
-				compression off
-			}
-		}
+		import seaweed_s3
 	}
 	handle {
 		header Allow "HEAD, PUT, DELETE"
