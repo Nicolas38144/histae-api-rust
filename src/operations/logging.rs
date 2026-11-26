@@ -7,6 +7,7 @@ use tracing::Level;
 const ALLOWED_FIELDS: &[&str] = &[
     "batches",
     "billing_processed",
+    "config_variable",
     "duration_ms",
     "environment",
     "error_code",

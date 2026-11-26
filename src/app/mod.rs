@@ -87,7 +87,13 @@ pub async fn binary_main(component: Component) -> ExitCode {
     let config = match ComponentConfig::load(component) {
         Ok(config) => config,
         Err(error) => {
-            let _ = logging::error(component.failure_event(), Some(error.safe_code()));
+            let _ = logging::error_with_fields(
+                component.failure_event(),
+                &[
+                    ("error_code", logging::SafeLogValue::String(error.safe_code())),
+                    ("config_variable", logging::SafeLogValue::String(error.variable)),
+                ],
+            );
             return ExitCode::FAILURE;
         }
     };
