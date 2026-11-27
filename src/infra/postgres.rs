@@ -264,16 +264,6 @@ pub(super) async fn connect_pool(
 pub async fn verify_schema_compatibility_on(
     connection: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    verify_baseline_schema_on(connection).await?;
-    if !casework_notifications_ready_on(connection).await? {
-        return Err(DatabaseError::SchemaObjectsMissing);
-    }
-    Ok(())
-}
-
-pub(super) async fn verify_baseline_schema_on(
-    connection: &mut PgConnection,
-) -> Result<(), DatabaseError> {
     let objects_present: bool = sqlx::query_scalar(
         "SELECT to_regclass(current_schema() || '.user_account') IS NOT NULL
             AND to_regclass(current_schema() || '.swipe_decision') IS NOT NULL
@@ -422,8 +412,22 @@ pub(super) async fn verify_baseline_schema_on(
         return Err(DatabaseError::SchemaObjectsMissing);
     }
     let notification_events_ready: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.match_init') AND attname='photo_reveal_version' AND atttypid='int8'::regtype AND attnotnull AND NOT attisdropped)
-          AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass(current_schema() || '.notification') AND conname='notification_type_check' AND pg_get_constraintdef(oid) LIKE '%first_period_ending%' AND pg_get_constraintdef(oid) LIKE '%new_session%' AND pg_get_constraintdef(oid) LIKE '%data_request_replied%' AND pg_get_constraintdef(oid) LIKE '%photos_revealed%' AND pg_get_constraintdef(oid) LIKE '%conversation_continued%' AND pg_get_constraintdef(oid) LIKE '%continuation_requested%')"
+        "SELECT EXISTS (SELECT 1 FROM pg_attribute
+           WHERE attrelid = to_regclass(current_schema() || '.match_init')
+             AND attname = 'photo_reveal_version' AND atttypid = 'int8'::regtype
+             AND attnotnull AND NOT attisdropped)
+         AND EXISTS (SELECT 1 FROM pg_constraint
+           WHERE conrelid = to_regclass(current_schema() || '.notification')
+             AND conname = 'notification_type_check' AND contype = 'c' AND convalidated
+             AND pg_get_constraintdef(oid) LIKE '%first_period_ending%'
+             AND pg_get_constraintdef(oid) LIKE '%new_session%'
+             AND pg_get_constraintdef(oid) LIKE '%data_request_replied%'
+             AND pg_get_constraintdef(oid) LIKE '%photos_revealed%'
+             AND pg_get_constraintdef(oid) LIKE '%conversation_continued%'
+             AND pg_get_constraintdef(oid) LIKE '%continuation_requested%'
+             AND pg_get_constraintdef(oid) LIKE '%support_case_updated%')
+         AND to_regprocedure(current_schema() || '.fct_assisted_export_is_available(uuid,uuid)') IS NOT NULL
+         AND to_regprocedure(current_schema() || '.fct_support_case_update_is_current(uuid,uuid,timestamptz)') IS NOT NULL",
     )
     .fetch_one(&mut *connection)
     .await
@@ -487,22 +491,6 @@ pub(super) async fn verify_baseline_schema_on(
         return Err(DatabaseError::SchemaObjectsMissing);
     }
     Ok(())
-}
-
-pub(super) async fn casework_notifications_ready_on(
-    connection: &mut PgConnection,
-) -> Result<bool, DatabaseError> {
-    sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM pg_constraint
-           WHERE conrelid = to_regclass(current_schema() || '.notification')
-             AND conname = 'notification_type_check' AND contype = 'c' AND convalidated
-             AND pg_get_constraintdef(oid) LIKE '%support_case_updated%')
-         AND to_regprocedure(current_schema() || '.fct_assisted_export_is_available(uuid,uuid)') IS NOT NULL
-         AND to_regprocedure(current_schema() || '.fct_support_case_update_is_current(uuid,uuid,timestamptz)') IS NOT NULL",
-    )
-    .fetch_one(connection)
-    .await
-    .map_err(map_sqlx_error)
 }
 
 async fn swipe_retention_ready_on(

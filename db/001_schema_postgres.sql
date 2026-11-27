@@ -889,7 +889,11 @@ CREATE TABLE notification (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     expires_at timestamp with time zone DEFAULT (now() + '90 days'::interval) NOT NULL,
     deduplication_key text,
-    CONSTRAINT notification_type_check CHECK ((type = ANY (ARRAY['new_match'::text, 'new_message'::text, 'profile_liked'::text, 'match_expiring'::text, 'continuation_requested'::text, 'conversation_continued'::text, 'photos_revealed'::text, 'first_period_ending'::text, 'data_request_replied'::text, 'new_session'::text, 'support_case_updated'::text]))),
+    CONSTRAINT notification_type_check CHECK (type IN (
+        'new_match', 'new_message', 'profile_liked', 'match_expiring',
+        'continuation_requested', 'conversation_continued', 'photos_revealed',
+        'first_period_ending', 'data_request_replied', 'new_session', 'support_case_updated'
+    )),
     CONSTRAINT notification_deduplication_key_check CHECK (((deduplication_key IS NULL) OR (deduplication_key ~ '^[0-9a-f]{64}$'::text))),
     CONSTRAINT notification_deduplication_key_key UNIQUE (deduplication_key),
     CONSTRAINT notification_pkey PRIMARY KEY (id),
