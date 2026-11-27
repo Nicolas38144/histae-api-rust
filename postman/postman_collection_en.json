@@ -2521,6 +2521,31 @@
               "response": []
             },
             {
+              "name": "GET /api/users/me/support-cases/:id",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/users/me/support-cases/{{supportCaseId}}",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Read the support case identified by supportCaseId using its owner's access token."
+              },
+              "response": []
+            },
+            {
               "name": "POST /api/users/me/support-cases",
               "request": {
                 "method": "POST",

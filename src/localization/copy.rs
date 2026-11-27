@@ -71,8 +71,12 @@ pub const fn notification(
             "Votre première période se termine dans moins de deux heures. Vous pourrez ensuite choisir de continuer.",
         ),
         (Language::Fr, DataRequestReplied) => (
-            "Une réponse à votre démarche",
-            "Une réponse est disponible dans Mes démarches.",
+            "Mise à jour de votre démarche",
+            "Consultez les nouveautés dans Mes démarches.",
+        ),
+        (Language::Fr, SupportCaseUpdated) => (
+            "Mise à jour de l’assistance",
+            "Une mise à jour est disponible dans votre dossier d’assistance.",
         ),
         (Language::Fr, NewSession) => (
             "Nouvelle connexion à votre compte",
@@ -95,8 +99,12 @@ pub const fn notification(
             "Your first period ends in less than two hours. You can then choose whether to continue.",
         ),
         (Language::En, DataRequestReplied) => (
-            "A reply to your request",
-            "A reply is available in My requests.",
+            "Your data request has been updated",
+            "Open My requests to see the update.",
+        ),
+        (Language::En, SupportCaseUpdated) => (
+            "Support update",
+            "An update is available in your support case.",
         ),
         (Language::En, NewSession) => (
             "New sign-in to your account",
@@ -119,8 +127,12 @@ pub const fn notification(
             "El primer periodo termina en menos de dos horas. Después podrás decidir si quieres continuar.",
         ),
         (Language::Es, DataRequestReplied) => (
-            "Una respuesta a tu solicitud",
-            "Hay una respuesta disponible en Mis solicitudes.",
+            "Tu solicitud se ha actualizado",
+            "Consulta la actualización en Mis solicitudes.",
+        ),
+        (Language::Es, SupportCaseUpdated) => (
+            "Actualización de asistencia",
+            "Hay una actualización disponible en tu caso de asistencia.",
         ),
         (Language::Es, NewSession) => (
             "Nuevo acceso a tu cuenta",
@@ -143,8 +155,12 @@ pub const fn notification(
             "Il primo periodo termina tra meno di due ore. Poi potrai scegliere se continuare.",
         ),
         (Language::It, DataRequestReplied) => (
-            "Una risposta alla tua richiesta",
-            "È disponibile una risposta in Le mie richieste.",
+            "La tua richiesta è stata aggiornata",
+            "Consulta l’aggiornamento in Le mie richieste.",
+        ),
+        (Language::It, SupportCaseUpdated) => (
+            "Aggiornamento dell’assistenza",
+            "È disponibile un aggiornamento per la tua richiesta di assistenza.",
         ),
         (Language::It, NewSession) => (
             "Nuovo accesso al tuo account",
@@ -299,6 +315,7 @@ mod notification_tests {
         for kind in [
             NotificationType::NewSession,
             NotificationType::DataRequestReplied,
+            NotificationType::SupportCaseUpdated,
         ] {
             let (_, body) = personalized_notification(Language::Fr, kind, Some("PRIVATE_NAME"));
             assert!(!body.contains("PRIVATE_NAME"));

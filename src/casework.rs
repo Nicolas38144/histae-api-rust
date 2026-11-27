@@ -94,6 +94,7 @@ pub fn routes(
             "/api/users/me/support-cases",
             get(my_support).post(create_support),
         )
+        .route("/api/users/me/support-cases/{id}", get(my_support_detail))
         .layer(Extension(mobile));
     let admin = Router::new()
         .route("/api/admin/reports/{id}/decision", patch(review_report))
@@ -516,6 +517,19 @@ async fn my_support(
     Query(page): Query<Page>,
 ) -> Result<Json<Value>, ApiError> {
     support_list(&state, Some(identity.account.user_id), page.before).await
+}
+
+async fn my_support_detail(
+    AuthenticatedMobile(identity): AuthenticatedMobile,
+    Extension(state): Extension<Casework>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    state
+        .repository
+        .my_support_case(id, identity.account.user_id)
+        .await?
+        .map(Json)
+        .ok_or_else(not_found)
 }
 
 async fn admin_support(

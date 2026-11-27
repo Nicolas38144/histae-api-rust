@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use super::domain::{RequestReview, RequestReviewError};
 use crate::infra::postgres::{Database, DatabaseError, map_sqlx_error};
+use crate::notifications::{domain::NotificationIntent, enqueue_notification};
 use crate::privacy::erasure::pg::enqueue_account_erasure;
 use crate::privacy::rights::{
     AdminDataRequestRow, DataAccessLogRow, DataRequestRow, DataRequestStatus,
@@ -242,26 +243,27 @@ impl DataRightsStore for PgDataRightsStore {
                         .await
                         .map_err(map_sqlx_error)?;
 
-                        if has_response
-                            && matches!(
-                                review.stored_status(),
-                                DataRequestStatus::InProgress
-                                    | DataRequestStatus::Completed
-                                    | DataRequestStatus::Rejected
-                            )
-                        {
-                            let status = review.stored_status().as_str();
-                            let source = format!("{}:{status}", input.request_id);
-                            crate::notifications::enqueue_notification(
-                                connection,
-                                user_id,
-                                &source,
-                                &crate::notifications::domain::NotificationIntent::DataRequestReplied {
-                                    request_id: input.request_id,
-                                    response_status: status.to_owned(),
-                                },
-                            )
-                            .await?;
+                        let stored_status = review.stored_status();
+                        if has_response || stored_status != current_status {
+                            let status = stored_status.as_str();
+                            let (source, intent) = if has_response {
+                                (
+                                    format!("{}:{status}", input.request_id),
+                                    NotificationIntent::DataRequestReplied {
+                                        request_id: input.request_id,
+                                        response_status: status.to_owned(),
+                                    },
+                                )
+                            } else {
+                                (
+                                    format!("{}:status:{status}", input.request_id),
+                                    NotificationIntent::DataRequestStatusChanged {
+                                        request_id: input.request_id,
+                                        status: status.to_owned(),
+                                    },
+                                )
+                            };
+                            enqueue_notification(connection, user_id, &source, &intent).await?;
                         }
 
                         if review == RequestReview::ScheduleErasure {

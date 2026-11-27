@@ -5,7 +5,7 @@
 Ce guide est la référence manuelle du contrat destiné au mobile, au dashboard et aux intégrations. Il ne décrit
 pas les mécanismes SQL ou les workers internes. Aucun document OpenAPI ni Swagger n’est exposé. L’inventaire
 méthode/chemin est comparé automatiquement aux enregistrements Axum ; les corps et autorisations restent couverts
-par leurs tests de contrat dédiés. L’inventaire courant contient **156 couples méthode/chemin**.
+par leurs tests de contrat dédiés. L’inventaire courant contient **157 couples méthode/chemin**.
 
 ## Sommaire
 
@@ -466,7 +466,7 @@ SSE envoie `connected`, un heartbeat toutes les 25 secondes, puis `match.created
 L’API accepte jusqu’à trois flux ouverts par compte et 512 par instance. Une saturation renvoie
 `429 event_stream_limit_reached` ou `503 event_stream_capacity_reached`, avec `Retry-After`.
 
-**Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les types push pris en charge sont `new_match`, `new_message`, `match_expiring`, `continuation_requested`, `conversation_continued`, `photos_revealed`, `first_period_ending`, `data_request_replied` et `new_session`. Les alertes liées à un match affichent le prénom actuel de l’autre personne dans le texte visible ; ce prénom ne figure pas dans les données de routage. Les réponses aux démarches routent vers leur historique, les connexions vers les sessions. Voir les [notifications push](../features/push-notifications.md) pour les déclencheurs, le rappel unique deux heures avant l’échéance, les filtres d’obsolescence et la migration. Les données de routage du push d’inactivité ne contiennent que les identifiants techniques ; il est abandonné si un nouveau message a repoussé l’échéance ou si le match est devenu inaccessible. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation.
+**Après reconnexion, relire les ressources : SSE n’a pas de replay hors ligne.** Le push optionnel n’embarque jamais le texte privé d’un message. Dédupliquer son `notification_id` stable : une réponse fournisseur perdue peut provoquer un doublon externe. Les types push pris en charge sont `new_match`, `new_message`, `match_expiring`, `continuation_requested`, `conversation_continued`, `photos_revealed`, `first_period_ending`, `data_request_replied`, `support_case_updated` et `new_session`. Les alertes liées à un match affichent le prénom actuel de l’autre personne dans le texte visible ; ce prénom ne figure pas dans les données de routage. Les réponses aux démarches routent vers leur historique, les connexions vers les sessions. Voir les [notifications push](../features/push-notifications.md) pour les déclencheurs, le rappel unique deux heures avant l’échéance, les filtres d’obsolescence et la migration. Les données de routage du push d’inactivité ne contiennent que les identifiants techniques ; il est abandonné si un nouveau message a repoussé l’échéance ou si le match est devenu inaccessible. Avec le push désactivé, les tâches consommées ne seront pas rattrapées après activation.
 
 ### Abonnement
 
@@ -554,6 +554,8 @@ Les rapports financiers des stores sont importés séparément par devise ; aucu
 
 Onboarding incomplet accepté pour les jetons/effacement, demandes RGPD et export, mais pas pour les blocages/signalements.
 
+Le push `data_request_replied` contient `request_id`. Un message d'équipe inclut `request_message_id`, et un export assisté disponible ajoute `request_event=export_ready`. Le téléphone relit les éléments authentifiés. Les données push se limitent aux identifiants de routage et au type d’événement.
+
 | Méthode | Route | Entrée → résultat |
 | --- | --- | --- |
 | POST | `/api/users/me/deletion-token` | Aucun corps → `201 { confirmation_token, expires_at }`. |
@@ -600,6 +602,7 @@ est ouverte. Les notes des administrateurs restent réservées au dashboard.
 | POST | `/api/users/me/erasure-receipt` | Avant l’effacement → `{ code, expires_at }`. |
 | POST | `/api/public/erasure-status` | `{ code }` → `{ status, completed_at }`. |
 | GET | `/api/users/me/support-cases` | `before?` → `{ cases, next_cursor }`. |
+| GET | `/api/users/me/support-cases/:id` | Dossier non expiré du titulaire avec les champs de la liste, ou `404 case_not_found`. |
 | POST | `/api/users/me/support-cases` | `{ category, message }` → `201 { id }`. |
 | POST | `/api/public/support-cases` | Même corps, sans session → `201 { id, code }`. Quota global de 250 créations par 24 h et file limitée à 1 000 tickets actifs. |
 | POST | `/api/public/support-cases/status` | `{ code }` → demande et dernière réponse. |
@@ -607,7 +610,7 @@ est ouverte. Les notes des administrateurs restent réservées au dashboard.
 Les textes libres du suivi et de l’assistance contiennent au plus 1 000 caractères Unicode. Les catégories de support
 sont `login | billing | appeal | privacy | other`. Un dossier invité ne prouve aucune identité et
 ne donne accès à aucun compte. Les codes sont transmis dans le corps des requêtes, conservés côté serveur
-sous forme d’empreinte et limités en débit. Le code d’effacement expire après 90 jours et ne donne que
+sous forme d’empreinte et limités en débit. Le push `support_case_updated` transmet `support_case_id` pour ouvrir le dossier du titulaire. Le code d’effacement expire après 90 jours et ne donne que
 l’état `not_started | in_progress | completed`. Un nouveau code remplace le précédent. Les dossiers
 d’assistance expirent après 180 jours. L’autorisation de téléchargement expire après 24 heures et
 double la limite d’export configurée dans la limite de 1 Gio lorsque celle-ci est inférieure à 1 Gio.

@@ -3,6 +3,9 @@
 #[cfg(feature = "webauthn-probe")]
 #[path = "privacy_rights/casework.rs"]
 mod casework;
+#[cfg(feature = "webauthn-probe")]
+#[path = "support/postgres_job_role.rs"]
+mod job_role;
 
 use std::env;
 use std::fmt;
@@ -104,8 +107,13 @@ async fn insert_account(
 async fn cleanup(database: &Database, users: &[Uuid]) -> Result<(), DatabaseError> {
     let mut connection = database.acquire().await?;
     sqlx::query(
-        "DELETE FROM outbox_event WHERE event_type = 'account.erase'
-         AND aggregate_id IN (SELECT id FROM data_subject_request WHERE user_id = ANY($1::uuid[]))",
+        "DELETE FROM outbox_event
+         WHERE (event_type = 'account.erase'
+           AND aggregate_id IN (SELECT id FROM data_subject_request WHERE user_id = ANY($1::uuid[])))
+         OR (event_type = 'notification.push' AND aggregate_id IN (
+           SELECT d.id FROM notification_push_delivery d JOIN notification n ON n.id = d.notification_id
+           WHERE n.user_id = ANY($1::uuid[])
+         ))",
     )
     .bind(users)
     .execute(&mut *connection)
@@ -278,12 +286,17 @@ async fn dsr_and_export_preserve_snapshot_privacy_audit_and_erasure_scheduling()
             UpdateRequestResult::Updated,
         );
         let resolved = rights.requests_for_user(user_id).await?;
-        let reply_payload: serde_json::Value = sqlx::query_scalar(
+        let payloads: Vec<serde_json::Value> = sqlx::query_scalar(
             "SELECT payload FROM notification WHERE user_id=$1 AND type='data_request_replied'
-             AND payload->>'request_id'=$2"
+             AND payload->>'request_id'=$2 ORDER BY created_at, id"
         ).bind(user_id).bind(correction.id.to_string())
-            .fetch_one(database.acquire().await?.as_mut()).await?;
-        assert_eq!(reply_payload, serde_json::json!({
+            .fetch_all(database.acquire().await?.as_mut()).await?;
+        assert_eq!(payloads.len(), 2);
+        assert_eq!(payloads[0], serde_json::json!({
+            "request_id": correction.id,
+            "request_status": "in_progress"
+        }));
+        assert_eq!(payloads[1], serde_json::json!({
             "request_id": correction.id,
             "response_status": "completed"
         }), "a public reply notifies without its text or the private administrator note");

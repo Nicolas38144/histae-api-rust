@@ -16,6 +16,8 @@ DECLARE
     'SELECT rotation_result FROM refresh_tokens',
     'SELECT * FROM admin_webauthn_credential',
     'SELECT * FROM billing_store_finance',
+    'SELECT body, response FROM support_case',
+    'SELECT id FROM assisted_data_export',
     'SELECT fct_anonymize_user(NULL)',
     'INSERT INTO account_erasure DEFAULT VALUES',
     'INSERT INTO outbox_event (event_type, aggregate_id) VALUES (''account.erase'', uuidv7())',

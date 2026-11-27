@@ -413,7 +413,9 @@ pub async fn verify_schema_compatibility_on(
     }
     let notification_events_ready: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass(current_schema() || '.match_init') AND attname='photo_reveal_version' AND atttypid='int8'::regtype AND attnotnull AND NOT attisdropped)
-          AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass(current_schema() || '.notification') AND conname='notification_type_check' AND pg_get_constraintdef(oid) LIKE '%first_period_ending%' AND pg_get_constraintdef(oid) LIKE '%new_session%' AND pg_get_constraintdef(oid) LIKE '%data_request_replied%' AND pg_get_constraintdef(oid) LIKE '%photos_revealed%' AND pg_get_constraintdef(oid) LIKE '%conversation_continued%' AND pg_get_constraintdef(oid) LIKE '%continuation_requested%')"
+          AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass(current_schema() || '.notification') AND conname='notification_type_check' AND pg_get_constraintdef(oid) LIKE '%first_period_ending%' AND pg_get_constraintdef(oid) LIKE '%new_session%' AND pg_get_constraintdef(oid) LIKE '%data_request_replied%' AND pg_get_constraintdef(oid) LIKE '%support_case_updated%' AND pg_get_constraintdef(oid) LIKE '%photos_revealed%' AND pg_get_constraintdef(oid) LIKE '%conversation_continued%' AND pg_get_constraintdef(oid) LIKE '%continuation_requested%')
+          AND to_regprocedure(current_schema() || '.fct_assisted_export_is_available(uuid,uuid)') IS NOT NULL
+          AND to_regprocedure(current_schema() || '.fct_support_case_update_is_current(uuid,uuid,timestamptz)') IS NOT NULL"
     )
     .fetch_one(&mut *connection)
     .await

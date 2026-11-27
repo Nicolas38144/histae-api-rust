@@ -1,5 +1,5 @@
 use crate::localization::Language;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -111,6 +111,20 @@ pub enum NotificationIntent {
         request_id: Uuid,
         message_id: Uuid,
     },
+    DataRequestStatusChanged {
+        request_id: Uuid,
+        status: String,
+    },
+    DataRequestExportReady {
+        request_id: Uuid,
+        grant_id: Uuid,
+        expires_at: DateTime<Utc>,
+    },
+    SupportCaseUpdated {
+        case_id: Uuid,
+        updated_at: DateTime<Utc>,
+        case_expires_at: DateTime<Utc>,
+    },
     NewSession {
         session_id: Uuid,
     },
@@ -126,9 +140,11 @@ impl NotificationIntent {
             Self::ConversationContinued { .. } => NotificationType::ConversationContinued,
             Self::PhotosRevealed { .. } => NotificationType::PhotosRevealed,
             Self::FirstPeriodEnding { .. } => NotificationType::FirstPeriodEnding,
-            Self::DataRequestReplied { .. } | Self::DataRequestMessage { .. } => {
-                NotificationType::DataRequestReplied
-            }
+            Self::DataRequestReplied { .. }
+            | Self::DataRequestMessage { .. }
+            | Self::DataRequestStatusChanged { .. }
+            | Self::DataRequestExportReady { .. } => NotificationType::DataRequestReplied,
+            Self::SupportCaseUpdated { .. } => NotificationType::SupportCaseUpdated,
             Self::NewSession { .. } => NotificationType::NewSession,
         }
     }
@@ -181,14 +197,39 @@ impl NotificationIntent {
             } => {
                 json!({ "request_id": request_id, "request_message_id": message_id })
             }
+            Self::DataRequestStatusChanged { request_id, status } => {
+                json!({ "request_id": request_id, "request_status": status })
+            }
+            Self::DataRequestExportReady {
+                request_id,
+                grant_id,
+                ..
+            } => {
+                json!({ "request_id": request_id, "grant_id": grant_id })
+            }
+            Self::SupportCaseUpdated {
+                case_id,
+                updated_at,
+                ..
+            } => {
+                json!({ "support_case_id": case_id, "updated_at": updated_at })
+            }
             Self::NewSession { session_id } => json!({ "session_id": session_id }),
         }
     }
 
     pub fn expires_at(&self) -> Option<DateTime<Utc>> {
         match self {
-            Self::MatchExpiring { expires_at, .. } | Self::FirstPeriodEnding { expires_at, .. } => {
-                Some(*expires_at)
+            Self::MatchExpiring { expires_at, .. }
+            | Self::FirstPeriodEnding { expires_at, .. }
+            | Self::DataRequestExportReady { expires_at, .. } => Some(*expires_at),
+            Self::SupportCaseUpdated {
+                updated_at,
+                case_expires_at,
+                ..
+            } => {
+                let retention = TimeDelta::seconds(self.kind().retention_seconds());
+                Some((*updated_at + retention).min(*case_expires_at))
             }
             _ => None,
         }
@@ -212,6 +253,7 @@ pub enum NotificationType {
     PhotosRevealed,
     FirstPeriodEnding,
     DataRequestReplied,
+    SupportCaseUpdated,
     NewSession,
 }
 
@@ -224,7 +266,9 @@ impl NotificationType {
             Self::ContinuationRequested | Self::ConversationContinued => "histae_continuations",
             Self::PhotosRevealed => "histae_photos",
             Self::FirstPeriodEnding | Self::MatchExpiring => "histae_reminders",
-            Self::NewSession | Self::DataRequestReplied => "histae_account",
+            Self::NewSession | Self::DataRequestReplied | Self::SupportCaseUpdated => {
+                "histae_account"
+            }
         }
     }
 
@@ -236,6 +280,7 @@ impl NotificationType {
             | Self::PhotosRevealed
             | Self::FirstPeriodEnding
             | Self::DataRequestReplied
+            | Self::SupportCaseUpdated
             | Self::NewSession => 1,
         };
         days * 24 * 60 * 60
@@ -251,6 +296,7 @@ impl NotificationType {
             "photos_revealed" => Some(Self::PhotosRevealed),
             "first_period_ending" => Some(Self::FirstPeriodEnding),
             "data_request_replied" => Some(Self::DataRequestReplied),
+            "support_case_updated" => Some(Self::SupportCaseUpdated),
             "new_session" => Some(Self::NewSession),
             _ => None,
         }
@@ -266,6 +312,7 @@ impl NotificationType {
             Self::PhotosRevealed => "photos_revealed",
             Self::FirstPeriodEnding => "first_period_ending",
             Self::DataRequestReplied => "data_request_replied",
+            Self::SupportCaseUpdated => "support_case_updated",
             Self::NewSession => "new_session",
         }
     }
@@ -283,6 +330,7 @@ mod notification_tests {
             NotificationType::PhotosRevealed,
             NotificationType::FirstPeriodEnding,
             NotificationType::DataRequestReplied,
+            NotificationType::SupportCaseUpdated,
             NotificationType::NewSession,
         ] {
             assert_eq!(NotificationType::parse(kind.as_str()), Some(kind));

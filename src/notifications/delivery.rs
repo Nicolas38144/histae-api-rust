@@ -119,6 +119,20 @@ fn allowlisted_data(pending: &PendingPush) -> Result<BTreeMap<String, String>, P
                 "request_id".to_owned(),
                 payload_string(&pending.payload, "request_id")?,
             );
+            if pending.payload.contains_key("request_message_id") {
+                data.insert(
+                    "request_message_id".to_owned(),
+                    payload_string(&pending.payload, "request_message_id")?,
+                );
+            } else if pending.payload.contains_key("grant_id") {
+                data.insert("request_event".to_owned(), "export_ready".to_owned());
+            }
+        }
+        NotificationType::SupportCaseUpdated => {
+            data.insert(
+                "support_case_id".to_owned(),
+                payload_string(&pending.payload, "support_case_id")?,
+            );
         }
         NotificationType::NewSession => {}
     }
@@ -328,6 +342,64 @@ mod tests {
                     .push(message.data);
                 Ok(PushOutcome::Unregistered)
             })
+        }
+    }
+
+    #[test]
+    fn casework_pushes_forward_only_routing_fields() {
+        use serde_json::json;
+
+        let notification_id = Uuid::new_v4();
+        let request_id = Uuid::new_v4();
+        let message_id = Uuid::new_v4();
+        let case_id = Uuid::new_v4();
+        for (kind, payload, expected) in [
+            (
+                NotificationType::DataRequestReplied,
+                json!({"request_id": request_id, "request_status": "in_progress"}),
+                vec![("request_id", request_id.to_string())],
+            ),
+            (
+                NotificationType::DataRequestReplied,
+                json!({"request_id": request_id, "request_message_id": message_id}),
+                vec![
+                    ("request_id", request_id.to_string()),
+                    ("request_message_id", message_id.to_string()),
+                ],
+            ),
+            (
+                NotificationType::DataRequestReplied,
+                json!({"request_id": request_id, "grant_id": Uuid::new_v4()}),
+                vec![
+                    ("request_id", request_id.to_string()),
+                    ("request_event", "export_ready".to_owned()),
+                ],
+            ),
+            (
+                NotificationType::SupportCaseUpdated,
+                json!({"support_case_id": case_id, "updated_at": Utc::now()}),
+                vec![("support_case_id", case_id.to_string())],
+            ),
+        ] {
+            let mut payload = payload.as_object().expect("object payload").clone();
+            payload.insert("body".into(), json!("Synthetic user message"));
+            payload.insert("response".into(), json!("Synthetic team reply"));
+            let pending = PendingPush {
+                notification_id,
+                device_id: Uuid::new_v4(),
+                language: Language::Fr,
+                token: "synthetic-device-token".into(),
+                notification_type: kind,
+                partner_firstname: None,
+                expires_at: Utc::now(),
+                payload,
+            };
+            let expected = expected
+                .into_iter()
+                .chain([("notification_id", notification_id.to_string())])
+                .map(|(key, value)| (key.to_owned(), value))
+                .collect::<BTreeMap<_, _>>();
+            assert_eq!(allowlisted_data(&pending).expect("routing data"), expected);
         }
     }
 

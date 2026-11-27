@@ -889,7 +889,7 @@ CREATE TABLE notification (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     expires_at timestamp with time zone DEFAULT (now() + '90 days'::interval) NOT NULL,
     deduplication_key text,
-    CONSTRAINT notification_type_check CHECK ((type = ANY (ARRAY['new_match'::text, 'new_message'::text, 'profile_liked'::text, 'match_expiring'::text, 'continuation_requested'::text, 'conversation_continued'::text, 'photos_revealed'::text, 'first_period_ending'::text, 'data_request_replied'::text, 'new_session'::text]))),
+    CONSTRAINT notification_type_check CHECK ((type = ANY (ARRAY['new_match'::text, 'new_message'::text, 'profile_liked'::text, 'match_expiring'::text, 'continuation_requested'::text, 'conversation_continued'::text, 'photos_revealed'::text, 'first_period_ending'::text, 'data_request_replied'::text, 'new_session'::text, 'support_case_updated'::text]))),
     CONSTRAINT notification_deduplication_key_check CHECK (((deduplication_key IS NULL) OR (deduplication_key ~ '^[0-9a-f]{64}$'::text))),
     CONSTRAINT notification_deduplication_key_key UNIQUE (deduplication_key),
     CONSTRAINT notification_pkey PRIMARY KEY (id),
@@ -1964,6 +1964,35 @@ AS $$
 $$;
 REVOKE EXECUTE ON FUNCTION fct_data_request_has_reply(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION fct_data_request_has_reply(uuid) TO histae_outbox, histae_maintenance;
+
+CREATE FUNCTION fct_assisted_export_is_available(p_request_id uuid, p_grant_id uuid)
+RETURNS boolean LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM assisted_data_export AS grant_record
+    JOIN data_subject_request AS request ON request.id = grant_record.request_id
+    WHERE grant_record.id = p_grant_id AND request.id = p_request_id
+      AND grant_record.expires_at > clock_timestamp()
+      AND request.type IN ('access', 'portability')
+      AND request.status IN ('in_progress', 'completed')
+  )
+$$;
+REVOKE EXECUTE ON FUNCTION fct_assisted_export_is_available(uuid, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fct_assisted_export_is_available(uuid, uuid) TO histae_outbox, histae_maintenance;
+
+CREATE FUNCTION fct_support_case_update_is_current(p_case_id uuid, p_user_id uuid, p_updated_at timestamptz)
+RETURNS boolean LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM support_case
+    WHERE id = p_case_id AND user_id = p_user_id AND updated_at = p_updated_at
+      AND expires_at > clock_timestamp() AND status IN ('in_progress', 'closed')
+  )
+$$;
+REVOKE EXECUTE ON FUNCTION fct_support_case_update_is_current(uuid, uuid, timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fct_support_case_update_is_current(uuid, uuid, timestamptz) TO histae_outbox, histae_maintenance;
 
 CREATE FUNCTION fct_pending_web_otp(p_challenge_id uuid)
 RETURNS TABLE (encrypted_phone bytea, phone_hash text, language text)

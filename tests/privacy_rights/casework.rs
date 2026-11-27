@@ -17,13 +17,17 @@ use histae_api_rust::identity::mobile::http::MobileAuthState;
 use histae_api_rust::identity::mobile::pg::MobileSessionRepository;
 use histae_api_rust::identity::mobile::service::MobileAuthService;
 use histae_api_rust::identity::mobile::tokens::TokenService;
+use histae_api_rust::notifications::delivery::{
+    NotificationDeliveryStore, PgNotificationDeliveryStore,
+};
+use histae_api_rust::notifications::domain::NotificationType;
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
 use tower::ServiceExt as _;
 
 use super::{
     Arc, DataExportService, Database, FixtureError, PgDataExportStore, PgDataRightsStore, Photos,
-    SecretString, Uuid, Value, cleanup, insert_account, local_config,
+    SecretString, Uuid, Value, cleanup, insert_account, job_role, local_config,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
@@ -188,13 +192,23 @@ impl Client {
 
 #[tokio::test]
 async fn casework_routes_scope_reports_threads_exports_and_receipts() -> TestResult {
-    let database = Database::connect(&local_config()?).await?;
+    let config = local_config()?;
+    let database = Database::connect(&config).await?;
+    let outbox = PgNotificationDeliveryStore::new(job_role::connect(&config, "outbox").await?);
     let [owner, other, admin] = std::array::from_fn(|_| Uuid::new_v4());
     let result = async {
         insert_account(&database, owner, "user").await?;
         insert_account(&database, other, "user").await?;
         insert_account(&database, admin, "admin").await?;
         let client = Client::new(&database, owner, other, admin).await?;
+        sqlx::query(
+            "INSERT INTO device_token (user_id, token, platform, session_id)
+             SELECT user_id, $2, 'android', id FROM refresh_token_family WHERE user_id=$1",
+        )
+        .bind(owner)
+        .bind(format!("casework-{owner}"))
+        .execute(database.acquire().await?.as_mut())
+        .await?;
         let report: Uuid = sqlx::query_scalar(
             "INSERT INTO user_report(reporter_id,reported_id,reason)
              VALUES($1,$2,'other') RETURNING id",
@@ -320,6 +334,37 @@ async fn casework_routes_scope_reports_threads_exports_and_receipts() -> TestRes
             )
             .await?;
         let grant_id = grant["id"].as_str().ok_or(FixtureError("grant ID"))?;
+        let repeat = client
+            .request("POST", &grant_path, Some(&client.admin), None, StatusCode::OK)
+            .await?;
+        assert_eq!(repeat["id"], grant["id"]);
+        let export_alerts: Vec<Value> = sqlx::query_scalar(
+            "SELECT payload FROM notification WHERE user_id=$1 AND type='data_request_replied'
+               AND payload ? 'grant_id'",
+        )
+        .bind(owner)
+        .fetch_all(database.acquire().await?.as_mut())
+        .await?;
+        assert_eq!(export_alerts, [json!({"request_id": request, "grant_id": grant_id})]);
+        let deliveries: Vec<(Uuid, bool)> = sqlx::query_as(
+            "SELECT d.id, n.payload ? 'grant_id' FROM notification_push_delivery d
+             JOIN notification n ON n.id=d.notification_id WHERE n.user_id=$1",
+        )
+        .bind(owner)
+        .fetch_all(database.acquire().await?.as_mut())
+        .await?;
+        assert_eq!(deliveries.len(), 2);
+        let mut export_delivery = None;
+        for (id, is_export) in deliveries {
+            let pending = outbox.find_deliverable(id).await?.ok_or(FixtureError("DSR push"))?;
+            assert_eq!(pending.notification_type, NotificationType::DataRequestReplied);
+            if is_export {
+                export_delivery = Some(id);
+            } else {
+                assert_eq!(pending.payload["request_message_id"], thread["messages"][0]["id"]);
+            }
+        }
+        let export_delivery = export_delivery.ok_or(FixtureError("export push"))?;
         let path = format!("/api/users/me/assisted-exports/{grant_id}");
         client
             .request(
@@ -338,6 +383,11 @@ async fn casework_routes_scope_reports_threads_exports_and_receipts() -> TestRes
             Some(3)
         );
         assert!(!export.to_string().contains("Internal note"));
+        sqlx::query("UPDATE assisted_data_export SET expires_at=clock_timestamp() WHERE request_id=$1")
+            .bind(request)
+            .execute(database.acquire().await?.as_mut())
+            .await?;
+        assert!(outbox.find_deliverable(export_delivery).await?.is_none());
         let receipt = client
             .request(
                 "POST",
@@ -380,10 +430,42 @@ async fn casework_routes_scope_reports_threads_exports_and_receipts() -> TestRes
             &format!("/api/admin/support-cases/{support_id}?reason=Case%20review"),
             Some(&client.admin), None, StatusCode::OK).await?;
         assert_eq!(admin_detail["body"], "Support needed");
+        let admin_case = format!("/api/admin/support-cases/{support_id}");
+        for _ in 0..2 {
+            client
+                .request(
+                    "PATCH",
+                    &admin_case,
+                    Some(&client.admin),
+                    Some(json!({"status":"in_progress","response":"Support reviewing"})),
+                    StatusCode::NO_CONTENT,
+                )
+                .await?;
+        }
+        let support_deliveries: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT d.id FROM notification_push_delivery d JOIN notification n ON n.id=d.notification_id
+             WHERE n.user_id=$1 AND n.type='support_case_updated'",
+        )
+        .bind(owner)
+        .fetch_all(database.acquire().await?.as_mut())
+        .await?;
+        let [support_delivery] = support_deliveries.as_slice() else {
+            return Err(FixtureError("one support push for identical updates").into());
+        };
+        let pending = outbox.find_deliverable(*support_delivery).await?
+            .ok_or(FixtureError("support push"))?;
+        assert_eq!(pending.notification_type, NotificationType::SupportCaseUpdated);
+        assert_eq!(pending.payload["support_case_id"], support_id);
+        assert!(pending.payload.get("response").is_none());
+        sqlx::query("INSERT INTO user_notification_preference (user_id,account_security) VALUES ($1,false)")
+            .bind(owner)
+            .execute(database.acquire().await?.as_mut())
+            .await?;
+        assert!(outbox.find_deliverable(*support_delivery).await?.is_none());
         client
             .request(
                 "PATCH",
-                &format!("/api/admin/support-cases/{support_id}"),
+                &admin_case,
                 Some(&client.admin),
                 Some(json!({"status":"closed","response":"Support handled"})),
                 StatusCode::NO_CONTENT,
@@ -400,11 +482,48 @@ async fn casework_routes_scope_reports_threads_exports_and_receipts() -> TestRes
             .await?;
         assert_eq!(cases["cases"][0]["response"], "Support handled");
         assert!(cases["cases"][0].get("handled_by").is_none());
+        let detail_path = format!("/api/users/me/support-cases/{support_id}");
+        client
+            .request("GET", &detail_path, Some(&client.other), None, StatusCode::NOT_FOUND)
+            .await?;
+        let detail = client
+            .request("GET", &detail_path, Some(&client.owner), None, StatusCode::OK)
+            .await?;
+        assert_eq!(detail, cases["cases"][0]);
+        let support_alert: Value = sqlx::query_scalar(
+            "SELECT payload FROM notification WHERE user_id=$1 AND type='support_case_updated'
+             ORDER BY created_at DESC,id DESC LIMIT 1",
+        )
+        .bind(owner)
+        .fetch_one(database.acquire().await?.as_mut())
+        .await?;
+        assert_eq!(support_alert["support_case_id"], support_id);
+        assert!(support_alert.get("response").is_none());
+        let queued_support: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM notification_push_delivery d JOIN notification n ON n.id=d.notification_id
+             WHERE n.user_id=$1 AND n.type='support_case_updated'",
+        )
+        .bind(owner)
+        .fetch_one(database.acquire().await?.as_mut())
+        .await?;
+        assert_eq!(queued_support, 1);
+        sqlx::query("UPDATE user_notification_preference SET account_security=true WHERE user_id=$1")
+            .bind(owner)
+            .execute(database.acquire().await?.as_mut())
+            .await?;
+        assert!(outbox.find_deliverable(*support_delivery).await?.is_none(), "superseded push");
+        sqlx::query("UPDATE support_case SET expires_at=clock_timestamp() WHERE id=$1::uuid")
+            .bind(support_id.parse::<Uuid>()?)
+            .execute(database.acquire().await?.as_mut())
+            .await?;
+        client
+            .request("GET", &detail_path, Some(&client.owner), None, StatusCode::NOT_FOUND)
+            .await?;
         let audit: Vec<String> = sqlx::query_scalar(
             "SELECT action FROM data_access_log WHERE accessed_user_id=$1 AND accessor_id=$2
                 AND action IN ('view_dsr_thread','view_support_case','admin_review_support') ORDER BY action",
         ).bind(owner).bind(admin).fetch_all(database.acquire().await?.as_mut()).await?;
-        assert_eq!(audit, ["admin_review_support", "view_dsr_thread", "view_support_case"]);
+        assert_eq!(audit, ["admin_review_support", "admin_review_support", "view_dsr_thread", "view_support_case"]);
         Ok(())
     }
     .await;

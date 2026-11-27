@@ -22,7 +22,7 @@ started before account erasure from recreating deleted preferences after erasure
 | `continuations` | `continuation_requested`, `conversation_continued` / `histae_continuations` |
 | `photos` | `photos_revealed` / `histae_photos` |
 | `reminders` | `first_period_ending`, `match_expiring` / `histae_reminders` |
-| `account_security` | `new_session`, `data_request_replied` / `histae_account` |
+| `account_security` | `new_session`, `data_request_replied`, `support_case_updated` / `histae_account` |
 
 `GET/PUT /api/matches/{id}/notification-preferences` reads or replaces a private participant mute.
 PUT accepts `muted` and `muted_until`: false/null unmutes, true/null mutes indefinitely, and true
@@ -56,7 +56,8 @@ preference requests. All choices persist in the API, not in an account-independe
 | `conversation_continued` | Both choices are confirmed | Conversation |
 | `photos_revealed` | Photo sharing changes to mutual | Conversation/photo choices |
 | `first_period_ending` | One reminder within two hours of the first 24-hour deadline | Conversation |
-| `data_request_replied` | A public reply accompanies a request status update | My requests, matching entry expanded |
+| `data_request_replied` | A public status update, a public reply, a team message or a newly available assisted export | The owner’s request or its thread |
+| `support_case_updated` | A public reply or status update on a signed-in owner’s support case | The fresh owner-scoped support case |
 | `new_session` | A new refresh-token family opens while another push device exists | My sessions |
 
 There is no advertising-credit notification. Before the first period ends, continuation is not
@@ -70,6 +71,9 @@ The outbox rechecks access, blocks, deadlines, choices, grant version and reques
 Withdrawn/replaced photo grants and superseded choices cannot revive queued alerts. Existing message
 read checks remain. New lifecycle/security alerts, including request replies,
 are retained for at most one day; the first-period reminder expires at its match deadline.
+Casework alerts use generic copy. A support alert expires at the case deadline or after one day,
+whichever comes first. Delivery checks that it still represents the latest update. Assisted export
+alerts expire with the grant, and status-only alerts require the request to still have that status.
 FCM/APNs storage is capped at one day and at the earliest notification, match or recipient-session
 deadline. New-session alerts also respect the opened session's deadline, using
 [Android TTL and APNs expiration](https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-lifespan).
@@ -83,7 +87,8 @@ resynchronizes authentication, then rereads the authorized destination. Foregrou
 ## Rollout
 
 The schema defines notification types, photo-grant generations and preference tables. Run the API,
-outbox and maintenance from the same release.
+outbox and maintenance from the same release. A fresh database gets the casework notification type
+and its delivery checks from [the initial PostgreSQL schema](../../db/001_schema_postgres.sql).
 
 ```bash
 cargo run --locked --bin db-migrate

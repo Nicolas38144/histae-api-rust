@@ -272,6 +272,17 @@ impl CaseworkRepository {
             "Granted an assisted export",
         )
         .await?;
+        enqueue_notification(
+            &mut tx,
+            user,
+            &format!("export:{}", grant.0),
+            &NotificationIntent::DataRequestExportReady {
+                request_id: id,
+                grant_id: grant.0,
+                expires_at: grant.1,
+            },
+        )
+        .await?;
         tx.commit().await.map_err(map_sqlx_error)?;
         Ok(Some(grant.into()))
     }
@@ -404,6 +415,23 @@ impl CaseworkRepository {
         .bind(owner).bind(before).fetch_all(self.0.pool()).await.map_err(map_sqlx_error)
     }
 
+    pub(super) async fn my_support_case(
+        &self,
+        id: Uuid,
+        owner: Uuid,
+    ) -> Result<Option<Value>, DatabaseError> {
+        sqlx::query_scalar(
+            "SELECT jsonb_build_object('id',id,'category',category,'body',body,'status',status,
+                  'response',response,'created_at',created_at,'updated_at',updated_at,'expires_at',expires_at)
+             FROM support_case WHERE id=$1 AND user_id=$2 AND expires_at>clock_timestamp()",
+        )
+        .bind(id)
+        .bind(owner)
+        .fetch_optional(self.0.pool())
+        .await
+        .map_err(map_sqlx_error)
+    }
+
     pub(super) async fn support_detail(
         &self,
         id: Uuid,
@@ -443,23 +471,76 @@ impl CaseworkRepository {
     ) -> Result<bool, DatabaseError> {
         let mut tx = self.0.pool().begin().await.map_err(map_sqlx_error)?;
         lock_admin(&mut tx, admin).await?;
-        let subject: Option<Uuid> = sqlx::query_scalar(
-        "UPDATE support_case SET status=$2,response=$3,handled_by=$4,updated_at=clock_timestamp()
-         WHERE id=$1 AND status<>'closed' AND expires_at>clock_timestamp()
-         RETURNING COALESCE(user_id,id)")
-        .bind(id).bind(status).bind(response).bind(admin.user_id)
-        .fetch_optional(&mut *tx).await.map_err(map_sqlx_error)?;
-        let Some(subject) = subject else {
+        // Lock the recipient's account before the case, as in other account workflows.
+        let owner: Option<Option<Uuid>> =
+            sqlx::query_scalar("SELECT user_id FROM support_case WHERE id=$1")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(map_sqlx_error)?;
+        let Some(owner) = owner else {
             return Ok(false);
         };
+        if let Some(user) = owner {
+            let exists: Option<Uuid> =
+                sqlx::query_scalar("SELECT user_id FROM user_account WHERE user_id=$1 FOR SHARE")
+                    .bind(user)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(map_sqlx_error)?;
+            if exists.is_none() {
+                return Ok(false);
+            }
+        }
+        let previous: Option<(String, Option<String>)> = sqlx::query_as(
+            "SELECT status,response FROM support_case
+             WHERE id=$1 AND user_id IS NOT DISTINCT FROM $2
+               AND status<>'closed' AND expires_at>clock_timestamp() FOR UPDATE",
+        )
+        .bind(id)
+        .bind(owner)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+        let Some((previous_status, previous_response)) = previous else {
+            return Ok(false);
+        };
+        if previous_status == status && previous_response.as_deref() == Some(response) {
+            tx.commit().await.map_err(map_sqlx_error)?;
+            return Ok(true);
+        }
+        let (updated_at, case_expires_at): (DateTime<Utc>, DateTime<Utc>) = sqlx::query_as(
+            "UPDATE support_case SET status=$2,response=$3,handled_by=$4,updated_at=clock_timestamp()
+             WHERE id=$1 RETURNING updated_at,expires_at",
+        )
+        .bind(id)
+        .bind(status)
+        .bind(response)
+        .bind(admin.user_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
         audit(
             &mut tx,
-            subject,
+            owner.unwrap_or(id),
             admin,
             "admin_review_support",
             &format!("Support case {id} moved to {status}"),
         )
         .await?;
+        if let Some(user) = owner {
+            enqueue_notification(
+                &mut tx,
+                user,
+                &format!("{id}:{updated_at}"),
+                &NotificationIntent::SupportCaseUpdated {
+                    case_id: id,
+                    updated_at,
+                    case_expires_at,
+                },
+            )
+            .await?;
+        }
         tx.commit().await.map_err(map_sqlx_error)?;
         Ok(true)
     }
