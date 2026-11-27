@@ -2,11 +2,15 @@ use sqlx::{Acquire, Executor};
 
 use crate::config::PostgresConfig;
 
-use super::postgres::{DatabaseError, connect_pool, map_sqlx_error, verify_schema_compatibility_on};
+use super::postgres::{
+    DatabaseError, casework_notifications_ready_on, connect_pool, map_sqlx_error,
+    verify_baseline_schema_on, verify_schema_compatibility_on,
+};
 
 const MIGRATION_LOCK: i64 = 86_302_003;
 const SCHEMA: &str = include_str!("../../db/001_schema_postgres.sql");
 const SEED: &str = include_str!("../../db/002_insert_postgres.sql");
+const CASEWORK_NOTIFICATIONS: &str = include_str!("../../db/003_casework_notifications.sql");
 
 pub async fn apply(config: &PostgresConfig) -> Result<u32, DatabaseError> {
     let pool = connect_pool(config, 1, "histae-migrate").await?;
@@ -44,7 +48,18 @@ async fn apply_locked(connection: &mut sqlx::PgConnection) -> Result<u32, Databa
     .map_err(map_sqlx_error)?;
 
     if populated {
-        verify_schema_compatibility_on(connection).await?;
+        verify_baseline_schema_on(connection).await?;
+        if !casework_notifications_ready_on(connection).await? {
+            let mut transaction = connection.begin().await.map_err(map_sqlx_error)?;
+            transaction
+                .execute(sqlx::raw_sql(CASEWORK_NOTIFICATIONS))
+                .await
+                .map_err(map_sqlx_error)?;
+            if !casework_notifications_ready_on(&mut transaction).await? {
+                return Err(DatabaseError::SchemaObjectsMissing);
+            }
+            transaction.commit().await.map_err(map_sqlx_error)?;
+        }
         // Concurrent index builds must run outside the schema transaction.
         super::query_indexes::apply(connection).await?;
         return Ok(0);

@@ -54,6 +54,11 @@ BEGIN
       RAISE EXCEPTION 'incorrect job verification role';
   END CASE;
 
+  IF fct_assisted_export_is_available(uuidv7(), uuidv7())
+     OR fct_support_case_update_is_current(uuidv7(), uuidv7(), clock_timestamp()) THEN
+    RAISE EXCEPTION 'notification checks must require the referenced records';
+  END IF;
+
   FOREACH statement IN ARRAY forbidden LOOP
     BEGIN
       EXECUTE statement;

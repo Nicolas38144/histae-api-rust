@@ -87,7 +87,35 @@ migrate() {
   fi
 }
 migrate initial
+as_role histae_migrate >/dev/null <<'SQL'
+DROP FUNCTION public.fct_assisted_export_is_available(uuid, uuid);
+DROP FUNCTION public.fct_support_case_update_is_current(uuid, uuid, timestamptz);
+ALTER TABLE public.notification
+  DROP CONSTRAINT notification_type_check,
+  ADD CONSTRAINT notification_type_check CHECK (type IN (
+    'new_match', 'new_message', 'profile_liked', 'match_expiring',
+    'continuation_requested', 'conversation_continued', 'photos_revealed',
+    'first_period_ending', 'data_request_replied', 'new_session'
+  ));
+INSERT INTO public.user_account (user_id, phone_number_hash, phone_number_encrypted)
+VALUES ('00000000-0000-4000-8000-000000000001', 'notification-upgrade-probe', ''::bytea);
+INSERT INTO public.notification (user_id, type)
+VALUES ('00000000-0000-4000-8000-000000000001', 'new_session');
+SQL
 migrate upgrade
+migrate rerun
+as_role histae_migrate >/dev/null <<'SQL'
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.notification
+                 WHERE user_id = '00000000-0000-4000-8000-000000000001' AND type = 'new_session') THEN
+    RAISE EXCEPTION 'notification lost during schema upgrade';
+  END IF;
+END;
+$$;
+INSERT INTO public.notification (user_id, type)
+VALUES ('00000000-0000-4000-8000-000000000001', 'support_case_updated');
+SQL
 verify_job_roles() {
   local role
   for role in histae_outbox histae_maintenance; do

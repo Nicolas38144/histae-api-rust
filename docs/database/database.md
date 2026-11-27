@@ -9,6 +9,7 @@
 | [000_bootstrap_postgres.sql](../../db/000_bootstrap_postgres.sql) | Rôles, extensions et permissions administratives |
 | [001_schema_postgres.sql](../../db/001_schema_postgres.sql) | Schéma de référence, avec contraintes, index et triggers |
 | [002_insert_postgres.sql](../../db/002_insert_postgres.sql) | Catalogue initial et données de démonstration sur demande explicite |
+| [003_casework_notifications.sql](../../db/003_casework_notifications.sql) | Mise à niveau des notifications de support et de confidentialité sur une base existante |
 | [migrations.rs](../../src/infra/migrations.rs) | Initialisation ou contrôle du schéma PostgreSQL |
 | [query_indexes.rs](../../src/infra/query_indexes.rs) | Réparation des index manquants ou invalides |
 | [drop_postgres.sql](../../db/drop_postgres.sql) | Suppression manuelle du schéma de test |
@@ -29,8 +30,9 @@ les compteurs et les index qui séparent les parcours OTP.
 
 ### Base existante
 
-`db-migrate` vérifie le schéma de référence. Il répare les index manquants ou invalides avec
-`CONCURRENTLY` en dehors de la transaction de schéma. Un verrou consultatif sérialise ses exécutions.
+`db-migrate` vérifie le schéma de référence. Sur une base compatible, il installe si nécessaire la contrainte
+et les fonctions des notifications de support et de confidentialité dans une transaction. Il répare ensuite
+les index manquants ou invalides avec `CONCURRENTLY`. Un verrou consultatif sérialise ses exécutions.
 Un redéploiement conserve les données et le catalogue de la base.
 
 Pour déployer cette version sur une base de test d’un ancien schéma, repartir d’une base vide.
